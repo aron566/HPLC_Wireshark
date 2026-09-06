@@ -16,6 +16,7 @@
 #include <QLabel>
 #include <QTableView>
 #include <QHeaderView>
+#include <QScrollBar>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QMenuBar>
@@ -56,7 +57,7 @@ MainWindow::MainWindow(QWidget* parent)
       m_status_left(nullptr), m_status_right(nullptr),
       m_reader(nullptr), m_dispatch(nullptr), m_model(nullptr),
       m_flush_timer(nullptr), m_status_timer(nullptr),
-      m_paused(false), m_last_epoch_ms(0), m_index_counter(0) {
+      m_paused(false), m_follow_bottom(true), m_last_epoch_ms(0), m_index_counter(0) {
     qRegisterMetaType<BplcParser::Result>("BplcParser::Result");
     qRegisterMetaType<BplcFrame>("BplcFrame");
     qRegisterMetaType<ReaderConfig>("ReaderConfig");
@@ -281,6 +282,13 @@ void MainWindow::wire_signals() {
     connect(m_model, &PacketListModel::packet_activated, this, &MainWindow::on_row_activated);
     connect(m_tree_protocol, &ProtocolTree::range_selected,
             this,           &MainWindow::on_range_selected);
+
+    // 滚轮/拖拽滚动离开底部 → 暂停自动跟随;手动滚回底部 → 恢复跟随最新帧
+    connect(m_table_packets->verticalScrollBar(), &QScrollBar::valueChanged,
+            this, [this](int value) {
+                m_follow_bottom =
+                    (value >= m_table_packets->verticalScrollBar()->maximum());
+            });
 }
 
 static ReaderConfig load_config_from_settings() {
@@ -436,7 +444,7 @@ void MainWindow::on_flush_buffer() {
     for (auto& e : snapshot) entries.append(std::move(e));
     m_model->append_packets(entries);
 
-    if (m_table_packets->model()->rowCount() > 0 && !m_paused) {
+    if (m_table_packets->model()->rowCount() > 0 && !m_paused && m_follow_bottom) {
         m_table_packets->scrollToBottom();
     }
 }
