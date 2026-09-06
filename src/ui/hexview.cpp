@@ -9,6 +9,11 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QScrollBar>
+#include <QContextMenuEvent>
+#include <QMenu>
+#include <QAction>
+#include <QClipboard>
+#include <QApplication>
 
 // 行布局(见 render_hex):
 //   偏移列 "0000  " = 6 字符
@@ -38,6 +43,37 @@ void HexView::clear() {
     m_hl_len = 0;
     QPlainTextEdit::clear();
     setExtraSelections({});
+}
+
+QByteArray HexView::highlighted_bytes() const {
+    if (m_hl_start < 0 || m_hl_len <= 0 || m_hl_start >= m_bytes.size())
+        return {};
+    int end = qMin(m_hl_start + m_hl_len, m_bytes.size());
+    return m_bytes.mid(m_hl_start, end - m_hl_start);
+}
+
+void HexView::contextMenuEvent(QContextMenuEvent* event) {
+    QMenu menu(this);
+    QByteArray sel = highlighted_bytes();
+    if (sel.isEmpty()) {
+        auto* act = menu.addAction(QStringLiteral("无高亮字节可复制(先点击协议字段)"));
+        act->setEnabled(false);
+        menu.exec(event->globalPos());
+        return;
+    }
+    // 组装两种粘贴格式
+    QString plain, prefixed;
+    for (int i = 0; i < sel.size(); ++i) {
+        const QString h = QString("%1").arg((quint8)sel[i], 2, 16, QChar('0'));
+        if (i) { plain += ' '; prefixed += ' '; }
+        plain += h;
+        prefixed += "0x" + h;
+    }
+    auto* a1 = menu.addAction(QStringLiteral("复制 Hex(%1 字节)").arg(sel.size()));
+    auto* a2 = menu.addAction(QStringLiteral("复制为 0x 前缀(%1 字节)").arg(sel.size()));
+    QAction* hit = menu.exec(event->globalPos());
+    if (hit == a1)      QApplication::clipboard()->setText(plain);
+    else if (hit == a2) QApplication::clipboard()->setText(prefixed);
 }
 
 void HexView::highlight_range(int start, int len) {

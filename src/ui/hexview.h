@@ -8,6 +8,8 @@
 #include <QPlainTextEdit>
 #include <QByteArray>
 
+class QContextMenuEvent;
+
 class HexView : public QPlainTextEdit {
     Q_OBJECT
 public:
@@ -21,6 +23,12 @@ public:
     void highlight_range(int start, int len);
 
     void clear();
+
+    /// @brief 当前高亮区间的原始字节(无高亮返回空)
+    QByteArray highlighted_bytes() const;
+
+protected:
+    void contextMenuEvent(QContextMenuEvent* event) override;
 
 private:
     /// @brief 计算第 byte_index 字节的 hex 首字符在文档中的位置

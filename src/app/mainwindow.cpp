@@ -7,6 +7,7 @@
 #include "protocoltree.h"
 #include "commconfigdialog.h"
 #include "QSimpleUpdater.h"
+#include "playbackwriter.h"
 
 #include <QToolBar>
 #include <QToolButton>
@@ -349,18 +350,38 @@ void MainWindow::on_clear() {
 }
 
 void MainWindow::on_export() {
-    QString f = QFileDialog::getSaveFileName(this,
-        QStringLiteral("导出"),
-        "BPLC_" + QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"),
-        QStringLiteral("Text (*.txt);;所有 (*.*)"));
+    const auto& entries = m_model->all_entries();
+    if (entries.isEmpty()) {
+        m_status_left->setText(QStringLiteral("无可导出的帧"));
+        return;
+    }
+    QString f = QFileDialog::getSaveFileName(
+        this, QStringLiteral("导出为回放文件"),
+        "BPLC_" + QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss") + ".bin",
+        QStringLiteral("回放文件 (*.bin)"));
     if (f.isEmpty()) return;
     QFile out(f);
-    if (!out.open(QIODevice::WriteOnly)) return;
-    QTextStream ts(&out);
-    ts << "# BPLC Monitor export\n";
-    ts << "# Format: <#>\t<time>\t<delta>\t<src>\t<dst>\t<protocol>\t<len>\t<info>\t<hex>\n";
+    if (!out.open(QIODevice::WriteOnly)) {
+        m_status_left->setText(QStringLiteral("导出失败:%1").arg(out.errorString()));
+        return;
+    }
+
+    // 回放 bin 帧 = 0x3C + 转义(data) + 0x3E;data = [dlen2LE][ts4LE][phr]
+    // [option][channel][isRF][MPDU](与 SerialReader/回放读取格式一致,
+    // dlen 读取端不校验,按 MPDU+6 填写即可被重新解析)
+    QByteArray buf = playback::build_playback_bin(entries);
+    if (buf.isEmpty()) {
+        m_status_left->setText(QStringLiteral("没有可写入的帧数据"));
+        return;
+    }
+
+    if (out.write(buf) != buf.size()) {
+        m_status_left->setText(QStringLiteral("导出写入失败"));
+        return;
+    }
     out.close();
-    m_status_left->setText(QStringLiteral("Exported to %1").arg(f));
+    m_status_left->setText(
+        QStringLiteral("已导出 %1 帧 → %2").arg(entries.size()).arg(f));
 }
 
 void MainWindow::on_settings() {

@@ -5,7 +5,7 @@
 ///          - HexView 文档非空
 #include "protocoltree.h"
 #include "hexview.h"
-#include "bplcframe.h"
+#include "io/playbackwriter.h"
 #include "bplcparser.h"
 #include "packetlistmodel.h"
 #include <QApplication>
@@ -967,7 +967,97 @@ int main(int argc, char* argv[]) {
         if (!seq_ok) { filter_ok = false; }
     }
 
-    bool final_ok = ok && real_ok && filter_ok && multi_ok;
+    // ---- 导出回放 bin 往返验证:build_playback_bin → 重读 → 逐帧比对 ----
+    std::printf("\n--- 导出回放 bin 往返验证 ---\n");
+    bool export_ok = true;
+    {
+        QFile ff(QStringLiteral("D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/samples/replay_test.bin"));
+        if (ff.open(QIODevice::ReadOnly)) {
+            QByteArray src = ff.readAll();
+            BplcParser parser;
+            MsduState  msdu_state;
+            BplcParser::Filter f0;
+            f0.allow_beacon = f0.allow_sof = f0.allow_ack = f0.allow_coord = true;
+            f0.link_hplc = f0.link_hrf = true;
+
+            QVector<PacketEntry> entries;
+            qint64 t0 = 1700000000000LL;
+            QByteArray walk = src;
+            while (!walk.isEmpty() && entries.size() < 150) {
+                int i = walk.indexOf(char(0x3C));
+                if (i < 0) break;
+                walk.remove(0, i + 1);
+                i = walk.indexOf(char(0x3E));
+                if (i < 0) break;
+                QByteArray esc = walk.left(i);
+                walk.remove(0, i + 1);
+                QByteArray unesc;
+                for (int k = 0; k < esc.size(); ++k) {
+                    quint8 b = (quint8)esc[k];
+                    if (b == 0x3D && k + 1 < esc.size()) {
+                        ++k;
+                        unesc.append(char(0xFF ^ (quint8)esc[k]));
+                    } else {
+                        unesc.append(char(b));
+                    }
+                }
+                BplcFrame fr;
+                fr.data = unesc;
+                fr.meta.has_time_tag = false;
+                auto r = parser.parse(fr, msdu_state, f0);
+                if (!r.accept) continue;
+                PacketEntry pe;
+                pe.meta      = r.meta;
+                pe.raw_bytes = r.payload_for_log;
+                pe.epoch_ms  = t0 + entries.size() * 37;
+                entries.append(pe);
+            }
+            const int n_src = entries.size();
+            QByteArray outbin = playback::build_playback_bin(entries);
+            std::printf("  源帧 %d,导出字节 %d\n", n_src, outbin.size());
+
+            // 以与 SerialReader 相同方式重读导出文件
+            BplcParser parser2;
+            MsduState  msdu_state2;
+            int n_back = 0;
+            int n_mismatch = 0;
+            QByteArray walk2 = outbin;
+            while (!walk2.isEmpty()) {
+                int i = walk2.indexOf(char(0x3C));
+                if (i < 0) break;
+                walk2.remove(0, i + 1);
+                i = walk2.indexOf(char(0x3E));
+                if (i < 0) break;
+                QByteArray esc = walk2.left(i);
+                walk2.remove(0, i + 1);
+                QByteArray unesc;
+                for (int k = 0; k < esc.size(); ++k) {
+                    quint8 b = (quint8)esc[k];
+                    if (b == 0x3D && k + 1 < esc.size()) {
+                        ++k;
+                        unesc.append(char(0xFF ^ (quint8)esc[k]));
+                    } else {
+                        unesc.append(char(b));
+                    }
+                }
+                BplcFrame fr2;
+                fr2.data = unesc;
+                fr2.meta.has_time_tag = false;
+                auto r2 = parser2.parse(fr2, msdu_state2, f0);
+                if (!r2.accept) break;                       // 导出帧必须可解析
+                if (n_back < n_src && r2.payload_for_log != entries[n_back].raw_bytes)
+                    ++n_mismatch;
+                ++n_back;
+            }
+            export_ok = (n_back == n_src && n_mismatch == 0);
+            std::printf("  回放解析 %d 帧,字节不一致 %d → %s\n",
+                        n_back, n_mismatch, export_ok ? "一致" : "不一致");
+        } else {
+            export_ok = false;
+        }
+    }
+
+    bool final_ok = ok && real_ok && filter_ok && multi_ok && export_ok;
     std::printf(final_ok ? "PASS\n" : "FAIL\n");
     return final_ok ? 0 : 1;
 }

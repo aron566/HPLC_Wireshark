@@ -37,6 +37,9 @@ public:
     QVariant headerData(int section, Qt::Orientation orient, int role = Qt::DisplayRole) const override;
     QVariant data_color(const PacketEntry& e) const;
 
+    /// @brief 全部捕获/回放帧(GUI 线程只读,用于导出回放文件)
+    const QVector<PacketEntry>& all_entries() const { return m_all; }
+
 public slots:
     void append_packets(const QVector<PacketEntry>& entries);
     void append_packet(const PacketEntry& entry);
