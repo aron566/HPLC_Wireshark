@@ -51,7 +51,55 @@ mingw32-make -j4
    多 PB 报文每块 Header/Body/CRC24 均逐块可点
 4. **检查更新**:菜单 `帮助 → 检查更新`,更新清单地址见
    `src/app/mainwindow.cpp` 顶部 `kUpdateUrl`(当前指向 GitHub
-   `aron566/HPLC_Wireshark` 仓库 `main` 分支的 `update.json`,版本 1.0.0)
+   `aron566/HPLC_Wireshark` 仓库 `main` 分支的 `update.json`,版本 1.0.2)
+
+## 打包发布(安装包制作)
+
+### 需要的工具软件
+
+| 工具 | 用途 | 获取方式 |
+|------|------|----------|
+| Qt 6.10.1 mingw_64 + MinGW 13.1.0 | 编译(qmake/mingw32-make) | Qt 在线安装器 |
+| `windeployqt`(Qt 自带) | 收集 Qt 运行库 DLL 到 release/ | 随 Qt 安装,`<Qt>\6.10.1\mingw_64\bin\windeployqt.exe` |
+| NSIS 3.x | 安装包制作 | <https://nsis.sourceforge.io/Download>(便携 zip 解压到工程 `tools/nsis-3.09/` 即可,免安装) |
+| Python 3 + Pillow | 重新生成应用图标(可选) | `pip install pillow` |
+| GitHub 账号 + PAT | 发布 release / 上传安装包(仓库需公开才能被免鉴权拉取) | GitHub Settings → Developer settings |
+
+> NSIS 脚本里含中文字符串,文件必须以 **UTF-8 BOM** 编码保存(否则报
+> `Bad text encoding`)。脚本文件已被 `tools/` 目录加入 `.gitignore`,
+> NSIS 便携包无需随仓库提交。
+
+### 打包步骤
+
+```bash
+# 1.(可选)重新生成图标:icons/app.ico 与 icons/app.png
+python scripts/make_icon.py
+
+# 2.一键打包:全量构建 → windeployqt → NSIS 生成安装包
+bash scripts/package.sh 1.0.2
+#   产物:dist/BPLC_STA_Monitor_Setup_v1.0.2.exe
+
+# 3.安装包验证(静默安装/升级,免 UAC)
+dist/BPLC_STA_Monitor_Setup_v1.0.2.exe /S                 # 静默安装到默认目录
+dist/BPLC_STA_Monitor_Setup_v1.0.2.exe /S /D=C:\my\dir     # 静默装到指定目录
+"%LOCALAPPDATA%\Programs\BPLC_STA_Monitor\uninstall.exe" /S  # 静默卸载
+```
+
+安装器特性:per-user 安装(免 UAC)、升级前自动关闭运行中的程序、覆盖式更新
+(旧的 exe/DLL 直接替换)、生成开始菜单/桌面快捷方式与卸载项。
+
+### 发布与更新流程
+
+1. **版本号**:改 `src/app/mainwindow.cpp` 顶部 `kAppVersion` 与
+   `BPLC_STA_Monitor.pro` 的 `VERSION`(两者保持一致)
+2. `bash scripts/package.sh <新版本>` 得到安装包
+3. **推代码 + 建 release**:在 GitHub 仓库建 tag/release(如 `v1.0.2`),
+   上传安装包为 release asset
+4. **改 `update.json`**(仓库根,提交推送):
+   `latest-version` 抬高新版本号,`download-url` 指向 release asset 地址
+   (形如 `https://github.com/<owner>/<repo>/releases/download/<tag>/<文件名>.exe`)
+5. 用户端:程序内 `帮助 → 检查更新` → 发现新版本 → 下载安装包 → 运行
+   即覆盖安装(自动关闭旧进程,完成后即可用新版本)
 
 ## 更新清单格式
 
@@ -83,6 +131,9 @@ mingw32-make -j4
 │   ├── ui/                     帧列表模型、协议字段树、十六进制视图
 │   ├── app/                    主窗口、配置持久化
 │   └── updater/                QSimpleUpdater(第三方,MIT)
+├── icons/                      应用图标(app.ico / app.png)
+├── scripts/                    打包与辅助脚本(package.sh / installer.nsi / make_icon.py)
+├── dist/                       安装包产物(本地,不入库)
 ├── samples/                    回放转换/校验脚本、无头回归测试
 └── BPLC_STA_Monitor.pro
 ```
