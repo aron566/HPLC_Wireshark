@@ -216,20 +216,13 @@ void MainWindow::build_ui() {
         su->setModuleName(kUpdateUrl, kModuleName);
         su->setNotifyOnUpdate(kUpdateUrl, true);   // 发现新版本 → 弹窗询问下载
         su->setNotifyOnFinish(kUpdateUrl, true);   // 无新版本/清单正常 → 弹窗告知
-        // 检查结束(无论结果)在状态栏留痕;失败(网络/清单)时以保守文案提示
-        connect(su, &QSimpleUpdater::checkingFinished, this,
-                [this](const QString& url) {
-                    if (url == kUpdateUrl) {
-                        bool avail =  QSimpleUpdater::getInstance()->getUpdateAvailable(url);
-                        m_status_left->setText(
-                            avail ? QStringLiteral("发现新版本,请按提示下载更新")
-                                  : QStringLiteral("检查更新完成:暂无可更新版本"
-                                                   "(若网络不可达请检查连接)"));
-                    }
-                }, Qt::UniqueConnection);
         m_status_left->setText(QStringLiteral("正在检查更新…"));
         su->checkForUpdates(kUpdateUrl);
     });
+    // 检查更新结束(无论结果)在状态栏留痕;失败(网络/清单)时以保守文案提示。
+    // 注意:不用 Qt::UniqueConnection + lambda(Qt6 断言要求成员函数指针)。
+    connect(QSimpleUpdater::getInstance(), &QSimpleUpdater::checkingFinished,
+            this, &MainWindow::on_check_finished);
     auto* act_about = menu_help->addAction(QStringLiteral("关于(&A)"));
     connect(act_about, &QAction::triggered, this, [this]() {
         QMessageBox::about(
@@ -410,6 +403,14 @@ void MainWindow::on_row_activated(const PacketEntry& e) {
 
 void MainWindow::on_range_selected(int start, int len) {
     m_hex_view->highlight_range(start, len);
+}
+
+void MainWindow::on_check_finished(const QString& url) {
+    if (url != kUpdateUrl) return;
+    bool avail = QSimpleUpdater::getInstance()->getUpdateAvailable(url);
+    m_status_left->setText(
+        avail ? QStringLiteral("发现新版本,请按提示下载更新")
+              : QStringLiteral("检查更新完成:暂无可更新版本(若网络不可达请检查连接)"));
 }
 
 void MainWindow::on_status_message(const QString& s) {

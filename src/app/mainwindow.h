@@ -50,6 +50,7 @@ private slots:
     void on_range_selected(int start, int len);
     void on_flush_buffer();
     void refresh_status_bar();
+    void on_check_finished(const QString& url);   // 检查更新结束(QSimpleUpdater)
 
 private:
     void build_ui();
