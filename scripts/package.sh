@@ -17,6 +17,8 @@ mingw32-make -j4
 echo "== 2/3 windeployqt 收集 Qt 运行时"
 windeployqt --release --no-translations --no-system-d3d-compiler \
     release/BPLC_STA_Monitor.exe
+# 防本机 config.ini 被打包:用户配置文件永不属于安装包(升级时旧配置保留)
+rm -f release/config.ini
 
 echo "== 3/3 NSIS 打包"
 mkdir -p dist

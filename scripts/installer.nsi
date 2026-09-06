@@ -55,6 +55,11 @@ Section "主程序" SEC_MAIN
   RMDir /r "$INSTDIR\tls"
   RMDir /r "$INSTDIR\iconengines"
   RMDir /r "$INSTDIR\imageformats"
+  ; 升级保留用户配置文件:即便包内带 config.ini 也不覆盖已存在的配置
+  ; (全新安装目录无文件时正常写入默认)
+  SetOverwrite off
+  File /nonfatal "${SRC}\config.ini"
+  SetOverwrite on
   ; 清旧版残留 DLL(升级时旧 DLL 可能多余;先删后写保证新包干净)
   File /r /x "*.o" /x "*.obj" /x "*.res" /x "Makefile*" /x ".qmake.stash" "${SRC}\*.*"
   WriteRegStr HKCU "Software\BPLC_STA_Monitor" "InstallDir" "$INSTDIR"
