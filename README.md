@@ -53,6 +53,78 @@ mingw32-make -j4
    `src/app/mainwindow.cpp` 顶部 `kUpdateUrl`(当前指向 GitHub
    `aron566/HPLC_Wireshark` 仓库 `main` 分支的 `update.json`,版本 1.0.2)
 
+## 帧封装格式(串口 0x3C/0x3E 与回放 .bin)
+
+监控器对串口/设备输入与回放文件采用同一套帧封装,由
+`src/io/serialreader.cpp`(读取/反转义)与 `src/io/playbackwriter.h`(导出)实现。
+
+### 帧边界与转义
+
+```
+串口/文件帧: 0x3C <数据> 0x3E
+```
+
+- 以 `0x3C` 起始、`0x3E` 结束,读取端按这两个哨兵切帧
+- 数据内的保留字符用 **0x3D 转义**:`0x3D` + `(0xFF ^ 原字节)`
+
+| 原字节 | 转义后 | 反转义规则 |
+|--------|--------|-----------|
+| 0x3C   | `0x3D 0xC3` | 0x3D 后一字节 `0xFF - b` 还原 |
+| 0x3E   | `0x3D 0xC1` | 同上 |
+| 0x3D   | `0x3D 0xC2` | 同上 |
+
+### 帧内数据布局(实时串口帧)
+
+反转义后的数据(去掉 0x3C/0x3E)为:
+
+```
+[dlen 2B LE][ts 4B LE][phr_mcs 1B][option 1B][channel 1B][isRF 1B][MPDU...]
+  offset 0-1     2-5        6           7            8          9      10..
+```
+
+| 字段 | 长度 | 含义 |
+|------|------|------|
+| dlen | 2B LE | 数据长度(**读取端不校验**,按 MPDU+6 填即可) |
+| ts   | 4B LE | 时间戳(固件计数/ms;BEACON Info 列展示) |
+| phr_mcs | 1B | 物理层 MCS/调制(HRF) |
+| option | 1B | 物理层选项 |
+| channel | 1B | 信道(HRF 信道号 / PLC 频段) |
+| isRF | 1B | 0=PLC 载波,非 0=HRF 无线(media_id) |
+| MPDU | 变长 | 完整 MPDU:MPDU_BASE(FCH 16B + PB...)或 BEACON/ACK/COORD |
+
+固件侧输出示例(单块 SOF):`0x3C` + 上述字节 + `0x3E`。
+
+### 回放 .bin 文件格式
+
+导出(菜单 `捕获 → 导出...`)与回放使用**相同帧流**,差异仅在数据最前面
+**多 8 字节 BCD 绝对时间标签**(起始时间):
+
+```
+[BCD 时间 8B][dlen 2B LE][ts 4B LE][phr_mcs][option][channel][isRF][MPDU...]
+```
+
+BCD 时间标签布局(本地时间,与解码器 `has_time_tag` 头同构):
+
+| 字节 | 内容 | 取值(BCD) |
+|------|------|-----------|
+| 0 | 年-2000 | 00-99 |
+| 1 | 月 | 01-12 |
+| 2 | 日 | 01-31 |
+| 3 | 时 | 00-23 |
+| 4 | 分 | 00-59 |
+| 5 | 秒 | 00-59 |
+| 6 | 毫秒百位 | 0-9 |
+| 7 | 毫秒低两位 | 00-99 |
+
+回放时 `serialreader` 用 `looks_like_bcd_time()` **自动识别**该字段:带时间
+标签的 bin 恢复每帧原始捕获时刻(Time 列/Delta/再次导出均以原始时间为准);
+**无该字段的旧 bin 自动回退本地时间**,无需手动配置。串口实时帧不含此字段。
+
+### 裸 hex 行(raw 模式)
+
+`RawHex` 模式直接喂 16 进制文本,每行剥空白后按 2 字符一字节解析,内容为
+**log hex 行同款**:`[isRF 1B][MPDU...]`(首字节非 0 视为 HRF)。
+
 ## 打包发布(安装包制作)
 
 ### 需要的工具软件
