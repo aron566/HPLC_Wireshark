@@ -38,6 +38,10 @@ CommConfigDialog::CommConfigDialog(QWidget* parent, const ReaderConfig& initial)
 
 void CommConfigDialog::build_ui() {
     auto* root = new QVBoxLayout(this);
+    // 显式内容边距:主题 QSS 下各 style 默认布局边距不一致(深色会额外缩进
+    // ~12px),统一后两主题显示对齐
+    root->setContentsMargins(11, 11, 11, 11);
+    root->setSpacing(8);
 
     auto* src_group = new QGroupBox(trl::L("数据源类型"), this);
     auto* src_lay = new QHBoxLayout(src_group);
@@ -73,9 +77,13 @@ void CommConfigDialog::build_ui() {
 
     m_cmb_data_bits = new QComboBox(port_group);
     m_cmb_data_bits->addItems({"5", "6", "7", "8"});
+    m_cmb_data_bits->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_cmb_data_bits->setMinimumContentsLength(3);
 
     m_cmb_stop_bits = new QComboBox(port_group);
     m_cmb_stop_bits->addItems({"1", "1.5", "2"});
+    m_cmb_stop_bits->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_cmb_stop_bits->setMinimumContentsLength(3);
 
     m_cmb_parity = new QComboBox(port_group);
     m_cmb_parity->addItem(trl::L("无"),     int(QSerialPort::NoParity));
@@ -83,6 +91,8 @@ void CommConfigDialog::build_ui() {
     m_cmb_parity->addItem(trl::L("偶"),     int(QSerialPort::EvenParity));
     m_cmb_parity->addItem(trl::L("标记"),   int(QSerialPort::MarkParity));
     m_cmb_parity->addItem(trl::L("空"),     int(QSerialPort::SpaceParity));
+    m_cmb_parity->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_cmb_parity->setMinimumContentsLength(4);
 
     port_form->addRow(trl::L("串口:"),   m_cmb_port_name);
     port_form->addRow(trl::L("波特率:"), m_cmb_baud_rate);
@@ -113,6 +123,8 @@ void CommConfigDialog::build_ui() {
     cmb_lang->addItem(trl::L("跟随系统"), QStringLiteral("auto"));
     cmb_lang->addItem(trl::L("中文"),     QStringLiteral("zh"));
     cmb_lang->addItem(QStringLiteral("English"), QStringLiteral("en"));
+    cmb_lang->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    cmb_lang->setMinimumContentsLength(10);
     lang_row->addWidget(cmb_lang);
     lang_row->addStretch(1);
     opt_lay->addLayout(lang_row);
@@ -123,6 +135,8 @@ void CommConfigDialog::build_ui() {
     auto* cmb_theme = new QComboBox(opt_group);
     cmb_theme->addItem(trl::L("深色"), QStringLiteral("dark"));
     cmb_theme->addItem(trl::L("浅色"), QStringLiteral("light"));
+    cmb_theme->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    cmb_theme->setMinimumContentsLength(6);
     theme_row->addWidget(cmb_theme);
     theme_row->addStretch(1);
     opt_lay->addLayout(theme_row);
