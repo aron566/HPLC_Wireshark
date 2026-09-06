@@ -34,9 +34,9 @@
 // ===== 本地修改(相对上游):长 changelog 在更新弹窗中裁剪显示 =====
 #include "i18n.h"
 namespace {
-/// @brief changelog(富文本)裁剪:超长时按标签闭合点安全截断并追加省略提示,
-///        完整说明引导到仓库 Releases 页(避免 QMessageBox 无滚动超高)。
-QString clipped_changelog(const QString& html, int limit = 220) {
+/// @brief changelog(富文本)裁剪:超过 100 字时按标签闭合点安全截断并追加
+///        省略提示,完整说明引导到仓库 Releases 页(避免 QMessageBox 无滚动超高)。
+QString clipped_changelog(const QString& html, int limit = 100) {
     if (html.size() <= limit) return html;
     int cut = limit;
     if (cut > 0 && cut < html.size()) {
