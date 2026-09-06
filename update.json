@@ -1,9 +1,9 @@
 {
   "updates": {
     "windows": {
-      "latest-version": "1.0.1",
-      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.1/BPLC_STA_Monitor.exe",
-      "changelog": "新增多 PB 块逐块解析展示与检查更新入口",
+      "latest-version": "1.0.2",
+      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.2/BPLC_STA_Monitor_Setup_v1.0.2.exe",
+      "changelog": "新增应用图标;NSIS 安装包发布,支持自动更新覆盖安装",
       "mandatory-update": false
     }
   }

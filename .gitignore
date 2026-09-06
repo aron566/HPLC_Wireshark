@@ -17,5 +17,13 @@ samples/*_build/
 samples/*.bin
 samples/*.png
 samples/*.txt
+samples/updcheck_dbg/
+samples/upd_e2e/
 samples/viewtest/release/
 samples/headless_build/release/
+
+# ---- 打包工具与产物 ----
+tools/
+dist/
+BPLC_STA_Monitor_resource.rc
+qrc_*.cpp

@@ -32,11 +32,13 @@
 #include <QDesktopServices>
 #include <QUrl>
 
+#include <QIcon>
+
 namespace {
 // 更新检查地址与当前版本(发布时改为正式服务器/仓库后同步更新 README)
 const QString kUpdateUrl =
     QStringLiteral("https://raw.githubusercontent.com/aron566/HPLC_Wireshark/main/update.json");
-const QString kAppVersion = QStringLiteral("1.0.0");
+const QString kAppVersion = QStringLiteral("1.0.2");
 const QString kModuleName = QStringLiteral("BPLC STA Monitor");
 const QString kAuthorName = QStringLiteral("aron566");
 const QString kRepoUrl    = QStringLiteral("https://github.com/aron566/HPLC_Wireshark");
@@ -104,7 +106,8 @@ MainWindow::MainWindow(QWidget* parent)
         QTreeWidget { background-color: white; alternate-background-color: #f7f7f7; }
     )");
 
-    setWindowTitle(QStringLiteral("BPLC STA Monitor — Wireshark style"));
+    setWindowTitle(QStringLiteral("BPLC STA Monitor v%1 — Wireshark style").arg(kAppVersion));
+    setWindowIcon(QIcon(QStringLiteral(":/icons/app.png")));
     resize(1280, 800);
     m_status_left->setText(QStringLiteral("Ready — Ctrl+E 开始捕获,Ctrl+L 清空"));
 }
