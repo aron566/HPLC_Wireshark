@@ -31,6 +31,30 @@
 
 #include "Downloader.h"
 
+// ===== 本地修改(相对上游):长 changelog 在更新弹窗中裁剪显示 =====
+#include "i18n.h"
+namespace {
+/// @brief changelog(富文本)裁剪:超长时按标签闭合点安全截断并追加省略提示,
+///        完整说明引导到仓库 Releases 页(避免 QMessageBox 无滚动超高)。
+QString clipped_changelog(const QString& html, int limit = 220) {
+    if (html.size() <= limit) return html;
+    int cut = limit;
+    if (cut > 0 && cut < html.size()) {
+        const QChar c = html.at(cut - 1);
+        if (c.isHighSurrogate()) --cut;      // 避免截断代理对(emoji 等)
+    }
+    // 截断点若落在未闭合的 HTML 标签内,回退到最后一个 '>' 之后
+    const int lt = html.lastIndexOf('<', cut);
+    const int gt = html.lastIndexOf('>', cut);
+    if (lt > gt && gt >= 0) cut = gt + 1;
+    QString out = html.left(cut);
+    out += QStringLiteral("<br/>… ");
+    out += trl::L("完整更新说明见仓库 Releases 页面");
+    return out;
+}
+}  // namespace
+// ===== 本地修改结束 =====
+
 /**
  * @brief Constructs an Updater instance with default settings.
  *
@@ -482,7 +506,8 @@ void Updater::setUpdateAvailable(const bool available)
 
     text += "<br/><br/>";
     if (!m_changelog.isEmpty())
-      text += tr("<strong>Change log:</strong><br/>%1").arg(m_changelog);
+      text += tr("<strong>Change log:</strong><br/>%1")
+                  .arg(clipped_changelog(m_changelog));   // 本地修改:裁剪超长日志
 
     QString title = "<h3>"
                   + tr("Version %1 of %2 has been released!").arg(latestVersion(), moduleName())

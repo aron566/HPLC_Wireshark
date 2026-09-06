@@ -45,6 +45,7 @@ const struct { const char* zh; const char* en; } en_dict[] = {
     { "没有可写入的帧数据", "No frame data to write" },
     { "已导出 %1 帧 → %2", "Exported %1 frames → %2" },
     { "正在检查更新…", "Checking for updates..." },
+    { "完整更新说明见仓库 Releases 页面", "Full release notes: see repo Releases page" },
     // ---- 右键菜单 ----
     { "无高亮字节可复制(先点击协议字段)",
       "Nothing to copy — click a protocol field first" },
