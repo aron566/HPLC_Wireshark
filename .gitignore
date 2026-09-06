@@ -27,3 +27,5 @@ tools/
 dist/
 BPLC_STA_Monitor_resource.rc
 qrc_*.cpp
+forms/
+mainwindow_snake.h
