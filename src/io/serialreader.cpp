@@ -1,6 +1,7 @@
 /// @file serialreader.cpp
 /// @brief ReaderWorker + SerialReader 实现
 #include "serialreader.h"
+#include "playbackwriter.h"   // playback::looks_like_bcd_time(回放时间标签识别)
 #include <QSerialPortInfo>
 #include <QDebug>
 
@@ -121,7 +122,12 @@ void ReaderWorker::try_extract_frame() {
 
         BplcFrame bf;
         bf.arrival_ms = QDateTime::currentMSecsSinceEpoch();
-        bf.meta.has_time_tag = m_cfg.has_time_tag;
+        // 文件回放:导出的 bin 带 8B BCD 起始时间标签时自动识别(无需用户勾选);
+        // 无该字段的旧文件保持原行为,帧时间用本地时间
+        bf.meta.has_time_tag =
+            m_cfg.has_time_tag ||
+            (m_cfg.mode == ReaderMode::FilePlayback &&
+             playback::looks_like_bcd_time(unesc));
         bf.data = unesc;
         emit frame_ready(bf);
     }

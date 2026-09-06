@@ -1042,11 +1042,17 @@ int main(int argc, char* argv[]) {
                 }
                 BplcFrame fr2;
                 fr2.data = unesc;
-                fr2.meta.has_time_tag = false;
+                // 模拟 SerialReader 回放自动识别导出文件的时间标签
+                fr2.meta.has_time_tag = playback::looks_like_bcd_time(unesc);
                 auto r2 = parser2.parse(fr2, msdu_state2, f0);
                 if (!r2.accept) break;                       // 导出帧必须可解析
-                if (n_back < n_src && r2.payload_for_log != entries[n_back].raw_bytes)
-                    ++n_mismatch;
+                if (n_back < n_src) {
+                    if (r2.payload_for_log != entries[n_back].raw_bytes) ++n_mismatch;
+                    // 时间标签应还原原始捕获时刻
+                    if (!r2.meta.frame_time.isValid() ||
+                        r2.meta.frame_time.toMSecsSinceEpoch() !=
+                            entries[n_back].epoch_ms) ++n_mismatch;
+                }
                 ++n_back;
             }
             export_ok = (n_back == n_src && n_mismatch == 0);

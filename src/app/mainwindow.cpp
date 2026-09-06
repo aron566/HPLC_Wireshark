@@ -407,9 +407,13 @@ void MainWindow::on_apply_filter() {
 PacketEntry MainWindow::make_entry(const BplcParser::Result& r, qint64 now) {
     PacketEntry e;
     e.index     = ++m_index_counter;
-    e.epoch_ms  = now;
-    e.delta_ms  = (m_last_epoch_ms == 0) ? 0 : (now - m_last_epoch_ms);
-    m_last_epoch_ms = now;
+    // 带时间标签(回放导出的 bin)时用帧内绝对时刻,保证 Time/Delta/再导出
+    // 均以原始捕获时间为基准;否则退化为本地接收时刻
+    qint64 t = (r.meta.frame_time.isValid())
+                   ? r.meta.frame_time.toMSecsSinceEpoch() : now;
+    e.epoch_ms  = t;
+    e.delta_ms  = (m_last_epoch_ms == 0) ? 0 : (t - m_last_epoch_ms);
+    m_last_epoch_ms = t;
     e.accepted  = r.accept;
     e.reason    = r.reject_reason;
     e.meta      = r.meta;
