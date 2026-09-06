@@ -1,6 +1,7 @@
 /// @file protocoltree.cpp
 /// @brief ProtocolTree 实现
 #include "protocoltree.h"
+#include "i18n.h"
 #include <QHeaderView>
 
 namespace {
@@ -182,11 +183,11 @@ void ProtocolTree::show_packet(const PacketEntry& e) {
         {
             QString link_desc;
             if (e.mpdu.link_id <= 3)
-                link_desc = QStringLiteral("报文优先级(越小越低)");
+                link_desc = trl::L("报文优先级(越小越低)");
             else if (e.mpdu.link_id <= 254)
-                link_desc = QStringLiteral("业务分类LID");
+                link_desc = trl::L("业务分类LID");
             else
-                link_desc = QStringLiteral("无效值");
+                link_desc = trl::L("无效值");
             add_bit_field(sof, "Link ID",
                 QStringLiteral("0x%1 - %2")
                     .arg(e.mpdu.link_id, 2, 16, QChar('0')).arg(link_desc),
@@ -359,3 +360,15 @@ void ProtocolTree::show_packet(const PacketEntry& e) {
 
     expandAll();
 }
+
+namespace {
+/// @brief 本文件用户可见中文字符串 → 英文翻译注册
+struct I18nReg {
+    I18nReg() {
+        trl::register_en("报文优先级(越小越低)", "message priority (smaller = lower)");
+        trl::register_en("业务分类LID", "service-class LID");
+        trl::register_en("无效值", "invalid value");
+    }
+};
+const I18nReg g_i18n_reg_protocoltree;
+}  // namespace

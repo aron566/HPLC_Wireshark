@@ -1,6 +1,7 @@
 /// @file serialreader.cpp
 /// @brief ReaderWorker + SerialReader 实现
 #include "serialreader.h"
+#include "i18n.h"
 #include "playbackwriter.h"   // playback::looks_like_bcd_time(回放时间标签识别)
 #include <QSerialPortInfo>
 #include <QDebug>
@@ -28,28 +29,28 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
         m_serial->setStopBits(cfg.stop_bits);
         m_serial->setFlowControl(QSerialPort::NoFlowControl);
         if (!m_serial->open(QIODevice::ReadOnly)) {
-            emit error_occurred(QString("打开串口失败: %1").arg(m_serial->errorString()));
+            emit error_occurred(trl::L("打开串口失败: %1").arg(m_serial->errorString()));
             return;
         }
         connect(m_serial, &QSerialPort::readyRead, this, &ReaderWorker::on_serial_ready_read);
-        emit status_message(QString("串口 %1 @ %2 已打开").arg(cfg.serial_name).arg(cfg.baud_rate));
+        emit status_message(trl::L("串口 %1 @ %2 已打开").arg(cfg.serial_name).arg(cfg.baud_rate));
     } else if (cfg.mode == ReaderMode::FilePlayback) {
         m_file = new QFile(cfg.file_path, this);
         if (!m_file->open(QIODevice::ReadOnly)) {
-            emit error_occurred(QString("打开文件失败: %1").arg(m_file->errorString()));
+            emit error_occurred(trl::L("打开文件失败: %1").arg(m_file->errorString()));
             return;
         }
         m_file_timer = new QTimer(this);
         connect(m_file_timer, &QTimer::timeout, this, &ReaderWorker::on_file_poll_tick);
         m_file_timer->start(5);
-        emit status_message(QString("文件回放: %1").arg(cfg.file_path));
+        emit status_message(trl::L("文件回放: %1").arg(cfg.file_path));
     } else if (cfg.mode == ReaderMode::RawHex) {
         m_file = new QFile(cfg.file_path, this);
         if (!m_file->open(QIODevice::ReadOnly | QIODevice::Text)) {
-            emit error_occurred(QString("打开文件失败: %1").arg(m_file->errorString()));
+            emit error_occurred(trl::L("打开文件失败: %1").arg(m_file->errorString()));
             return;
         }
-        emit status_message(QString("裸 hex 模式: %1").arg(cfg.file_path));
+        emit status_message(trl::L("裸 hex 模式: %1").arg(cfg.file_path));
         while (!m_file->atEnd()) {
             QByteArray line = m_file->readLine().trimmed();
             if (!line.isEmpty()) process_raw_hex_line(line);
@@ -80,7 +81,7 @@ void ReaderWorker::on_serial_ready_read() {
 void ReaderWorker::on_file_poll_tick() {
     if (!m_file || m_file->atEnd()) {
         m_file_timer->stop();
-        emit status_message(QStringLiteral("文件回放结束"));
+        emit status_message(trl::L("文件回放结束"));
         emit finished();
         return;
     }
@@ -193,3 +194,17 @@ void SerialReader::stop() {
 void SerialReader::on_frame(BplcFrame f) { emit frame_ready(f); }
 void SerialReader::on_status(QString s) { emit status_message(s); }
 void SerialReader::on_error(QString e)  { emit error_occurred(e); }
+namespace {
+// 中→英注册(文件级:数据源状态/错误消息)
+struct I18nRegSerialReader {
+    I18nRegSerialReader() {
+        trl::register_en("打开串口失败: %1", "Failed to open serial port: %1");
+        trl::register_en("串口 %1 @ %2 已打开", "Serial port %1 @ %2 opened");
+        trl::register_en("打开文件失败: %1", "Failed to open file: %1");
+        trl::register_en("文件回放: %1", "File replay: %1");
+        trl::register_en("裸 hex 模式: %1", "Raw hex mode: %1");
+        trl::register_en("文件回放结束", "File replay ended");
+    }
+};
+const I18nRegSerialReader g_i18n_reg_serialreader;
+}  // namespace

@@ -8,6 +8,7 @@
 #include "commconfigdialog.h"
 #include "QSimpleUpdater.h"
 #include "playbackwriter.h"
+#include "i18n.h"
 
 #include <QToolBar>
 #include <QToolButton>
@@ -111,7 +112,7 @@ MainWindow::MainWindow(QWidget* parent)
     setWindowTitle(QStringLiteral("BPLC STA Monitor v%1 — Wireshark style").arg(kAppVersion));
     setWindowIcon(QIcon(QStringLiteral(":/icons/app.png")));
     resize(1280, 800);
-    m_status_left->setText(QStringLiteral("Ready — Ctrl+E 开始捕获,Ctrl+L 清空"));
+    m_status_left->setText(trl::L("Ready — Ctrl+E 开始捕获,Ctrl+L 清空"));
 }
 
 MainWindow::~MainWindow() = default;
@@ -121,22 +122,22 @@ void MainWindow::build_ui() {
     m_toolbar->setMovable(false);
     m_toolbar->setIconSize(QSize(16, 16));
 
-    m_btn_start = new QToolButton(m_toolbar); m_btn_start->setText(QStringLiteral("开始"));       m_toolbar->addWidget(m_btn_start);
-    m_btn_stop  = new QToolButton(m_toolbar); m_btn_stop->setText(QStringLiteral("停止"));        m_toolbar->addWidget(m_btn_stop);
-    m_btn_pause = new QToolButton(m_toolbar); m_btn_pause->setText(QStringLiteral("暂停"));
+    m_btn_start = new QToolButton(m_toolbar); m_btn_start->setText(trl::L("开始"));       m_toolbar->addWidget(m_btn_start);
+    m_btn_stop  = new QToolButton(m_toolbar); m_btn_stop->setText(trl::L("停止"));        m_toolbar->addWidget(m_btn_stop);
+    m_btn_pause = new QToolButton(m_toolbar); m_btn_pause->setText(trl::L("暂停"));
     m_btn_pause->setCheckable(true);                                                                   m_toolbar->addWidget(m_btn_pause);
-    m_btn_clear = new QToolButton(m_toolbar); m_btn_clear->setText(QStringLiteral("清空"));        m_toolbar->addWidget(m_btn_clear);
+    m_btn_clear = new QToolButton(m_toolbar); m_btn_clear->setText(trl::L("清空"));        m_toolbar->addWidget(m_btn_clear);
     m_toolbar->addSeparator();
-    m_btn_export = new QToolButton(m_toolbar);  m_btn_export->setText(QStringLiteral("导出"));     m_toolbar->addWidget(m_btn_export);
-    m_btn_settings = new QToolButton(m_toolbar);m_btn_settings->setText(QStringLiteral("设置"));    m_toolbar->addWidget(m_btn_settings);
+    m_btn_export = new QToolButton(m_toolbar);  m_btn_export->setText(trl::L("导出"));     m_toolbar->addWidget(m_btn_export);
+    m_btn_settings = new QToolButton(m_toolbar);m_btn_settings->setText(trl::L("设置"));    m_toolbar->addWidget(m_btn_settings);
     m_toolbar->addSeparator();
-    m_toolbar->addWidget(new QLabel(QStringLiteral("  显示过滤器:"), m_toolbar));
+    m_toolbar->addWidget(new QLabel(trl::L("  显示过滤器:"), m_toolbar));
     m_edt_filter = new QLineEdit(m_toolbar);
     m_edt_filter->setPlaceholderText(QStringLiteral("beacon | sof | hrf | plc | sta-3 | drop | 0xf0f1f2 ..."));
     m_edt_filter->setMinimumWidth(280);
     m_toolbar->addWidget(m_edt_filter);
     m_btn_apply_filter = new QToolButton(m_toolbar);
-    m_btn_apply_filter->setText(QStringLiteral("应用"));
+    m_btn_apply_filter->setText(trl::L("应用"));
     m_toolbar->addWidget(m_btn_apply_filter);
 
     m_splitter_main = new QSplitter(Qt::Vertical, this);
@@ -175,7 +176,7 @@ void MainWindow::build_ui() {
     auto* hex_pane   = new QWidget(m_splitter_bottom);
     auto* hex_layout = new QVBoxLayout(hex_pane);
     hex_layout->setContentsMargins(0, 0, 0, 0);
-    m_lbl_hex_title = new QLabel(QStringLiteral("字节视图(十六进制,左偏移 + 中间 hex + 右侧 ASCII):"),
+    m_lbl_hex_title = new QLabel(trl::L("字节视图(十六进制,左偏移 + 中间 hex + 右侧 ASCII):"),
                                  hex_pane);
     m_hex_view = new HexView(hex_pane);
     hex_layout->addWidget(m_lbl_hex_title);
@@ -193,65 +194,67 @@ void MainWindow::build_ui() {
     statusBar()->addWidget(m_status_left, 1);
     statusBar()->addPermanentWidget(m_status_right, 2);
 
-    auto* menu_capture = menuBar()->addMenu(QStringLiteral("捕获(&C)"));
-    auto* act_start = menu_capture->addAction(QStringLiteral("开始"));
+    auto* menu_capture = menuBar()->addMenu(trl::L("捕获(&C)"));
+    auto* act_start = menu_capture->addAction(trl::L("开始"));
     act_start->setShortcut(QKeySequence("Ctrl+E"));
     connect(act_start, &QAction::triggered, this, &MainWindow::on_start);
-    auto* act_stop = menu_capture->addAction(QStringLiteral("停止"));
+    auto* act_stop = menu_capture->addAction(trl::L("停止"));
     act_stop->setShortcut(QKeySequence("Ctrl+."));
     connect(act_stop, &QAction::triggered, this, &MainWindow::on_stop);
-    auto* act_pause = menu_capture->addAction(QStringLiteral("暂停"));
+    auto* act_pause = menu_capture->addAction(trl::L("暂停"));
     act_pause->setShortcut(QKeySequence("Ctrl+P"));
     act_pause->setCheckable(true);
     connect(act_pause, &QAction::toggled, this, &MainWindow::on_pause);
     menu_capture->addSeparator();
-    auto* act_clear = menu_capture->addAction(QStringLiteral("清空"));
+    auto* act_clear = menu_capture->addAction(trl::L("清空"));
     act_clear->setShortcut(QKeySequence("Ctrl+L"));
     connect(act_clear, &QAction::triggered, this, &MainWindow::on_clear);
     menu_capture->addSeparator();
-    auto* act_export = menu_capture->addAction(QStringLiteral("导出..."));
+    auto* act_export = menu_capture->addAction(trl::L("导出..."));
     connect(act_export, &QAction::triggered, this, &MainWindow::on_export);
 
-    auto* menu_analyze = menuBar()->addMenu(QStringLiteral("分析(&A)"));
-    auto* act_filt = menu_analyze->addAction(QStringLiteral("应用显示过滤器"));
+    auto* menu_analyze = menuBar()->addMenu(trl::L("分析(&A)"));
+    auto* act_filt = menu_analyze->addAction(trl::L("应用显示过滤器"));
     act_filt->setShortcut(QKeySequence("Ctrl+F"));
     connect(act_filt, &QAction::triggered, this, &MainWindow::on_apply_filter);
 
     // ---- 帮助菜单:检查更新 / 关于 ----
-    auto* menu_help = menuBar()->addMenu(QStringLiteral("帮助(&H)"));
-    auto* act_check = menu_help->addAction(QStringLiteral("检查更新(&U)..."));
+    auto* menu_help = menuBar()->addMenu(trl::L("帮助(&H)"));
+    auto* act_check = menu_help->addAction(trl::L("检查更新(&U)..."));
     connect(act_check, &QAction::triggered, this, [this]() {
         auto* su = QSimpleUpdater::getInstance();
         su->setModuleVersion(kUpdateUrl, kAppVersion);
         su->setModuleName(kUpdateUrl, kModuleName);
         su->setNotifyOnUpdate(kUpdateUrl, true);   // 发现新版本 → 弹窗询问下载
         su->setNotifyOnFinish(kUpdateUrl, true);   // 无新版本/清单正常 → 弹窗告知
-        m_status_left->setText(QStringLiteral("正在检查更新…"));
+        m_status_left->setText(trl::L("正在检查更新…"));
         su->checkForUpdates(kUpdateUrl);
     });
     // 检查更新结束(无论结果)在状态栏留痕;失败(网络/清单)时以保守文案提示。
     // 注意:不用 Qt::UniqueConnection + lambda(Qt6 断言要求成员函数指针)。
     connect(QSimpleUpdater::getInstance(), &QSimpleUpdater::checkingFinished,
             this, &MainWindow::on_check_finished);
-    auto* act_about = menu_help->addAction(QStringLiteral("关于(&A)"));
+    auto* act_about = menu_help->addAction(trl::L("关于(&A)"));
     connect(act_about, &QAction::triggered, this, [this]() {
         // 作者/仓库信息 + “打开仓库”按钮(富文本链接在 QMessageBox 内不可点,
         // 用 ActionRole 按钮打开默认浏览器)
         QMessageBox box(this);
         box.setIcon(QMessageBox::Information);
-        box.setWindowTitle(QStringLiteral("关于 BPLC STA Monitor"));
+        box.setWindowTitle(trl::L("关于 BPLC STA Monitor"));
         box.setTextFormat(Qt::RichText);
         box.setText(
             QStringLiteral("<h3>%1 %2</h3>"
-                           "<p>BPLC/HRF 协议 STA 报文监控上位机"
-                           "(串口捕获 + 离线回放)。</p>"
+                           "<p>%3</p>"
                            "<table>"
-                           "<tr><td><b>作者</b></td><td>%3</td></tr>"
-                           "<tr><td><b>版本</b></td><td>%2</td></tr>"
-                           "<tr><td><b>仓库</b></td><td>%4</td></tr>"
+                           "<tr><td><b>%4</b></td><td>%5</td></tr>"
+                           "<tr><td><b>%6</b></td><td>%2</td></tr>"
+                           "<tr><td><b>%7</b></td><td>%8</td></tr>"
                            "</table>")
-                .arg(kModuleName, kAppVersion, kAuthorName, kRepoUrl));
-        auto* btn_repo = box.addButton(QStringLiteral("打开仓库(&R)"),
+                .arg(kModuleName, kAppVersion,
+                     trl::L("BPLC/HRF 协议 STA 报文监控上位机(串口捕获 + 离线回放)。"),
+                     trl::L("作者"), kAuthorName,
+                     trl::L("版本"), trl::L("仓库"), kRepoUrl));
+        auto* btn_repo = box.addButton(trl::L("打开仓库(&R)"),
                                        QMessageBox::ActionRole);
         QObject::connect(btn_repo, &QPushButton::clicked, [this]() {
             QDesktopServices::openUrl(QUrl(kRepoUrl));
@@ -339,7 +342,7 @@ void MainWindow::on_stop() {
 
 void MainWindow::on_pause() {
     m_paused = m_btn_pause->isChecked();
-    m_btn_pause->setText(m_paused ? QStringLiteral("继续") : QStringLiteral("暂停"));
+    m_btn_pause->setText(m_paused ? trl::L("继续") : trl::L("暂停"));
     if (m_paused) m_status_left->setText(QStringLiteral("Paused"));
 }
 
@@ -360,17 +363,17 @@ void MainWindow::on_clear() {
 void MainWindow::on_export() {
     const auto& entries = m_model->all_entries();
     if (entries.isEmpty()) {
-        m_status_left->setText(QStringLiteral("无可导出的帧"));
+        m_status_left->setText(trl::L("无可导出的帧"));
         return;
     }
     QString f = QFileDialog::getSaveFileName(
-        this, QStringLiteral("导出为回放文件"),
+        this, trl::L("导出为回放文件"),
         "BPLC_" + QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss") + ".bin",
-        QStringLiteral("回放文件 (*.bin)"));
+        trl::L("回放文件 (*.bin)"));
     if (f.isEmpty()) return;
     QFile out(f);
     if (!out.open(QIODevice::WriteOnly)) {
-        m_status_left->setText(QStringLiteral("导出失败:%1").arg(out.errorString()));
+        m_status_left->setText(trl::L("导出失败:%1").arg(out.errorString()));
         return;
     }
 
@@ -379,17 +382,17 @@ void MainWindow::on_export() {
     // dlen 读取端不校验,按 MPDU+6 填写即可被重新解析)
     QByteArray buf = playback::build_playback_bin(entries);
     if (buf.isEmpty()) {
-        m_status_left->setText(QStringLiteral("没有可写入的帧数据"));
+        m_status_left->setText(trl::L("没有可写入的帧数据"));
         return;
     }
 
     if (out.write(buf) != buf.size()) {
-        m_status_left->setText(QStringLiteral("导出写入失败"));
+        m_status_left->setText(trl::L("导出写入失败"));
         return;
     }
     out.close();
     m_status_left->setText(
-        QStringLiteral("已导出 %1 帧 → %2").arg(entries.size()).arg(f));
+        trl::L("已导出 %1 帧 → %2").arg(entries.size()).arg(f));
 }
 
 void MainWindow::on_settings() {
@@ -397,7 +400,7 @@ void MainWindow::on_settings() {
     CommConfigDialog dlg(this, init);
     if (dlg.exec() != QDialog::Accepted) return;
     save_config_to_settings(dlg.config());
-    m_status_left->setText(QStringLiteral("配置已保存(Ctrl+E 开始捕获)"));
+    m_status_left->setText(trl::L("配置已保存(Ctrl+E 开始捕获)"));
 }
 
 void MainWindow::on_apply_filter() {
@@ -467,16 +470,16 @@ void MainWindow::on_check_finished(const QString& url) {
     if (url != kUpdateUrl) return;
     bool avail = QSimpleUpdater::getInstance()->getUpdateAvailable(url);
     m_status_left->setText(
-        avail ? QStringLiteral("发现新版本,请按提示下载更新")
-              : QStringLiteral("检查更新完成:暂无可更新版本(若网络不可达请检查连接)"));
+        avail ? trl::L("发现新版本,请按提示下载更新")
+              : trl::L("检查更新完成:暂无可更新版本(若网络不可达请检查连接)"));
 }
 
 void MainWindow::on_status_message(const QString& s) {
-    m_status_left->setText(QStringLiteral("[状态] ") + s);
+    m_status_left->setText(trl::L("[状态] ") + s);
 }
 
 void MainWindow::on_error(const QString& e) {
-    m_status_left->setText(QStringLiteral("[错误] ") + e);
+    m_status_left->setText(trl::L("[错误] ") + e);
 }
 
 void MainWindow::refresh_status_bar() {
@@ -497,3 +500,21 @@ void MainWindow::refresh_status_bar() {
         .arg(v(Key::KEY_DROPPED))
         .arg(v(Key::KEY_MSDU_COMPLETE)));
 }
+namespace {
+// 中→英注册(文件级,仅新增条目;菜单/状态等通用条目见 src/common/i18n.cpp 内置词典)
+struct I18nRegMainWindow {
+    I18nRegMainWindow() {
+        trl::register_en("导出", "Export");
+        trl::register_en("设置", "Settings");
+        trl::register_en("应用", "Apply");
+        trl::register_en("继续", "Resume");
+        trl::register_en("导出为回放文件", "Export as replay file");
+        trl::register_en("回放文件 (*.bin)", "Replay files (*.bin)");
+        trl::register_en("[错误] ", "[Error] ");
+        trl::register_en("  显示过滤器:", "  Display filter:");
+        trl::register_en("字节视图(十六进制,左偏移 + 中间 hex + 右侧 ASCII):",
+                         "Byte view (hex, left offset + middle hex + right ASCII):");
+    }
+};
+const I18nRegMainWindow g_i18n_reg_mainwindow;
+}  // namespace

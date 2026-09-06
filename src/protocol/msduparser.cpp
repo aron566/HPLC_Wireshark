@@ -4,6 +4,7 @@
 ///          解析 = 公共头(MSDU_BASE/MSDU_BASE_S) + 类型分支(MMe / APP)。
 #include "msduparser.h"
 #include "beaconparser.h"
+#include "i18n.h"
 #include <QtEndian>
 #include <cstdint>
 
@@ -204,47 +205,47 @@ static void translate_enum_sparse(QVector<MsduFieldNode>& nodes, const char* fie
 /// 依据协议"表 2 报文 ID"(含义/报文端口号),与 Python MPDU_Process 分发补充。
 static QString packet_id_name(quint16 id) {
     switch (id) {
-        case 0x0001: return QStringLiteral("终端主动抄表");
-        case 0x0002: return QStringLiteral("路由主动抄表");
+        case 0x0001: return trl::L("终端主动抄表");
+        case 0x0002: return trl::L("路由主动抄表");
         case 0x0003:
-        case 0x00B3: return QStringLiteral("终端主动并发抄表");
-        case 0x0004: return QStringLiteral("校时");
-        case 0x0006: return QStringLiteral("通信测试");
-        case 0x0008: return QStringLiteral("事件上报");
-        case 0x0011: return QStringLiteral("查询从节点主动注册");
-        case 0x0012: return QStringLiteral("启动从节点主动注册");
-        case 0x0013: return QStringLiteral("停止从节点主动注册");
-        case 0x0020: return QStringLiteral("确认/否认");
-        case 0x0030: return QStringLiteral("开始升级");
-        case 0x0031: return QStringLiteral("停止升级");
-        case 0x0032: return QStringLiteral("传输文件数据");
-        case 0x0033: return QStringLiteral("传输文件数据(单播转本地广播)");
-        case 0x0034: return QStringLiteral("查询站点升级状态");
-        case 0x0035: return QStringLiteral("执行升级");
-        case 0x0036: return QStringLiteral("查询站点信息");
-        case 0x0040: return QStringLiteral("抄控器 CCO");
-        case 0x0041: return QStringLiteral("抄控器数据透传串口转发");
-        case 0x00A0: return QStringLiteral("鉴权安全");
-        case 0x00A1: return QStringLiteral("台区户变关系识别");
-        case 0x00A2: return QStringLiteral("查询ID信息");
-        case 0x00A3: return QStringLiteral("精准校时");
-        case 0x00A4: return QStringLiteral("配电信息上报");
+        case 0x00B3: return trl::L("终端主动并发抄表");
+        case 0x0004: return trl::L("校时");
+        case 0x0006: return trl::L("通信测试");
+        case 0x0008: return trl::L("事件上报");
+        case 0x0011: return trl::L("查询从节点主动注册");
+        case 0x0012: return trl::L("启动从节点主动注册");
+        case 0x0013: return trl::L("停止从节点主动注册");
+        case 0x0020: return trl::L("确认/否认");
+        case 0x0030: return trl::L("开始升级");
+        case 0x0031: return trl::L("停止升级");
+        case 0x0032: return trl::L("传输文件数据");
+        case 0x0033: return trl::L("传输文件数据(单播转本地广播)");
+        case 0x0034: return trl::L("查询站点升级状态");
+        case 0x0035: return trl::L("执行升级");
+        case 0x0036: return trl::L("查询站点信息");
+        case 0x0040: return trl::L("抄控器 CCO");
+        case 0x0041: return trl::L("抄控器数据透传串口转发");
+        case 0x00A0: return trl::L("鉴权安全");
+        case 0x00A1: return trl::L("台区户变关系识别");
+        case 0x00A2: return trl::L("查询ID信息");
+        case 0x00A3: return trl::L("精准校时");
+        case 0x00A4: return trl::L("配电信息上报");
         // 以下为 Python 已实现但"表 2"未单列的应用报文(扩展补充)
-        case 0x00B0: return QStringLiteral("存储采集扩展配置");
-        case 0x00B1: return QStringLiteral("存储数据广播时规");
-        case 0x00B2: return QStringLiteral("存储数据同步配置");
-        case 0x00C1: return QStringLiteral("认证");
-        case 0x00CC: return QStringLiteral("存储 HRF 中继心跳");
-        default:     return QStringLiteral("(未实现)");
+        case 0x00B0: return trl::L("存储采集扩展配置");
+        case 0x00B1: return trl::L("存储数据广播时规");
+        case 0x00B2: return trl::L("存储数据同步配置");
+        case 0x00C1: return trl::L("认证");
+        case 0x00CC: return trl::L("存储 HRF 中继心跳");
+        default:     return trl::L("(未实现)");
     }
 }
 
 /// APP PortNum → 端口注释(表 2 报文端口号列)
 static QString app_port_name(quint8 port) {
     switch (port) {
-        case 0x11: return QStringLiteral("管理/抄表端口");
-        case 0x12: return QStringLiteral("升级端口");
-        case 0x1A: return QStringLiteral("安全端口");
+        case 0x11: return trl::L("管理/抄表端口");
+        case 0x12: return trl::L("升级端口");
+        case 0x1A: return trl::L("安全端口");
         default:   return QString();
     }
 }
@@ -878,7 +879,7 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
             }
             default: {
                 MsduFieldNode un;
-                un.name = QStringLiteral("(未实现子类型)");
+                un.name = trl::L("(未实现子类型)");
                 un.value = QString(b.toHex(' '));
                 root.children.append(un);
                 break;
@@ -1228,3 +1229,48 @@ MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
     }
     return out;
 }
+
+// ===== i18n:文件级 中→英 显示词典(仅显示翻译;未命中回退中文) =====
+namespace {
+
+struct I18nReg {
+    I18nReg() {
+        trl::register_en("终端主动抄表", "Terminal meter reading");
+        trl::register_en("路由主动抄表", "Router meter reading");
+        trl::register_en("终端主动并发抄表", "Terminal concurrent meter reading");
+        trl::register_en("校时", "Time sync");
+        trl::register_en("通信测试", "Comm test");
+        trl::register_en("事件上报", "Event report");
+        trl::register_en("查询从节点主动注册", "Query slave node registration");
+        trl::register_en("启动从节点主动注册", "Start slave node registration");
+        trl::register_en("停止从节点主动注册", "Stop slave node registration");
+        trl::register_en("确认/否认", "Confirm / Deny");
+        trl::register_en("开始升级", "Start upgrade");
+        trl::register_en("停止升级", "Stop upgrade");
+        trl::register_en("传输文件数据", "Transfer file data");
+        trl::register_en("传输文件数据(单播转本地广播)", "Transfer file data (unicast to local broadcast)");
+        trl::register_en("查询站点升级状态", "Query node upgrade status");
+        trl::register_en("执行升级", "Execute upgrade");
+        trl::register_en("查询站点信息", "Query node info");
+        trl::register_en("抄控器 CCO", "Meter-reading controller CCO");
+        trl::register_en("抄控器数据透传串口转发", "Meter-reading controller transparent serial forwarding");
+        trl::register_en("鉴权安全", "Authentication security");
+        trl::register_en("台区户变关系识别", "Transformer-area relation detection");
+        trl::register_en("查询ID信息", "Query ID info");
+        trl::register_en("精准校时", "Precise time sync");
+        trl::register_en("配电信息上报", "Distribution info report");
+        trl::register_en("存储采集扩展配置", "Storage collection extended configuration");
+        trl::register_en("存储数据广播时规", "Storage data broadcast schedule");
+        trl::register_en("存储数据同步配置", "Storage data sync configuration");
+        trl::register_en("认证", "Authentication");
+        trl::register_en("存储 HRF 中继心跳", "Store HRF relay heartbeat");
+        trl::register_en("(未实现)", "(Not implemented)");
+        trl::register_en("管理/抄表端口", "Management / meter-reading port");
+        trl::register_en("升级端口", "Upgrade port");
+        trl::register_en("安全端口", "Security port");
+        trl::register_en("(未实现子类型)", "(Not implemented subtype)");
+    }
+};
+const I18nReg g_i18n_reg_msdu;
+
+}  // namespace

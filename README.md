@@ -23,6 +23,8 @@ BPLC/HRF(HPLC) 协议 STA 报文监控上位机(Windows,Qt 6 / C++17)。
   MSDU Type | MSDU Seq | Length | Info`,支持表达式过滤(协议/类型/源目地址)
 - **数据来源**:串口捕获或离线日志/二进制回放(log 行 `isRF+MPDU` 与
   `0x3C…0x3E` bin 两种)
+- **界面语言**:中文 / English,默认跟随系统语言;`设置` 对话框可选语言
+  (动态文本立即生效,窗口框架重启后完全生效)
 
 ## 环境与构建
 

@@ -1,12 +1,15 @@
 /// @file commconfigdialog.cpp
 /// @brief 通讯口配置对话框实现
 #include "commconfigdialog.h"
+#include "i18n.h"
 
 #include <QComboBox>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QCheckBox>
 #include <QLabel>
+#include <QLocale>
 #include <QGroupBox>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -15,6 +18,7 @@
 #include <QHBoxLayout>
 #include <QDialogButtonBox>
 #include <QSerialPortInfo>
+#include <QSettings>
 #include <QSerialPort>
 
 CommConfigDialog::CommConfigDialog(QWidget* parent, const ReaderConfig& initial)
@@ -24,7 +28,7 @@ CommConfigDialog::CommConfigDialog(QWidget* parent, const ReaderConfig& initial)
       m_cmb_stop_bits(nullptr), m_cmb_parity(nullptr),
       m_edt_file_path(nullptr), m_btn_browse(nullptr),
       m_chk_time_tag(nullptr) {
-    setWindowTitle(QStringLiteral("通讯口设置"));
+    setWindowTitle(trl::L("通讯口设置"));
     setMinimumWidth(420);
     build_ui();
     load_initial(initial);
@@ -33,17 +37,17 @@ CommConfigDialog::CommConfigDialog(QWidget* parent, const ReaderConfig& initial)
 void CommConfigDialog::build_ui() {
     auto* root = new QVBoxLayout(this);
 
-    auto* src_group = new QGroupBox(QStringLiteral("数据源类型"), this);
+    auto* src_group = new QGroupBox(trl::L("数据源类型"), this);
     auto* src_lay = new QHBoxLayout(src_group);
     m_cmb_source_type = new QComboBox(src_group);
-    m_cmb_source_type->addItem(QStringLiteral("实时串口"),       int(ReaderMode::SerialPort));
-    m_cmb_source_type->addItem(QStringLiteral("文件回放 (.bin)"), int(ReaderMode::FilePlayback));
-    m_cmb_source_type->addItem(QStringLiteral("裸 hex 文本"),    int(ReaderMode::RawHex));
-    src_lay->addWidget(new QLabel(QStringLiteral("类型:"), src_group));
+    m_cmb_source_type->addItem(trl::L("实时串口"),       int(ReaderMode::SerialPort));
+    m_cmb_source_type->addItem(trl::L("文件回放 (.bin)"), int(ReaderMode::FilePlayback));
+    m_cmb_source_type->addItem(trl::L("裸 hex 文本"),    int(ReaderMode::RawHex));
+    src_lay->addWidget(new QLabel(trl::L("类型:"), src_group));
     src_lay->addWidget(m_cmb_source_type, 1);
     root->addWidget(src_group);
 
-    auto* port_group = new QGroupBox(QStringLiteral("串口参数"), this);
+    auto* port_group = new QGroupBox(trl::L("串口参数"), this);
     auto* port_form = new QFormLayout(port_group);
 
     m_cmb_port_name = new QComboBox(port_group);
@@ -72,38 +76,74 @@ void CommConfigDialog::build_ui() {
     m_cmb_stop_bits->addItems({"1", "1.5", "2"});
 
     m_cmb_parity = new QComboBox(port_group);
-    m_cmb_parity->addItem(QStringLiteral("无"),     int(QSerialPort::NoParity));
-    m_cmb_parity->addItem(QStringLiteral("奇"),     int(QSerialPort::OddParity));
-    m_cmb_parity->addItem(QStringLiteral("偶"),     int(QSerialPort::EvenParity));
-    m_cmb_parity->addItem(QStringLiteral("标记"),   int(QSerialPort::MarkParity));
-    m_cmb_parity->addItem(QStringLiteral("空"),     int(QSerialPort::SpaceParity));
+    m_cmb_parity->addItem(trl::L("无"),     int(QSerialPort::NoParity));
+    m_cmb_parity->addItem(trl::L("奇"),     int(QSerialPort::OddParity));
+    m_cmb_parity->addItem(trl::L("偶"),     int(QSerialPort::EvenParity));
+    m_cmb_parity->addItem(trl::L("标记"),   int(QSerialPort::MarkParity));
+    m_cmb_parity->addItem(trl::L("空"),     int(QSerialPort::SpaceParity));
 
-    port_form->addRow(QStringLiteral("串口:"),   m_cmb_port_name);
-    port_form->addRow(QStringLiteral("波特率:"), m_cmb_baud_rate);
-    port_form->addRow(QStringLiteral("数据位:"), m_cmb_data_bits);
-    port_form->addRow(QStringLiteral("停止位:"), m_cmb_stop_bits);
-    port_form->addRow(QStringLiteral("校验位:"), m_cmb_parity);
+    port_form->addRow(trl::L("串口:"),   m_cmb_port_name);
+    port_form->addRow(trl::L("波特率:"), m_cmb_baud_rate);
+    port_form->addRow(trl::L("数据位:"), m_cmb_data_bits);
+    port_form->addRow(trl::L("停止位:"), m_cmb_stop_bits);
+    port_form->addRow(trl::L("校验位:"), m_cmb_parity);
 
     root->addWidget(port_group);
 
-    auto* file_group = new QGroupBox(QStringLiteral("文件参数"), this);
+    auto* file_group = new QGroupBox(trl::L("文件参数"), this);
     auto* file_lay = new QHBoxLayout(file_group);
     m_edt_file_path = new QLineEdit(file_group);
-    m_btn_browse = new QPushButton(QStringLiteral("浏览..."), file_group);
-    file_lay->addWidget(new QLabel(QStringLiteral("路径:"), file_group));
+    m_btn_browse = new QPushButton(trl::L("浏览..."), file_group);
+    file_lay->addWidget(new QLabel(trl::L("路径:"), file_group));
     file_lay->addWidget(m_edt_file_path, 1);
     file_lay->addWidget(m_btn_browse);
     root->addWidget(file_group);
 
-    auto* opt_group = new QGroupBox(QStringLiteral("其他"), this);
-    auto* opt_lay = new QHBoxLayout(opt_group);
-    m_chk_time_tag = new QCheckBox(QStringLiteral("带时间标签(has_time_tag=1,BCD 8B)"), opt_group);
+    auto* opt_group = new QGroupBox(trl::L("其他"), this);
+    auto* opt_lay = new QVBoxLayout(opt_group);
+    m_chk_time_tag = new QCheckBox(trl::L("带时间标签(has_time_tag=1,BCD 8B)"), opt_group);
     opt_lay->addWidget(m_chk_time_tag);
+
+    // 语言/Language:auto=跟随系统 / zh=中文 / en=English(QSettings key "lang")
+    auto* lang_row = new QHBoxLayout;
+    lang_row->addWidget(new QLabel(trl::L("语言/Language:"), opt_group));
+    auto* cmb_lang = new QComboBox(opt_group);
+    cmb_lang->addItem(trl::L("跟随系统"), QStringLiteral("auto"));
+    cmb_lang->addItem(trl::L("中文"),     QStringLiteral("zh"));
+    cmb_lang->addItem(QStringLiteral("English"), QStringLiteral("en"));
+    lang_row->addWidget(cmb_lang);
+    lang_row->addStretch(1);
+    opt_lay->addLayout(lang_row);
     root->addWidget(opt_group);
 
+    // 恢复已保存语言并放在 connect 之前(避免打开对话框即弹提示);
+    // 变更即保存并立即 trl::set_enabled,窗口 chrome 重启后完全生效
+    QSettings lang_settings(QStringLiteral("ZbMonitor"), QStringLiteral("BPLC_STA_Monitor"));
+    const QString saved_lang =
+        lang_settings.value(QStringLiteral("lang"), QStringLiteral("auto")).toString();
+    const int lang_idx = cmb_lang->findData(saved_lang);
+    if (lang_idx >= 0) cmb_lang->setCurrentIndex(lang_idx);
+    connect(cmb_lang, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [this, cmb_lang](int) {
+        const QString v = cmb_lang->currentData().toString();
+        QSettings s(QStringLiteral("ZbMonitor"), QStringLiteral("BPLC_STA_Monitor"));
+        s.setValue(QStringLiteral("lang"), v);
+        bool en = false;
+        if (v == QLatin1String("en")) {
+            en = true;
+        } else if (v == QLatin1String("zh")) {
+            en = false;
+        } else {  // auto:跟随系统(系统为中文 → 中文,否则英文)
+            en = QLocale::system().language() != QLocale::Chinese;
+        }
+        trl::set_enabled(en);
+        QMessageBox::information(this, trl::L("语言"),
+                                 trl::L("重启后界面语言完全生效"));
+    });
+
     auto* btn_box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-    btn_box->button(QDialogButtonBox::Ok)->setText(QStringLiteral("开始捕获"));
-    btn_box->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+    btn_box->button(QDialogButtonBox::Ok)->setText(trl::L("开始捕获"));
+    btn_box->button(QDialogButtonBox::Cancel)->setText(trl::L("取消"));
     root->addWidget(btn_box);
 
     connect(m_btn_browse, &QPushButton::clicked, this, &CommConfigDialog::on_browse_file);
@@ -153,10 +193,10 @@ void CommConfigDialog::on_browse_file() {
     int mode = m_cmb_source_type->currentData().toInt();
     QString filter;
     if (mode == int(ReaderMode::FilePlayback))
-        filter = QStringLiteral("二进制文件 (*.bin);;所有 (*.*)");
+        filter = trl::L("二进制文件 (*.bin);;所有 (*.*)");
     else
-        filter = QStringLiteral("Hex 文本 (*.txt *.hex);;所有 (*.*)");
-    QString f = QFileDialog::getOpenFileName(this, QStringLiteral("选择文件"), "", filter);
+        filter = trl::L("Hex 文本 (*.txt *.hex);;所有 (*.*)");
+    QString f = QFileDialog::getOpenFileName(this, trl::L("选择文件"), "", filter);
     if (!f.isEmpty()) m_edt_file_path->setText(f);
 }
 
@@ -180,3 +220,47 @@ void CommConfigDialog::on_accept() {
     m_cfg.has_time_tag = m_chk_time_tag->isChecked();
     accept();
 }
+namespace {
+// 中→英注册(文件级:通讯口设置对话框 + 语言选择)
+struct I18nRegCommConfig {
+    I18nRegCommConfig() {
+        trl::register_en("通讯口设置", "Serial Port Settings");
+        trl::register_en("数据源类型", "Data Source Type");
+        trl::register_en("实时串口", "Live Serial Port");
+        trl::register_en("文件回放 (.bin)", "File Replay (.bin)");
+        trl::register_en("裸 hex 文本", "Raw Hex Text");
+        trl::register_en("类型:", "Type:");
+        trl::register_en("串口参数", "Serial Port Parameters");
+        trl::register_en("串口:", "Serial Port:");
+        trl::register_en("波特率:", "Baud Rate:");
+        trl::register_en("数据位:", "Data Bits:");
+        trl::register_en("停止位:", "Stop Bits:");
+        trl::register_en("校验位:", "Parity:");
+        trl::register_en("无", "None");
+        trl::register_en("奇", "Odd");
+        trl::register_en("偶", "Even");
+        trl::register_en("标记", "Mark");
+        trl::register_en("空", "Space");
+        trl::register_en("文件参数", "File Parameters");
+        trl::register_en("浏览...", "Browse...");
+        trl::register_en("路径:", "Path:");
+        trl::register_en("其他", "Other");
+        trl::register_en("带时间标签(has_time_tag=1,BCD 8B)",
+                         "With time tag (has_time_tag=1,BCD 8B)");
+        trl::register_en("开始捕获", "Start Capture");
+        trl::register_en("取消", "Cancel");
+        trl::register_en("二进制文件 (*.bin);;所有 (*.*)",
+                         "Binary files (*.bin);;All files (*.*)");
+        trl::register_en("Hex 文本 (*.txt *.hex);;所有 (*.*)",
+                         "Hex text (*.txt *.hex);;All files (*.*)");
+        trl::register_en("选择文件", "Select File");
+        trl::register_en("语言/Language:", "Language:");
+        trl::register_en("跟随系统", "Follow system");
+        trl::register_en("中文", "Chinese");
+        trl::register_en("语言", "Language");
+        trl::register_en("重启后界面语言完全生效",
+                         "UI language fully applies after restart");
+    }
+};
+const I18nRegCommConfig g_i18n_reg_commconfig;
+}  // namespace

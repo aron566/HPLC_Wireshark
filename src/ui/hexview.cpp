@@ -3,6 +3,7 @@
 /// @details 高亮采用 QPlainTextEdit::setExtraSelections 文本选区,
 ///          由 Qt 原生处理坐标映射与滚动跟随,不会出现自绘错位。
 #include "hexview.h"
+#include "i18n.h"
 #include <QTextEdit>     // QTextEdit::ExtraSelection
 #include <QTextCursor>
 #include <QTextCharFormat>
@@ -56,7 +57,7 @@ void HexView::contextMenuEvent(QContextMenuEvent* event) {
     QMenu menu(this);
     QByteArray sel = highlighted_bytes();
     if (sel.isEmpty()) {
-        auto* act = menu.addAction(QStringLiteral("无高亮字节可复制(先点击协议字段)"));
+        auto* act = menu.addAction(trl::L("无高亮字节可复制(先点击协议字段)"));
         act->setEnabled(false);
         menu.exec(event->globalPos());
         return;
@@ -69,8 +70,8 @@ void HexView::contextMenuEvent(QContextMenuEvent* event) {
         plain += h;
         prefixed += "0x" + h;
     }
-    auto* a1 = menu.addAction(QStringLiteral("复制 Hex(%1 字节)").arg(sel.size()));
-    auto* a2 = menu.addAction(QStringLiteral("复制为 0x 前缀(%1 字节)").arg(sel.size()));
+    auto* a1 = menu.addAction(trl::L("复制 Hex(%1 字节)").arg(sel.size()));
+    auto* a2 = menu.addAction(trl::L("复制为 0x 前缀(%1 字节)").arg(sel.size()));
     QAction* hit = menu.exec(event->globalPos());
     if (hit == a1)      QApplication::clipboard()->setText(plain);
     else if (hit == a2) QApplication::clipboard()->setText(prefixed);

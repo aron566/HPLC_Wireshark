@@ -2,6 +2,7 @@
 /// @brief BplcParser 实现:剥头 + CRC24 + BitDefine + SOF MSDU 重组
 /// @details 移植自 BPLCMonitor/main.py + MPDU_Class.py 的字段逻辑。
 #include "bplcparser.h"
+#include "i18n.h"
 #include "statistics.h"
 #include "msduparser.h"
 #include "beaconparser.h"
@@ -92,7 +93,7 @@ bool BplcParser::decode_envelope(const BplcFrame& in, Result& r) {
     const QByteArray& d = in.data;
 
     if (in.meta.from_raw) {
-        if (d.isEmpty()) { r.reject_reason = QStringLiteral("空帧"); return false; }
+        if (d.isEmpty()) { r.reject_reason = trl::L("空帧"); return false; }
         r.payload_for_log = d;
         r.meta.is_rf = (quint8(d[0]) != 0);
         return true;
@@ -100,7 +101,7 @@ bool BplcParser::decode_envelope(const BplcFrame& in, Result& r) {
 
     int hdr = in.meta.has_time_tag ? 8 : 0;
     if (d.size() < 20 + hdr) {
-        r.reject_reason = QStringLiteral("帧长过短");
+        r.reject_reason = trl::L("帧长过短");
         return false;
     }
 
@@ -134,7 +135,7 @@ bool BplcParser::decode_envelope(const BplcFrame& in, Result& r) {
 
     QByteArray payload = d.mid(offset + 6);
     if (payload.size() < 4) {
-        r.reject_reason = QStringLiteral("剥头后载荷过短(<4B)");
+        r.reject_reason = trl::L("剥头后载荷过短(<4B)");
         return false;
     }
     r.meta.phr_mcs  = (quint8)payload[0];
@@ -148,7 +149,7 @@ bool BplcParser::decode_envelope(const BplcFrame& in, Result& r) {
     payload.remove(0, 4);
     r.payload_for_log = payload;
     if (payload.isEmpty()) {
-        r.reject_reason = QStringLiteral("剥头后空载荷");
+        r.reject_reason = trl::L("剥头后空载荷");
         return false;
     }
 
@@ -158,7 +159,7 @@ bool BplcParser::decode_envelope(const BplcFrame& in, Result& r) {
 
 // MPDU_BASE 控制头
 bool BplcParser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QString& err) {
-    if (body.size() < 16) { err = QStringLiteral("MPDU_BASE 长度不足 16B"); return false; }
+    if (body.size() < 16) { err = trl::L("MPDU_BASE 长度不足 16B"); return false; }
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
 
     quint32 calc_crc = crc24(p, 16);
@@ -209,7 +210,7 @@ void BplcParser::parse_sof_and_assemble(const QByteArray& body, MpduInfo& info,
     for (int i = 0; i < info.pb_num; ++i) {
         int block_start = block_offset + i * info.pb_size;
         if (block_start + info.pb_size > body.size()) {
-            err = QStringLiteral("PB 块超出帧长");
+            err = trl::L("PB 块超出帧长");
             msdu = MsduState{};
             return;
         }
@@ -273,8 +274,8 @@ BplcParser::Result BplcParser::parse(const BplcFrame& in, MsduState& msdu, const
         return r;
     }
 
-    if (!r.meta.is_rf && !f.link_hplc) { r.reject_reason = QStringLiteral("HPLC 链路被过滤"); r.accept = false; return r; }
-    if ( r.meta.is_rf && !f.link_hrf ) { r.reject_reason = QStringLiteral("HRF 链路被过滤");  r.accept = false; return r; }
+    if (!r.meta.is_rf && !f.link_hplc) { r.reject_reason = trl::L("HPLC 链路被过滤"); r.accept = false; return r; }
+    if ( r.meta.is_rf && !f.link_hrf ) { r.reject_reason = trl::L("HRF 链路被过滤");  r.accept = false; return r; }
 
     QString err;
     if (!parse_mpdu_base(r.payload_for_log, r.mpdu, err)) {
@@ -291,10 +292,10 @@ BplcParser::Result BplcParser::parse(const BplcFrame& in, MsduState& msdu, const
     }
 
     switch (r.mpdu.frame_type) {
-        case 0: if (!f.allow_beacon) { r.reject_reason = QStringLiteral("BEACON 被过滤"); r.accept = false; return r; } break;
-        case 1: if (!f.allow_sof)    { r.reject_reason = QStringLiteral("SOF 被过滤");    r.accept = false; return r; } break;
-        case 2: if (!f.allow_ack)    { r.reject_reason = QStringLiteral("ACK 被过滤");    r.accept = false; return r; } break;
-        case 3: if (!f.allow_coord)  { r.reject_reason = QStringLiteral("COORD 被过滤");  r.accept = false; return r; } break;
+        case 0: if (!f.allow_beacon) { r.reject_reason = trl::L("BEACON 被过滤"); r.accept = false; return r; } break;
+        case 1: if (!f.allow_sof)    { r.reject_reason = trl::L("SOF 被过滤");    r.accept = false; return r; } break;
+        case 2: if (!f.allow_ack)    { r.reject_reason = trl::L("ACK 被过滤");    r.accept = false; return r; } break;
+        case 3: if (!f.allow_coord)  { r.reject_reason = trl::L("COORD 被过滤");  r.accept = false; return r; } break;
         default: break;
     }
 
@@ -303,7 +304,7 @@ BplcParser::Result BplcParser::parse(const BplcFrame& in, MsduState& msdu, const
         if (!err.isEmpty()) { r.reject_reason = err; r.accept = false; return r; }
         if (f.tei_filter && !f.tei_list.contains(r.mpdu.src_tei)
                         && !f.tei_list.contains(r.mpdu.dst_tei)) {
-            r.reject_reason = QStringLiteral("TEI 不在白名单");
+            r.reject_reason = trl::L("TEI 不在白名单");
             r.accept = false;
             return r;
         }
@@ -384,3 +385,25 @@ BplcParser::Result BplcParser::parse(const BplcFrame& in, MsduState& msdu, const
     r.accept = true;
     return r;
 }
+
+namespace {
+// 解析拒绝/错误文案的中→英词典(显示于 Info 列/错误提示)
+struct I18nRegParser {
+    I18nRegParser() {
+        trl::register_en("空帧", "empty frame");
+        trl::register_en("帧长过短", "frame too short");
+        trl::register_en("剥头后载荷过短(<4B)", "payload too short after header (<4B)");
+        trl::register_en("剥头后空载荷", "empty payload after header");
+        trl::register_en("MPDU_BASE 长度不足 16B", "MPDU_BASE shorter than 16B");
+        trl::register_en("PB 块超出帧长", "PB block exceeds frame length");
+        trl::register_en("HPLC 链路被过滤", "HPLC link filtered");
+        trl::register_en("HRF 链路被过滤", "HRF link filtered");
+        trl::register_en("BEACON 被过滤", "BEACON filtered");
+        trl::register_en("SOF 被过滤", "SOF filtered");
+        trl::register_en("ACK 被过滤", "ACK filtered");
+        trl::register_en("COORD 被过滤", "COORD filtered");
+        trl::register_en("TEI 不在白名单", "TEI not in whitelist");
+    }
+};
+const I18nRegParser g_i18n_reg_parser;
+}  // namespace

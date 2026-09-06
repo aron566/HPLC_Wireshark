@@ -6,6 +6,7 @@
 #include "protocoltree.h"
 #include "hexview.h"
 #include "io/playbackwriter.h"
+#include "i18n.h"
 #include "bplcparser.h"
 #include "packetlistmodel.h"
 #include <QApplication>
@@ -1063,7 +1064,31 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    bool final_ok = ok && real_ok && filter_ok && multi_ok && export_ok;
+    // ---- i18n 中→英翻译命中检查(内置表 + 各文件注册表) ----
+    std::printf("\n--- i18n 翻译命中检查 ---\n");
+    bool i18n_ok = true;
+    {
+        trl::set_enabled(true);
+        const struct { const char* zh; const char* en; } checks[] = {
+            { "开始", "Start" },
+            { "捕获(&C)", "&Capture" },
+            { "终端主动抄表", "Terminal" },          // msduparser 注册
+            { "空帧", "empty frame" },                // bplcparser 注册
+            { "复制 Hex(%1 字节)", "Copy Hex" },      // i18n 内置表(带占位)
+        };
+        for (const auto& c : checks) {
+            const QString got = trl::L(c.zh);
+            if (!got.startsWith(QString::fromUtf8(c.en))) {
+                i18n_ok = false;
+                std::printf("  MISMATCH zh=%s -> got=%s\n", c.zh, qPrintable(got));
+            }
+        }
+        trl::set_enabled(false);
+        if (trl::L("开始") != QStringLiteral("开始")) i18n_ok = false;  // 中文回退
+        std::printf("  i18n 检查 → %s\n", i18n_ok ? "OK" : "FAIL");
+    }
+
+    bool final_ok = ok && real_ok && filter_ok && multi_ok && export_ok && i18n_ok;
     std::printf(final_ok ? "PASS\n" : "FAIL\n");
     return final_ok ? 0 : 1;
 }
