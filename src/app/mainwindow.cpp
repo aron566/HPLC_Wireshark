@@ -40,7 +40,7 @@ namespace {
 // 更新检查地址与当前版本(发布时改为正式服务器/仓库后同步更新 README)
 const QString kUpdateUrl =
     QStringLiteral("https://raw.githubusercontent.com/aron566/HPLC_Wireshark/main/update.json");
-const QString kAppVersion = QStringLiteral("1.0.2");
+const QString kAppVersion = QStringLiteral("1.0.3");
 const QString kModuleName = QStringLiteral("BPLC STA Monitor");
 const QString kAuthorName = QStringLiteral("aron566");
 const QString kRepoUrl    = QStringLiteral("https://github.com/aron566/HPLC_Wireshark");
