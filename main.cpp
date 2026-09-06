@@ -6,6 +6,7 @@
 #include "mainwindow.h"
 #include "i18n.h"
 #include "appconfig.h"
+#include "theme.h"
 #include <QApplication>
 #include <QCoreApplication>
 #include <QLoggingCategory>
@@ -29,10 +30,11 @@ static void decide_language() {
 int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationName("ZbMonitor");
     QCoreApplication::setApplicationName("BPLC_STA_Monitor");
-    QCoreApplication::setApplicationVersion("1.0.4");
+    QCoreApplication::setApplicationVersion("1.0.5");
 
     QApplication app(argc, argv);
     decide_language();
+    theme::apply(appcfg::theme());   // 主题(config.ini [general] theme,dark 默认)
 
     MainWindow w;
     w.show();

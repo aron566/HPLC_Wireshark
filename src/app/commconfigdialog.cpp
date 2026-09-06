@@ -3,6 +3,7 @@
 #include "commconfigdialog.h"
 #include "i18n.h"
 #include "appconfig.h"
+#include "theme.h"
 
 #include <QComboBox>
 #include <QLineEdit>
@@ -115,7 +116,28 @@ void CommConfigDialog::build_ui() {
     lang_row->addWidget(cmb_lang);
     lang_row->addStretch(1);
     opt_lay->addLayout(lang_row);
+
+    // 主题/Theme:dark=深色(QDarkStyleSheet)/ light=浅色(config.ini general/theme)
+    auto* theme_row = new QHBoxLayout;
+    theme_row->addWidget(new QLabel(trl::L("主题/Theme:"), opt_group));
+    auto* cmb_theme = new QComboBox(opt_group);
+    cmb_theme->addItem(trl::L("深色"), QStringLiteral("dark"));
+    cmb_theme->addItem(trl::L("浅色"), QStringLiteral("light"));
+    theme_row->addWidget(cmb_theme);
+    theme_row->addStretch(1);
+    opt_lay->addLayout(theme_row);
     root->addWidget(opt_group);
+
+    // 恢复已保存主题并放在 connect 之前;变更即保存并即时全局应用
+    const QString saved_theme = appcfg::theme();
+    const int theme_idx = cmb_theme->findData(saved_theme);
+    if (theme_idx >= 0) cmb_theme->setCurrentIndex(theme_idx);
+    connect(cmb_theme, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [cmb_theme](int) {
+        const QString v = cmb_theme->currentData().toString();
+        appcfg::set_theme(v);
+        theme::apply(v);        // 样式表全局应用,即时生效
+    });
 
     // 恢复已保存语言并放在 connect 之前(避免打开对话框即弹提示);
     // 变更即保存并立即 trl::set_enabled,窗口 chrome 重启后完全生效

@@ -37,6 +37,8 @@ inline void ensure_default_file() {
         "update_url=https://raw.githubusercontent.com/aron566/HPLC_Wireshark/main/update.json\n"
         "; 显示过滤器(启动时自动应用,留空=不过滤)\n"
         "filter=\n"
+        "; 界面主题:dark=深色(QDarkStyleSheet,默认)/ light=浅色\n"
+        "theme=dark\n"
         "\n"
         "[reader]\n"
         "; 输入源:0=串口 1=文件回放(bin) 2=裸hex文本\n"
@@ -77,6 +79,14 @@ inline QString filter() {
 }
 inline void set_filter(const QString& f) {
     settings().setValue(QStringLiteral("general/filter"), f);
+}
+
+inline QString theme() {
+    ensure_default_file();
+    return settings().value(QStringLiteral("general/theme"), QStringLiteral("dark")).toString();
+}
+inline void set_theme(const QString& t) {
+    settings().setValue(QStringLiteral("general/theme"), t);
 }
 
 // ---- reader ----

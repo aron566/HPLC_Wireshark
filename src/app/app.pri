@@ -11,11 +11,16 @@ HEADERS += \
     $$PWD/mainwindow.h \
     $$PWD/commconfigdialog.h \
     $$PWD/framedispatcher.h \
-    $$PWD/appconfig.h
+    $$PWD/appconfig.h \
+    $$PWD/theme.h
 
 SOURCES += \
     $$PWD/mainwindow.cpp \
     $$PWD/commconfigdialog.cpp \
-    $$PWD/framedispatcher.cpp
+    $$PWD/framedispatcher.cpp \
+    $$PWD/theme.cpp
+
+# QDarkStyleSheet 深色主题资源(MIT,见 qdarkstyle/LICENSE.rst)
+RESOURCES += $$PWD/qdarkstyle/darkstyle.qrc
 
 INCLUDEPATH += $$PWD

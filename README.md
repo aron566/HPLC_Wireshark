@@ -25,6 +25,8 @@ BPLC/HRF(HPLC) 协议 STA 报文监控上位机(Windows,Qt 6 / C++17)。
   `0x3C…0x3E` bin 两种)
 - **界面语言**:中文 / English,默认跟随系统语言;`设置` 对话框可选语言
   (动态文本立即生效,窗口框架重启后完全生效)
+- **界面主题**:深色(QDarkStyleSheet,默认)/ 浅色,`设置` 对话框即切即生效;
+  主题资源在 `src/app/qdarkstyle/`(MIT,见其 LICENSE.rst)
 
 ## 环境与构建
 

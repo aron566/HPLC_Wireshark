@@ -40,7 +40,7 @@
 
 namespace {
 // 当前版本与仓库信息(更新检查地址见 config.ini [general] update_url)
-const QString kAppVersion = QStringLiteral("1.0.4");
+const QString kAppVersion = QStringLiteral("1.0.5");
 const QString kModuleName = QStringLiteral("BPLC STA Monitor");
 const QString kAuthorName = QStringLiteral("aron566");
 const QString kRepoUrl    = QStringLiteral("https://github.com/aron566/HPLC_Wireshark");
@@ -95,18 +95,8 @@ MainWindow::MainWindow(QWidget* parent)
     pal.setColor(QPalette::Highlight, QColor("#3d6f9f"));
     pal.setColor(QPalette::HighlightedText, Qt::white);
     m_table_packets->setPalette(pal);
-
-    // 注意:不可用裸 "QWidget" 选择器——它会命中 QMenu 等所有子类,
-    // 把弹出菜单拖进 QSS 绘制路径,导致菜单项文字与快捷键列重叠。
-    // 普通 QWidget 默认透明,背景透出 QMainWindow/QSplitter 即可。
-    setStyleSheet(R"(
-        QMainWindow { background-color: #f0f0f0; }
-        QSplitter   { background-color: #f0f0f0; }
-        QToolBar { background-color: #e8e8e8; border-bottom: 1px solid #c0c0c0; spacing: 2px; }
-        QLineEdit { padding: 2px 4px; }
-        QTableView { background-color: white; alternate-background-color: #f7f7f7; }
-        QTreeWidget { background-color: white; alternate-background-color: #f7f7f7; }
-    )");
+    // 注意:浅色/深色主题由 src/app/theme.cpp 全局应用(设置→外观 即时切换);
+    // 不再在此设实例样式表,避免实例级 QSS 覆盖全局主题。
 
     setWindowTitle(QStringLiteral("BPLC STA Monitor v%1 — Wireshark style").arg(kAppVersion));
     setWindowIcon(QIcon(QStringLiteral(":/icons/app.png")));
