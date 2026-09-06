@@ -1076,7 +1076,7 @@ int main(int argc, char* argv[]) {
             BplcParser::Filter bf0;
             bf0.allow_beacon = bf0.allow_sof = bf0.allow_ack = bf0.allow_coord = true;
             bf0.link_hplc = bf0.link_hrf = true;
-            int n_bcn = 0, n_pad = 0, n_zero = 0;
+            int n_bcn = 0, n_pad = 0, n_zero = 0, n_crc_last = 0;
             BplcFrame fbr;
             while (!buf.isEmpty()) {
                 int i0 = buf.indexOf(char(0x3C));
@@ -1101,6 +1101,12 @@ int main(int argc, char* argv[]) {
                 auto rb = bp.parse(fbr, bs, bf0);
                 if (!rb.accept || rb.mpdu.frame_type != 0 || !rb.beacon.present) continue;
                 ++n_bcn;
+                // CRC32 应为载荷组最后一个字段(数据区尾 4B),PB Padding 在它前面
+                for (const auto& n : rb.beacon.tree) {
+                    if (!n.children.isEmpty() &&
+                        n.children.last().name == QStringLiteral("BeaconCRC32 [32b]"))
+                        ++n_crc_last;
+                }
                 std::function<void(const MsduFieldNode&)> wk =
                     [&](const MsduFieldNode& nd) {
                         if (nd.name == QStringLiteral("PB Padding")) {
@@ -1111,10 +1117,12 @@ int main(int argc, char* argv[]) {
                     };
                 for (const auto& n : rb.beacon.tree) wk(n);
             }
-            // 期望:每条信标载荷尾部都有 padding 节点(实测 871 帧全有,40~47B)
-            bea_ok = (n_bcn > 0 && n_pad == n_bcn);
-            std::printf("  信标帧=%d 含 PB Padding=%d 全0x00=%d → %s\n",
-                        n_bcn, n_pad, n_zero, bea_ok ? "OK" : "FAIL");
+            // 期望:每条信标载荷尾部都有 padding 节点(实测 871 帧全有,40~47B),
+            // 且 CRC32 行位于字段列表末尾
+            bea_ok = (n_bcn > 0 && n_pad == n_bcn && n_crc_last == n_bcn);
+            std::printf("  信标帧=%d 含 PB Padding=%d 全0x00=%d CRC32居末=%d → %s\n",
+                        n_bcn, n_pad, n_zero, n_crc_last,
+                        bea_ok ? "OK" : "FAIL");
         }
     }
 

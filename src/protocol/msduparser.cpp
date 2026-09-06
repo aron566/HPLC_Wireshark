@@ -1068,10 +1068,6 @@ MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
                       .arg(crc_ok ? QStringLiteral("OK") : QStringLiteral("FAIL"));
 
     auto& root = group(out.tree, QStringLiteral("Beacon Load [%1B]").arg(gb.size()));
-    MsduFieldNode crc;
-    crc.name  = QStringLiteral("BeaconCRC32 [32b]");
-    crc.value = crc_ok ? QStringLiteral("OK") : QStringLiteral("FAIL");
-    root.children.append(crc);
 
     // 固定头(0..19)
     add_fields(root.children, gb, 0, kBeaconLoadSpec, kBeaconLoadSpecN);
@@ -1246,6 +1242,15 @@ MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
         pad.rel_len   = pad_len;
         root.children.append(pad);
     }
+
+    // 载荷 CRC32 位于数据区末尾 4B,字段展示顺序与字节流一致(最后出现);
+    // 高亮整段 4B,与 msduparser MSDU CRC32 行风格一致。
+    MsduFieldNode crc;
+    crc.name      = QStringLiteral("BeaconCRC32 [32b]");
+    crc.value     = crc_ok ? QStringLiteral("OK") : QStringLiteral("FAIL");
+    crc.rel_start = gb.size() - 4;
+    crc.rel_len   = 4;
+    root.children.append(crc);
     return out;
 }
 
