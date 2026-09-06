@@ -1227,6 +1227,25 @@ MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
             }
         }
     }
+    // 管理条目之后的填充区(条目消费终点 pos 到 CRC32 前):正常为全 0x00,
+    // 与 Python 原版 "tails in Beacon Mgr Info is not 0" 校验语义一致;
+    // 非零时把前 8B 展示出来便于发现未识别条目/异常(部分帧该区含 0xC2 段)。
+    if (pos < gb.size() - 4) {
+        const int pad_len = gb.size() - 4 - pos;
+        bool all_zero = true;
+        for (int k = pos; k < gb.size() - 4 && all_zero; ++k)
+            all_zero = (gb[k] == 0);
+        MsduFieldNode pad;
+        pad.name = QStringLiteral("PB Padding");
+        pad.value = all_zero
+            ? QStringLiteral("%1 B (0x00 fill)").arg(pad_len)
+            : QStringLiteral("%1 B (含非 0x00: %2 ...)")
+                  .arg(pad_len)
+                  .arg(QString(gb.mid(pos, qMin(pad_len, 8)).toHex(' ')));
+        pad.rel_start = pos;
+        pad.rel_len   = pad_len;
+        root.children.append(pad);
+    }
     return out;
 }
 

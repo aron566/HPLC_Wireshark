@@ -1064,6 +1064,60 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // ---- 信标帧 PB Padding 验证(replay_test.bin 中 BEACON 载荷尾区) ----
+    std::printf("\n--- 信标帧 PB Padding 验证 ---\n");
+    bool bea_ok = false;
+    {
+        QFile fb(QStringLiteral("D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/samples/replay_test.bin"));
+        if (fb.open(QIODevice::ReadOnly)) {
+            QByteArray buf = fb.readAll();
+            BplcParser bp;
+            MsduState  bs;
+            BplcParser::Filter bf0;
+            bf0.allow_beacon = bf0.allow_sof = bf0.allow_ack = bf0.allow_coord = true;
+            bf0.link_hplc = bf0.link_hrf = true;
+            int n_bcn = 0, n_pad = 0, n_zero = 0;
+            BplcFrame fbr;
+            while (!buf.isEmpty()) {
+                int i0 = buf.indexOf(char(0x3C));
+                if (i0 < 0) break;
+                buf.remove(0, i0 + 1);
+                int i1 = buf.indexOf(char(0x3E));
+                if (i1 < 0) break;
+                QByteArray esc = buf.left(i1);
+                buf.remove(0, i1 + 1);
+                QByteArray unesc;
+                for (int i = 0; i < esc.size(); ++i) {
+                    quint8 b = (quint8)esc[i];
+                    if (b == 0x3D && i + 1 < esc.size()) {
+                        ++i;
+                        unesc.append(char(0xFF ^ (quint8)esc[i]));
+                    } else {
+                        unesc.append(char(b));
+                    }
+                }
+                fbr.data = unesc;
+                fbr.meta.has_time_tag = false;
+                auto rb = bp.parse(fbr, bs, bf0);
+                if (!rb.accept || rb.mpdu.frame_type != 0 || !rb.beacon.present) continue;
+                ++n_bcn;
+                std::function<void(const MsduFieldNode&)> wk =
+                    [&](const MsduFieldNode& nd) {
+                        if (nd.name == QStringLiteral("PB Padding")) {
+                            ++n_pad;
+                            if (nd.value.contains(QStringLiteral("0x00 fill"))) ++n_zero;
+                        }
+                        for (const auto& c : nd.children) wk(c);
+                    };
+                for (const auto& n : rb.beacon.tree) wk(n);
+            }
+            // 期望:每条信标载荷尾部都有 padding 节点(实测 871 帧全有,40~47B)
+            bea_ok = (n_bcn > 0 && n_pad == n_bcn);
+            std::printf("  信标帧=%d 含 PB Padding=%d 全0x00=%d → %s\n",
+                        n_bcn, n_pad, n_zero, bea_ok ? "OK" : "FAIL");
+        }
+    }
+
     // ---- i18n 中→英翻译命中检查(内置表 + 各文件注册表) ----
     std::printf("\n--- i18n 翻译命中检查 ---\n");
     bool i18n_ok = true;
@@ -1088,7 +1142,7 @@ int main(int argc, char* argv[]) {
         std::printf("  i18n 检查 → %s\n", i18n_ok ? "OK" : "FAIL");
     }
 
-    bool final_ok = ok && real_ok && filter_ok && multi_ok && export_ok && i18n_ok;
+    bool final_ok = ok && real_ok && filter_ok && multi_ok && export_ok && bea_ok && i18n_ok;
     std::printf(final_ok ? "PASS\n" : "FAIL\n");
     return final_ok ? 0 : 1;
 }
