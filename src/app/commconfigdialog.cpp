@@ -2,6 +2,7 @@
 /// @brief 通讯口配置对话框实现
 #include "commconfigdialog.h"
 #include "i18n.h"
+#include "appconfig.h"
 
 #include <QComboBox>
 #include <QLineEdit>
@@ -104,7 +105,7 @@ void CommConfigDialog::build_ui() {
     m_chk_time_tag = new QCheckBox(trl::L("带时间标签(has_time_tag=1,BCD 8B)"), opt_group);
     opt_lay->addWidget(m_chk_time_tag);
 
-    // 语言/Language:auto=跟随系统 / zh=中文 / en=English(QSettings key "lang")
+    // 语言/Language:auto=跟随系统 / zh=中文 / en=English(config.ini general/lang)
     auto* lang_row = new QHBoxLayout;
     lang_row->addWidget(new QLabel(trl::L("语言/Language:"), opt_group));
     auto* cmb_lang = new QComboBox(opt_group);
@@ -118,16 +119,13 @@ void CommConfigDialog::build_ui() {
 
     // 恢复已保存语言并放在 connect 之前(避免打开对话框即弹提示);
     // 变更即保存并立即 trl::set_enabled,窗口 chrome 重启后完全生效
-    QSettings lang_settings(QStringLiteral("ZbMonitor"), QStringLiteral("BPLC_STA_Monitor"));
-    const QString saved_lang =
-        lang_settings.value(QStringLiteral("lang"), QStringLiteral("auto")).toString();
+    const QString saved_lang = appcfg::lang();
     const int lang_idx = cmb_lang->findData(saved_lang);
     if (lang_idx >= 0) cmb_lang->setCurrentIndex(lang_idx);
     connect(cmb_lang, qOverload<int>(&QComboBox::currentIndexChanged), this,
             [this, cmb_lang](int) {
         const QString v = cmb_lang->currentData().toString();
-        QSettings s(QStringLiteral("ZbMonitor"), QStringLiteral("BPLC_STA_Monitor"));
-        s.setValue(QStringLiteral("lang"), v);
+        appcfg::set_lang(v);
         bool en = false;
         if (v == QLatin1String("en")) {
             en = true;

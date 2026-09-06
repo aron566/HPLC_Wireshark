@@ -5,15 +5,16 @@
 ///          语言决定:QSettings "lang" = auto(默认,跟随系统)/zh/en。
 #include "mainwindow.h"
 #include "i18n.h"
+#include "appconfig.h"
 #include <QApplication>
 #include <QCoreApplication>
-#include <QSettings>
 #include <QLoggingCategory>
 #include <QLocale>
 
 static void decide_language() {
-    QSettings s("ZbMonitor", "BPLC_STA_Monitor");
-    const QString lang = s.value("lang", "auto").toString();
+    // config.ini [general] lang = auto(默认,跟随系统)/zh/en;不存在则先生成
+    appcfg::ensure_default_file();
+    const QString lang = appcfg::lang();
     bool en = false;
     if (lang == QLatin1String("en")) {
         en = true;

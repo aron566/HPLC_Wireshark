@@ -10,7 +10,8 @@
 HEADERS += \
     $$PWD/mainwindow.h \
     $$PWD/commconfigdialog.h \
-    $$PWD/framedispatcher.h
+    $$PWD/framedispatcher.h \
+    $$PWD/appconfig.h
 
 SOURCES += \
     $$PWD/mainwindow.cpp \

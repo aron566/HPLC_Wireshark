@@ -7,6 +7,7 @@
 #include "protocoltree.h"
 #include "commconfigdialog.h"
 #include "QSimpleUpdater.h"
+#include "appconfig.h"
 #include "playbackwriter.h"
 #include "i18n.h"
 
@@ -38,9 +39,7 @@
 #include <QIcon>
 
 namespace {
-// 更新检查地址与当前版本(发布时改为正式服务器/仓库后同步更新 README)
-const QString kUpdateUrl =
-    QStringLiteral("https://raw.githubusercontent.com/aron566/HPLC_Wireshark/main/update.json");
+// 当前版本与仓库信息(更新检查地址见 config.ini [general] update_url)
 const QString kAppVersion = QStringLiteral("1.0.3");
 const QString kModuleName = QStringLiteral("BPLC STA Monitor");
 const QString kAuthorName = QStringLiteral("aron566");
@@ -113,6 +112,13 @@ MainWindow::MainWindow(QWidget* parent)
     setWindowIcon(QIcon(QStringLiteral(":/icons/app.png")));
     resize(1280, 800);
     m_status_left->setText(trl::L("Ready — Ctrl+E 开始捕获,Ctrl+L 清空"));
+
+    // 恢复上次保存的显示过滤器(config.ini [general] filter)
+    const QString saved_filter = appcfg::filter();
+    if (!saved_filter.isEmpty() && m_edt_filter && m_model) {
+        m_edt_filter->setText(saved_filter);
+        m_model->set_display_filter(saved_filter);
+    }
 }
 
 MainWindow::~MainWindow() = default;
@@ -223,12 +229,13 @@ void MainWindow::build_ui() {
     auto* act_check = menu_help->addAction(trl::L("检查更新(&U)..."));
     connect(act_check, &QAction::triggered, this, [this]() {
         auto* su = QSimpleUpdater::getInstance();
-        su->setModuleVersion(kUpdateUrl, kAppVersion);
-        su->setModuleName(kUpdateUrl, kModuleName);
-        su->setNotifyOnUpdate(kUpdateUrl, true);   // 发现新版本 → 弹窗询问下载
-        su->setNotifyOnFinish(kUpdateUrl, true);   // 无新版本/清单正常 → 弹窗告知
+        const QString up_url = appcfg::update_url();   // 更新地址来自 config.ini
+        su->setModuleVersion(up_url, kAppVersion);
+        su->setModuleName(up_url, kModuleName);
+        su->setNotifyOnUpdate(up_url, true);   // 发现新版本 → 弹窗询问下载
+        su->setNotifyOnFinish(up_url, true);   // 无新版本/清单正常 → 弹窗告知
         m_status_left->setText(trl::L("正在检查更新…"));
-        su->checkForUpdates(kUpdateUrl);
+        su->checkForUpdates(up_url);
     });
     // 检查更新结束(无论结果)在状态栏留痕;失败(网络/清单)时以保守文案提示。
     // 注意:不用 Qt::UniqueConnection + lambda(Qt6 断言要求成员函数指针)。
@@ -295,24 +302,19 @@ void MainWindow::wire_signals() {
 }
 
 static ReaderConfig load_config_from_settings() {
-    QSettings s("ZbMonitor", "BPLC_STA_Monitor");
-    ReaderConfig c;
-    int mode = s.value("mode", int(ReaderMode::SerialPort)).toInt();
+    ReaderConfig c;                       // 来源:config.ini [reader]
+    int mode = appcfg::reader_mode();
     c.mode = ReaderMode(mode);
-    c.serial_name = s.value("comName", "COM3").toString();
-    c.baud_rate   = s.value("baud", 460800).toInt();
-    c.file_path   = s.value("filePath").toString();
-    c.has_time_tag = s.value("timeTag", false).toBool();
+    c.serial_name = appcfg::reader_com();
+    c.baud_rate   = appcfg::reader_baud();
+    c.file_path   = appcfg::reader_file();
+    c.has_time_tag = appcfg::reader_time_tag();
     return c;
 }
 
 static void save_config_to_settings(const ReaderConfig& c) {
-    QSettings s("ZbMonitor", "BPLC_STA_Monitor");
-    s.setValue("mode",      int(c.mode));
-    s.setValue("comName",   c.serial_name);
-    s.setValue("baud",      c.baud_rate);
-    s.setValue("filePath",  c.file_path);
-    s.setValue("timeTag",   c.has_time_tag);
+    appcfg::set_reader(int(c.mode), c.serial_name, c.baud_rate,
+                       c.file_path, c.has_time_tag);
 }
 
 void MainWindow::on_start() {
@@ -404,7 +406,9 @@ void MainWindow::on_settings() {
 }
 
 void MainWindow::on_apply_filter() {
-    m_model->set_display_filter(m_edt_filter->text().trimmed());
+    const QString expr = m_edt_filter->text().trimmed();
+    m_model->set_display_filter(expr);
+    appcfg::set_filter(expr);              // 记忆到 config.ini,下次启动恢复
 }
 
 PacketEntry MainWindow::make_entry(const BplcParser::Result& r, qint64 now) {
@@ -467,7 +471,7 @@ void MainWindow::on_range_selected(int start, int len) {
 }
 
 void MainWindow::on_check_finished(const QString& url) {
-    if (url != kUpdateUrl) return;
+    if (url != appcfg::update_url()) return;
     bool avail = QSimpleUpdater::getInstance()->getUpdateAvailable(url);
     m_status_left->setText(
         avail ? trl::L("发现新版本,请按提示下载更新")
