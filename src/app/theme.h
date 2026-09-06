@@ -9,8 +9,11 @@
 
 namespace theme {
 
+/// @brief 解析 auto 应用的主题名("dark"/"light",按系统深浅色)
+QString resolve_auto();
+
 /// @brief 应用主题到整个应用
-/// @param name "dark" 或 "light"
+/// @param name "dark" / "light" / "auto"(跟随系统,见 resolve_auto)
 void apply(const QString& name);
 
 }  // namespace theme

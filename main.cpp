@@ -11,6 +11,8 @@
 #include <QCoreApplication>
 #include <QLoggingCategory>
 #include <QLocale>
+#include <QStyleHints>
+#include <QGuiApplication>
 
 static void decide_language() {
     // config.ini [general] lang = auto(默认,跟随系统)/zh/en;不存在则先生成
@@ -34,7 +36,10 @@ int main(int argc, char* argv[]) {
 
     QApplication app(argc, argv);
     decide_language();
-    theme::apply(appcfg::theme());   // 主题(config.ini [general] theme,dark 默认)
+    theme::apply(appcfg::theme());   // 主题(config.ini [general] theme,auto 默认)
+    // 跟随系统:auto 模式下 Windows 深浅色切换时即时重应用主题
+    QObject::connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged,
+                     [] { if (appcfg::theme() == QLatin1String("auto")) theme::apply(QStringLiteral("auto")); });
 
     MainWindow w;
     w.show();

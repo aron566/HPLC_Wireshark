@@ -3,11 +3,14 @@
 /// @details 深色主题资源来自 qdarkstyle/ 子目录(MIT License,见 LICENSE.rst):
 ///          darkstyle.qrc 编译为资源,运行时读 ":/qdarkstyle/dark/darkstyle.qss"
 ///          全局应用。浅色主题即原 Wireshark 风格浅色样式(移自 mainwindow)。
+///          支持 "auto":跟随 Windows 深浅色(Qt6.5+ QStyleHints::colorScheme)。
 #include "theme.h"
 #include "appconfig.h"
 
 #include <QApplication>
 #include <QStyleFactory>
+#include <QStyleHints>
+#include <QGuiApplication>
 #include <QFile>
 #include <QPalette>
 #include <QColor>
@@ -49,16 +52,26 @@ QString dark_qss() {
 
 namespace theme {
 
+/// @brief 当前系统深浅色(dark/light);QStyleHints 不可用(旧平台)时按默认深
+QString resolve_auto() {
+    if (QGuiApplication::styleHints() &&
+        QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark)
+        return QStringLiteral("dark");
+    return QStringLiteral("light");
+}
+
 void apply(const QString& name) {
+    const QString n = (name == QLatin1String("auto")) ? resolve_auto() : name;
+
     QApplication* app = qApp;
     // 统一 Fusion 基础风格(深/浅 QSS 均按 Fusion 设计,保证两态一致)
     app->setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
 
-    if (name == QLatin1String("light")) {
+    if (n == QLatin1String("light")) {
         app->setStyleSheet(QString::fromUtf8(kLightQss));
         return;
     }
-    // 默认深色(QDarkStyleSheet)
+    // 深色(QDarkStyleSheet)
     const QString qss = dark_qss();
     if (qss.isEmpty()) {
         app->setStyleSheet(QString::fromUtf8(kLightQss));   // 资源缺失兜底

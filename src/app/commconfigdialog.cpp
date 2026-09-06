@@ -133,10 +133,11 @@ void CommConfigDialog::build_ui() {
     auto* theme_row = new QHBoxLayout;
     theme_row->addWidget(new QLabel(trl::L("主题/Theme:"), opt_group));
     auto* cmb_theme = new QComboBox(opt_group);
+    cmb_theme->addItem(trl::L("跟随系统"), QStringLiteral("auto"));
     cmb_theme->addItem(trl::L("深色"), QStringLiteral("dark"));
     cmb_theme->addItem(trl::L("浅色"), QStringLiteral("light"));
     cmb_theme->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    cmb_theme->setMinimumContentsLength(6);
+    cmb_theme->setMinimumContentsLength(8);
     theme_row->addWidget(cmb_theme);
     theme_row->addStretch(1);
     opt_lay->addLayout(theme_row);
