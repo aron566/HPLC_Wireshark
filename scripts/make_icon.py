@@ -9,6 +9,7 @@ from PIL import Image, ImageDraw
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "icons")
 os.makedirs(OUT, exist_ok=True)
 S = 256
+CUSTOM = os.path.join(OUT, "custom.png")   # 用户自备源图:icons/custom.png
 
 def draw(size: int) -> Image.Image:
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
@@ -83,7 +84,18 @@ def write_ico(path: str, images: dict, png_size: int = 256) -> None:
             f.write(d)
 
 sizes = [16, 24, 32, 48, 64, 128, 256]
-imgs = {s: draw(s) for s in sizes}
+CUSTOM = os.path.join(OUT, "custom.png")
+
+def source_imgs() -> dict:
+    """优先使用用户自备 icons/custom.png(256x256 RGBA PNG)作为源图,
+    否则回退到内置波形绘制。"""
+    if os.path.exists(CUSTOM):
+        src = Image.open(CUSTOM).convert("RGBA")
+        print("using custom source:", CUSTOM, src.size)
+        return {s: src.resize((s, s), Image.LANCZOS) for s in sizes}
+    return {s: draw(s) for s in sizes}
+
+imgs = source_imgs()
 imgs[256].save(os.path.join(OUT, "app.png"))
 write_ico(os.path.join(OUT, "app.ico"), imgs, png_size=256)
 
