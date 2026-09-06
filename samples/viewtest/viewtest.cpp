@@ -1077,6 +1077,7 @@ int main(int argc, char* argv[]) {
             bf0.allow_beacon = bf0.allow_sof = bf0.allow_ack = bf0.allow_coord = true;
             bf0.link_hplc = bf0.link_hrf = true;
             int n_bcn = 0, n_pad = 0, n_zero = 0, n_crc_last = 0, n_pb24 = 0, n_pb24_ok = 0;
+            int n_rsv0 = 0, n_rsv1 = 0, n_rfch = 0, n_flag = 0;
             BplcFrame fbr;
             while (!buf.isEmpty()) {
                 int i0 = buf.indexOf(char(0x3C));
@@ -1120,6 +1121,13 @@ int main(int argc, char* argv[]) {
                             ++n_pb24;
                             if (nd.value.contains(QStringLiteral("OK"))) ++n_pb24_ok;
                         }
+                        // 51242 表38 字段齐全性:字节0 bit5 保留/字节13-19 保留/
+                        // 无线信道编号/标志位含义注释
+                        if (nd.name == QStringLiteral("RSV0 [1b]")) ++n_rsv0;
+                        if (nd.name == QStringLiteral("RSV1 [56b]")) ++n_rsv1;
+                        if (nd.name == QStringLiteral("NetRfChannel [8b]")) ++n_rfch;
+                        if (nd.name.startsWith(QStringLiteral("NetWorkingFlag"))
+                            && nd.value.contains(QLatin1String(" - "))) ++n_flag;
                         for (const auto& c : nd.children) wk(c);
                     };
                 for (const auto& n : rb.beacon.tree) wk(n);
@@ -1127,10 +1135,14 @@ int main(int argc, char* argv[]) {
             // 期望:每条信标载荷尾部都有 padding 节点(实测 871 帧全有,40~47B),
             // CRC32 行位于字段列表末尾,PB CRC24 紧随其后且校验通过
             bea_ok = (n_bcn > 0 && n_pad == n_bcn && n_crc_last == n_bcn
-                      && n_pb24 == n_bcn && n_pb24_ok == n_bcn);
+                      && n_pb24 == n_bcn && n_pb24_ok == n_bcn
+                      && n_rsv0 == n_bcn && n_rsv1 == n_bcn
+                      && n_rfch == n_bcn && n_flag == n_bcn);
             std::printf("  信标帧=%d 含 PB Padding=%d 全0x00=%d CRC32居末=%d "
-                        "PB CRC24=%d(OK=%d) → %s\n",
+                        "PB CRC24=%d(OK=%d) RSV0=%d RSV1[56b]=%d "
+                        "RfChannel=%d Flag注释=%d → %s\n",
                         n_bcn, n_pad, n_zero, n_crc_last, n_pb24, n_pb24_ok,
+                        n_rsv0, n_rsv1, n_rfch, n_flag,
                         bea_ok ? "OK" : "FAIL");
         }
     }

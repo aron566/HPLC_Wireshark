@@ -335,9 +335,13 @@ BplcParser::Result BplcParser::parse(const BplcFrame& in, MsduState& msdu, const
             r.mpdu.beacon_netsn      = (quint8)get_bits(gp, 16 + 1, 0, 8);
             r.mpdu.beacon_cco_mac    = get_bits(gp, 16 + 2, 0, 48);
             r.mpdu.beacon_period_cnt = (quint32)get_bits(gp, 16 + 8, 0, 32);
-            r.mpdu.beacon_rf_channel = (quint8)get_bits(gp, 16 + 12, 0, 8);
-            r.mpdu.beacon_rf_option  = (quint8)get_bits(gp, 16 + 13, 0, 2);
-            r.mpdu.beacon_item_num   = (quint8)gb.at(16 + 20);
+            // 精简信标(51243 表56)无字节12 信道编号;管理区(条目数)位于
+            // 字节12(精简)或 20(标准)
+            const bool lite = ((quint8)gb.at(16) & 0x10) != 0;
+            r.mpdu.beacon_rf_channel = lite ? 0
+                                            : (quint8)get_bits(gp, 16 + 12, 0, 8);
+            r.mpdu.beacon_rf_option  = 0;
+            r.mpdu.beacon_item_num   = (quint8)gb.at(16 + (lite ? 12 : 20));
         }
     } else if (r.mpdu.frame_type == 2) {
         // ACK FCH:ExtFrameType(12,0,4),然后按类型分支
