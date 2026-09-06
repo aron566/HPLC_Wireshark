@@ -974,6 +974,22 @@ static quint32 beacon_crc32(const quint8* d, int len) {
     return (~crc) & 0xFFFFFFFF;
 }
 
+// PB 物理块检查序列 CRC24(24-bit):poly=0xC60001、init=0、LSB 先行,与
+// BplcParser::crc24 同款;校验目标 = 帧载荷 + 帧载荷校验序列(块内前 len-3B)
+static quint32 beacon_pb_crc24(const quint8* d, int len) {
+    const quint32 poly = 0xC60001;
+    quint32 crc = 0;
+    for (int i = 0; i < len - 3; ++i) {
+        for (int j = 0; j < 8; ++j) {
+            quint32 bit_in = (d[i] >> j) & 0x1;
+            quint32 bit_lsb = crc & 0x1;
+            crc >>= 1;
+            if (bit_in ^ bit_lsb) crc ^= poly;
+        }
+    }
+    return crc & 0xFFFFFF;
+}
+
 static int beacon_pb_size(quint8 tmi) {
     if (tmi == 0 || tmi == 1)                           return 520;
     if (tmi >= 2 && tmi <= 6)                           return 136;
@@ -1251,6 +1267,25 @@ MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
     crc.rel_start = gb.size() - 4;
     crc.rel_len   = 4;
     root.children.append(crc);
+
+    // PB 物理块检查序列(24-bit):紧随载荷 CRC32 之后的块尾 3B。
+    // 校验目标 = 帧载荷 + 帧载荷校验序列 = 块内前 pbsize-3 B(poly 0xC60001)。
+    // 位置相对 gb 起点(载荷区在帧偏移 16)为 pbsize-3,共 3B。
+    if (payload.size() >= 16 + pbsize) {
+        const quint8* blk = p + 16;   // p = payload 数据指针(函数入口已取)
+        quint32 stored = (quint32)blk[pbsize - 3]
+                       | ((quint32)blk[pbsize - 2] << 8)
+                       | ((quint32)blk[pbsize - 1] << 16);
+        const bool ok24 = (stored == beacon_pb_crc24(blk, pbsize));
+        MsduFieldNode pbc;
+        pbc.name  = QStringLiteral("PB CRC24");
+        pbc.value = QStringLiteral("0x%1 %2")
+                        .arg(stored, 6, 16, QChar('0'))
+                        .arg(ok24 ? "OK" : "FAIL");
+        pbc.rel_start = pbsize - 3;   // 相对 gb/载荷区起点(=帧偏移 16)
+        pbc.rel_len   = 3;
+        root.children.append(pbc);
+    }
     return out;
 }
 
