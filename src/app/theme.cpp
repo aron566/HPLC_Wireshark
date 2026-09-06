@@ -27,9 +27,22 @@ const char kLightQss[] =
 /// @brief 读深色 QSS(资源),失败返回空
 QString dark_qss() {
     QFile f(QStringLiteral(":/qdarkstyle/dark/darkstyle.qss"));
-    if (f.open(QIODevice::ReadOnly | QIODevice::Text))
-        return QString::fromUtf8(f.readAll());
-    return {};
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
+    QString qss = QString::fromUtf8(f.readAll());
+    // 本地覆盖(追加于上游样式之后):下拉弹层选项加内边距与最小行高,
+    // 避免深色下选项文字贴边/末项被裁;outline 清除焦点虚线残留。
+    qss += QStringLiteral(
+        "\n/* local fixes (BPLC monitor) */\n"
+        "QComboBox QAbstractItemView {\n"
+        "  outline: 0;\n"
+        "  padding: 2px;\n"
+        "}\n"
+        "QComboBox QAbstractItemView::item {\n"
+        "  min-height: 1.4em;\n"
+        "  padding: 3px 6px;\n"
+        "}\n");
+    return qss;
 }
 
 }  // namespace
