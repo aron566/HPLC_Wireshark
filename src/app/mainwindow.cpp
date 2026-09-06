@@ -28,6 +28,9 @@
 #include <QVBoxLayout>
 #include <QString>
 #include <QMessageBox>
+#include <QPushButton>
+#include <QDesktopServices>
+#include <QUrl>
 
 namespace {
 // 更新检查地址与当前版本(发布时改为正式服务器/仓库后同步更新 README)
@@ -35,6 +38,8 @@ const QString kUpdateUrl =
     QStringLiteral("https://raw.githubusercontent.com/aron566/HPLC_Wireshark/main/update.json");
 const QString kAppVersion = QStringLiteral("1.0.0");
 const QString kModuleName = QStringLiteral("BPLC STA Monitor");
+const QString kAuthorName = QStringLiteral("aron566");
+const QString kRepoUrl    = QStringLiteral("https://github.com/aron566/HPLC_Wireshark");
 }  // namespace
 
 MainWindow::MainWindow(QWidget* parent)
@@ -225,12 +230,29 @@ void MainWindow::build_ui() {
             this, &MainWindow::on_check_finished);
     auto* act_about = menu_help->addAction(QStringLiteral("关于(&A)"));
     connect(act_about, &QAction::triggered, this, [this]() {
-        QMessageBox::about(
-            this, QStringLiteral("关于 BPLC STA Monitor"),
+        // 作者/仓库信息 + “打开仓库”按钮(富文本链接在 QMessageBox 内不可点,
+        // 用 ActionRole 按钮打开默认浏览器)
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Information);
+        box.setWindowTitle(QStringLiteral("关于 BPLC STA Monitor"));
+        box.setTextFormat(Qt::RichText);
+        box.setText(
             QStringLiteral("<h3>%1 %2</h3>"
-                           "<p>BPLC/HRF 协议 STA 报文监控上位机(串口 + 离线回放)。"
-                           "</p><p>更新源:GitHub HPLC_Wireshark 仓库</p>")
-                .arg(kModuleName, kAppVersion));
+                           "<p>BPLC/HRF 协议 STA 报文监控上位机"
+                           "(串口捕获 + 离线回放)。</p>"
+                           "<table>"
+                           "<tr><td><b>作者</b></td><td>%3</td></tr>"
+                           "<tr><td><b>版本</b></td><td>%2</td></tr>"
+                           "<tr><td><b>仓库</b></td><td>%4</td></tr>"
+                           "</table>")
+                .arg(kModuleName, kAppVersion, kAuthorName, kRepoUrl));
+        auto* btn_repo = box.addButton(QStringLiteral("打开仓库(&R)"),
+                                       QMessageBox::ActionRole);
+        QObject::connect(btn_repo, &QPushButton::clicked, [this]() {
+            QDesktopServices::openUrl(QUrl(kRepoUrl));
+        });
+        box.addButton(QMessageBox::Close);
+        box.exec();
     });
 }
 
