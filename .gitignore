@@ -1,0 +1,21 @@
+# ---- Qt / qmake 构建产物 ----
+release/
+debug/
+build/
+Makefile
+Makefile.*
+.qmake.stash
+*.o
+*.obj
+*.user
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+
+# ---- 本地测试/采样产物(含现场报文与 OCR 素材,不上传仓库) ----
+samples/*_build/
+samples/*.bin
+samples/*.png
+samples/*.txt
+samples/viewtest/release/
+samples/headless_build/release/
