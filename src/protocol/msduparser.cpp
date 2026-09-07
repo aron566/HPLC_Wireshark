@@ -1302,12 +1302,12 @@ MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
         MsduFieldNode ln;
         ln.name      = (len_bytes == 2) ? QStringLiteral("ItemLen [16b]")
                                         : QStringLiteral("ItemLen [8b]");
-        ln.value     = QStringLiteral("%1 (内容 %2B)").arg(len_raw).arg(item_len);
+        ln.value     = trl::L("%1 (内容 %2B)").arg(len_raw).arg(item_len);
         ln.rel_start = head_abs + 1;
         ln.rel_len   = len_bytes;
 
         auto& grp = group(mgmt.children,
-                          QStringLiteral("Item[%1] %2 (内容 %3B)")
+                          trl::L("Item[%1] %2 (内容 %3B)")
                               .arg(n).arg(beacon_item_head_name(head)).arg(item_len));
         grp.children.append(hd);
         grp.children.append(ln);
@@ -1361,7 +1361,7 @@ MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
                 // 老化周期个数的单位 = 无线发现列表周期
                 for (auto& ch : grp.children)
                     if (ch.name.startsWith(QStringLiteral("RfRateAgePeriodNum")))
-                        ch.value += QStringLiteral(" (x 发现列表周期)");
+                        ch.value += QLatin1Char(' ') + trl::L("(x 发现列表周期)");
                 break;
             }
             case 0x04: {  // 无线信道变更条目(51242 表55)
@@ -1406,13 +1406,13 @@ MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
                         quint8 rf  = (quint8)get_bits(it, o + 1, 5, 3);
                         slot_leaf(sg.children, QStringLiteral("TEI [12b]"),
                                   QString::number(tei), abs0 + o, 2);
-                        slot_leaf(sg.children, QStringLiteral("信标类型 [1b]"),
+                        slot_leaf(sg.children, QStringLiteral("Beacon Type [1b]"),
                                   QStringLiteral("%1 - %2").arg(bt).arg(
                                       bt == 0 ? trl::L("发现信标")
                                               : (bt == 1 ? trl::L("代理信标")
                                                          : trl::L("保留"))),
                                   abs0 + o + 1, 1);
-                        slot_leaf(sg.children, QStringLiteral("无线信标标志 [3b]"),
+                        slot_leaf(sg.children, QStringLiteral("RF Beacon Flag [3b]"),
                                   QStringLiteral("%1 - %2").arg(rf).arg(rf_wireless_desc(rf)),
                                   abs0 + o + 1, 1);
                         o += 2;
@@ -1479,7 +1479,7 @@ MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
         pad.name = QStringLiteral("PB Padding");
         pad.value = all_zero
             ? QStringLiteral("%1 B (0x00 fill)").arg(pad_len)
-            : QStringLiteral("%1 B (含非 0x00: %2 ...)")
+            : trl::L("%1 B (含非 0x00: %2 ...)")
                   .arg(pad_len)
                   .arg(QString(gb.mid(pos, qMin(pad_len, 8)).toHex(' ')));
         pad.rel_start = pos;
@@ -1586,6 +1586,10 @@ struct I18nReg {
         trl::register_en("载波信标后发无线标准信标", "Carrier then RF standard beacon");
         trl::register_en("载波信标后发无线精简信标", "Carrier then RF lite beacon");
         trl::register_en("载波信标+CSMA时隙发无线精简信标", "Carrier + RF lite beacon in CSMA slot");
+        // 带占位符文案(与 trl::L 原文 key 一致,调用方再 .arg)
+        trl::register_en("%1 (内容 %2B)", "%1 (%2B content)");
+        trl::register_en("Item[%1] %2 (内容 %3B)", "Item[%1] %2 (%3B content)");
+        trl::register_en("%1 B (含非 0x00: %2 ...)", "%1 B (non-zero bytes: %2 ...)");
     }
 };
 const I18nReg g_i18n_reg_msdu;

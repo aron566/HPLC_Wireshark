@@ -1163,6 +1163,8 @@ int main(int argc, char* argv[]) {
             { "终端主动抄表", "Terminal" },          // msduparser 注册
             { "空帧", "empty frame" },                // bplcparser 注册
             { "复制 Hex(%1 字节)", "Copy Hex" },      // i18n 内置表(带占位)
+            { "%1 (内容 %2B)", "%1 (%2B content)" },  // msduparser 信标条目长
+            { "时隙分配条目(TSA,标准信标必选)", "Time Slot Allocation Item" },
         };
         for (const auto& c : checks) {
             const QString got = trl::L(c.zh);
