@@ -990,18 +990,66 @@ static quint32 beacon_pb_crc24(const quint8* d, int len) {
     return crc & 0xFFFFFF;
 }
 
-// 条目头名称(51242 表46):0x00-0x05 长度字段 1B;0xC0 时隙分配 2B
+// 条目头英文全称(51242 表46)
 static QString beacon_item_head_name(quint8 h) {
     switch (h) {
-        case 0x00: return QStringLiteral("STA Cap Item");
-        case 0x01: return QStringLiteral("Route Param Item");
+        case 0x00: return QStringLiteral("STA Capability Item");
+        case 0x01: return QStringLiteral("Route Parameter Item");
         case 0x02: return QStringLiteral("Band Change Item");
-        case 0x03: return QStringLiteral("RF Route Param Item");
+        case 0x03: return QStringLiteral("RF Route Parameter Item");
         case 0x04: return QStringLiteral("RF Channel Change Item");
-        case 0x05: return QStringLiteral("Lite STA & Slot Item");
-        case 0xC0: return QStringLiteral("TSA Item");
+        case 0x05: return QStringLiteral("Lite STA Info & Slot Item");
+        case 0xC0: return QStringLiteral("Time Slot Allocation Item");
         default:   return QStringLiteral("Reserved");  // 0x06..0xBF / 0xC1..0xFF
     }
+}
+
+// 条目头中文含义(表46 定义说明)
+static QString beacon_item_head_desc(quint8 h) {
+    switch (h) {
+        case 0x00: return trl::L("站点能力条目(标准信标必选)");
+        case 0x01: return trl::L("路由参数条目(标准信标必选)");
+        case 0x02: return trl::L("频段变更条目(可选)");
+        case 0x03: return trl::L("无线路由参数条目(标准信标必选)");
+        case 0x04: return trl::L("无线信道变更条目(可选)");
+        case 0x05: return trl::L("精简信标站点信息及时隙条目(精简信标必选)");
+        case 0xC0: return trl::L("时隙分配条目(TSA,标准信标必选)");
+        default:   return trl::L("保留");
+    }
+}
+
+// 相线名称(表47/52/53:0 全相线 1 A相 2 B相 3 C相)
+static QString line_name(quint8 l) {
+    switch (l) {
+        case 0:  return trl::L("全相线");
+        case 1:  return trl::L("A相线");
+        case 2:  return trl::L("B相线");
+        case 3:  return trl::L("C相线");
+        default: return trl::L("保留");
+    }
+}
+
+// 无线信标标志(51242 表51):高速载波信标与无线信标的发送组合方式
+static QString rf_wireless_desc(quint8 rf) {
+    switch (rf) {
+        case 0:  return trl::L("仅发送高速载波信标");
+        case 1:  return trl::L("仅发送无线标准信标");
+        case 2:  return trl::L("载波信标后发无线标准信标");
+        case 3:  return trl::L("载波信标后发无线精简信标");
+        case 4:  return trl::L("载波信标+CSMA时隙发无线精简信标");
+        default: return trl::L("保留");
+    }
+}
+
+// 槽信息叶子节点(字段级展示辅助)
+static void slot_leaf(QVector<MsduFieldNode>& out, const QString& name,
+                      const QString& value, int rel_abs, int rel_len) {
+    MsduFieldNode n;
+    n.name      = name;
+    n.value     = value;
+    n.rel_start = rel_abs;
+    n.rel_len   = rel_len;
+    out.append(n);
 }
 
 static int beacon_pb_size(quint8 tmi) {
@@ -1245,9 +1293,10 @@ MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
         // 条目头/条目长度显式成行(表44/表46):长度字段大小 0xC0 为 2B,其余 1B
         MsduFieldNode hd;
         hd.name      = QStringLiteral("ItemHead [8b]");
-        hd.value     = QStringLiteral("0x%1 - %2")
+        hd.value     = QStringLiteral("0x%1 - %2 - %3")
                            .arg(head, 2, 16, QChar('0'))
-                           .arg(beacon_item_head_name(head));
+                           .arg(beacon_item_head_name(head))
+                           .arg(beacon_item_head_desc(head));
         hd.rel_start = head_abs;
         hd.rel_len   = 1;
         MsduFieldNode ln;
@@ -1277,9 +1326,8 @@ MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
                     }
                     if (ch.name.startsWith(QStringLiteral("STALine"))) {
                         quint8 l = (quint8)get_bits(it, 12, 0, 2);
-                        static const char* nm[] = {"All Lines","LineA","LineB","LineC"};
                         ch.value = QStringLiteral("%1 - %2").arg(l)
-                            .arg(QLatin1String(nm[l <= 3 ? l : 0]));
+                            .arg(line_name(l));
                     }
                 }
                 break;
@@ -1346,56 +1394,65 @@ MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
                 int csma   = (int)get_bits(it, 1, 4, 2);
                 int bind   = (int)get_bits(it, 6, 0, 8);
                 int o = 20;
-                if (beacon_type != 0 && noncco > 0) {  // 非 CCO 信标槽(2B/条)
+                // 三段槽信息独立分组,槽内字段按 51242 表51/52/53 逐行展开
+                if (noncco > 0) {  // 非中央信标信息(2B/条):代理/发现站点时隙
                     auto& ng = group(grp.children,
                         QStringLiteral("NonCCOBeaconInfo [%1]").arg(noncco));
                     for (int i = 0; i < noncco && o + 2 <= it.size(); ++i) {
-                        MsduFieldNode en;
-                        en.name = QStringLiteral("NonCCO[%1]").arg(i);
+                        auto& sg = group(ng.children,
+                            QStringLiteral("NonCCO[%1] (2B)").arg(i), QString());
                         quint16 tei = (quint16)get_bits(it, o, 0, 12);
                         quint8 bt  = (quint8)get_bits(it, o + 1, 4, 1);
                         quint8 rf  = (quint8)get_bits(it, o + 1, 5, 3);
-                        en.value = QStringLiteral("TEI=%1 BeaconType=%2 RF=%3")
-                                       .arg(tei).arg(bt).arg(rf);
-                        en.rel_start = abs0 + o;
-                        en.rel_len   = 2;
-                        ng.children.append(en);
+                        slot_leaf(sg.children, QStringLiteral("TEI [12b]"),
+                                  QString::number(tei), abs0 + o, 2);
+                        slot_leaf(sg.children, QStringLiteral("信标类型 [1b]"),
+                                  QStringLiteral("%1 - %2").arg(bt).arg(
+                                      bt == 0 ? trl::L("发现信标")
+                                              : (bt == 1 ? trl::L("代理信标")
+                                                         : trl::L("保留"))),
+                                  abs0 + o + 1, 1);
+                        slot_leaf(sg.children, QStringLiteral("无线信标标志 [3b]"),
+                                  QStringLiteral("%1 - %2").arg(rf).arg(rf_wireless_desc(rf)),
+                                  abs0 + o + 1, 1);
                         o += 2;
                     }
                 }
-                if (csma > 0) {
+                if (csma > 0) {  // CSMA 时隙信息(4B/条)
                     auto& cg = group(grp.children,
                         QStringLiteral("CSMASlotInfo [%1]").arg(csma));
                     for (int i = 0; i < csma && o + 4 <= it.size(); ++i) {
-                        MsduFieldNode en;
-                        en.name = QStringLiteral("CSMA[%1]").arg(i);
+                        auto& sg = group(cg.children,
+                            QStringLiteral("CSMA[%1] (4B)").arg(i), QString());
                         quint32 len = (quint32)get_bits(it, o, 0, 24);
                         quint8  ln  = (quint8)get_bits(it, o + 3, 0, 2);
-                        static const char* nm[] = {"All Lines","LineA","LineB","LineC"};
-                        en.value = QStringLiteral("len=%1ms line=%2")
-                                       .arg(len)
-                                       .arg(QLatin1String(nm[ln <= 3 ? ln : 0]));
-                        en.rel_start = abs0 + o;
-                        en.rel_len   = 4;
-                        cg.children.append(en);
+                        quint8  rsv = (quint8)get_bits(it, o + 3, 2, 6);
+                        slot_leaf(sg.children, QStringLiteral("CSMA Slot Len [24b]"),
+                                  QStringLiteral("%1 ms").arg(len), abs0 + o, 3);
+                        slot_leaf(sg.children, QStringLiteral("CSMA Slot Line [2b]"),
+                                  QStringLiteral("%1 - %2").arg(ln).arg(line_name(ln)),
+                                  abs0 + o + 3, 1);
+                        slot_leaf(sg.children, QStringLiteral("RSV [6b]"),
+                                  QString::number(rsv), abs0 + o + 3, 1);
                         o += 4;
                     }
                 }
-                if (bind > 0) {
+                if (bind > 0) {  // 绑定 CSMA 时隙信息(4B/条)
                     auto& bg = group(grp.children,
                         QStringLiteral("BindingCSMASlotInfo [%1]").arg(bind));
                     for (int i = 0; i < bind && o + 4 <= it.size(); ++i) {
-                        MsduFieldNode en;
-                        en.name = QStringLiteral("Binding[%1]").arg(i);
+                        auto& sg = group(bg.children,
+                            QStringLiteral("Binding[%1] (4B)").arg(i), QString());
                         quint32 len = (quint32)get_bits(it, o, 0, 24);
                         quint8  ln  = (quint8)get_bits(it, o + 3, 0, 2);
-                        static const char* nm[] = {"All Lines","LineA","LineB","LineC"};
-                        en.value = QStringLiteral("len=%1ms line=%2")
-                                       .arg(len)
-                                       .arg(QLatin1String(nm[ln <= 3 ? ln : 0]));
-                        en.rel_start = abs0 + o;
-                        en.rel_len   = 4;
-                        bg.children.append(en);
+                        quint8  rsv = (quint8)get_bits(it, o + 3, 2, 6);
+                        slot_leaf(sg.children, QStringLiteral("Binding Slot Len [24b]"),
+                                  QStringLiteral("%1 ms").arg(len), abs0 + o, 3);
+                        slot_leaf(sg.children, QStringLiteral("Binding Slot Line [2b]"),
+                                  QStringLiteral("%1 - %2").arg(ln).arg(line_name(ln)),
+                                  abs0 + o + 3, 1);
+                        slot_leaf(sg.children, QStringLiteral("RSV [6b]"),
+                                  QString::number(rsv), abs0 + o + 3, 1);
                         o += 4;
                     }
                 }
@@ -1510,6 +1567,25 @@ struct I18nReg {
         trl::register_en("不允许使用信标进行信道评估", "Channel estimation not allowed");
         trl::register_en("保留值", "Reserved value");
         trl::register_en("(x 发现列表周期)", " (x discovery-list period)");
+        // 条目头含义(表46)
+        trl::register_en("站点能力条目(标准信标必选)", "STA Capability Item (mandatory, standard beacon)");
+        trl::register_en("路由参数条目(标准信标必选)", "Route Parameter Item (mandatory, standard beacon)");
+        trl::register_en("频段变更条目(可选)", "Band Change Item (optional)");
+        trl::register_en("无线路由参数条目(标准信标必选)", "RF Route Parameter Item (mandatory, standard beacon)");
+        trl::register_en("无线信道变更条目(可选)", "RF Channel Change Item (optional)");
+        trl::register_en("精简信标站点信息及时隙条目(精简信标必选)", "Lite STA Info & Slot Item (mandatory, lite beacon)");
+        trl::register_en("时隙分配条目(TSA,标准信标必选)", "Time Slot Allocation Item (mandatory, standard beacon)");
+        trl::register_en("保留", "Reserved");
+        // 相线/无线信标标志(表51/52/53)
+        trl::register_en("全相线", "All lines");
+        trl::register_en("A相线", "Line A");
+        trl::register_en("B相线", "Line B");
+        trl::register_en("C相线", "Line C");
+        trl::register_en("仅发送高速载波信标", "Carrier beacon only");
+        trl::register_en("仅发送无线标准信标", "RF standard beacon only");
+        trl::register_en("载波信标后发无线标准信标", "Carrier then RF standard beacon");
+        trl::register_en("载波信标后发无线精简信标", "Carrier then RF lite beacon");
+        trl::register_en("载波信标+CSMA时隙发无线精简信标", "Carrier + RF lite beacon in CSMA slot");
     }
 };
 const I18nReg g_i18n_reg_msdu;
