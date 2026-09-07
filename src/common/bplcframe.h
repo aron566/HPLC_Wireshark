@@ -17,6 +17,17 @@
 #include <QStringList>
 #include <QVector>
 
+/// @brief TMI → PB 块大小(字节)。与 51242 物理块大小表一致;
+///        信标/单块帧同样按 FCH TMI 查表。-1 = TMI 无效
+inline int beacon_pb_size(quint8 tmi) {
+    if (tmi == 0 || tmi == 1)                           return 520;
+    if (tmi >= 2 && tmi <= 6)                           return 136;
+    if (tmi >= 7 && tmi <= 10)                          return 520;
+    if (tmi == 11 || tmi == 12)                         return 264;
+    if (tmi == 13 || tmi == 14)                         return 72;
+    return -1;
+}
+
 /// @brief 物理层元信息
 struct PhysicalMeta {
     quint32  timestamp;       ///< STA 端 NTB 同步计数,25 kHz tick(40 µs/tick)

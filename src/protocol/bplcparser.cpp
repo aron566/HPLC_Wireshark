@@ -323,6 +323,7 @@ BplcParser::Result BplcParser::parse(const BplcFrame& in, MsduState& msdu, const
         r.mpdu.beacon_timestamp = (quint32)get_bits(p, 4, 0, 32);
         r.mpdu.src_tei          = (quint16)get_bits(p, 8, 0, 12);
         r.mpdu.tmi              = (quint8) get_bits(p, 9, 4, 4);
+        r.mpdu.pb_size          = (quint16)beacon_pb_size(r.mpdu.tmi);  // 单块帧块长
         r.mpdu.symbol_num       = (quint16)get_bits(p, 10, 0, 9);
         r.mpdu.beacon_line      = (quint8) get_bits(p, 11, 1, 2);
         // 载荷区(Beacon Load):BeaconType/NetSN/CCO MAC/周期计数/管理条目

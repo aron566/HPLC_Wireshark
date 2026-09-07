@@ -1062,14 +1062,7 @@ static void slot_leaf(QVector<MsduFieldNode>& out, const QString& name,
     out.append(n);
 }
 
-static int beacon_pb_size(quint8 tmi) {
-    if (tmi == 0 || tmi == 1)                           return 520;
-    if (tmi >= 2 && tmi <= 6)                           return 136;
-    if (tmi >= 7 && tmi <= 10)                          return 520;
-    if (tmi == 11 || tmi == 12)                         return 264;
-    if (tmi == 13 || tmi == 14)                         return 72;
-    return -1;
-}
+// beacon_pb_size 公共实现见 bplcframe.h(供 bplcparser/protocoltree 共用)
 
 // 载荷固定头(相对 gb)。依据 51242 表38 标准信标帧载荷字段:
 //   字节0:类型3b+组网1b+精简1b+保留1b+开始关联1b+信标使用1b

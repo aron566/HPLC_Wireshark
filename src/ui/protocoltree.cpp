@@ -161,6 +161,10 @@ void ProtocolTree::show_packet(const PacketEntry& e) {
         add_bit_field(bcn, "TMI", QString::number(e.mpdu.tmi), 9, 4, 4);
         add_bit_field(bcn, "Symbol Num", QString::number(e.mpdu.symbol_num), 10, 0, 9);
         add_bit_field(bcn, "Line", QString::number(e.mpdu.beacon_line), 11, 1, 2);
+        // 帧级物理块信息:信标帧为单块(FCH 后整块,无 PB 头),块长按 TMI 查表;
+        // PB CRC24 / PB Padding 位于 Beacon Load 字段末尾(见下)
+        if (e.mpdu.pb_size > 0)
+            add_item(bcn, "PB Size", QString::number(e.mpdu.pb_size));
         // 载荷区(Beacon Load)位于 FCH 16B 之后
         if (e.beacon.present) {
             auto* load = add_item(bcn, "Beacon Load", "");
