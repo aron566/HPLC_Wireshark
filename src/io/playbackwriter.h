@@ -84,7 +84,10 @@ inline QByteArray frame_to_playback(const PacketEntry& e) {
         mpdu = e.raw_bytes;
     if (mpdu.isEmpty()) return {};
 
-    const quint16 dlen = quint16(mpdu.size() + 6);
+    // dlen = 数据长度字段(2B LE,反转义后偏移 0-1)。定义:从 phr_mcs 字段
+    // (偏移 6)到帧末的字节数 = 物理元数据 4B + MPDU 长(与固件帧 dlen=MPDU+4
+    // 一致)。本监控器读取端不校验该字段,仅按 0x3C/0x3E 切帧。
+    const quint16 dlen = quint16(mpdu.size() + 4);
     const quint32 ts   = quint32(e.epoch_ms & 0xFFFFFFFFu);
     QByteArray data;
     data.reserve(mpdu.size() + 18);

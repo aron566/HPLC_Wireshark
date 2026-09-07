@@ -92,7 +92,7 @@ mingw32-make -j4
 
 | 字段 | 长度 | 含义 |
 |------|------|------|
-| dlen | 2B LE | 数据长度(**读取端不校验**,按 MPDU+6 填即可) |
+| dlen | 2B LE | 数据长度,见下方说明 |
 | ts   | 4B LE | 时间戳(固件计数/ms;BEACON Info 列展示) |
 | phr_mcs | 1B | 物理层 MCS/调制(HRF) |
 | option | 1B | 物理层选项 |
@@ -100,7 +100,19 @@ mingw32-make -j4
 | isRF | 1B | 0=PLC 载波,非 0=HRF 无线(media_id) |
 | MPDU | 变长 | 完整 MPDU:MPDU_BASE(FCH 16B + PB...)或 BEACON/ACK/COORD |
 
-固件侧输出示例(单块 SOF):`0x3C` + 上述字节 + `0x3E`。
+**dlen 数据长度字段**(2B 小端,位于反转义后偏移 0-1):
+- **定义**:从 `phr_mcs` 字段(偏移 6)到帧末(MPDU 结束)的字节数,
+  即 `物理元数据 4B(phr_mcs/option/channel/isRF)+ MPDU 长度`;
+  等价于 `dlen = MPDU 长 + 4`(实测固件帧即此值,如 152B MPDU → dlen=156)。
+- **范围约定**:`dlen` **不含自身与 ts 字段**,也不含 `0x3C`/`0x3E`
+  哨兵,且按**反转义后**的字节数计(转义展开的 `0x3D xx` 不计入)。
+- **校验**:监控器读取端**不校验** dlen——切帧只依赖 `0x3C`/`0x3E`
+  哨兵;因此该字段主要供对端/日志工具参考。程序导出回放 bin 时按
+  同一规则填写(`MPDU 长 + 4`),与固件帧一致。
+
+固件侧输出示例(单块 SOF 152B MPDU):`0x3C` + [dlen=0x9C 0x00] + [ts 4B] +
+[phr] [option] [channel] [isRF] + [MPDU 152B] + `0x3E`(0x9C00 = 156 =
+152+4)。
 
 ### 回放 .bin 文件格式
 
