@@ -107,8 +107,8 @@ struct MpduInfo {
     quint16 coord_duration;   ///< 协调时隙占用时长 16-bit(ms)
     quint16 coord_shift;      ///< 下次时隙偏移 16-bit(ms)
     quint32 coord_neighbour_nid; ///< 邻居网络号 24-bit
-    quint8  coord_rf_channel; ///< 无线信道号 8-bit
-    quint8  coord_rf_option;  ///< 无线 Option 2-bit
+    quint8  coord_rf_channel; ///< 无线信道号 8-bit(表26 本网络无线信道编号)
+    quint8  coord_rsv0;       ///< 保留 4-bit(表26 字节12 bit0-3)
 
     // ---- ACK 扩展帧类型(12,0,4):0=常规 ACK 1=Search 2=Sync 3=切频 ----
     quint8  ack_ext_type;     ///< ACK 扩展类型
@@ -136,7 +136,7 @@ struct MpduInfo {
           beacon_period_cnt(0), beacon_rf_channel(0), beacon_rf_option(0),
           beacon_item_num(0),
           coord_duration(0), coord_shift(0), coord_neighbour_nid(0),
-          coord_rf_channel(0), coord_rf_option(0),
+          coord_rf_channel(0), coord_rsv0(0),
           ack_ext_type(0), ack_rx_res(0), ack_rx_status(0), ack_rx_pb_num(0),
           ack_rsv0(0), ack_channel_quality(0), ack_sta_load(0), ack_rsv1(0),
           ack_dst_addr(0),

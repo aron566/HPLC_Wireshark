@@ -351,15 +351,15 @@ void ProtocolTree::show_packet(const PacketEntry& e) {
                 break;
         }
     } else if (e.mpdu.frame_type == 3) {
-        // COORD:TimeDuration(4,0,16) NextShift(6,0,16) NeighbourNID(8,0,24)
-        //       NetRfChannel(11,0,8) NetRfOption(12,0,2)
+        // COORD 可变区域(表26):TimeDuration(4,16)/NextTimeSlotShift(6,16)
+        // NeighbourNID(8,24)/NetRfChannel(11,8)/RSV0(12,0,4)
         auto* coord = add_item(root, "COORD", "");
         add_bit_field(coord, "TimeDuration",    QString("%1 ms").arg(e.mpdu.coord_duration), 4, 0, 16);
         add_bit_field(coord, "NextTimeSlotShift", QString("%1 ms").arg(e.mpdu.coord_shift), 6, 0, 16);
         add_bit_field(coord, "NeighbourNID",    QString("0x%1")
             .arg(e.mpdu.coord_neighbour_nid, 6, 16, QChar('0')), 8, 0, 24);
         add_bit_field(coord, "NetRfChannel",    QString::number(e.mpdu.coord_rf_channel), 11, 0, 8);
-        add_bit_field(coord, "NetRfOption",     QString::number(e.mpdu.coord_rf_option), 12, 0, 2);
+        add_bit_field(coord, "RSV0",            QString::number(e.mpdu.coord_rsv0), 12, 0, 4);
     }
 
     expandAll();

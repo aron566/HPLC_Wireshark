@@ -1,7 +1,7 @@
 /// @file coordparser.h
 /// @brief 网间协调帧(COORD)解析模块声明(51242 COORD:FCH 时隙参数)
-/// @details 协调帧的 FCH 字段(TimeDuration/NextShift/NeighbourNID/
-///          NetRfChannel/NetRfOption),填充 MpduInfo。
+/// @brief 协调帧的 FCH 字段(TimeDuration/NextTimeSlotShift/NeighbourNID/
+///          NetRfChannel/RSV0,表26),填充 MpduInfo。
 #ifndef CORDPARSER_H
 #define CORDPARSER_H
 
