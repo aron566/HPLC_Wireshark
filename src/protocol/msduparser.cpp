@@ -351,6 +351,19 @@ static const FieldSpec kAssocCnfSpec[] = {
     {"RSV2",            36, 0, 32, Fmt::DEC},
 };
 static const int kAssocCnfSpecN = int(sizeof(kAssocCnfSpec) / sizeof(kAssocCnfSpec[0]));
+static const FieldSpec kAssocGatherIndSpec[] = {
+    // 关联汇总指示(5134 表76,相对 b=MMeHeadSize 起)
+    {"AssocResult",      0, 0, 8,  Fmt::DEC},
+    {"STALevel",         1, 0, 8,  Fmt::DEC},
+    {"CCOMACAddr",       2, 0, 48, Fmt::MAC},
+    {"ProxyTEI",         8, 0, 12, Fmt::DEC},
+    {"CarrierFreq",      9, 4, 2,  Fmt::DEC},
+    {"RSV0",             9, 6, 2,  Fmt::DEC},
+    {"RSV1",            10, 0, 8,  Fmt::DEC},
+    {"NewSTANumber",    11, 0, 8,  Fmt::DEC},
+    {"RSV2",            12, 0, 32, Fmt::DEC},
+};
+static const int kAssocGatherIndSpecN = int(sizeof(kAssocGatherIndSpec) / sizeof(kAssocGatherIndSpec[0]));
 
 // ---- MMeChangeProxyReq (0x03) ----
 static const FieldSpec kChangeProxyReqSpec[] = {
@@ -670,6 +683,49 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                             cn.rel_len   = 2;
                             pn.children.append(cn);
                         }
+                    }
+                }
+                break;
+            }
+            case MME_ASSOC_GATHER_IND: {
+                // MMeAssocGatherInd(关联汇总指示,5134):固定头 16B(表76)
+                // + 站点信息表(表78,每条 8B=MAC6+TEI12b+保留4b,16 起)
+                add_fields(root.children, b, 0, kAssocGatherIndSpec,
+                           kAssocGatherIndSpecN, head_size + 4);
+                apply_dicts(root.children);
+                // 结果(51342):固定 0=允许加入网络,其它无效
+                for (auto& ch : root.children) {
+                    if (!ch.name.startsWith(QStringLiteral("AssocResult"))) continue;
+                    quint8 ar = (quint8)get_bits(b, 0, 0, 8);
+                    ch.value = QStringLiteral("%1 - %2").arg(ar).arg(
+                        ar == 0 ? QStringLiteral("Allowed to join network")
+                                : QStringLiteral("Invalid"));
+                }
+                int sta_num = (int)get_bits(b, 11, 0, 8);  // 汇总站点数(51347)
+                int off = 16;                              // 站点信息起点
+                if (sta_num > 0 && off + 8 <= b.size()) {
+                    auto& sgi = group(root.children,
+                                      QStringLiteral("STAInfo [%1]").arg(sta_num));
+                    for (int i = 0; i < sta_num && off + 8 <= b.size(); ++i) {
+                        const int rel0 = head_size + 4 + off;
+                        auto& ns = group(sgi.children,
+                                         QStringLiteral("NewSTA[%1]").arg(i));
+                        MsduFieldNode mac;
+                        mac.name  = QStringLiteral("STAMACAddr [48b]");
+                        mac.value = mac_str((quint64)get_bits(b, off, 0, 48));
+                        mac.rel_start = rel0; mac.rel_len = 6;
+                        ns.children.append(mac);
+                        MsduFieldNode tei;
+                        tei.name  = QStringLiteral("STATEI [12b]");
+                        tei.value = QString::number((quint16)get_bits(b, off + 6, 0, 12));
+                        tei.rel_start = rel0 + 6; tei.rel_len = 2;
+                        ns.children.append(tei);
+                        MsduFieldNode rv;
+                        rv.name  = QStringLiteral("RSV0 [4b]");
+                        rv.value = QString::number((quint8)get_bits(b, off + 7, 4, 4));
+                        rv.rel_start = rel0 + 7; rv.rel_len = 1;
+                        ns.children.append(rv);
+                        off += 8;
                     }
                 }
                 break;
