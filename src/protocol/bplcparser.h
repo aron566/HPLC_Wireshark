@@ -35,7 +35,7 @@ public:
         QString      reject_reason;
         QByteArray   payload_for_log;
 
-        Result() : accept(false), msdu_raw_base(-1) {}
+        Result() : msdu_raw_base(-1), accept(false) {}
     };
 
     struct Filter {
