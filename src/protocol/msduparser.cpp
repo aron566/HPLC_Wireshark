@@ -274,17 +274,23 @@ static const FieldSpec kAssocReqSpec[] = {
 };
 static const int kAssocReqSpecN = int(sizeof(kAssocReqSpec) / sizeof(kAssocReqSpec[0]));
 
-// AssocReq 固定区(0..23)之后的尾部字段(表60:厂家自定义信息 24-41 单独
-// 展示于其间;42-51 站点版本信息;52+ 复位计数/代理类型/端到端序号)
+// 站点版本信息(513211 表66,相对 42:10B):
+// 系统启动原因/BOOT版本号/软件版本号(BCD)/版本时间(年7+月4+日5)/
+// 厂商代码(ASCII)/芯片代码
+static const FieldSpec kStaVerSpec[] = {
+    {"BootReason",        0, 0, 8,  Fmt::DEC},
+    {"BootVersion",       1, 0, 8,  Fmt::DEC},
+    {"SoftwareVersion",   2, 0, 16, Fmt::HEX4},
+    {"VersionDataYear",   4, 0, 7,  Fmt::DEC},
+    {"VersionDataMonth",  4, 7, 4,  Fmt::DEC},
+    {"VersionDataDay",    5, 3, 5,  Fmt::DEC},
+    {"ManufacturerID",    6, 0, 16, Fmt::HEX4},
+    {"ChipID",            8, 0, 16, Fmt::HEX4},
+};
+static const int kStaVerSpecN = int(sizeof(kStaVerSpec) / sizeof(kStaVerSpec[0]));
+
+// AssocReq 版本信息之后(52..60):硬/软复位累积次数、代理类型、保留、端到端序号
 static const FieldSpec kAssocReqTailSpec[] = {
-    {"BootReason",        42, 0, 8,  Fmt::DEC},
-    {"BootVersion",       43, 0, 8,  Fmt::DEC},
-    {"SoftwareVersion",   44, 0, 16, Fmt::DEC},
-    {"VersionDataYear",   46, 0, 7,  Fmt::DEC},
-    {"VersionDataMonth",  46, 7, 4,  Fmt::DEC},
-    {"VersionDataDay",    47, 3, 5,  Fmt::DEC},
-    {"ManufacturerID",    48, 0, 16, Fmt::HEX4},
-    {"ChipID",            50, 0, 16, Fmt::HEX4},
     {"HardRstCount",      52, 0, 16, Fmt::DEC},
     {"SoftRstCount",      54, 0, 16, Fmt::DEC},
     {"ProxyType",         56, 0, 8,  Fmt::DEC},
@@ -515,9 +521,9 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
         QByteArray b = msdu_body.mid(4);
         switch (mm_type) {
             case 0x00: {
-                // MMeAssocReq(关联请求),字段按表60 字节序:
-                // 固定区(0..23,含随机数)→ 厂家自定义信息(24-41)→
-                // 站点版本信息/复位计数/端到端序号(42..60)→ 管理ID(64-87)
+                // MMeAssocReq(关联请求),字段按 51321/表60 结构:
+                // 固定区(0..23)→ 厂家自定义信息(24-41)→ 站点版本信息
+                // (42-51,组)→ 复位计数/代理类型/端到端序号(52..60)→ 管理ID
                 add_fields(root.children, b, 0, kAssocReqSpec, kAssocReqSpecN, head_size + 4);
                 MsduFieldNode mn;
                 mn.name  = QStringLiteral("ManufacturerInfo [144b]");
@@ -525,9 +531,36 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                 mn.rel_start = head_size + 4 + 24;
                 mn.rel_len   = 18;
                 root.children.append(mn);
+                // 站点版本信息(513211 表66)
+                auto& ver = group(root.children, trl::L("站点版本信息"));
+                add_fields(ver.children, b, 42, kStaVerSpec, kStaVerSpecN, head_size + 4);
+                for (auto& v : ver.children) {
+                    // 软件版本号:BCD(与本地通信模块接口协议一致)
+                    if (v.name.startsWith(QStringLiteral("SoftwareVersion")))
+                        v.value += QStringLiteral(" (BCD)");
+                    // 厂商代码:ASCII(表66;值为 2 字节 ASCII)
+                    else if (v.name.startsWith(QStringLiteral("ManufacturerID"))) {
+                        QByteArray as = b.mid(48, 2);
+                        QString a;
+                        for (char c : as) a += c >= 0x20 && c < 0x7F ? c : '.';
+                        v.value = QStringLiteral("\"%1\" (0x%2)")
+                                      .arg(a).arg(quint16(v.value.toUInt(nullptr, 16)),
+                                                  4, 16, QChar('0'));
+                    }
+                }
+                apply_dicts(ver.children);   // 系统启动原因字典(表67)
                 add_fields(root.children, b, 0, kAssocReqTailSpec, kAssocReqTailSpecN,
                            head_size + 4);
                 apply_dicts(root.children);
+                // 代理类型(表69):0=站点动态选择的代理,其它保留
+                for (auto& ch : root.children) {
+                    if (ch.name.startsWith(QStringLiteral("ProxyType"))) {
+                        quint8 pt = (quint8)get_bits(b, 56, 0, 8);
+                        ch.value = QStringLiteral("%1 - %2").arg(pt).arg(
+                            pt == 0 ? trl::L("站点动态选择的代理")
+                                    : trl::L("保留"));
+                    }
+                }
                 MsduFieldNode mid;
                 mid.name  = QStringLiteral("ManagementID [192b]");
                 mid.value = bytes_hex(b, 64, 24);
@@ -873,6 +906,8 @@ struct I18nReg {
         trl::register_en("路由主动抄表", "Router meter reading");
         trl::register_en("终端主动并发抄表", "Terminal concurrent meter reading");
         trl::register_en("校时", "Time sync");
+        trl::register_en("站点版本信息", "STA Version Info");
+        trl::register_en("站点动态选择的代理", "Proxy chosen by the STA");
         trl::register_en("通信测试", "Comm test");
         trl::register_en("事件上报", "Event report");
         trl::register_en("查询从节点主动注册", "Query slave node registration");
