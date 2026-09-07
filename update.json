@@ -1,9 +1,9 @@
 {
   "updates": {
     "windows": {
-      "latest-version": "1.0.7",
-      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.7/BPLC_STA_Monitor_Setup_v1.0.7.exe",
-      "changelog": "网间协调帧(COORD)可变区域按规范表26 修正:NetRfOption 更正为保留 RSV0(12,0,4);<br/>Table INFO 列所有帧型统一显示帧头 NetID(可按 NetID 过滤);<br/>修复新克隆编译失败(MsduState 定义漏提交)",
+      "latest-version": "1.0.8",
+      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.8/BPLC_STA_Monitor_Setup_v1.0.8.exe",
+      "changelog": "新增裸 hex 数据回放与导出:每行一帧 [ts 4B LE][phr_mcs][option][channel][isRF][MPDU],无 0x3C 封装,按 ts 还原起始时间戳(无 ts 自动回退本地);<br/>MMeAssocGatherInd(关联汇总指示 5134)字段解析(站点信息表逐条);<br/>AssocCnf 路由表信息组名 RouteInfo;<br/>README:裸 hex 格式说明 + 许可改为 Apache-2.0",
       "mandatory-update": false
     }
   }

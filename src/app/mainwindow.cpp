@@ -40,7 +40,7 @@
 
 namespace {
 // 当前版本与仓库信息(更新检查地址见 config.ini [general] update_url)
-const QString kAppVersion = QStringLiteral("1.0.7");
+const QString kAppVersion = QStringLiteral("1.0.8");
 const QString kModuleName = QStringLiteral("BPLC STA Monitor");
 const QString kAuthorName = QStringLiteral("aron566");
 const QString kRepoUrl    = QStringLiteral("https://github.com/aron566/HPLC_Wireshark");
