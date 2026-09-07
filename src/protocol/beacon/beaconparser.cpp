@@ -16,21 +16,8 @@
 // 载荷固定头字段相对 gb 起点。解析输出与 Python log 对照:
 //   BeaconType/NetWorkingFlag/SimpleBeaconFlag/AssociationFlag/BeaconCEFlag
 //   NetSN/CCO_MAC/BeaconPeriodCount/NetRfChannel/NetRfOption + ItemNum + 各条目
-// PB 物理块检查序列 CRC24(24-bit):poly=0xC60001、init=0、LSB 先行,与
-// BplcParser::crc24 同款;校验目标 = 帧载荷 + 帧载荷校验序列(块内前 len-3B)
-static quint32 beacon_pb_crc24(const quint8* d, int len) {
-    const quint32 poly = 0xC60001;
-    quint32 crc = 0;
-    for (int i = 0; i < len - 3; ++i) {
-        for (int j = 0; j < 8; ++j) {
-            quint32 bit_in = (d[i] >> j) & 0x1;
-            quint32 bit_lsb = crc & 0x1;
-            crc >>= 1;
-            if (bit_in ^ bit_lsb) crc ^= poly;
-        }
-    }
-    return crc & 0xFFFFFF;
-}
+// PB 物理块检查序列 CRC24:公共 crc24_lsb(fieldspec.h,poly=0xC60001、
+// init=0、LSB 先行);校验目标 = 帧载荷 + 帧载荷校验序列(块内前 len-3B)
 
 // 信标类型名称(51242 表39:0 发现信标/1 代理信标/2 中央信标/其它保留)
 static QString beacon_type_name(quint8 t) {
@@ -544,7 +531,7 @@ MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
         quint32 stored = (quint32)blk[pbsize - 3]
                        | ((quint32)blk[pbsize - 2] << 8)
                        | ((quint32)blk[pbsize - 1] << 16);
-        const bool ok24 = (stored == beacon_pb_crc24(blk, pbsize));
+        const bool ok24 = (stored == crc24_lsb(blk, pbsize));
         MsduFieldNode pbc;
         pbc.name  = QStringLiteral("PB CRC24");
         pbc.value = QStringLiteral("0x%1 %2")

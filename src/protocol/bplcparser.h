@@ -10,16 +10,6 @@
 #include <QObject>
 #include <functional>
 
-/// @brief MSDU 跨帧重组状态
-struct MsduState {
-    QByteArray buffer;
-    int        received_count;
-    int        expected_len;
-    bool       complete;
-
-    MsduState() : received_count(0), expected_len(0), complete(false) {}
-};
-
 class Statistics;
 
 class BplcParser {
@@ -65,17 +55,9 @@ public:
 
     Result parse(const BplcFrame& in, MsduState& msdu, const Filter& f);
 
-    static quint32 crc24(const quint8* data, int len);
-    static quint32 crc32(const quint8* data, int len);
-
 private:
     bool decode_envelope(const BplcFrame& in, Result& r);
     bool parse_mpdu_base(const QByteArray& body, MpduInfo& info, QString& err);
-    void parse_sof_and_assemble(const QByteArray& body, MpduInfo& info,
-                               MsduState& msdu, QByteArray& complete_msdu_body,
-                               QString& err);
-    static quint64 get_bits(const quint8* data, int start_byte, int start_bit, int bit_len);
-    static quint64 get_bits(const QByteArray& data, int start_byte, int start_bit, int bit_len);
 };
 
 Q_DECLARE_METATYPE(BplcParser::Filter)

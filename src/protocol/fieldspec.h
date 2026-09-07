@@ -123,4 +123,20 @@ inline quint32 crc32_le(const quint8* d, int len) {
     return (~crc) & 0xFFFFFFFF;
 }
 
+/// 通用 CRC24(poly=0xC60001, init=0, LSB 先行);遍历前 len-3 字节,
+/// 存储值为末 3B(低字节在前)——FCH/PB 物理块检查序列同算法
+inline quint32 crc24_lsb(const quint8* d, int len) {
+    const quint32 poly = 0xC60001;
+    quint32 crc = 0;
+    for (int i = 0; i < len - 3; ++i) {
+        for (int j = 0; j < 8; ++j) {
+            quint32 bit_in  = (d[i] >> j) & 0x1;
+            quint32 bit_lsb = crc & 0x1;
+            crc >>= 1;
+            if (bit_in ^ bit_lsb) crc ^= poly;
+        }
+    }
+    return crc & 0xFFFFFF;
+}
+
 #endif // FIELDSPEC_H
