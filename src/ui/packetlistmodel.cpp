@@ -92,18 +92,12 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                 if (e.mpdu.frame_type == 1) {
                     QString msdu = e.msdu_body.isEmpty() ? QString() :
                                    QStringLiteral(" MSDU[%1B]").arg(e.msdu_body.size());
-                    return QStringLiteral("src=%1 dst=%2 TMI=%3 PBNum=%4%5")
-                           .arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
+                    return QStringLiteral("NetID=0x%1 src=%2 dst=%3 TMI=%4 PBNum=%5%6")
+                           .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
                            .arg(e.mpdu.tmi).arg(e.mpdu.pb_num).arg(msdu);
                 }
-                // 网间协调帧(表26):INFO 附加携带的邻居网络号
-                if (e.mpdu.frame_type == 3) {
-                    return QStringLiteral("src=%1 dst=%2 NID=0x%3")
-                           .arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
-                           .arg(e.mpdu.coord_neighbour_nid, 6, 16, QChar('0'));
-                }
-                return QStringLiteral("src=%1 dst=%2")
-                       .arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei);
+                return QStringLiteral("NetID=0x%1 src=%2 dst=%3")
+                       .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei);
             }
         }
     } else if (role == Qt::ForegroundRole) {
@@ -152,11 +146,6 @@ QString entry_search_text(const PacketEntry& e) {
     // NetID:支持 "cda1d5" / "0xcda1d5" 两种写法
     QString nid = QString::number(e.mpdu.net_id, 16);
     parts << nid << QStringLiteral("0x%1").arg(nid);
-    // 协调帧携带的邻居网络号(表26 NeighbourNID,可搜 "nid=0x..")
-    if (e.mpdu.frame_type == 3) {
-        const QString cnid = QString::number(e.mpdu.coord_neighbour_nid, 16);
-        parts << cnid << QStringLiteral("0x%1").arg(cnid);
-    }
     parts << QString::number(e.mpdu.src_tei) << QString::number(e.mpdu.dst_tei);
     // MSDU 概要(MMeAssocReq / APP EventPacket 等)
     if (e.msdu.present) parts << e.msdu.summary.toLower();
