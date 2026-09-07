@@ -611,7 +611,7 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                     quint16 route_sz = (quint16)get_bits(b, off + 4, 0, 16);
                     quint16 rsv3     = (quint16)get_bits(b, off + 6, 0, 16);
                     // 路由信息头(表74):直连站点数/直连代理数/路由表大小/保留
-                    auto& route = group(root.children, trl::L("路由表信息"),
+                    auto& route = group(root.children, QStringLiteral("RouteInfo"),
                                         QStringLiteral("%1 B").arg(route_sz));
                     MsduFieldNode r1;
                     r1.name  = QStringLiteral("StraightSTASum [16b]");
@@ -972,7 +972,6 @@ struct I18nReg {
         trl::register_en("终端主动并发抄表", "Terminal concurrent meter reading");
         trl::register_en("校时", "Time sync");
         trl::register_en("站点版本信息", "STA Version Info");
-        trl::register_en("路由表信息", "Route Info");
         trl::register_en("站点动态选择的代理", "Proxy chosen by the STA");
         trl::register_en("通信测试", "Comm test");
         trl::register_en("事件上报", "Event report");
