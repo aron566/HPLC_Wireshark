@@ -28,6 +28,16 @@ inline int beacon_pb_size(quint8 tmi) {
     return -1;
 }
 
+/// @brief MSDU 跨帧重组状态(SOF 多 PB 块)
+struct MsduState {
+    QByteArray buffer;
+    int        received_count;
+    int        expected_len;
+    bool       complete;
+
+    MsduState() : received_count(0), expected_len(0), complete(false) {}
+};
+
 /// @brief 物理层元信息
 struct PhysicalMeta {
     quint32  timestamp;       ///< STA 端 NTB 同步计数,25 kHz tick(40 µs/tick)
