@@ -9,6 +9,30 @@
 #include <cstdint>
 
 // ---------- 工具:取位域(与 bplcparser 同算法,本地独立实现) ----------
+/// @brief MMe 管理消息类型(表59,8bit;不处理时保留枚举供扩展)
+enum MMeType : quint8 {
+    MME_ASSOC_REQ                 = 0x00,
+    MME_ASSOC_CNF                 = 0x01,
+    MME_ASSOC_GATHER_IND          = 0x02,
+    MME_CHANGE_PROXY_REQ          = 0x03,
+    MME_CHANGE_PROXY_CNF          = 0x04,
+    MME_CHANGE_PROXY_BITMAP_CNF   = 0x05,
+    MME_LEAVE_IND                 = 0x06,
+    MME_HEARTBEAT_CHECK           = 0x07,
+    MME_DISCOVER_NODE_LIST        = 0x08,
+    MME_SUCCESS_RATE_REPORT       = 0x09,
+    MME_NETWORK_CONFLICT_REPORT   = 0x0A,
+    MME_ZERO_CROSS_NTB_COLLECT_IND= 0x0B,
+    MME_ZERO_CROSS_NTB_REPORT     = 0x0C,
+    MME_DIAGNOSE                  = 0x4F,
+    MME_ROUTE_REQUEST             = 0x50,
+    MME_ROUTE_REPLY               = 0x51,
+    MME_ROUTE_ERROR               = 0x52,
+    MME_ROUTE_ACK                 = 0x53,
+    MME_LINK_CONFIRM_REQUEST      = 0x54,
+    MME_LINK_CONFIRM_RESPONSE     = 0x55,
+    MME_RF_CHANNEL_CONFLICT_REPORT= 0x80,
+};
 // ================= 公共头字段表(Python MSDU_BASE) =================
 static const FieldSpec kMsduBaseSpec[] = {
     {"Version",             0, 0, 4,  Fmt::DEC},
@@ -43,27 +67,27 @@ static const FieldSpec kMsduMacSpec[] = {
 // ================= MMe 公共头(MMe_BASE):MMType(0,0,8) RSV(2,0,8) =================
 static QString mme_type_name(quint8 t) {
     switch (t) {
-        case 0x00: return QStringLiteral("MMeAssocReq");
-        case 0x01: return QStringLiteral("MMeAssocCnf");
-        case 0x02: return QStringLiteral("MMeAssocGatherInd");
-        case 0x03: return QStringLiteral("MMeChangeProxyReq");
-        case 0x04: return QStringLiteral("MMeChangeProxyCnf");
-        case 0x05: return QStringLiteral("MMeChangeProxyBitMapCnf");
-        case 0x06: return QStringLiteral("MMeLeaveInd");
-        case 0x07: return QStringLiteral("MMeHeartBeatCheck");
-        case 0x08: return QStringLiteral("MMeDiscoveryNodeList");
-        case 0x09: return QStringLiteral("MMeSuccessRateReport");
-        case 0x0a: return QStringLiteral("MMeNetworkConflictReport");
-        case 0x0b: return QStringLiteral("MMeZeroCrossNTBCollectInd");
-        case 0x0c: return QStringLiteral("MMeZeroCrossNTBReport");
-        case 0x4f: return QStringLiteral("MMeDiagnose");
-        case 0x50: return QStringLiteral("MMeRouteRequest");
-        case 0x51: return QStringLiteral("MMeRouteReply");
-        case 0x52: return QStringLiteral("MMeRouteError");
-        case 0x53: return QStringLiteral("MMeRouteAck");
-        case 0x54: return QStringLiteral("MMeLinkConfirmRequest");
-        case 0x55: return QStringLiteral("MMeLinkConfirmResponse");
-        case 0x80: return QStringLiteral("MMeRFChannelConflictReport");
+        case MME_ASSOC_REQ: return QStringLiteral("MMeAssocReq");
+        case MME_ASSOC_CNF: return QStringLiteral("MMeAssocCnf");
+        case MME_ASSOC_GATHER_IND: return QStringLiteral("MMeAssocGatherInd");
+        case MME_CHANGE_PROXY_REQ: return QStringLiteral("MMeChangeProxyReq");
+        case MME_CHANGE_PROXY_CNF: return QStringLiteral("MMeChangeProxyCnf");
+        case MME_CHANGE_PROXY_BITMAP_CNF: return QStringLiteral("MMeChangeProxyBitMapCnf");
+        case MME_LEAVE_IND: return QStringLiteral("MMeLeaveInd");
+        case MME_HEARTBEAT_CHECK: return QStringLiteral("MMeHeartBeatCheck");
+        case MME_DISCOVER_NODE_LIST: return QStringLiteral("MMeDiscoveryNodeList");
+        case MME_SUCCESS_RATE_REPORT: return QStringLiteral("MMeSuccessRateReport");
+        case MME_NETWORK_CONFLICT_REPORT: return QStringLiteral("MMeNetworkConflictReport");
+        case MME_ZERO_CROSS_NTB_COLLECT_IND: return QStringLiteral("MMeZeroCrossNTBCollectInd");
+        case MME_ZERO_CROSS_NTB_REPORT: return QStringLiteral("MMeZeroCrossNTBReport");
+        case MME_DIAGNOSE: return QStringLiteral("MMeDiagnose");
+        case MME_ROUTE_REQUEST: return QStringLiteral("MMeRouteRequest");
+        case MME_ROUTE_REPLY: return QStringLiteral("MMeRouteReply");
+        case MME_ROUTE_ERROR: return QStringLiteral("MMeRouteError");
+        case MME_ROUTE_ACK: return QStringLiteral("MMeRouteAck");
+        case MME_LINK_CONFIRM_REQUEST: return QStringLiteral("MMeLinkConfirmRequest");
+        case MME_LINK_CONFIRM_RESPONSE: return QStringLiteral("MMeLinkConfirmResponse");
+        case MME_RF_CHANNEL_CONFLICT_REPORT: return QStringLiteral("MMeRFChannelConflictReport");
         default:   return QStringLiteral("Unknown(0x%1)").arg(t, 2, 16, QChar('0'));
     }
 }
@@ -520,7 +544,7 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
         // body 从 MMeHeadSize=4 起
         QByteArray b = msdu_body.mid(4);
         switch (mm_type) {
-            case 0x00: {
+            case MME_ASSOC_REQ: {
                 // MMeAssocReq(关联请求),字段按 51321/表60 结构:
                 // 固定区(0..23)→ 厂家自定义信息(24-41)→ 站点版本信息
                 // (42-51,组)→ 复位计数/代理类型/端到端序号(52..60)→ 管理ID
@@ -569,7 +593,7 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                 root.children.append(mid);
                 break;
             }
-            case 0x01: {
+            case MME_ASSOC_CNF: {
                 // MMeAssocCnf(关联确认):固定头到 b[40],RouteInfo 从 b[40] 起
                 add_fields(root.children, b, 0, kAssocCnfSpec, kAssocCnfSpecN, head_size + 4);
                 apply_dicts(root.children);
@@ -623,11 +647,11 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case 0x03:
+            case MME_CHANGE_PROXY_REQ:
                 add_fields(root.children, b, 0, kChangeProxyReqSpec, kChangeProxyReqSpecN, head_size + 4);
                 apply_dicts(root.children);
                 break;
-            case 0x05: {
+            case MME_CHANGE_PROXY_BITMAP_CNF: {
                 // MMeChangeProxyBitMapCnf:固定头到 b[20],随后 BitMap(BitMapSize 字节)
                 add_fields(root.children, b, 0, kChangeProxyBitMapCnfSpec, kChangeProxyBitMapCnfSpecN, head_size + 4);
                 apply_dicts(root.children);
@@ -651,7 +675,7 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case 0x07: {
+            case MME_HEARTBEAT_CHECK: {
                 // MMeHeartBeatCheck:bitmap → TEI 列表
                 add_fields(root.children, b, 0, kHeartBeatSpec, kHeartBeatSpecN, head_size + 4);
                 apply_dicts(root.children);
@@ -673,7 +697,7 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case 0x08: {
+            case MME_DISCOVER_NODE_LIST: {
                 // MMeDiscoverNodeList
                 add_fields(root.children, b, 0, kDiscoverNodeListSpec, kDiscoverNodeListSpecN, head_size + 4);
                 apply_dicts(root.children);
@@ -778,7 +802,7 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case 0x09: {
+            case MME_SUCCESS_RATE_REPORT: {
                 add_fields(root.children, b, 0, kSuccessRateSpec, kSuccessRateSpecN, head_size + 4);
                 apply_dicts(root.children);
                 int sta_num = (int)get_bits(b, 2, 0, 16);
