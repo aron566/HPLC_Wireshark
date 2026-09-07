@@ -990,6 +990,20 @@ static quint32 beacon_pb_crc24(const quint8* d, int len) {
     return crc & 0xFFFFFF;
 }
 
+// 条目头名称(51242 表46):0x00-0x05 长度字段 1B;0xC0 时隙分配 2B
+static QString beacon_item_head_name(quint8 h) {
+    switch (h) {
+        case 0x00: return QStringLiteral("STA Cap Item");
+        case 0x01: return QStringLiteral("Route Param Item");
+        case 0x02: return QStringLiteral("Band Change Item");
+        case 0x03: return QStringLiteral("RF Route Param Item");
+        case 0x04: return QStringLiteral("RF Channel Change Item");
+        case 0x05: return QStringLiteral("Lite STA & Slot Item");
+        case 0xC0: return QStringLiteral("TSA Item");
+        default:   return QStringLiteral("Reserved");  // 0x06..0xBF / 0xC1..0xFF
+    }
+}
+
 static int beacon_pb_size(quint8 tmi) {
     if (tmi == 0 || tmi == 1)                           return 520;
     if (tmi >= 2 && tmi <= 6)                           return 136;
@@ -1192,38 +1206,62 @@ MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
         }
     }
 
-    // 管理区 = gb[mgmt_off : -4]:首字节 ItemNum,随后 head(1B)+len(1B)+内容
+    // 管理区 = gb[mgmt_off : -4]:首字节 ItemNum,随后 head(1B)+len(1B)+内容。
+    // 依 51242 表44 信标管理信息格式,集中展示为一个分组
     const int item_num_off = lite ? 12 : 20;
     if (gb.size() <= item_num_off + 1) return out;
     quint8 item_num = (quint8)gb[item_num_off];
+    auto& mgmt = group(root.children, QStringLiteral("Beacon Mgmt Info"));
+
     MsduFieldNode in;
     in.name  = QStringLiteral("ItemNum [8b]");
     in.value = QString::number(item_num);
     in.rel_start = item_num_off;
     in.rel_len   = 1;
-    root.children.append(in);
+    mgmt.children.append(in);
 
     int pos = item_num_off + 1;
     for (int n = 0; n < item_num && pos < gb.size() - 4; ++n) {
+        const int head_abs = pos;         // 条目头在 gb 中的绝对偏移(供高亮)
         quint8 head = (quint8)gb[pos++];
         if (pos >= gb.size() - 4) break;
-        int item_len;
+        int item_len, len_bytes = 1;
+        quint32 len_raw;
         if (head == 0xC0) {  // TSA:长度 2B LE,len-3 = 内容长
             if (pos + 1 >= gb.size() - 4) break;
-            item_len = (quint8)gb[pos] | ((quint8)gb[pos + 1] << 8);
+            len_raw = (quint8)gb[pos] | ((quint8)gb[pos + 1] << 8);
             pos += 2;
-            item_len -= 3;
+            len_bytes = 2;
+            item_len  = int(len_raw) - 3;
         } else {
-            item_len = (quint8)gb[pos++] - 2;
+            len_raw = (quint8)gb[pos++];
+            item_len  = int(len_raw) - 2;
         }
         if (item_len <= 0 || pos + item_len > gb.size() - 4) break;
         QByteArray it = gb.mid(pos, item_len);
         int abs0 = pos;  // 条目数据在 gb 中的绝对偏移(供高亮)
         pos += item_len;
 
-        auto& grp = group(root.children,
-                          QStringLiteral("Item[%1] type=0x%2 (%3B)")
-                              .arg(n).arg(head, 2, 16, QChar('0')).arg(item_len));
+        // 条目头/条目长度显式成行(表44/表46):长度字段大小 0xC0 为 2B,其余 1B
+        MsduFieldNode hd;
+        hd.name      = QStringLiteral("ItemHead [8b]");
+        hd.value     = QStringLiteral("0x%1 - %2")
+                           .arg(head, 2, 16, QChar('0'))
+                           .arg(beacon_item_head_name(head));
+        hd.rel_start = head_abs;
+        hd.rel_len   = 1;
+        MsduFieldNode ln;
+        ln.name      = (len_bytes == 2) ? QStringLiteral("ItemLen [16b]")
+                                        : QStringLiteral("ItemLen [8b]");
+        ln.value     = QStringLiteral("%1 (内容 %2B)").arg(len_raw).arg(item_len);
+        ln.rel_start = head_abs + 1;
+        ln.rel_len   = len_bytes;
+
+        auto& grp = group(mgmt.children,
+                          QStringLiteral("Item[%1] %2 (内容 %3B)")
+                              .arg(n).arg(beacon_item_head_name(head)).arg(item_len));
+        grp.children.append(hd);
+        grp.children.append(ln);
         switch (head) {
             case 0x00: {  // STA Cap(13B)
                 add_fields(grp.children, it, 0, kStaCapSpec, kStaCapSpecN, abs0);

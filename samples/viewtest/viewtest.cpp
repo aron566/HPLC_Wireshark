@@ -1077,7 +1077,7 @@ int main(int argc, char* argv[]) {
             bf0.allow_beacon = bf0.allow_sof = bf0.allow_ack = bf0.allow_coord = true;
             bf0.link_hplc = bf0.link_hrf = true;
             int n_bcn = 0, n_pad = 0, n_zero = 0, n_crc_last = 0, n_pb24 = 0, n_pb24_ok = 0;
-            int n_rsv0 = 0, n_rsv1 = 0, n_rfch = 0, n_flag = 0;
+            int n_rsv0 = 0, n_rsv1 = 0, n_rfch = 0, n_flag = 0, n_mgmt = 0, n_head = 0, n_len = 0;
             BplcFrame fbr;
             while (!buf.isEmpty()) {
                 int i0 = buf.indexOf(char(0x3C));
@@ -1128,6 +1128,10 @@ int main(int argc, char* argv[]) {
                         if (nd.name == QStringLiteral("NetRfChannel [8b]")) ++n_rfch;
                         if (nd.name.startsWith(QStringLiteral("NetWorkingFlag"))
                             && nd.value.contains(QLatin1String(" - "))) ++n_flag;
+                        // 信标管理信息(表44):分组 + 每条目的 ItemHead/ItemLen 行
+                        if (nd.name == QStringLiteral("Beacon Mgmt Info")) ++n_mgmt;
+                        if (nd.name == QStringLiteral("ItemHead [8b]")) ++n_head;
+                        if (nd.name.startsWith(QStringLiteral("ItemLen"))) ++n_len;
                         for (const auto& c : nd.children) wk(c);
                     };
                 for (const auto& n : rb.beacon.tree) wk(n);
@@ -1137,12 +1141,13 @@ int main(int argc, char* argv[]) {
             bea_ok = (n_bcn > 0 && n_pad == n_bcn && n_crc_last == n_bcn
                       && n_pb24 == n_bcn && n_pb24_ok == n_bcn
                       && n_rsv0 == n_bcn && n_rsv1 == n_bcn
-                      && n_rfch == n_bcn && n_flag == n_bcn);
+                      && n_rfch == n_bcn && n_flag == n_bcn
+                      && n_mgmt == n_bcn && n_head >= n_bcn && n_len >= n_bcn);
             std::printf("  信标帧=%d 含 PB Padding=%d 全0x00=%d CRC32居末=%d "
                         "PB CRC24=%d(OK=%d) RSV0=%d RSV1[56b]=%d "
-                        "RfChannel=%d Flag注释=%d → %s\n",
+                        "RfChannel=%d Flag注释=%d Mgmt=%d Head=%d Len=%d → %s\n",
                         n_bcn, n_pad, n_zero, n_crc_last, n_pb24, n_pb24_ok,
-                        n_rsv0, n_rsv1, n_rfch, n_flag,
+                        n_rsv0, n_rsv1, n_rfch, n_flag, n_mgmt, n_head, n_len,
                         bea_ok ? "OK" : "FAIL");
         }
     }
