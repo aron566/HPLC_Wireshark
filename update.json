@@ -1,9 +1,9 @@
 {
   "updates": {
     "windows": {
-      "latest-version": "1.0.5",
-      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.5/BPLC_STA_Monitor_Setup_v1.0.5.exe",
-      "changelog": "界面主题切换:默认深色(QDarkStyleSheet)+ 浅色可切;更新日志弹窗裁剪",
+      "latest-version": "1.0.6",
+      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.6/BPLC_STA_Monitor_Setup_v1.0.6.exe",
+      "changelog": "主题三档:跟随系统(auto,默认)/深色/浅色,系统深浅切换即时生效;<br/>深色主题设置对话框下拉弹层防裁切(语言/主题等自适应宽度);<br/>信标帧按 51242/51243 全面对齐:PB Padding、PB CRC24、CRC32 居末、管理信息分组、TSA 三段独立、条目头全称、精简信标区分;<br/>协议解析按帧型模块化(beacon/sof/ack/coord .pri);<br/>MMe 关联请求/确认帧按规范修正(站点版本信息组/厂商代码 ASCII/路由表信息表74-75);<br/>MMe 类型去硬编码枚举化;Heartbeat DiscoverSTAList 字节高亮",
       "mandatory-update": false
     }
   }
