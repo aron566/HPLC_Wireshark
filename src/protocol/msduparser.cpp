@@ -990,6 +990,16 @@ static quint32 beacon_pb_crc24(const quint8* d, int len) {
     return crc & 0xFFFFFF;
 }
 
+// 信标类型名称(51242 表39:0 发现信标/1 代理信标/2 中央信标/其它保留)
+static QString beacon_type_name(quint8 t) {
+    switch (t) {
+        case 0:  return trl::L("发现信标");
+        case 1:  return trl::L("代理信标");
+        case 2:  return trl::L("中央信标");
+        default: return trl::L("保留");
+    }
+}
+
 // 条目头英文全称(51242 表46)
 static QString beacon_item_head_name(quint8 h) {
     switch (h) {
@@ -1220,15 +1230,10 @@ MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
         add_fields(root.children, gb, 0, kBeaconLoadSpec, kBeaconLoadSpecN);
 
     quint8 beacon_type = (quint8)get_bits(gb, 0, 0, 3);
-    // 51242 表39 信标类型:0 发现信标 / 1 代理信标 / 2 中央信标
-    const char* btype_names[] = {"Discovery Beacon", "Proxy Beacon", "Central Beacon"};
     for (auto& ch : root.children) {
         if (ch.name.startsWith(QStringLiteral("BeaconType"))) {
             ch.value = QStringLiteral("%1 - %2").arg(
-                ch.value,
-                QString(beacon_type <= 2
-                            ? QLatin1String(btype_names[beacon_type])
-                            : QStringLiteral("?")));
+                ch.value, beacon_type_name(beacon_type));
         }
     }
     // 标志位含义注释(表40/41/42/43)
@@ -1578,6 +1583,7 @@ struct I18nReg {
         trl::register_en("保留", "Reserved");
         trl::register_en("发现信标", "Discovery Beacon");
         trl::register_en("代理信标", "Proxy Beacon");
+        trl::register_en("中央信标", "Central Beacon");
         // 相线/无线信标标志(表51/52/53)
         trl::register_en("全相线", "All lines");
         trl::register_en("A相线", "Line A");

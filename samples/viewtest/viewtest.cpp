@@ -1167,6 +1167,7 @@ int main(int argc, char* argv[]) {
             { "时隙分配条目(TSA,标准信标必选)", "Time Slot Allocation Item" },
             { "发现信标", "Discovery Beacon" },        // NonCCO 槽内 Beacon Type
             { "代理信标", "Proxy Beacon" },
+            { "中央信标", "Central Beacon" },          // 载荷头 BeaconType(表39)
         };
         for (const auto& c : checks) {
             const QString got = trl::L(c.zh);
