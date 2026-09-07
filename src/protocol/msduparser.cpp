@@ -714,16 +714,20 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                     int order = 0;
                     for (int i = 0; i < bm.size(); ++i) {
                         quint8 byte = (quint8)bm[i];
+                        QString teis;
                         for (int j = 0; j < 8; ++j) {
                             if (!(byte & (1u << j))) continue;
-                            MsduFieldNode dl;
-                            dl.name  = QStringLiteral("DiscoverSTATEI[%1]").arg(order);
-                            dl.value = QString::number(8 * i + j);
-                            dl.rel_start = rel0 + i;   // 该 bit 所在 bitmap 字节
-                            dl.rel_len   = 1;
-                            hlg.children.append(dl);
+                            if (!teis.isEmpty()) teis += QStringLiteral(", ");
+                            teis += QString::number(8 * i + j);
                             ++order;
                         }
+                        if (teis.isEmpty()) continue;   // 该字节无置位
+                        MsduFieldNode dl;
+                        dl.name  = QStringLiteral("DiscoverSTATEI[%1]").arg(i);
+                        dl.value = teis;
+                        dl.rel_start = rel0 + i;   // 该字节
+                        dl.rel_len   = 1;
+                        hlg.children.append(dl);
                     }
                     if (order == 0) {
                         MsduFieldNode dl;
