@@ -603,19 +603,38 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                     if (ch.name.startsWith(QStringLiteral("AssocResult")))
                         ch.value = assoc_result_str((quint8)get_bits(b, 12, 0, 8));
                 }
-                int off = 40;  // RouteInfo 起点(MMeHeadSize 4 + 固定 36)
+                int off = 40;  // 路由表信息起点(表74;MMeHeadSize 4 + 固定 36)
                 if (b.size() >= off + 8) {
-                    quint16 sta_sum   = (quint16)get_bits(b, off + 0, 0, 16);
-                    quint16 pco_sum   = (quint16)get_bits(b, off + 2, 0, 16);
-                    quint16 route_sz  = (quint16)get_bits(b, off + 4, 0, 16);
+                    const int rel0 = head_size + 4 + 40;
+                    quint16 sta_sum  = (quint16)get_bits(b, off + 0, 0, 16);
+                    quint16 pco_sum  = (quint16)get_bits(b, off + 2, 0, 16);
+                    quint16 route_sz = (quint16)get_bits(b, off + 4, 0, 16);
+                    quint16 rsv3     = (quint16)get_bits(b, off + 6, 0, 16);
+                    // 路由信息头(表74):直连站点数/直连代理数/路由表大小/保留
+                    auto& route = group(root.children, trl::L("路由表信息"),
+                                        QStringLiteral("%1 B").arg(route_sz));
+                    MsduFieldNode r1;
+                    r1.name  = QStringLiteral("StraightSTASum [16b]");
+                    r1.value = QString::number(sta_sum);
+                    r1.rel_start = rel0 + 0; r1.rel_len = 2;
+                    route.children.append(r1);
+                    MsduFieldNode r2;
+                    r2.name  = QStringLiteral("StraightPCOSum [16b]");
+                    r2.value = QString::number(pco_sum);
+                    r2.rel_start = rel0 + 2; r2.rel_len = 2;
+                    route.children.append(r2);
+                    MsduFieldNode r3;
+                    r3.name  = QStringLiteral("RouteInfoTableSize [16b]");
+                    r3.value = QStringLiteral("%1 B").arg(route_sz);
+                    r3.rel_start = rel0 + 4; r3.rel_len = 2;
+                    route.children.append(r3);
+                    MsduFieldNode r4;
+                    r4.name  = QStringLiteral("RSV3 [16b]");
+                    r4.value = QString::number(rsv3);
+                    r4.rel_start = rel0 + 6; r4.rel_len = 2;
+                    route.children.append(r4);
                     off += 8;
-                    MsduFieldNode rt;
-                    rt.name = QStringLiteral("RouteInfo [%1B]").arg(route_sz);
-                    rt.value = QStringLiteral("STA=%1 PCO=%2")
-                                   .arg(sta_sum).arg(pco_sum);
-                    root.children.append(rt);
-                    auto& route = root.children.last();
-                    // Straight STA 表:2B/条
+                    // 直连站点表(表75 前半):2B/条 = TEI(12b)+链路类型(1b)+保留(3b)
                     for (int i = 0; i < sta_sum && off + 2 <= b.size(); ++i) {
                         quint16 e = (quint16)get_bits(b, off, 0, 16);
                         off += 2;
@@ -623,24 +642,32 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                         sn.name = QStringLiteral("STA[%1]").arg(i);
                         sn.value = QStringLiteral("TEI=%1 LinkType=%2")
                                        .arg(e & 0x0FFF).arg((e >> 12) & 0x01);
+                        sn.rel_start = rel0 + 8 + 2 * i;
+                        sn.rel_len   = 2;
                         route.children.append(sn);
                     }
-                    // Straight PCO 表:4B + 2B×ChildSum /条
+                    // 直连代理表(表75 后半):代理 2B(TEI12+链路1+保留3)+子站点数
+                    // 2B + 子站点 2B/条(TEI12+保留4b)
                     for (int i = 0; i < pco_sum && off + 4 <= b.size(); ++i) {
-                        quint16 tei     = (quint16)get_bits(b, off + 0, 0, 12);
-                        quint16 child   = (quint16)get_bits(b, off + 2, 0, 16);
-                        off += 4;
+                        quint16 tei    = (quint16)get_bits(b, off + 0, 0, 12);
+                        quint8  plink  = (quint8)get_bits(b, off + 1, 4, 1);
+                        quint16 child  = (quint16)get_bits(b, off + 2, 0, 16);
                         MsduFieldNode pn;
                         pn.name = QStringLiteral("PCO[%1]").arg(tei);
-                        pn.value = QStringLiteral("childSum=%1").arg(child);
+                        pn.value = QStringLiteral("LinkType=%1 childSum=%2")
+                                       .arg(plink).arg(child);
+                        pn.rel_start = rel0 + 8 + 2 * sta_sum + i * 4;
+                        pn.rel_len   = 4;
                         route.children.append(pn);
+                        off += 4;
                         for (int j = 0; j < child && off + 2 <= b.size(); ++j) {
                             quint16 ctei = (quint16)get_bits(b, off, 0, 16);
                             off += 2;
                             MsduFieldNode cn;
                             cn.name = QStringLiteral("Child[%1]").arg(j);
-                            cn.value = QStringLiteral("TEI=%1 LinkType=%2")
-                                           .arg(ctei & 0x0FFF).arg((ctei >> 12) & 0x01);
+                            cn.value = QStringLiteral("TEI=%1").arg(ctei & 0x0FFF);
+                            cn.rel_start = pn.rel_start + 4 + 2 * j;
+                            cn.rel_len   = 2;
                             pn.children.append(cn);
                         }
                     }
@@ -931,6 +958,7 @@ struct I18nReg {
         trl::register_en("终端主动并发抄表", "Terminal concurrent meter reading");
         trl::register_en("校时", "Time sync");
         trl::register_en("站点版本信息", "STA Version Info");
+        trl::register_en("路由表信息", "Route Info");
         trl::register_en("站点动态选择的代理", "Proxy chosen by the STA");
         trl::register_en("通信测试", "Comm test");
         trl::register_en("事件上报", "Event report");
