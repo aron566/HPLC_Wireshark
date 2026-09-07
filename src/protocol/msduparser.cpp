@@ -1576,6 +1576,8 @@ struct I18nReg {
         trl::register_en("精简信标站点信息及时隙条目(精简信标必选)", "Lite STA Info & Slot Item (mandatory, lite beacon)");
         trl::register_en("时隙分配条目(TSA,标准信标必选)", "Time Slot Allocation Item (mandatory, standard beacon)");
         trl::register_en("保留", "Reserved");
+        trl::register_en("发现信标", "Discovery Beacon");
+        trl::register_en("代理信标", "Proxy Beacon");
         // 相线/无线信标标志(表51/52/53)
         trl::register_en("全相线", "All lines");
         trl::register_en("A相线", "Line A");

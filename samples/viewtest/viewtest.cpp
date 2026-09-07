@@ -1165,6 +1165,8 @@ int main(int argc, char* argv[]) {
             { "复制 Hex(%1 字节)", "Copy Hex" },      // i18n 内置表(带占位)
             { "%1 (内容 %2B)", "%1 (%2B content)" },  // msduparser 信标条目长
             { "时隙分配条目(TSA,标准信标必选)", "Time Slot Allocation Item" },
+            { "发现信标", "Discovery Beacon" },        // NonCCO 槽内 Beacon Type
+            { "代理信标", "Proxy Beacon" },
         };
         for (const auto& c : checks) {
             const QString got = trl::L(c.zh);
