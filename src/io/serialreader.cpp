@@ -142,8 +142,9 @@ void ReaderWorker::try_extract_frame() {
 }
 
 void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
-    // 每行一帧裸 hex:支持 "0x01 0xd5 …" 或 "01 d5…" 无分隔写法;
-    // 行首字节 = isRF,其后为纯 MPDU(帧合法与否由解析端 CRC 判定)
+    // 每行一帧裸数据(无 0x3C/0x3E/0x3D 封装):
+    //   [ts 4B LE][phr_mcs 1B][option 1B][channel 1B][isRF 1B][MPDU...]
+    // 支持 "0x01 0xd5 …" 或 "01 d5…" 写法;帧间由行分隔定界。
     QByteArray raw;
     QByteArray s = line;
     const QList<QByteArray> toks = s.replace(',', ' ').split(' ');
@@ -160,14 +161,40 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
             raw.append(char(v));
         }
     }
-    if (raw.isEmpty()) return;
+    // 至少 ts4+media4+1B MPDU,否则无法构成可解析帧
+    if (raw.size() < 9) return;
+
+    // ts(4B LE):导出端为 epoch ms 低 32 位;回放还原最近 epoch
+    // (同机回放 ±~24.8 天窗口内正确),使 Time/Delta 以原始捕获时刻为基准
+    const quint32 ts_le = (quint32)(quint8)raw[0]
+                        | (quint32)(quint8)raw[1] << 8
+                        | (quint32)(quint8)raw[2] << 16
+                        | (quint32)(quint8)raw[3] << 24;
+    qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
+    qint64 hi = (now_ms >> 32) << 32;
+    qint64 t = hi | qint64(ts_le);
+    if (t - now_ms >  (1LL << 31)) t -= (1LL << 32);   // 取距当前最近候选
+    if (now_ms - t > (1LL << 31))  t += (1LL << 32);
+    if (m_raw_base_ms >= 0) t = m_raw_base_ms;          // 旧 TIME 头优先(兼容)
+
+    // 重组为标准解码封装(读取端同构):[dlen2LE][ts4LE][phr][option]
+    // [channel][isRF][MPDU] → 走常规解码路径(无 BCD 标签)
+    const QByteArray mpdu = raw.mid(8);
+    const quint16 dlen  = quint16(mpdu.size() + 4);
+    const quint32 ts    = ts_le;
+    QByteArray data;
+    data.reserve(mpdu.size() + 10);
+    data.append(char(dlen & 0xFF)).append(char(dlen >> 8));
+    data.append(char(ts & 0xFF)).append(char((ts >> 8) & 0xFF))
+        .append(char((ts >> 16) & 0xFF)).append(char((ts >> 24) & 0xFF));
+    data.append(raw.mid(4, 4));   // phr_mcs/option/channel/isRF 原样
+    data.append(mpdu);
 
     BplcFrame bf;
-    bf.meta.from_raw = true;
-    // 起始时间:文本头给出首帧时间则全部帧以此为准;否则回退本地当前
-    bf.arrival_ms = (m_raw_base_ms >= 0) ? m_raw_base_ms
-                                         : QDateTime::currentMSecsSinceEpoch();
-    bf.data = raw;
+    bf.meta.from_raw = false;
+    bf.meta.has_time_tag = false;
+    bf.arrival_ms = t;
+    bf.data = data;
     emit frame_ready(bf);
 }
 

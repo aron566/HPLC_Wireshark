@@ -114,30 +114,29 @@ inline QByteArray build_playback_bin(const QVector<PacketEntry>& entries) {
     return buf;
 }
 
-/// @brief 导出裸 hex 文本(与 RawHex 导入对称):
-///        首行 TIME: yyyy-MM-dd HH:mm:ss.zzz(首帧时间,无则回退调用方当前);
-///        其后每行一帧:行首字节 isRF + 纯 MPDU,无 0x3C/0x3E/0x3D 封装。
-///        回放读取端:时间头解析失败/缺失时自动回退本地时间。
-inline QByteArray build_raw_hex_text(const QVector<PacketEntry>& entries,
-                                     qint64 fallback_ms) {
+/// @brief 导出裸数据 hex 文本(与 RawHex 导入对称,每行一帧,无 0x3C/0x3E/
+///        0x3D 封装):[ts 4B LE][phr_mcs][option][channel][isRF][MPDU]。
+///        ts = epoch ms 低 32 位;回放端自动还原捕获时刻(±~24.8 天窗口)。
+inline QByteArray build_raw_hex_text(const QVector<PacketEntry>& entries) {
     QByteArray buf;
-    qint64 t0 = fallback_ms;
-    for (const PacketEntry& e : entries) {     // 首帧时间作文件头
-        if (!e.raw_bytes.isEmpty()) { t0 = e.epoch_ms; break; }
-    }
-    if (t0 <= 0) t0 = fallback_ms;
-    const QDateTime dt = QDateTime::fromMSecsSinceEpoch(t0);
-    buf.append("TIME: " + dt.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")).toLatin1());
-    buf.append('\n');
     for (const PacketEntry& e : entries) {
         if (e.raw_bytes.isEmpty()) continue;
-        // 行首字节 = isRF(0x01/0x00),其后为纯 MPDU hex(样本/导入格式一致)
+        const quint32 ts = quint32(e.epoch_ms & 0xFFFFFFFFu);
         QByteArray line;
+        // ts(4B LE)
+        line += QStringLiteral(" 0x%1").arg(ts & 0xFF, 2, 16, QChar('0')).toLatin1();
+        line += QStringLiteral(" 0x%1").arg((ts >> 8) & 0xFF, 2, 16, QChar('0')).toLatin1();
+        line += QStringLiteral(" 0x%1").arg((ts >> 16) & 0xFF, 2, 16, QChar('0')).toLatin1();
+        line += QStringLiteral(" 0x%1").arg((ts >> 24) & 0xFF, 2, 16, QChar('0')).toLatin1();
+        // media 4B:phr_mcs/option/channel/isRF
+        line += QStringLiteral(" 0x%1").arg(e.meta.phr_mcs, 2, 16, QChar('0')).toLatin1();
+        line += QStringLiteral(" 0x%1").arg(e.meta.option, 2, 16, QChar('0')).toLatin1();
+        line += QStringLiteral(" 0x%1").arg(e.meta.channel, 2, 16, QChar('0')).toLatin1();
         line += QStringLiteral(" 0x%1").arg(e.meta.is_rf ? 1 : 0, 2, 16, QChar('0')).toLatin1();
         for (char c : e.raw_bytes)
             line += QStringLiteral(" 0x%1")
                         .arg(quint8(c), 2, 16, QChar('0')).toLatin1();
-        buf.append(line);
+        buf.append(line.mid(1));   // 去掉行首空格
         buf.append('\n');
     }
     return buf;

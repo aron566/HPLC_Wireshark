@@ -64,7 +64,9 @@ bool BplcParser::decode_envelope(const BplcFrame& in, Result& r) {
             r.meta.frame_time = QDateTime::currentDateTime();
         }
     } else {
-        r.meta.frame_time = QDateTime::currentDateTime();
+        // 无时间标签:串口/回放帧 arrival=now(等价本地时间);
+        // 裸数据回放帧 arrival=ts 还原的捕获时刻 → 以此恢复 frame_time
+        r.meta.frame_time = QDateTime::fromMSecsSinceEpoch(in.arrival_ms);
     }
 
     int offset = hdr;

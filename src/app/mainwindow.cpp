@@ -359,8 +359,9 @@ void MainWindow::on_export() {
         return;
     }
     // 两种导出格式:①回放 bin(0x3C 封装帧流+BCD 时间标签)
-    // ②裸 hex 文本(首行 TIME: 时间头 + 每行一帧 isRF+MPDU hex,与 RawHex
-    //   导入对称;无 0x3C/0x3E/0x3D 封装;回放时无时间头自动回退本地时间)
+    // ②裸数据 hex 文本(每行一帧,无 0x3C/0x3E/0x3D 封装):
+    //   [ts 4B LE][phr_mcs][option][channel][isRF][MPDU];回放(RawHex)
+    //   按 ts 还原捕获时刻,缺失时回退本地时间
     QString selected;
     const QString filter = trl::L("回放文件 (*.bin)") + QStringLiteral(";;") +
                            trl::L("裸 hex 文本 (*.txt)");
@@ -385,8 +386,7 @@ void MainWindow::on_export() {
     // [option][channel][isRF][MPDU](与 SerialReader/回放读取格式一致,
     // dlen 读取端不校验,按 MPDU+4 填写即可被重新解析)
     QByteArray buf = as_text
-        ? playback::build_raw_hex_text(entries,
-                                       QDateTime::currentMSecsSinceEpoch())
+        ? playback::build_raw_hex_text(entries)
         : playback::build_playback_bin(entries);
     if (buf.isEmpty()) {
         m_status_left->setText(trl::L("没有可写入的帧数据"));
