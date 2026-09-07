@@ -709,18 +709,28 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                 int bm_size = (int)get_bits(b, 6, 0, 16);
                 if (bm_size > 0 && b.size() >= 8 + bm_size) {
                     QByteArray bm = b.mid(8, bm_size);
-                    QString teis;
+                    const int rel0 = head_size + 4 + 8;  // bitmap 相对 body 起点
+                    auto& hlg = group(root.children, QStringLiteral("DiscoverSTAList"));
+                    int order = 0;
                     for (int i = 0; i < bm.size(); ++i) {
                         quint8 byte = (quint8)bm[i];
                         for (int j = 0; j < 8; ++j) {
-                            if (byte & (1u << j)) teis += QString("%1, ").arg(8 * i + j);
+                            if (!(byte & (1u << j))) continue;
+                            MsduFieldNode dl;
+                            dl.name  = QStringLiteral("DiscoverSTATEI[%1]").arg(order);
+                            dl.value = QString::number(8 * i + j);
+                            dl.rel_start = rel0 + i;   // 该 bit 所在 bitmap 字节
+                            dl.rel_len   = 1;
+                            hlg.children.append(dl);
+                            ++order;
                         }
                     }
-                    auto& hlg = group(root.children, QStringLiteral("DiscoverSTAList"));
-                    MsduFieldNode dl;
-                    dl.name  = QStringLiteral("DiscoverSTATEI");
-                    dl.value = teis.isEmpty() ? QStringLiteral("(none)") : teis;
-                    hlg.children.append(dl);
+                    if (order == 0) {
+                        MsduFieldNode dl;
+                        dl.name  = QStringLiteral("DiscoverSTATEI");
+                        dl.value = QStringLiteral("(none)");
+                        hlg.children.append(dl);
+                    }
                 }
                 break;
             }
