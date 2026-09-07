@@ -32,9 +32,13 @@ bool BplcParser::decode_envelope(const BplcFrame& in, Result& r) {
     const QByteArray& d = in.data;
 
     if (in.meta.from_raw) {
-        if (d.isEmpty()) { r.reject_reason = trl::L("空帧"); return false; }
-        r.payload_for_log = d;
+        // 裸 hex 文本(每行一帧):行首字节 = isRF,其后为纯 MPDU
+        if (d.size() < 2) { r.reject_reason = trl::L("空帧"); return false; }
         r.meta.is_rf = (quint8(d[0]) != 0);
+        r.payload_for_log = d.mid(1);
+        // 文本头给出首帧时间(无则回退本地):frame_time 从 arrival 恢复,
+        // 使 Time/Delta/再导出以文件头时间为基准
+        r.meta.frame_time = QDateTime::fromMSecsSinceEpoch(in.arrival_ms);
         return true;
     }
 

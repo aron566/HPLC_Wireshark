@@ -4,6 +4,8 @@
 #include "i18n.h"
 #include "playbackwriter.h"   // playback::looks_like_bcd_time(回放时间标签识别)
 #include <QSerialPortInfo>
+#include <QRegularExpression>
+#include <QDateTime>
 #include <QDebug>
 
 ReaderWorker::ReaderWorker(QObject* parent) : QObject(parent),
@@ -51,9 +53,14 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
             return;
         }
         emit status_message(trl::L("裸 hex 模式: %1").arg(cfg.file_path));
+        m_raw_base_ms = -1;   // 未给出时间头 → 回退本地时间
         while (!m_file->atEnd()) {
             QByteArray line = m_file->readLine().trimmed();
-            if (!line.isEmpty()) process_raw_hex_line(line);
+            if (line.isEmpty()) continue;
+            // 时间头行(首帧时间文本,如 TIME: 2026-09-07 18:43:00.123)
+            const qint64 hdr_ms = parse_time_header(line);
+            if (hdr_ms >= 0) { m_raw_base_ms = hdr_ms; continue; }
+            process_raw_hex_line(line);
         }
         m_file->close();
         emit finished();
@@ -135,29 +142,49 @@ void ReaderWorker::try_extract_frame() {
 }
 
 void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
-    QByteArray cleaned;
-    cleaned.reserve(line.size());
-    for (char c : line) {
-        if (c == ' ' || c == '\t' || c == ',' || c == '\r' || c == '\n') continue;
-        cleaned.append(c);
-    }
-    if (cleaned.isEmpty() || (cleaned.size() % 2) != 0) return;
-
+    // 每行一帧裸 hex:支持 "0x01 0xd5 …" 或 "01 d5…" 无分隔写法;
+    // 行首字节 = isRF,其后为纯 MPDU(帧合法与否由解析端 CRC 判定)
     QByteArray raw;
-    raw.reserve(cleaned.size() / 2);
-    for (int i = 0; i < cleaned.size(); i += 2) {
-        bool ok1, ok2;
-        quint8 hi = static_cast<quint8>(cleaned.mid(i, 1).toInt(&ok1, 16));
-        quint8 lo = static_cast<quint8>(cleaned.mid(i + 1, 1).toInt(&ok2, 16));
-        if (!ok1 || !ok2) return;
-        raw.append(static_cast<char>((hi << 4) | lo));
+    QByteArray s = line;
+    const QList<QByteArray> toks = s.replace(',', ' ').split(' ');
+    for (const QByteArray& t0 : toks) {
+        QByteArray t = t0.trimmed();
+        if (t.isEmpty()) continue;
+        if ((t.startsWith("0x") || t.startsWith("0X")) && t.size() >= 3)
+            t.remove(0, 2);
+        if (t.size() < 2 || (t.size() % 2) != 0) return;   // 非纯 hex → 跳过整行
+        for (int i = 0; i < t.size(); i += 2) {
+            bool ok = false;
+            int v = t.mid(i, 2).toInt(&ok, 16);
+            if (!ok) return;
+            raw.append(char(v));
+        }
     }
+    if (raw.isEmpty()) return;
 
     BplcFrame bf;
     bf.meta.from_raw = true;
-    bf.arrival_ms = QDateTime::currentMSecsSinceEpoch();
+    // 起始时间:文本头给出首帧时间则全部帧以此为准;否则回退本地当前
+    bf.arrival_ms = (m_raw_base_ms >= 0) ? m_raw_base_ms
+                                         : QDateTime::currentMSecsSinceEpoch();
     bf.data = raw;
     emit frame_ready(bf);
+}
+
+qint64 ReaderWorker::parse_time_header(const QByteArray& line) {
+    // 兼容 "TIME: 2026-09-07 18:43:00.123" / "TIME: 2026-09-07 18:43:00" /
+    // 直接 "2026-09-07 18:43:00.123"(样本 TIME: 行后还可能跟其它说明文字)
+    static const QRegularExpression re(
+        QStringLiteral("(\\d{4}-\\d{2}-\\d{2})[ T](\\d{2}):(\\d{2}):(\\d{2})"
+                       "(?:\\.(\\d{1,3}))?"));
+    const QRegularExpressionMatch m = re.match(QLatin1String(line));
+    if (!m.hasMatch()) return -1;
+    const QDate date = QDate::fromString(m.captured(1), QStringLiteral("yyyy-MM-dd"));
+    const QTime time(m.captured(2).toInt(), m.captured(3).toInt(),
+                     m.captured(4).toInt(), m.captured(5).isEmpty() ? 0
+                                        : m.captured(5).leftJustified(3, '0').toInt());
+    if (!date.isValid() || !time.isValid()) return -1;
+    return QDateTime(date, time).toMSecsSinceEpoch();
 }
 
 SerialReader::SerialReader(QObject* parent) : QObject(parent), m_thread(nullptr), m_worker(nullptr) {

@@ -76,12 +76,8 @@ inline QByteArray bcd_time_tag(qint64 epoch_ms) {
 
 /// @brief 单帧 → 回放 bin 帧字节(含 0x3C/0x3E 转义与 8B 起始时间标签)
 inline QByteArray frame_to_playback(const PacketEntry& e) {
-    // 裸 hex 导入帧 raw_bytes 首字节为 isRF(log hex 行语义),其余帧为纯 MPDU
-    QByteArray mpdu;
-    if (e.meta.from_raw && !e.raw_bytes.isEmpty())
-        mpdu = e.raw_bytes.mid(1);
-    else
-        mpdu = e.raw_bytes;
+    // raw_bytes = 纯 MPDU(串口/回放/裸 hex 导入均已在解析层剥去封装头)
+    const QByteArray mpdu = e.raw_bytes;
     if (mpdu.isEmpty()) return {};
 
     // dlen = 数据长度字段(2B LE,反转义后偏移 0-1)。定义:从 phr_mcs 字段
@@ -114,6 +110,35 @@ inline QByteArray build_playback_bin(const QVector<PacketEntry>& entries) {
     for (const PacketEntry& e : entries) {
         const QByteArray fr = frame_to_playback(e);
         if (!fr.isEmpty()) buf.append(fr);
+    }
+    return buf;
+}
+
+/// @brief 导出裸 hex 文本(与 RawHex 导入对称):
+///        首行 TIME: yyyy-MM-dd HH:mm:ss.zzz(首帧时间,无则回退调用方当前);
+///        其后每行一帧:行首字节 isRF + 纯 MPDU,无 0x3C/0x3E/0x3D 封装。
+///        回放读取端:时间头解析失败/缺失时自动回退本地时间。
+inline QByteArray build_raw_hex_text(const QVector<PacketEntry>& entries,
+                                     qint64 fallback_ms) {
+    QByteArray buf;
+    qint64 t0 = fallback_ms;
+    for (const PacketEntry& e : entries) {     // 首帧时间作文件头
+        if (!e.raw_bytes.isEmpty()) { t0 = e.epoch_ms; break; }
+    }
+    if (t0 <= 0) t0 = fallback_ms;
+    const QDateTime dt = QDateTime::fromMSecsSinceEpoch(t0);
+    buf.append("TIME: " + dt.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")).toLatin1());
+    buf.append('\n');
+    for (const PacketEntry& e : entries) {
+        if (e.raw_bytes.isEmpty()) continue;
+        // 行首字节 = isRF(0x01/0x00),其后为纯 MPDU hex(样本/导入格式一致)
+        QByteArray line;
+        line += QStringLiteral(" 0x%1").arg(e.meta.is_rf ? 1 : 0, 2, 16, QChar('0')).toLatin1();
+        for (char c : e.raw_bytes)
+            line += QStringLiteral(" 0x%1")
+                        .arg(quint8(c), 2, 16, QChar('0')).toLatin1();
+        buf.append(line);
+        buf.append('\n');
     }
     return buf;
 }

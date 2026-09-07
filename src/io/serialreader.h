@@ -65,6 +65,8 @@ private slots:
 private:
     void try_extract_frame();
     void process_raw_hex_line(const QByteArray& line);
+    /// @brief 解析裸 hex 文本头行时间(TIME: / ISO 文本),失败返回 -1
+    qint64 parse_time_header(const QByteArray& line);
 
     QSerialPort* m_serial;
     QFile*       m_file;
@@ -72,6 +74,7 @@ private:
     QByteArray   m_in_buf;
     bool         m_get3c;
     bool         m_running;
+    qint64       m_raw_base_ms;   ///< 裸 hex 文本首帧时间(epoch ms;-1=未给出,回退本地)
     ReaderConfig m_cfg;
 };
 

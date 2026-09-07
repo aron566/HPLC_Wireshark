@@ -358,11 +358,23 @@ void MainWindow::on_export() {
         m_status_left->setText(trl::L("无可导出的帧"));
         return;
     }
+    // 两种导出格式:①回放 bin(0x3C 封装帧流+BCD 时间标签)
+    // ②裸 hex 文本(首行 TIME: 时间头 + 每行一帧 isRF+MPDU hex,与 RawHex
+    //   导入对称;无 0x3C/0x3E/0x3D 封装;回放时无时间头自动回退本地时间)
+    QString selected;
+    const QString filter = trl::L("回放文件 (*.bin)") + QStringLiteral(";;") +
+                           trl::L("裸 hex 文本 (*.txt)");
     QString f = QFileDialog::getSaveFileName(
-        this, trl::L("导出为回放文件"),
-        "BPLC_" + QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss") + ".bin",
-        trl::L("回放文件 (*.bin)"));
+        this, trl::L("导出为文件"),
+        "BPLC_" + QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss") +
+            (selected.contains(QStringLiteral(".txt")) ? ".txt" : ".bin"),
+        filter, &selected);
     if (f.isEmpty()) return;
+    const bool as_text = selected.contains(QStringLiteral(".txt"));
+    if (as_text && !f.endsWith(QStringLiteral(".txt"), Qt::CaseInsensitive))
+        f += QStringLiteral(".txt");
+    if (!as_text && !f.endsWith(QStringLiteral(".bin"), Qt::CaseInsensitive))
+        f += QStringLiteral(".bin");
     QFile out(f);
     if (!out.open(QIODevice::WriteOnly)) {
         m_status_left->setText(trl::L("导出失败:%1").arg(out.errorString()));
@@ -371,8 +383,11 @@ void MainWindow::on_export() {
 
     // 回放 bin 帧 = 0x3C + 转义(data) + 0x3E;data = [dlen2LE][ts4LE][phr]
     // [option][channel][isRF][MPDU](与 SerialReader/回放读取格式一致,
-    // dlen 读取端不校验,按 MPDU+6 填写即可被重新解析)
-    QByteArray buf = playback::build_playback_bin(entries);
+    // dlen 读取端不校验,按 MPDU+4 填写即可被重新解析)
+    QByteArray buf = as_text
+        ? playback::build_raw_hex_text(entries,
+                                       QDateTime::currentMSecsSinceEpoch())
+        : playback::build_playback_bin(entries);
     if (buf.isEmpty()) {
         m_status_left->setText(trl::L("没有可写入的帧数据"));
         return;
@@ -503,6 +518,8 @@ struct I18nRegMainWindow {
         trl::register_en("应用", "Apply");
         trl::register_en("继续", "Resume");
         trl::register_en("导出为回放文件", "Export as replay file");
+        trl::register_en("导出为文件", "Export to file");
+        trl::register_en("裸 hex 文本 (*.txt)", "Raw hex text (*.txt)");
         trl::register_en("回放文件 (*.bin)", "Replay files (*.bin)");
         trl::register_en("[错误] ", "[Error] ");
         trl::register_en("  显示过滤器:", "  Display filter:");
