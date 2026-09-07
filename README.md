@@ -257,4 +257,6 @@ dist/BPLC_STA_Monitor_Setup_v1.0.2.exe /S /D=C:\my\dir     # 静默装到指定�
 
 ## 许可
 
-本仓库代码在显式授权前保留所有权利;第三方组件按其各自许可(见上)。
+本仓库代码以 **Apache License 2.0** 授权,完整条款见根目录
+[LICENSE](LICENSE)(http://www.apache.org/licenses/LICENSE-2.0);
+第三方组件按其各自许可(见上,如 QSimpleUpdater 为 MIT)。
