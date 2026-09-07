@@ -271,6 +271,12 @@ static const FieldSpec kAssocReqSpec[] = {
     {"ModuleType",      19, 0, 2,  Fmt::DEC},
     {"RSV6",            19, 2, 6,  Fmt::DEC},
     {"STAAssocRandomData", 20, 0, 32, Fmt::HEX8},
+};
+static const int kAssocReqSpecN = int(sizeof(kAssocReqSpec) / sizeof(kAssocReqSpec[0]));
+
+// AssocReq 固定区(0..23)之后的尾部字段(表60:厂家自定义信息 24-41 单独
+// 展示于其间;42-51 站点版本信息;52+ 复位计数/代理类型/端到端序号)
+static const FieldSpec kAssocReqTailSpec[] = {
     {"BootReason",        42, 0, 8,  Fmt::DEC},
     {"BootVersion",       43, 0, 8,  Fmt::DEC},
     {"SoftwareVersion",   44, 0, 16, Fmt::DEC},
@@ -285,7 +291,8 @@ static const FieldSpec kAssocReqSpec[] = {
     {"RSV7",              57, 0, 24, Fmt::DEC},
     {"EndSequence",       60, 0, 32, Fmt::HEX8},
 };
-static const int kAssocReqSpecN = int(sizeof(kAssocReqSpec) / sizeof(kAssocReqSpec[0]));
+static const int kAssocReqTailSpecN =
+    int(sizeof(kAssocReqTailSpec) / sizeof(kAssocReqTailSpec[0]));
 
 // 变长尾随字节区(AssocReq 24..42 ManufacturerInfo 18B;64..88 ManagementID 24B)
 static QString bytes_hex(const QByteArray& d, int from, int len) {
@@ -508,16 +515,24 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
         QByteArray b = msdu_body.mid(4);
         switch (mm_type) {
             case 0x00: {
-                // MMeAssocReq(关联请求)
+                // MMeAssocReq(关联请求),字段按表60 字节序:
+                // 固定区(0..23,含随机数)→ 厂家自定义信息(24-41)→
+                // 站点版本信息/复位计数/端到端序号(42..60)→ 管理ID(64-87)
                 add_fields(root.children, b, 0, kAssocReqSpec, kAssocReqSpecN, head_size + 4);
-                apply_dicts(root.children);
                 MsduFieldNode mn;
                 mn.name  = QStringLiteral("ManufacturerInfo [144b]");
                 mn.value = bytes_hex(b, 24, 18);
+                mn.rel_start = head_size + 4 + 24;
+                mn.rel_len   = 18;
                 root.children.append(mn);
+                add_fields(root.children, b, 0, kAssocReqTailSpec, kAssocReqTailSpecN,
+                           head_size + 4);
+                apply_dicts(root.children);
                 MsduFieldNode mid;
                 mid.name  = QStringLiteral("ManagementID [192b]");
                 mid.value = bytes_hex(b, 64, 24);
+                mid.rel_start = head_size + 4 + 64;
+                mid.rel_len   = 24;
                 root.children.append(mid);
                 break;
             }
