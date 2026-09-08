@@ -1004,7 +1004,7 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                         ug.children.append(rt);
                     }
                 }
-                // ---- 发现站点列表位图(独立展示,勿与接收发现列表信息合并) ----
+                // ---- 发现站点列表位图(按字节分字段解析,勿与接收信息合并) ----
                 QByteArray bm;
                 int bm_base = -1;   // bitmap 相对 body 起点(供高亮)
                 if (bitmap_size > 0 && off + bitmap_size <= b.size()) {
@@ -1013,25 +1013,39 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                     off += bitmap_size;
                 }
                 bool bm_any = false;
-                QStringList tei_list;
-                for (int i = 0; i < bm.size() && !bm_any; ++i)
-                    bm_any = ((quint8)bm[i]) != 0;
-                // bitmap 值:全 0 → NULL;否则列出该位图置位对应的 TEI0,TEI1…
-                MsduFieldNode bl;
-                bl.name  = QStringLiteral("DiscoverySTAList BitMap [%1b]").arg(bm.size());
-                if (!bm_any) {
-                    bl.value = QStringLiteral("NULL");
-                } else {
-                    for (int i = 0; i < bm.size(); ++i) {
-                        quint8 byte = (quint8)bm[i];
-                        for (int j = 0; j < 8; ++j)
-                            if (byte & (1u << j))
-                                tei_list << QString::number(8 * i + j);
+                int  nset = 0;
+                QVector<QStringList> per_byte(bm.size());
+                for (int i = 0; i < bm.size(); ++i) {
+                    quint8 byte = (quint8)bm[i];
+                    for (int j = 0; j < 8; ++j) {
+                        if (!(byte & (1u << j))) continue;
+                        per_byte[i] << QStringLiteral("TEI%1").arg(8 * i + j);
+                        ++nset;
                     }
-                    bl.value = tei_list.join(QStringLiteral(", "));
+                    if (!per_byte[i].isEmpty()) bm_any = true;
                 }
-                if (bm_base >= 0) { bl.rel_start = bm_base; bl.rel_len = bm.size(); }
-                root.children.append(bl);
+                if (!bm_any) {
+                    // 全 0(如 bitmap size=1 且 bitmap[0]=0)→ NULL
+                    MsduFieldNode bl;
+                    bl.name = QStringLiteral("DiscoverySTAList BitMap [%1b]")
+                                  .arg(bm.size());
+                    bl.value = QStringLiteral("NULL");
+                    if (bm_base >= 0) { bl.rel_start = bm_base; bl.rel_len = bm.size(); }
+                    root.children.append(bl);
+                } else {
+                    // 逐字节一行:DiscoverySTABitMap[i] [8b] = TEI0, TEI7 …
+                    auto& bmg = group(root.children,
+                                      QStringLiteral("DiscoverySTAList BitMap [%1b]")
+                                          .arg(bm.size()));
+                    for (int i = 0; i < bm.size(); ++i) {
+                        if (per_byte[i].isEmpty()) continue;   // 空字节跳过
+                        MsduFieldNode bl;
+                        bl.name = QStringLiteral("DiscoverySTABitMap[%1] [8b]").arg(i);
+                        bl.value = per_byte[i].join(QStringLiteral(", "));
+                        if (bm_base >= 0) { bl.rel_start = bm_base + i; bl.rel_len = 1; }
+                        bmg.children.append(bl);
+                    }
+                }
 
                 // ---- 接收发现列表信息(表99:置位 TEI 各一条,1B 计数) ----
                 QByteArray cnts;
@@ -1041,10 +1055,10 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                     cnts = b.mid(off, node_num);
                 }
                 int order = 0;
-                if (bm_any && !tei_list.isEmpty()) {
+                if (bm_any && nset > 0) {
                     auto& rgi = group(root.children,
                                       QStringLiteral("ReceivedDiscoveryInfo [%1]")
-                                          .arg(tei_list.size()));
+                                          .arg(nset));
                     for (int i = 0; i < bm.size(); ++i) {
                         quint8 byte = (quint8)bm[i];
                         for (int j = 0; j < 8; ++j) {
