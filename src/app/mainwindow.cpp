@@ -156,8 +156,11 @@ void MainWindow::build_ui() {
     hh->resizeSection(PacketListModel::COL_INDEX,    60);
     hh->resizeSection(PacketListModel::COL_TIME,     120);
     hh->resizeSection(PacketListModel::COL_DELTA,    80);
+    hh->resizeSection(PacketListModel::COL_ORIG_SRC, 70);
     hh->resizeSection(PacketListModel::COL_SOURCE,   100);
     hh->resizeSection(PacketListModel::COL_DEST,     100);
+    hh->resizeSection(PacketListModel::COL_ORIG_DST, 70);
+    hh->resizeSection(PacketListModel::COL_DIR,      44);
     hh->resizeSection(PacketListModel::COL_PROTOCOL, 70);
     hh->resizeSection(PacketListModel::COL_FRAME_TYPE, 90);
     hh->resizeSection(PacketListModel::COL_MSDU_TYPE, 140);

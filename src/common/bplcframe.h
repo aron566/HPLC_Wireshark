@@ -173,11 +173,14 @@ struct MsduInfo {
     bool    present;         ///< 本帧携带完整 MSDU(重组完成)
     bool    simple_head;     ///< 是否为 MSDU_BASE_S 简头(单跳)
     quint16 msdu_seq;        ///< MSDU 序号(MSDU_BASE 的 MSDUIndex,16-bit)
+    int     msdu_src_tei;    ///< 原始发起 TEI(MSDU 头 SourceTEI;-1=无/简头)
+    int     msdu_dst_tei;    ///< 原始终点 TEI(MSDU 头 DestinationTEI;-1=无/简头)
     int     total_len;       ///< MSDU 帧总长(头+数据+CRC,不含 PB 填充;-1=未知)
     QString summary;         ///< 概要,如 "MMeDiscoverNodeList" / "APP EventPacket"
     QVector<MsduFieldNode> tree;  ///< 字段树(协议树直接挂载显示)
 
     MsduInfo() : present(false), simple_head(false), msdu_seq(0),
+                 msdu_src_tei(-1), msdu_dst_tei(-1),
                  total_len(-1) {}
 };
 

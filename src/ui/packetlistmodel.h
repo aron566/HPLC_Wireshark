@@ -18,8 +18,11 @@ public:
         COL_INDEX,
         COL_TIME,
         COL_DELTA,
+        COL_ORIG_SRC,     ///< 原始发起 TEI(MSDU 头 SourceTEI)
         COL_SOURCE,
         COL_DEST,
+        COL_ORIG_DST,     ///< 原始终点 TEI(MSDU 头 DestinationTEI)
+        COL_DIR,          ///< 报文方向:↑=上行(终点=CCO) ↓=下行(发起=CCO) *=其它
         COL_PROTOCOL,
         COL_FRAME_TYPE,   ///< 帧类型列(BEACON/SOF/ACK/COORD),位于 Protocol 之后
         COL_MSDU_TYPE,    ///< MSDU 类型列(SOF 重组完成时显示 MMe/APP 类型)

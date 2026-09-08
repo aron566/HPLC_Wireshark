@@ -22,8 +22,11 @@ QVariant PacketListModel::headerData(int section, Qt::Orientation orient, int ro
             case COL_INDEX:    return QStringLiteral("#");
             case COL_TIME:     return QStringLiteral("Time");
             case COL_DELTA:    return QStringLiteral("Delta");
+            case COL_ORIG_SRC: return QStringLiteral("Orig Src");
             case COL_SOURCE:   return QStringLiteral("Source");
             case COL_DEST:     return QStringLiteral("Destination");
+            case COL_ORIG_DST: return QStringLiteral("Orig Dst");
+            case COL_DIR:      return QStringLiteral("Dir");
             case COL_PROTOCOL: return QStringLiteral("Protocol");
             case COL_FRAME_TYPE: return QStringLiteral("Frame Type");
             case COL_MSDU_TYPE: return QStringLiteral("MSDU Type");
@@ -50,6 +53,31 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
             }
             case COL_DELTA:
                 return QStringLiteral("%1 s").arg(e.delta_us / 1e6, 0, 'f', 6);
+            case COL_ORIG_SRC: {
+                // 原始发起 TEI(MSDU 头 SourceTEI):仅 SOF 重组完成且长头时
+                if (e.accepted && e.msdu.present && !e.msdu.simple_head
+                    && e.msdu.msdu_src_tei > 0)
+                    return (e.msdu.msdu_src_tei == 1)
+                        ? QStringLiteral("CCO")
+                        : QStringLiteral("STA-%1").arg(e.msdu.msdu_src_tei);
+                return QString();
+            }
+            case COL_ORIG_DST: {
+                if (e.accepted && e.msdu.present && !e.msdu.simple_head
+                    && e.msdu.msdu_dst_tei > 0)
+                    return (e.msdu.msdu_dst_tei == 1)
+                        ? QStringLiteral("CCO")
+                        : QStringLiteral("STA-%1").arg(e.msdu.msdu_dst_tei);
+                return QString();
+            }
+            case COL_DIR: {
+                // 方向:↑=上行(原始终点=CCO) ↓=下行(原始发起=CCO) *=其它
+                if (!e.accepted || !e.msdu.present || e.msdu.simple_head)
+                    return QStringLiteral("*");
+                if (e.msdu.msdu_dst_tei == 1) return QStringLiteral("\u2191");
+                if (e.msdu.msdu_src_tei == 1) return QStringLiteral("\u2193");
+                return QStringLiteral("*");
+            }
             case COL_SOURCE: {
                 if (!e.accepted) return QStringLiteral("DROP");
                 if (e.mpdu.src_tei == 0x0001) return QStringLiteral("CCO");
