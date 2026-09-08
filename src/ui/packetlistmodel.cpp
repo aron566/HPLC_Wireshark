@@ -78,10 +78,9 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                 if (!e.accepted || !e.msdu.present || e.msdu.simple_head)
                     return QStringLiteral("*");
                 if (e.msdu.msdu_dst_tei == 0xFFF) {
-                    if (e.msdu.msdu_send_type == 2) return QStringLiteral("\u2014");   // 本地广播
                     if (e.msdu.msdu_send_type == 1 || e.msdu.msdu_send_type == 3)
-                        return QStringLiteral("\u2026");   // 全网广播/代理广播
-                    return QStringLiteral("*");
+                        return QStringLiteral("\u2192");   // 全网/代理广播:需转发
+                    return QStringLiteral("*");   // 本地广播(不转发)及其它
                 }
                 if (e.msdu.msdu_dst_tei == 1) return QStringLiteral("\u2191");
                 if (e.msdu.msdu_src_tei == 1) return QStringLiteral("\u2193");
