@@ -91,7 +91,8 @@ private:
     bool             m_follow_bottom;  ///< 是否自动滚动到最新帧(用户滚离底部则暂停)
 
     qint64           m_last_epoch_ms;
-    QHash<int, quint32> m_last_ts_by_nid;   ///< 各网络(NID)独立的 NTB tick 基准
+    QHash<quint64, quint32> m_last_ts_by_dev;  ///< 各(网络,发送者)独立 NTB 基准
+                                               ///< key = (nid<<32)|src_tei
     int              m_index_counter;
 };
 
