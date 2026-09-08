@@ -192,6 +192,7 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
 
     BplcFrame bf;
     bf.meta.from_raw = false;
+    bf.meta.ts_is_epoch_ms = true;   // ts4=epoch ms 低 32,非 NTB tick
     bf.meta.has_time_tag = false;
     bf.arrival_ms = t;
     bf.data = data;

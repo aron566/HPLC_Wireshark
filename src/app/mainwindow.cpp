@@ -426,10 +426,12 @@ PacketEntry MainWindow::make_entry(const BplcParser::Result& r, qint64 now) {
                    ? r.meta.frame_time.toMSecsSinceEpoch() : now;
     e.epoch_ms  = t;
     // Delta:同 NetID 内优先用 NTB tick 差(25 kHz,40 µs/格,回绕安全),
-    // 否则回退墙上时间毫秒差 ×1000
+    // 否则回退墙上时间毫秒差 ×1000。
+    // 例外:裸 hex 回放帧 ts 域为 epoch 毫秒(非 NTB tick),一律毫秒差
     qint64 dts = 0;
     bool   use_ntb = e.accepted && m_ts_valid
-                     && m_last_nid == int(r.mpdu.net_id);
+                     && m_last_nid == int(r.mpdu.net_id)
+                     && !r.meta.ts_is_epoch_ms;
     if (use_ntb) {
         dts = (qint32)(r.meta.timestamp - m_last_ts);
         if (dts < 0) use_ntb = false;   // 时钟倒退/基准跳变 → 回退
