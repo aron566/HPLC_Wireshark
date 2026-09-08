@@ -1438,20 +1438,14 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                     c.value += QStringLiteral(" - %1").arg(pn);
             }
         }
-        if (packet_id == 0x0008) {
-            // APP_EventPacket 事件上报:直接给报文载荷原文(协议未细分公开字段)
-            QByteArray d = msdu_body.mid(4);
+        {
+            // APP 载荷统一 hex 原文(0x0008 事件上报保留专属名,便于日后专用解析)
             MsduFieldNode raw;
-            raw.name  = QStringLiteral("EventPacket Payload");
-            raw.value = QString(d.toHex(' '));
-            raw.rel_start = head_size + 4;   // msdu_body 在 body 起点 head_size + APP 头 4B
-            raw.rel_len   = d.size();
-            root.children.append(raw);
-        } else {
-            MsduFieldNode raw;
-            raw.name  = QStringLiteral("Payload");
+            raw.name = (packet_id == 0x0008)
+                ? QStringLiteral("EventPacket Payload")
+                : QStringLiteral("Payload");
             raw.value = QString(msdu_body.mid(4).toHex(' '));
-            raw.rel_start = head_size + 4;
+            raw.rel_start = head_size + 4;   // msdu_body 在 body 起点 head_size + APP 头 4B
             raw.rel_len   = msdu_body.size() - 4;
             root.children.append(raw);
         }
