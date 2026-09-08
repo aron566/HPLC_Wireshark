@@ -185,7 +185,7 @@ struct MsduInfo {
 struct PacketEntry {
     int          index;        ///< 序号(从 1 开始累加)
     qint64       epoch_ms;     ///< PC 收到时刻(epoch ms)
-    qint64       delta_ms;     ///< 与上一帧的时间差(ms)
+    qint64       delta_us;     ///< 与上一帧的时间差(µs;NTB 40µs 分辨,不可比时=ms×1000)
     bool         accepted;     ///< true=accepted, false=dropped(CRC 错或格式异常)
     QString      reason;       ///< dropped 时填原因
     PhysicalMeta meta;         ///< 物理层元信息
@@ -197,7 +197,7 @@ struct PacketEntry {
     QByteArray   raw_bytes;    ///< 原始字节,用于 HexView 显示
 
     PacketEntry()
-        : index(0), epoch_ms(0), delta_ms(0), accepted(false),
+        : index(0), epoch_ms(0), delta_us(0), accepted(false),
           msdu_raw_base(-1) {}
 };
 Q_DECLARE_METATYPE(PacketEntry)

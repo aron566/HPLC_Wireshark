@@ -57,7 +57,8 @@ MainWindow::MainWindow(QWidget* parent)
       m_status_left(nullptr), m_status_right(nullptr),
       m_reader(nullptr), m_dispatch(nullptr), m_model(nullptr),
       m_flush_timer(nullptr), m_status_timer(nullptr),
-      m_paused(false), m_follow_bottom(true), m_last_epoch_ms(0), m_index_counter(0) {
+      m_paused(false), m_follow_bottom(true), m_last_epoch_ms(0), m_index_counter(0),
+      m_last_ts(0), m_last_nid(-1), m_ts_valid(false) {
     qRegisterMetaType<BplcParser::Result>("BplcParser::Result");
     qRegisterMetaType<BplcFrame>("BplcFrame");
     qRegisterMetaType<ReaderConfig>("ReaderConfig");
@@ -336,6 +337,8 @@ void MainWindow::on_clear() {
     m_model->clear_all();
     m_index_counter = 0;
     m_last_epoch_ms = 0;
+    m_last_nid = -1;
+    m_ts_valid = false;
     {
         QMutexLocker lock(&m_pending_mutex);
         m_pending.clear();
@@ -418,8 +421,23 @@ PacketEntry MainWindow::make_entry(const BplcParser::Result& r, qint64 now) {
     qint64 t = (r.meta.frame_time.isValid())
                    ? r.meta.frame_time.toMSecsSinceEpoch() : now;
     e.epoch_ms  = t;
-    e.delta_ms  = (m_last_epoch_ms == 0) ? 0 : (t - m_last_epoch_ms);
+    // Delta:同 NetID 内优先用 NTB tick 差(25 kHz,40 µs/格,回绕安全),
+    // 否则回退墙上时间毫秒差 ×1000
+    qint64 dts = 0;
+    bool   use_ntb = e.accepted && m_ts_valid
+                     && m_last_nid == int(r.mpdu.net_id);
+    if (use_ntb) {
+        dts = (qint32)(r.meta.timestamp - m_last_ts);
+        if (dts < 0) use_ntb = false;   // 时钟倒退/基准跳变 → 回退
+    }
+    e.delta_us = use_ntb ? (dts * 40)
+                         : ((m_last_epoch_ms == 0) ? 0 : (t - m_last_epoch_ms) * 1000);
     m_last_epoch_ms = t;
+    if (e.accepted) {
+        m_last_ts  = r.meta.timestamp;
+        m_last_nid = int(r.mpdu.net_id);
+        m_ts_valid = true;
+    }
     e.accepted  = r.accept;
     e.reason    = r.reject_reason;
     e.meta      = r.meta;

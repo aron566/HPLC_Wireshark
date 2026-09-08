@@ -49,7 +49,7 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                 return QStringLiteral("%1 s").arg(e.epoch_ms / 1000.0, 0, 'f', 6);
             }
             case COL_DELTA:
-                return QStringLiteral("%1 s").arg(e.delta_ms / 1000.0, 0, 'f', 6);
+                return QStringLiteral("%1 s").arg(e.delta_us / 1e6, 0, 'f', 6);
             case COL_SOURCE: {
                 if (!e.accepted) return QStringLiteral("DROP");
                 if (e.mpdu.src_tei == 0x0001) return QStringLiteral("CCO");
