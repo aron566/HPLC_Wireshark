@@ -32,6 +32,8 @@ CommConfigDialog::CommConfigDialog(QWidget* parent, const ReaderConfig& initial)
       m_chk_time_tag(nullptr) {
     setWindowTitle(trl::L("通讯口设置"));
     setMinimumWidth(420);
+    m_cfg = initial;          // 必须承接传入配置:非串口分支只改 mode/file,
+                              // 串口字段(名/波特率)保留 initial,避免回退默认值
     build_ui();
     load_initial(initial);
 }
