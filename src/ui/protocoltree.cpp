@@ -314,12 +314,29 @@ void ProtocolTree::show_packet(const PacketEntry& e) {
             case 0:
                 // 常规 ACK(物理字节序):RxRes RxStatus SrcTEI DstTEI RxPBNum
                 //              RSV0 ChQ STALoad RSV1 ExtFrameType
-                add_bit_field(ack, "RxRes", e.mpdu.ack_rx_res == 1
-                              ? QStringLiteral("1 - FAIL")
-                              : QStringLiteral("0 - PASS"), 4, 0, 4);
-                add_bit_field(ack, "RxStatus", e.mpdu.ack_rx_status == 1
-                              ? QStringLiteral("1 - success")
-                              : QStringLiteral("0 - fail"), 4, 4, 4);
+                // RxRes(4b):0=接收成功(该单播 SOF 所有物理块 CRC 全过),
+                //           1=接收失败(至少一个物理块 CRC 未过),其它保留
+                // RxStatus(4b):哪些物理块 CRC 通过的位图(bit i = 第 i+1 块)
+                {
+                    const quint8 rxres = e.mpdu.ack_rx_res;
+                    QString rv;
+                    if (rxres == 0) rv = QStringLiteral("0 - Receipt OK (all PB CRC passed)");
+                    else if (rxres == 1) rv = QStringLiteral("1 - Receipt FAIL (≥1 PB CRC failed)");
+                    else rv = QStringLiteral("%1 - Reserved").arg(rxres);
+                    add_bit_field(ack, "RxRes", rv, 4, 0, 4);
+                }
+                {
+                    const quint8 st = e.mpdu.ack_rx_status;
+                    QStringList oks;
+                    for (int i = 0; i < 4; ++i)
+                        if (st & (1u << i)) oks << QStringLiteral("PB%1").arg(i + 1);
+                    add_bit_field(ack, "RxStatus",
+                                  QStringLiteral("0x%1 (%2 CRC ok)")
+                                      .arg(st, 1, 16, QChar('0'))
+                                      .arg(oks.isEmpty() ? QStringLiteral("no PB")
+                                                         : oks.join(QLatin1String(", "))),
+                                  4, 4, 4);
+                }
                 add_bit_field(ack, "Source TEI",      QString::number(e.mpdu.src_tei), 5, 0, 12);
                 add_bit_field(ack, "Destination TEI", QString::number(e.mpdu.dst_tei), 6, 4, 12);
                 add_bit_field(ack, "RxPBNum",         QString::number(e.mpdu.ack_rx_pb_num), 8, 0, 3);

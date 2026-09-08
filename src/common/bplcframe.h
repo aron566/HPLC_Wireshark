@@ -112,8 +112,8 @@ struct MpduInfo {
 
     // ---- ACK 扩展帧类型(12,0,4):0=常规 ACK 1=Search 2=Sync 3=切频 ----
     quint8  ack_ext_type;     ///< ACK 扩展类型
-    quint8  ack_rx_res;       ///< RxRes 接收结果 4-bit(0=PASS 1=FAIL)
-    quint8  ack_rx_status;    ///< RxStatus 接收状态 4-bit(0=fail 1=success)
+    quint8  ack_rx_res;       ///< RxRes 4-bit:0=接收成功(所有 PB CRC 通过) 1=接收失败(≥1 块 CRC 未过)
+    quint8  ack_rx_status;    ///< RxStatus 4-bit:PB CRC 通过位图(bit i=第 i+1 块)
     quint8  ack_rx_pb_num;    ///< 接收 PB 数 3-bit
     quint8  ack_rsv0;         ///< RSV0 5-bit(8,3,5)
     quint8  ack_channel_quality; ///< 信道质量 8-bit(dB)
