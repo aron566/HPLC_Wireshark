@@ -1,9 +1,9 @@
 {
   "updates": {
     "windows": {
-      "latest-version": "1.0.11",
-      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.11/BPLC_STA_Monitor_Setup_v1.0.11.exe",
-      "changelog": "包列表新增原始 TEI 列与方向列:<br/>Orig Src(Source 前)/Orig Dst(Destination 右)显示 MSDU 原始发起/原始终点 TEI;<br/>Dir 列:↑上行(终点=CCO) ↓下行(发起=CCO) →全网/代理广播(需转发) *其它(本地广播等);<br/>广播帧按发送类型区分(Orig Dst 广播值显示 BCAST)",
+      "latest-version": "1.0.12",
+      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.12/BPLC_STA_Monitor_Setup_v1.0.12.exe",
+      "changelog": "Delta 列重做:弃用 NTB tick(实测各设备 tick 不同轴不可比),<br/>实时串口改按帧起始分节符 0x3C 到达时刻打点(µs 分辨);<br/>文件回放(bin/裸 hex)Delta=帧时间戳毫秒差;<br/>导出 ts 域恢复 epoch ms 低 32,回放还原捕获时刻",
       "mandatory-update": false
     }
   }
