@@ -688,26 +688,29 @@ int main(int argc, char* argv[]) {
             // 字段内容完整性:统计树中关键字段行是否存在
             int n_nodes = 0;
             bool has_mmtype=false, has_statei=false, has_uproute=false,
-                 has_discovered=false, has_rsv1=false;
+                 has_bmp=false, has_rcv=false, has_rsv1=false;
             std::function<void(const MsduFieldNode&)> walk =
                 [&](const MsduFieldNode& nd) {
                     ++n_nodes;
                     if (nd.name.contains(QStringLiteral("MMType"))) has_mmtype = true;
                     if (nd.name.contains(QStringLiteral("STATEI")))  has_statei = true;
                     if (nd.name.contains(QStringLiteral("UpRoute"))) has_uproute = true;
-                    if (nd.name.contains(QStringLiteral("Discovered"))) has_discovered = true;
+                    if (nd.name.contains(QStringLiteral("BitMap")))  has_bmp = true;
+                    if (nd.name.contains(QStringLiteral("ReceivedDiscoveryInfo")))
+                        has_rcv = true;
                     if (nd.name == QStringLiteral("RSV1 [24b]"))    has_rsv1 = true;
                     for (const auto& c : nd.children) walk(c);
                 };
             for (const auto& n : r.msdu.tree) walk(n);
             f72_ok = f72_ok && has_mmtype && has_statei && has_uproute
-                     && has_discovered && has_rsv1 && n_nodes > 40;
+                     && has_bmp && has_rcv && has_rsv1 && n_nodes > 40;
             std::printf("  字段树: 节点数=%d MMType=%s STATEI=%s UpRoute=%s "
-                        "Discovered=%s RSV1[24b]=%s\n",
+                        "BitMap=%s ReceivedInfo=%s RSV1[24b]=%s\n",
                         n_nodes, has_mmtype ? "yes" : "NO",
                         has_statei ? "yes" : "NO",
                         has_uproute ? "yes" : "NO",
-                        has_discovered ? "yes" : "NO",
+                        has_bmp ? "yes" : "NO",
+                        has_rcv ? "yes" : "NO",
                         has_rsv1 ? "yes" : "NO");
             // UI 树渲染:两块 Header/Body/CRC24 均应出现
             {
