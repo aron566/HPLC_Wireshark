@@ -830,10 +830,10 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                         rt.name = QStringLiteral("RouteType [4b]");
                         static const char* rtd[] = {
                             "Incorrect Route",
-                            "The Backup Route of the same level",
-                            "Upper-level Backup route",
-                            "route of the proxy main path",
-                            "Upper of the upper-level Backup route"};
+                            "Same-level route (同级路由)",
+                            "Upper-level route (上级路由)",
+                            "Proxy main-path route (代理主路径路由)",
+                            "Upper of upper-level route (上上级路由)"};
                         rt.value = (rtype <= 4)
                             ? QStringLiteral("%1 - %2").arg(rtype)
                                                       .arg(QLatin1String(rtd[rtype]))
