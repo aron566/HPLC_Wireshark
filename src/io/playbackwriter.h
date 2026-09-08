@@ -83,9 +83,9 @@ inline QByteArray frame_to_playback(const PacketEntry& e) {
     // dlen = 数据长度字段(2B LE,反转义后偏移 0-1)。定义:从 phr_mcs 字段
     // (偏移 6)到帧末的字节数 = 物理元数据 4B + MPDU 长(与固件帧 dlen=MPDU+4
     // 一致)。本监控器读取端不校验该字段,仅按 0x3C/0x3E 切帧。
-    // ts 域 = 帧 NTB tick(25 kHz),绝对时刻由 8B BCD 时间标签携带
+    // ts 域 = epoch ms 低 32 位(导出时刻);绝对时刻由 8B BCD 时间标签承载
     const quint16 dlen = quint16(mpdu.size() + 4);
-    const quint32 ts   = e.meta.timestamp;
+    const quint32 ts   = quint32(e.epoch_ms & 0xFFFFFFFFu);
     QByteArray data;
     data.reserve(mpdu.size() + 18);
     // 起始(帧)时间标签:回放时据此恢复原始捕获时刻
@@ -117,13 +117,13 @@ inline QByteArray build_playback_bin(const QVector<PacketEntry>& entries) {
 
 /// @brief 导出裸数据 hex 文本(与 RawHex 导入对称,每行一帧,无 0x3C/0x3E/
 ///        0x3D 封装):[ts 4B LE][phr_mcs][option][channel][isRF][MPDU]。
-///        ts = 帧 NTB tick(25 kHz,40 µs/tick);回放端 Delta 即 NTB 差,
-///        Time 列退化为本地接收时刻(裸文件不携带绝对时间)。
+///        ts = epoch ms 低 32 位(捕获时刻);回放端还原捕获时刻,
+///        Delta 为 epoch ms 差(文件精度上限为毫秒)。
 inline QByteArray build_raw_hex_text(const QVector<PacketEntry>& entries) {
     QByteArray buf;
     for (const PacketEntry& e : entries) {
         if (e.raw_bytes.isEmpty()) continue;
-        const quint32 ts = e.meta.timestamp;
+        const quint32 ts = quint32(e.epoch_ms & 0xFFFFFFFFu);
         QByteArray line;
         // ts(4B LE)
         line += QStringLiteral(" 0x%1").arg(ts & 0xFF, 2, 16, QChar('0')).toLatin1();

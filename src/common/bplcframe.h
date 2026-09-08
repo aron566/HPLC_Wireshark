@@ -48,12 +48,13 @@ struct PhysicalMeta {
     bool     has_time_tag;    ///< 是否携带 8 字节 BCD 时间标签(has_time_tag=1)
     QDateTime frame_time;     ///< 帧时间(BCD 解码或 PC 本地时间)
     bool     from_raw;        ///< 是否为裸 hex 文本导入(无哨兵封装)
-    bool     ts_is_epoch_ms;  ///< ts 域实为 epoch 毫秒低 32 位(裸 hex 回放,非 NTB tick)
+    bool     frame_ts_is_ntb; ///< ts 域为 NTB tick(实时串口;25kHz,40µs);
+                              ///< false=文件回放(ts=epoch ms 低 32 位,毫秒级)
 
     PhysicalMeta()
         : timestamp(0), phr_mcs(0), option(0), channel(0),
           is_rf(false), has_time_tag(false), from_raw(false),
-          ts_is_epoch_ms(false) {}
+          frame_ts_is_ntb(false) {}
 };
 
 /// @brief 一帧完整载荷(经哨兵切分 + 0x3D 反转义后)

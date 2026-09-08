@@ -427,16 +427,17 @@ PacketEntry MainWindow::make_entry(const BplcParser::Result& r, qint64 now) {
     e.epoch_ms  = t;
     e.accepted  = r.accept;     // 先落 accepted,Delta/last 追踪依赖它
     e.reason    = r.reject_reason;
-    // Delta:同 NetID 内优先用 NTB tick 差(25 kHz,40 µs/格,回绕安全),
-    // 否则回退墙上时间毫秒差 ×1000。
-    // 例外:裸 hex 回放帧 ts 域为 epoch 毫秒(非 NTB tick),一律毫秒差
+    // Delta 时间轴选择:
+    //  - 实时串口(帧 ts=NTB tick,40µs):同网络(网号非 0 且与上一帧一致)
+    //    时用 tick 差;未入网/跨网络(网号不同或 0)不可比 → 回退毫秒差
+    //  - 文件回放(bin/裸 hex,ts=epoch ms):一律 epoch ms 差(文件精度毫秒)
     qint64 dts = 0;
-    bool   use_ntb = e.accepted && m_ts_valid
-                     && m_last_nid == int(r.mpdu.net_id)
-                     && !r.meta.ts_is_epoch_ms;
+    const int  nid = int(r.mpdu.net_id);
+    bool   use_ntb = e.accepted && m_ts_valid && nid != 0
+                     && m_last_nid == nid && r.meta.frame_ts_is_ntb;
     if (use_ntb) {
         dts = (qint32)(r.meta.timestamp - m_last_ts);
-        if (dts < 0) use_ntb = false;   // 时钟倒退/基准跳变 → 回退
+        if (dts < 0) use_ntb = false;   // tick 倒退/基准跳变 → 回退
     }
     e.delta_us = use_ntb ? (dts * 40)
                          : ((m_last_epoch_ms == 0) ? 0 : (t - m_last_epoch_ms) * 1000);
