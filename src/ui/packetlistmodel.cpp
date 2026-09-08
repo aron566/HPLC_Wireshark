@@ -65,15 +65,24 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
             case COL_ORIG_DST: {
                 if (e.accepted && e.msdu.present && !e.msdu.simple_head
                     && e.msdu.msdu_dst_tei > 0)
-                    return (e.msdu.msdu_dst_tei == 1)
-                        ? QStringLiteral("CCO")
-                        : QStringLiteral("STA-%1").arg(e.msdu.msdu_dst_tei);
+                    return (e.msdu.msdu_dst_tei == 0xFFF)
+                        ? QStringLiteral("BCAST")
+                        : (e.msdu.msdu_dst_tei == 1)
+                            ? QStringLiteral("CCO")
+                            : QStringLiteral("STA-%1").arg(e.msdu.msdu_dst_tei);
                 return QString();
             }
             case COL_DIR: {
-                // 方向:↑=上行(原始终点=CCO) ↓=下行(原始发起=CCO) *=其它
+                // 方向:↑=上行(原始终点=CCO) ↓=下行(原始发起=CCO)
+                // 广播(原始终点=0xFFF):按发送类型标识——本地广播=横线,全网/代理广播=省略号
                 if (!e.accepted || !e.msdu.present || e.msdu.simple_head)
                     return QStringLiteral("*");
+                if (e.msdu.msdu_dst_tei == 0xFFF) {
+                    if (e.msdu.msdu_send_type == 2) return QStringLiteral("\u2014");   // 本地广播
+                    if (e.msdu.msdu_send_type == 1 || e.msdu.msdu_send_type == 3)
+                        return QStringLiteral("\u2026");   // 全网广播/代理广播
+                    return QStringLiteral("*");
+                }
                 if (e.msdu.msdu_dst_tei == 1) return QStringLiteral("\u2191");
                 if (e.msdu.msdu_src_tei == 1) return QStringLiteral("\u2193");
                 return QStringLiteral("*");

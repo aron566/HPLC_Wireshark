@@ -677,8 +677,9 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
     annotate_msdu_base(out.tree);   // 标志/枚举字段加数值解释
     out.msdu_seq = (quint16)get_bits(p, 5, 0, 16);   // MSDU Seq(MSDUIndex)
     // 原始发起/终点 TEI(长头 MSDU_BASE;供列表 Orig 列与方向判定)
-    out.msdu_src_tei = (int)get_bits(p, 0, 4, 12);
-    out.msdu_dst_tei = (int)get_bits(p, 2, 0, 12);
+    out.msdu_src_tei  = (int)get_bits(p, 0, 4, 12);
+    out.msdu_dst_tei  = (int)get_bits(p, 2, 0, 12);
+    out.msdu_send_type = (int)get_bits(p, 3, 4, 4);   // 广播类型判定
     quint8 msdu_type   = (quint8)get_bits(p, 7, 0, 8);
     int    msdu_len    = (int)get_bits(p, 8, 0, 11);
     bool   mac_flag    = get_bits(p, 11, 3, 1) != 0;

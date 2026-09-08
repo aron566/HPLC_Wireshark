@@ -175,12 +175,13 @@ struct MsduInfo {
     quint16 msdu_seq;        ///< MSDU 序号(MSDU_BASE 的 MSDUIndex,16-bit)
     int     msdu_src_tei;    ///< 原始发起 TEI(MSDU 头 SourceTEI;-1=无/简头)
     int     msdu_dst_tei;    ///< 原始终点 TEI(MSDU 头 DestinationTEI;-1=无/简头)
+    int     msdu_send_type;  ///< 发送类型(MSDU 头 bit:0单播 1全网广播 2本地广播 3代理广播;-1=无)
     int     total_len;       ///< MSDU 帧总长(头+数据+CRC,不含 PB 填充;-1=未知)
     QString summary;         ///< 概要,如 "MMeDiscoverNodeList" / "APP EventPacket"
     QVector<MsduFieldNode> tree;  ///< 字段树(协议树直接挂载显示)
 
     MsduInfo() : present(false), simple_head(false), msdu_seq(0),
-                 msdu_src_tei(-1), msdu_dst_tei(-1),
+                 msdu_src_tei(-1), msdu_dst_tei(-1), msdu_send_type(-1),
                  total_len(-1) {}
 };
 
