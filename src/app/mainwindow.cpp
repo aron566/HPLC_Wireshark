@@ -43,7 +43,7 @@ namespace {
 const QString kAppVersion = QStringLiteral("1.0.8");
 const QString kModuleName = QStringLiteral("BPLC STA Monitor");
 const QString kAuthorName = QStringLiteral("aron566");
-const QString kRepoUrl    = QStringLiteral("https://github.com/aron566/HPLC_Wireshark");
+const QString kAuthorEmail = QStringLiteral("aron566@163.com");
 }  // namespace
 
 MainWindow::MainWindow(QWidget* parent)
@@ -233,8 +233,7 @@ void MainWindow::build_ui() {
             this, &MainWindow::on_check_finished);
     auto* act_about = menu_help->addAction(trl::L("关于(&A)"));
     connect(act_about, &QAction::triggered, this, [this]() {
-        // 作者/仓库信息 + “打开仓库”按钮(富文本链接在 QMessageBox 内不可点,
-        // 用 ActionRole 按钮打开默认浏览器)
+        // 关于:作者/作者邮箱/版本(如需打开仓库等外链请自行在浏览器访问)
         QMessageBox box(this);
         box.setIcon(QMessageBox::Information);
         box.setWindowTitle(trl::L("关于 BPLC STA Monitor"));
@@ -250,12 +249,7 @@ void MainWindow::build_ui() {
                 .arg(kModuleName, kAppVersion,
                      trl::L("BPLC/HRF 协议 STA 报文监控上位机(串口捕获 + 离线回放)。"),
                      trl::L("作者"), kAuthorName,
-                     trl::L("版本"), trl::L("仓库"), kRepoUrl));
-        auto* btn_repo = box.addButton(trl::L("打开仓库(&R)"),
-                                       QMessageBox::ActionRole);
-        QObject::connect(btn_repo, &QPushButton::clicked, [this]() {
-            QDesktopServices::openUrl(QUrl(kRepoUrl));
-        });
+                     trl::L("版本"), trl::L("作者邮箱"), kAuthorEmail));
         box.addButton(QMessageBox::Close);
         box.exec();
     });
@@ -517,6 +511,7 @@ struct I18nRegMainWindow {
         trl::register_en("设置", "Settings");
         trl::register_en("应用", "Apply");
         trl::register_en("继续", "Resume");
+        trl::register_en("作者邮箱", "Author email");
         trl::register_en("导出为回放文件", "Export as replay file");
         trl::register_en("导出为文件", "Export to file");
         trl::register_en("裸 hex 文本 (*.txt)", "Raw hex text (*.txt)");
