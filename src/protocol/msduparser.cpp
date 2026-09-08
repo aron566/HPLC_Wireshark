@@ -834,7 +834,7 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                             "代理主路径路由类型", "上上级路由类型"};
                         rt.value = (rtype <= 4)
                             ? QStringLiteral("%1 - %2").arg(rtype)
-                                .arg(trl::L(QLatin1String(rtd[rtype])))
+                                .arg(trl::L(QString::fromUtf8(rtd[rtype])))
                             : QString::number(rtype);
                         rt.rel_start = abs0 + 1;  // byte1 高 4bit
                         rt.rel_len   = 1;
