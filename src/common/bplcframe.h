@@ -63,8 +63,10 @@ struct BplcFrame {
     QByteArray   data;            ///< 反转义 + 去哨兵后的净荷(含 isRF 字节 + PDU)
     QString      error_reason;    ///< 非空:该帧被丢弃时附带原因
     qint64       arrival_ms;      ///< PC 接收时刻(epoch ms),用于 UI 节流
+    qint64       arrival_us;      ///< PC 收到帧起始分节符(0x3C)的单调高精度时刻
+                                  ///< (µs;仅实时串口填充,文件回放=0 → Delta 用文件时间戳)
 
-    BplcFrame() : arrival_ms(0) {}
+    BplcFrame() : arrival_ms(0), arrival_us(0) {}
 };
 Q_DECLARE_METATYPE(BplcFrame)
 

@@ -7,10 +7,11 @@
 #include <QRegularExpression>
 #include <QDateTime>
 #include <QDebug>
+#include <chrono>
 
 ReaderWorker::ReaderWorker(QObject* parent) : QObject(parent),
     m_serial(nullptr), m_file(nullptr), m_file_timer(nullptr),
-    m_get3c(false), m_running(false) {}
+    m_get3c(false), m_frame_rx_us(0), m_running(false) {}
 
 ReaderWorker::~ReaderWorker() {
     stop_reading();
@@ -78,9 +79,24 @@ void ReaderWorker::stop_reading() {
     emit finished();
 }
 
+namespace {
+// 单调高精度时钟(µs):帧起始分节符 0x3C 到达打点
+qint64 steady_us() {
+    return qint64(std::chrono::duration_cast<std::chrono::microseconds>(
+                      std::chrono::steady_clock::now().time_since_epoch())
+                      .count());
+}
+}  // namespace
+
 void ReaderWorker::on_serial_ready_read() {
     if (!m_serial) return;
     QByteArray chunk = m_serial->readAll();
+    if (chunk.isEmpty()) return;
+    // “读到第一个字符是 0x3C”即帧起始到达:缓冲无残留(上一帧已收完)且
+    // 新数据首字节为 0x3C 时,此刻就是该帧起点;后续同批内的帧起点由
+    // try_extract_frame 逐 0x3C 发现打点
+    if (!m_get3c && m_in_buf.isEmpty() && quint8(chunk[0]) == 0x3C)
+        m_frame_rx_us = steady_us();
     m_in_buf.append(chunk);
     try_extract_frame();
 }
@@ -107,6 +123,10 @@ void ReaderWorker::try_extract_frame() {
             }
             m_in_buf.remove(0, idx + 1);
             m_get3c = true;
+            // 帧起始分节符 0x3C 的本地接收时刻(单调 µs):
+            // 批内后续帧/缓冲中发现的起点在此打点(实时串口);文件回放不填
+            if (m_cfg.mode == ReaderMode::SerialPort)
+                m_frame_rx_us = steady_us();
             continue;
         }
         int idx = m_in_buf.indexOf(char(0x3E));
@@ -130,6 +150,7 @@ void ReaderWorker::try_extract_frame() {
 
         BplcFrame bf;
         bf.arrival_ms = QDateTime::currentMSecsSinceEpoch();
+        bf.arrival_us = m_frame_rx_us;   // 0x3C 起始高精度接收时刻(实时)
         // 帧 ts 域语义:串口实时=设备填的 NTB tick(40µs 分辨);
         // 文件回放(0x3C bin)=导出端 epoch ms 低 32 位(毫秒级)
         bf.meta.frame_ts_is_ntb = (m_cfg.mode == ReaderMode::SerialPort);

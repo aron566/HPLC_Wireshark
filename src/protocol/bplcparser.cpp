@@ -29,6 +29,7 @@ BplcParser::BplcParser() {}
 // 剥物理层头
 bool BplcParser::decode_envelope(const BplcFrame& in, Result& r) {
     r.meta = in.meta;
+    r.arrival_us = in.arrival_us;   // 实时串口帧起始 0x3C 高精度接收时刻
     const QByteArray& d = in.data;
 
     if (in.meta.from_raw) {

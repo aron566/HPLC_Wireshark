@@ -73,6 +73,7 @@ private:
     QTimer*      m_file_timer;
     QByteArray   m_in_buf;
     bool         m_get3c;
+    qint64       m_frame_rx_us;   ///< 当前帧起始 0x3C 的单调 µs 接收时刻(实时)
     bool         m_running;
     qint64       m_raw_base_ms;   ///< 裸 hex 文本首帧时间(epoch ms;-1=未给出,回退本地)
     ReaderConfig m_cfg;

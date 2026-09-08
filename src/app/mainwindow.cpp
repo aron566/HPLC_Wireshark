@@ -58,7 +58,7 @@ MainWindow::MainWindow(QWidget* parent)
       m_reader(nullptr), m_dispatch(nullptr), m_model(nullptr),
       m_flush_timer(nullptr), m_status_timer(nullptr),
       m_paused(false), m_follow_bottom(true),
-      m_last_epoch_ms(0),
+      m_last_epoch_ms(0), m_last_rx_us(0),
       m_index_counter(0) {
     qRegisterMetaType<BplcParser::Result>("BplcParser::Result");
     qRegisterMetaType<BplcFrame>("BplcFrame");
@@ -341,7 +341,7 @@ void MainWindow::on_clear() {
     m_model->clear_all();
     m_index_counter = 0;
     m_last_epoch_ms = 0;
-    m_last_ts_by_dev.clear();
+    m_last_rx_us = 0;
     {
         QMutexLocker lock(&m_pending_mutex);
         m_pending.clear();
@@ -426,31 +426,18 @@ PacketEntry MainWindow::make_entry(const BplcParser::Result& r, qint64 now) {
     e.epoch_ms  = t;
     e.accepted  = r.accept;     // 先落 accepted,Delta/last 追踪依赖它
     e.reason    = r.reject_reason;
-    // Delta 时间轴选择:
-    //  - 实时串口(帧 ts=NTB tick,40µs):tick 是各设备本地 NTB 计数,只有
-    //    **同一网络且同一发送者**的设备才同一条时间轴(实测同网不同 STA
-    //    的 tick 基准可相差数十分钟)。基准按 (nid<<32)|src_tei 独立维护;
-    //    跨设备/未入网(网号或源 0)/回放帧 → 墙上毫秒差
-    const int  nid = int(r.mpdu.net_id);
-    const int  src = int(r.mpdu.src_tei);
-    const bool is_rt_ntb = e.accepted && r.meta.frame_ts_is_ntb
-                           && nid != 0 && src != 0 && src != 0xFFFF;
+    // Delta:不用 NTB(各设备 tick 不同轴,实测不可比)。实时串口帧在
+    // 收到起始分节符 0x3C 的当下打单调 µs 时刻 → 接收时刻差(µs 分辨);
+    // 文件回放/无高精度打点(0x3C 未逐帧记录)时用帧时间戳 epoch ms 差
     const qint64 ms_fallback = (m_last_epoch_ms == 0)
                                    ? 0 : (t - m_last_epoch_ms) * 1000;
-    if (is_rt_ntb) {
-        const quint64 key = (quint64(quint32(nid)) << 32) | quint32(src);
-        auto it = m_last_ts_by_dev.constFind(key);
-        if (it != m_last_ts_by_dev.constEnd()) {
-            const qint64 dts = (qint32)(r.meta.timestamp - it.value());
-            m_last_ts_by_dev[key] = r.meta.timestamp;   // 推进/重置基准
-            e.delta_us = (dts > 0) ? dts * 40 : ms_fallback;
-        } else {
-            m_last_ts_by_dev.insert(key, r.meta.timestamp);  // 首帧立基准
-            e.delta_us = ms_fallback;
-        }
+    if (r.arrival_us > 0 && m_last_rx_us > 0) {
+        const qint64 d = r.arrival_us - m_last_rx_us;
+        e.delta_us = (d >= 0) ? d : ms_fallback;   // 单调时钟异常时回退
     } else {
         e.delta_us = ms_fallback;
     }
+    if (r.arrival_us > 0) m_last_rx_us = r.arrival_us;
     m_last_epoch_ms = t;
     e.meta      = r.meta;
     e.mpdu      = r.mpdu;

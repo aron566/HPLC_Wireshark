@@ -21,11 +21,12 @@ public:
         MsduInfo     msdu;          ///< MSDU/MAC 层解析结果(SOF 重组完整时填充)
         int          msdu_raw_base; ///< msdu_body[0] 在 payload_for_log 中的偏移;-1=跨帧
         MsduInfo     beacon;        ///< BEACON 载荷区解析结果(仅 BEACON 帧)
+        qint64       arrival_us;    ///< 帧起始 0x3C 接收时刻(单调 µs,实时串口)
         bool         accept;
         QString      reject_reason;
         QByteArray   payload_for_log;
 
-        Result() : msdu_raw_base(-1), accept(false) {}
+        Result() : msdu_raw_base(-1), arrival_us(0), accept(false) {}
     };
 
     struct Filter {

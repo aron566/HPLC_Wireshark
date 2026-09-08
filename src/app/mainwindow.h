@@ -8,7 +8,6 @@
 #include <QByteArray>
 #include <QList>
 #include <QVector>
-#include <QHash>
 #include "serialreader.h"
 #include "framedispatcher.h"
 #include "bplcparser.h"
@@ -91,8 +90,7 @@ private:
     bool             m_follow_bottom;  ///< 是否自动滚动到最新帧(用户滚离底部则暂停)
 
     qint64           m_last_epoch_ms;
-    QHash<quint64, quint32> m_last_ts_by_dev;  ///< 各(网络,发送者)独立 NTB 基准
-                                               ///< key = (nid<<32)|src_tei
+    qint64           m_last_rx_us;   ///< 上一帧 0x3C 起始接收时刻(单调 µs,实时)
     int              m_index_counter;
 };
 
