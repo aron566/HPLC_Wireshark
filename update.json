@@ -1,9 +1,9 @@
 {
   "updates": {
     "windows": {
-      "latest-version": "1.0.9",
-      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.9/BPLC_STA_Monitor_Setup_v1.0.9.exe",
-      "changelog": "补齐全部管理消息帧解析(表59 剩余 13 种:代理变更确认/离线指示/网络冲突/诊断/路由请求回复错误应答/链路确认/过零NTB/无线信道冲突);<br/>发现站点列表位图与接收发现列表信息拆分、位图按字节分字段解析;<br/>ACK RxRes/RxStatus 语义修正(0=全块CRC过/1=有块失败,状态为 CRC 通过位图);<br/>点击字段 HexView 不再跳动;<br/>修复选文件回放保存后串口号/波特率被重置;<br/>窗口宽度下限放宽,多实例分屏自由缩放",
+      "latest-version": "1.0.10",
+      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.10/BPLC_STA_Monitor_Setup_v1.0.10.exe",
+      "changelog": "Delta 列利用帧内 NTB(25kHz tick)差分,40µs 分辨(同 NetID 可比,不可比自动回退毫秒差);<br/>成功率上报 Down/UpCommRate 字段支持高亮;<br/>修复编译告警(-Wreorder/clazy range-loop);<br/>APP 载荷展示分支合并",
       "mandatory-update": false
     }
   }

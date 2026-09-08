@@ -11,7 +11,7 @@ DEFINES += QT_DEPRECATED_WARNINGS
 
 # Windows 资源:exe 文件图标 + 程序版本信息
 RC_ICONS = icons/app.ico
-VERSION = 1.0.9
+VERSION = 1.0.10
 QMAKE_TARGET_PRODUCT = "BPLC STA Monitor"
 QMAKE_TARGET_DESCRIPTION = "BPLC/HRF protocol STA frame monitor"
 QMAKE_TARGET_COPYRIGHT = "Copyright (c) 2026 aron566"
