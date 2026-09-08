@@ -449,6 +449,169 @@ static const FieldSpec kDiscoverNodeListSpec[] = {
 };
 static const int kDiscoverNodeListSpecN = int(sizeof(kDiscoverNodeListSpec) / sizeof(kDiscoverNodeListSpec[0]));
 
+// ---- MMeChangeProxyCnf (0x04):固定 20B + 子站点 2B×N ----
+static const FieldSpec kChangeProxyCnfSpec[] = {
+    {"Result",            0, 0, 8,  Fmt::DEC},
+    {"TotalPacketNum",    1, 0, 8,  Fmt::DEC},
+    {"PacketIndex",       2, 0, 8,  Fmt::DEC},
+    {"RSV0",              3, 0, 8,  Fmt::DEC},
+    {"STATEI",            4, 0, 12, Fmt::DEC},
+    {"LinkType",          5, 4, 1,  Fmt::DEC},
+    {"RSV1",              5, 5, 3,  Fmt::DEC},
+    {"ProxyTEI",          6, 0, 12, Fmt::DEC},
+    {"RSV2",              7, 4, 4,  Fmt::DEC},
+    {"EndSequence",       8, 0, 32, Fmt::HEX8},
+    {"PathSequence",     12, 0, 32, Fmt::HEX8},
+    {"ChildSum",         16, 0, 16, Fmt::DEC},
+    {"RSV3",             18, 0, 16, Fmt::DEC},
+};
+static const int kChangeProxyCnfSpecN = int(sizeof(kChangeProxyCnfSpec) / sizeof(kChangeProxyCnfSpec[0]));
+
+// ---- MMeLeaveInd (0x06):固定 16B + 离线站点 MAC 6B×N ----
+static const FieldSpec kLeaveIndSpec[] = {
+    {"Reason",            0, 0, 16, Fmt::DEC},
+    {"LeaveSTANum",       2, 0, 16, Fmt::DEC},
+    {"LeaveDelayTime",    4, 0, 16, Fmt::DEC},
+    {"RSV0",              6, 0, 80, Fmt::DEC},
+};
+static const int kLeaveIndSpecN = int(sizeof(kLeaveIndSpec) / sizeof(kLeaveIndSpec[0]));
+
+// ---- MMeNetworkConflictReport (0x0A):固定 8B + NIDSize×N 邻居网络号 ----
+static const FieldSpec kNetworkConflictSpec[] = {
+    {"CCOMACAddr",        0, 0, 48, Fmt::MAC},
+    {"NeighbourNetWorkCount", 6, 0, 8, Fmt::DEC},
+    {"NIDSize",           7, 0, 8,  Fmt::DEC},
+};
+static const int kNetworkConflictSpecN = int(sizeof(kNetworkConflictSpec) / sizeof(kNetworkConflictSpec[0]));
+
+// ---- MMeRFChannelConflictReport (0x80):固定 7B + channel/option 各 Count 字节 ----
+static const FieldSpec kRFChannelConflictSpec[] = {
+    {"CCOMACAddr",        0, 0, 48, Fmt::MAC},
+    {"NeighbourNetWorkCount", 6, 0, 8, Fmt::DEC},
+};
+static const int kRFChannelConflictSpecN = int(sizeof(kRFChannelConflictSpec) / sizeof(kRFChannelConflictSpec[0]));
+
+// ---- 路由/链路类(0x50-0x55,公共头版本 0x00) ----
+static const FieldSpec kRouteReqReplyHeadSpec[] = {   // RouteRequest/RouteReply 前 7B
+    {"RouteVersion",      0, 0, 8,  Fmt::DEC},
+    {"RouterReqSN",       1, 0, 32, Fmt::HEX8},
+};
+static const int kRouteReqReplyHeadSpecN = int(sizeof(kRouteReqReplyHeadSpec) / sizeof(kRouteReqReplyHeadSpec[0]));
+static const FieldSpec kRouteRequestTailSpec[] = {    // 字节5-6(RouteRequest)
+    {"RSV0",              5, 0, 3,  Fmt::DEC},
+    {"RoutePriorFlag",    5, 3, 1,  Fmt::DEC},
+    {"LoadDataType",      5, 4, 4,  Fmt::DEC},
+    {"LoadDataLength",    6, 0, 8,  Fmt::DEC},
+};
+static const int kRouteRequestTailSpecN = int(sizeof(kRouteRequestTailSpec) / sizeof(kRouteRequestTailSpec[0]));
+static const FieldSpec kRouteReplyTailSpec[] = {       // 字节5-6(RouteReply)
+    {"RSV0",              5, 0, 4,  Fmt::DEC},
+    {"LoadDataType",      5, 4, 4,  Fmt::DEC},
+    {"LoadDataLength",    6, 0, 8,  Fmt::DEC},
+};
+static const int kRouteReplyTailSpecN = int(sizeof(kRouteReplyTailSpec) / sizeof(kRouteReplyTailSpec[0]));
+static const FieldSpec kRouteAckSpec[] = {            // RouteAck 8B
+    {"RouteVersion",      0, 0, 8,  Fmt::DEC},
+    {"RSV0",              1, 0, 24, Fmt::DEC},
+    {"RouterReqSN",       4, 0, 32, Fmt::HEX8},
+};
+static const int kRouteAckSpecN = int(sizeof(kRouteAckSpec) / sizeof(kRouteAckSpec[0]));
+static const FieldSpec kRouteErrorSpec[] = {          // RouteError 前 7B
+    {"Version",           0, 0, 8,  Fmt::DEC},
+    {"RouterReqSN",       1, 0, 32, Fmt::HEX8},
+    {"RSV0",              5, 0, 8,  Fmt::DEC},
+    {"UnReachableSTANum", 6, 0, 8,  Fmt::DEC},
+};
+static const int kRouteErrorSpecN = int(sizeof(kRouteErrorSpec) / sizeof(kRouteErrorSpec[0]));
+static const FieldSpec kLinkConfirmRequestSpec[] = {  // 链路确认请求前 7B
+    {"Version",           0, 0, 8,  Fmt::DEC},
+    {"RouterReqSN",       1, 0, 32, Fmt::HEX8},
+    {"RSV0",              5, 0, 8,  Fmt::DEC},
+    {"AckStaNum",         6, 0, 8,  Fmt::DEC},
+};
+static const int kLinkConfirmRequestSpecN = int(sizeof(kLinkConfirmRequestSpec) / sizeof(kLinkConfirmRequestSpec[0]));
+static const FieldSpec kLinkConfirmResponseSpec[] = { // 链路确认回应 8B
+    {"Version",           0, 0, 8,  Fmt::DEC},
+    {"Level",             1, 0, 8,  Fmt::DEC},
+    {"ChannelQuality",    2, 0, 8,  Fmt::DEC},
+    {"RoutePriorityFlag", 3, 0, 1,  Fmt::DEC},
+    {"RSV0",              3, 1, 7,  Fmt::DEC},
+    {"RouterReqSN",       4, 0, 32, Fmt::HEX8},
+};
+static const int kLinkConfirmResponseSpecN = int(sizeof(kLinkConfirmResponseSpec) / sizeof(kLinkConfirmResponseSpec[0]));
+
+// ---- MMeDiagnose (0x4F):芯片厂商 ID ----
+static const FieldSpec kDiagnoseSpec[] = {
+    {"ChipManufacID",     0, 0, 16, Fmt::DEC},
+};
+static const int kDiagnoseSpecN = int(sizeof(kDiagnoseSpec) / sizeof(kDiagnoseSpec[0]));
+
+// ---- MMeZeroCrossNTBCollectInd (0x0B):固定 8B ----
+static const FieldSpec kZeroCrossCollectSpec[] = {
+    {"STATEI",            0, 0, 16, Fmt::DEC},
+    {"RSV0",              1, 4, 4,  Fmt::DEC},
+    {"NTBCollectionMode", 2, 0, 8,  Fmt::DEC},
+    {"NTBCollectionPeriod", 3, 0, 8, Fmt::DEC},
+    {"NTBCollectionQuantity", 4, 0, 8, Fmt::DEC},
+    {"RSV1",              5, 0, 24, Fmt::DEC},
+};
+static const int kZeroCrossCollectSpecN = int(sizeof(kZeroCrossCollectSpec) / sizeof(kZeroCrossCollectSpec[0]));
+
+// ---- MMeZeroCrossNTBReport (0x0C):固定 10B + 12bit 差分 NTB 打包流 ----
+static const FieldSpec kZeroCrossReportSpec[] = {
+    {"STATEI",            0, 0, 12, Fmt::DEC},
+    {"RSV0",              1, 4, 4,  Fmt::DEC},
+    {"TotalCount",        2, 0, 8,  Fmt::DEC},
+    {"LineATotalCount",   3, 0, 8,  Fmt::DEC},
+    {"LineBTotalCount",   4, 0, 8,  Fmt::DEC},
+    {"LineCTotalCount",   5, 0, 8,  Fmt::DEC},
+    {"NTBBase",           6, 0, 32, Fmt::DEC},
+};
+static const int kZeroCrossReportSpecN = int(sizeof(kZeroCrossReportSpec) / sizeof(kZeroCrossReportSpec[0]));
+
+/// @brief 渲染 RouteRequest/RouteReply 的 LoadData 段(MMe_RoutePathList,4B×N):
+///        每 4B = TEI(12b)+RSV0(4b)+CommSuccRate(1B,%)+ChannelQuality(1B,dB)
+static void annotate_route_loaddata(QVector<MsduFieldNode>& nodes,
+                                    const QByteArray& b, int rel_base) {
+    for (auto& n : nodes) {
+        if (!n.name.startsWith(QStringLiteral("LoadDataType"))) continue;
+        const int v = n.value.toInt();
+        n.value = QStringLiteral("%1 - %2").arg(v).arg(
+            v == 1 ? QStringLiteral("LoadData included")
+                   : QStringLiteral("No LoadData"));
+    }
+    if (b.size() < 8) return;
+    const int len = (int)get_bits(b, 6, 0, 8);   // LoadDataLength
+    const int cnt = len / 4;
+    if (cnt <= 0) return;
+    auto& pg = group(nodes, QStringLiteral("RoutePathList [%1]").arg(cnt));
+    for (int i = 0; i < cnt && 7 + 4 * i + 4 <= b.size(); ++i) {
+        const int off = 7 + 4 * i;
+        const int rel0 = rel_base + off;
+        auto& rp = group(pg.children, QStringLiteral("RoutePath[%1]").arg(i));
+        MsduFieldNode t;
+        t.name  = QStringLiteral("TEI [12b]");
+        t.value = QString::number((quint16)get_bits(b, off, 0, 12));
+        t.rel_start = rel0; t.rel_len = 2;
+        rp.children.append(t);
+        MsduFieldNode rv;
+        rv.name  = QStringLiteral("RSV0 [4b]");
+        rv.value = QString::number((quint8)get_bits(b, off + 1, 4, 4));
+        rv.rel_start = rel0 + 1; rv.rel_len = 1;
+        rp.children.append(rv);
+        MsduFieldNode cr;
+        cr.name  = QStringLiteral("CommSuccRate");
+        cr.value = QStringLiteral("%1%").arg((quint8)b[off + 2]);
+        cr.rel_start = rel0 + 2; cr.rel_len = 1;
+        rp.children.append(cr);
+        MsduFieldNode cq;
+        cq.name  = QStringLiteral("ChannelQuality");
+        cq.value = QStringLiteral("%1 dB").arg((quint8)b[off + 3]);
+        cq.rel_start = rel0 + 3; cq.rel_len = 1;
+        rp.children.append(cq);
+    }
+}
+
 // ---- MMeSuccessRateReport (0x09) ----
 static const FieldSpec kSuccessRateSpec[] = {
     {"ProxySTATEI", 0, 0, 12, Fmt::DEC},
@@ -937,6 +1100,287 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                         en.children.append(ul);
                     }
                 }
+                break;
+            }
+            case MME_CHANGE_PROXY_CNF: {
+                // MMeChangeProxyCnf(代理变更确认):固定 20B + 子站点 2B×ChildSum
+                add_fields(root.children, b, 0, kChangeProxyCnfSpec,
+                           kChangeProxyCnfSpecN, head_size + 4);
+                apply_dicts(root.children);
+                for (auto& ch : root.children) {
+                    if (!ch.name.startsWith(QStringLiteral("Result"))) continue;
+                    quint8 res = (quint8)get_bits(b, 0, 0, 8);
+                    ch.value = QStringLiteral("%1 - %2").arg(res).arg(
+                        res == 0 ? QStringLiteral("Success")
+                                 : QStringLiteral("Fail"));
+                }
+                int child_sum = (int)get_bits(b, 16, 0, 16);
+                int off = 20;   // 子站点表起点
+                if (child_sum > 0 && off + 2 <= b.size()) {
+                    auto& cg = group(root.children,
+                                     QStringLiteral("ProxyChildSTA [%1]").arg(child_sum));
+                    for (int i = 0; i < child_sum && off + 2 <= b.size(); ++i) {
+                        quint16 e = (quint16)get_bits(b, off, 0, 16);
+                        MsduFieldNode cn;
+                        cn.name = QStringLiteral("Child[%1]").arg(i);
+                        cn.value = QStringLiteral("TEI=%1 LinkType=%2")
+                                       .arg(e & 0x0FFF).arg((e >> 12) & 0x01);
+                        cn.rel_start = head_size + 4 + off;
+                        cn.rel_len   = 2;
+                        cg.children.append(cn);
+                        off += 2;
+                    }
+                }
+                break;
+            }
+            case MME_LEAVE_IND: {
+                // MMeLeaveInd(离线指示):固定 16B + 离线站点 MAC 6B×N
+                add_fields(root.children, b, 0, kLeaveIndSpec, kLeaveIndSpecN,
+                           head_size + 4);
+                for (auto& ch : root.children) {
+                    if (!ch.name.startsWith(QStringLiteral("Reason"))) continue;
+                    quint16 r = (quint16)get_bits(b, 0, 0, 16);
+                    static const char* rsn[] = {
+                        "CCO decides STA offline",
+                        "Network layers exceeded upper limit",
+                        "STA not in whitelist"};
+                    ch.value = (r <= 2)
+                        ? QStringLiteral("%1 - %2").arg(r).arg(QLatin1String(rsn[r]))
+                        : QString::number(r);
+                }
+                int n = (int)get_bits(b, 2, 0, 16);
+                int off = 16;
+                if (n > 0 && off + 6 <= b.size()) {
+                    auto& lg = group(root.children,
+                                     QStringLiteral("LeaveSTAMACList [%1]").arg(n));
+                    for (int i = 0; i < n && off + 6 <= b.size(); ++i) {
+                        MsduFieldNode mac;
+                        mac.name  = QStringLiteral("LeaveSTAMAC [48b]");
+                        mac.value = mac_str((quint64)get_bits(b, off, 0, 48));
+                        mac.rel_start = head_size + 4 + off;
+                        mac.rel_len   = 6;
+                        lg.children.append(mac);
+                        off += 6;
+                    }
+                }
+                break;
+            }
+            case MME_NETWORK_CONFLICT_REPORT: {
+                // MMeNetworkConflictReport(网络冲突上报):固定 8B + 邻居网络号
+                // NIDSize(规范=3)×NeighbourNetWorkCount
+                add_fields(root.children, b, 0, kNetworkConflictSpec,
+                           kNetworkConflictSpecN, head_size + 4);
+                int cnt = (int)get_bits(b, 6, 0, 8);
+                int nid_sz = (int)get_bits(b, 7, 0, 8);
+                int off = 8;
+                if (nid_sz > 0 && cnt > 0 && off + nid_sz <= b.size()) {
+                    auto& ng = group(root.children,
+                                     QStringLiteral("NeighbourNetworkNIDList [%1]")
+                                         .arg(cnt));
+                    for (int i = 0; i < cnt && off + nid_sz <= b.size(); ++i) {
+                        quint32 nid = (quint32)get_bits(b, off, 0, nid_sz * 8);
+                        MsduFieldNode nd;
+                        nd.name  = QStringLiteral("NeighbourNID[%1]").arg(i);
+                        nd.value = QStringLiteral("0x%1")
+                                       .arg(nid, nid_sz * 2, 16, QChar('0'));
+                        nd.rel_start = head_size + 4 + off;
+                        nd.rel_len   = nid_sz;
+                        ng.children.append(nd);
+                        off += nid_sz;
+                    }
+                }
+                break;
+            }
+            case MME_RF_CHANNEL_CONFLICT_REPORT: {
+                // MMeRFChannelConflictReport(无线信道冲突上报):CCO MAC + 邻居数;
+                // 随后 Count 字节信道 + Count 字节 option(每邻居一对)
+                add_fields(root.children, b, 0, kRFChannelConflictSpec,
+                           kRFChannelConflictSpecN, head_size + 4);
+                int cnt = (int)get_bits(b, 6, 0, 8);
+                int ch_off = 7;
+                if (cnt > 0 && ch_off + cnt * 2 <= b.size()) {
+                    auto& rg = group(root.children,
+                                     QStringLiteral("NeighbourRFNetworkList [%1]")
+                                         .arg(cnt));
+                    for (int i = 0; i < cnt; ++i) {
+                        quint8 ch = (quint8)b[ch_off + i];
+                        quint8 op = (quint8)b[ch_off + cnt + i];
+                        MsduFieldNode nd;
+                        nd.name  = QStringLiteral("Neighbour[%1]").arg(i);
+                        nd.value = QStringLiteral("ch=%1 op=%2").arg(ch).arg(op);
+                        nd.rel_start = head_size + 4 + ch_off + i;
+                        nd.rel_len   = 1;
+                        rg.children.append(nd);
+                    }
+                }
+                break;
+            }
+            case MME_ROUTE_REQUEST: {
+                // MMeRouteRequest(路由请求):头 7B + LoadData(4B×N RoutePath)
+                add_fields(root.children, b, 0, kRouteReqReplyHeadSpec,
+                           kRouteReqReplyHeadSpecN, head_size + 4);
+                add_fields(root.children, b, 0, kRouteRequestTailSpec,
+                           kRouteRequestTailSpecN, head_size + 4);
+                apply_dicts(root.children);
+                annotate_route_loaddata(root.children, b, head_size + 4);
+                break;
+            }
+            case MME_ROUTE_REPLY: {
+                // MMeRouteReply(路由回复):头 7B + LoadData(4B×N RoutePath)
+                add_fields(root.children, b, 0, kRouteReqReplyHeadSpec,
+                           kRouteReqReplyHeadSpecN, head_size + 4);
+                add_fields(root.children, b, 0, kRouteReplyTailSpec,
+                           kRouteReplyTailSpecN, head_size + 4);
+                apply_dicts(root.children);
+                annotate_route_loaddata(root.children, b, head_size + 4);
+                break;
+            }
+            case MME_ROUTE_ERROR: {
+                // MMeRouteError(路由错误):固定 7B + 不可达站点 2B×N
+                add_fields(root.children, b, 0, kRouteErrorSpec,
+                           kRouteErrorSpecN, head_size + 4);
+                int n = (int)get_bits(b, 6, 0, 8);
+                int off = 7;
+                if (n > 0 && off + 2 <= b.size()) {
+                    auto& ug = group(root.children,
+                                     QStringLiteral("UnReachableSTAList [%1]").arg(n));
+                    for (int i = 0; i < n && off + 2 <= b.size(); ++i) {
+                        quint16 e = (quint16)get_bits(b, off, 0, 16);
+                        MsduFieldNode sn;
+                        sn.name  = QStringLiteral("UnReachableSTA[%1]").arg(i);
+                        sn.value = QStringLiteral("TEI=%1 LinkType=%2")
+                                       .arg(e & 0x0FFF).arg((e >> 12) & 0x01);
+                        sn.rel_start = head_size + 4 + off;
+                        sn.rel_len   = 2;
+                        ug.children.append(sn);
+                        off += 2;
+                    }
+                }
+                break;
+            }
+            case MME_ROUTE_ACK: {
+                // MMeRouteAck(路由应答):固定 8B
+                add_fields(root.children, b, 0, kRouteAckSpec, kRouteAckSpecN,
+                           head_size + 4);
+                break;
+            }
+            case MME_LINK_CONFIRM_REQUEST: {
+                // MMeLinkConfirmRequest(链路确认请求):固定 7B + 应答站点 2B×N
+                add_fields(root.children, b, 0, kLinkConfirmRequestSpec,
+                           kLinkConfirmRequestSpecN, head_size + 4);
+                int n = (int)get_bits(b, 6, 0, 8);
+                int off = 7;
+                if (n > 0 && off + 2 <= b.size()) {
+                    auto& ag = group(root.children,
+                                     QStringLiteral("AckSTAList [%1]").arg(n));
+                    for (int i = 0; i < n && off + 2 <= b.size(); ++i) {
+                        quint16 e = (quint16)get_bits(b, off, 0, 16);
+                        MsduFieldNode sn;
+                        sn.name  = QStringLiteral("AckSTA[%1]").arg(i);
+                        sn.value = QStringLiteral("TEI=%1 LinkType=%2")
+                                       .arg(e & 0x0FFF).arg((e >> 12) & 0x01);
+                        sn.rel_start = head_size + 4 + off;
+                        sn.rel_len   = 2;
+                        ag.children.append(sn);
+                        off += 2;
+                    }
+                }
+                break;
+            }
+            case MME_LINK_CONFIRM_RESPONSE: {
+                // MMeLinkConfirmResponse(链路确认回应):固定 8B
+                add_fields(root.children, b, 0, kLinkConfirmResponseSpec,
+                           kLinkConfirmResponseSpecN, head_size + 4);
+                for (auto& ch : root.children) {
+                    if (!ch.name.startsWith(QStringLiteral("RoutePriorityFlag")))
+                        continue;
+                    quint8 f = (quint8)get_bits(b, 3, 0, 1);
+                    ch.value = QStringLiteral("%1 - %2").arg(f).arg(
+                        f == 1 ? QStringLiteral("Have high priority")
+                               : QStringLiteral("Normal priority"));
+                }
+                break;
+            }
+            case MME_DIAGNOSE: {
+                // MMeDiagnose(网络诊断):芯片厂商 ID(1-HS 2-ES 3-TC 4-LH
+                // 5-HT 6-RS 7-SW 8-SC,0 与其它保留)
+                add_fields(root.children, b, 0, kDiagnoseSpec, kDiagnoseSpecN,
+                           head_size + 4);
+                for (auto& ch : root.children) {
+                    if (!ch.name.startsWith(QStringLiteral("ChipManufacID")))
+                        continue;
+                    quint16 v = (quint16)get_bits(b, 0, 0, 16);
+                    static const char* mf[] = {
+                        "Reserved", "HS", "ES", "TC", "LH", "HT", "RS", "SW", "SC"};
+                    ch.value = (v <= 8)
+                        ? QStringLiteral("%1 - %2").arg(v).arg(QLatin1String(mf[v]))
+                        : QString::number(v);
+                }
+                break;
+            }
+            case MME_ZERO_CROSS_NTB_COLLECT_IND: {
+                // MMeZeroCrossNTBCollectInd(过零NTB采集指示):固定 8B
+                add_fields(root.children, b, 0, kZeroCrossCollectSpec,
+                           kZeroCrossCollectSpecN, head_size + 4);
+                for (auto& ch : root.children) {
+                    if (ch.name.startsWith(QStringLiteral("NTBCollectionMode"))) {
+                        quint8 m = (quint8)get_bits(b, 2, 0, 8);
+                        ch.value = QStringLiteral("%1 - %2").arg(m).arg(
+                            m == 1 ? QStringLiteral("All STAs collect zero-cross NTB")
+                                   : QStringLiteral("Appointed STA (STATEI) collects"));
+                    } else if (ch.name.startsWith(
+                                   QStringLiteral("NTBCollectionPeriod"))) {
+                        quint8 p = (quint8)get_bits(b, 3, 0, 8);
+                        ch.value = QStringLiteral("%1 - %2").arg(p).arg(
+                            p == 1 ? QStringLiteral("One power line cycle")
+                                   : QStringLiteral("Half power line cycle"));
+                    }
+                }
+                break;
+            }
+            case MME_ZERO_CROSS_NTB_REPORT: {
+                // MMeZeroCrossNTBReport(过零NTB上报):固定 10B + 差分 NTB
+                // (12bit 打包:偶序号 = b0|(b1&0F)<<8 吃1B;奇序号=(b0>>4)|(b1<<4)
+                // 吃2B;LineA/B/C 依次各消费各自计数)
+                add_fields(root.children, b, 0, kZeroCrossReportSpec,
+                           kZeroCrossReportSpecN, head_size + 4);
+                const int la = (int)get_bits(b, 3, 0, 8);
+                const int lb = (int)get_bits(b, 4, 0, 8);
+                const int lc = (int)get_bits(b, 5, 0, 8);
+                const int total = (int)get_bits(b, 2, 0, 8);
+                int la_show = (la == total && total > 0) ? la - 1 : la;  // 与 Python 一致
+                QByteArray tab = b.mid(10);
+                int cur = 0;
+                auto read12 = [&tab, &cur]() -> quint16 {
+                    if (cur >= tab.size() || tab.size() < 2) return 0;
+                    quint16 v;
+                    if ((cur & 1) == 0) {
+                        v = (quint16)(quint8)tab[cur]
+                          | (quint16)(((quint8)tab[cur + 1] & 0x0F) << 8);
+                        cur += 1;
+                    } else {
+                        v = (quint16)((quint8)tab[cur] >> 4)
+                          | (quint16)((quint8)tab[cur + 1] << 4);
+                        cur += 2;
+                    }
+                    return v;
+                };
+                auto diff_group = [&](QVector<MsduFieldNode>& out, const char* nm,
+                                      int cnt, const QByteArray& src, int rel_off) {
+                    if (cnt <= 0) return;
+                    auto& g = group(out, QStringLiteral("%1 Diff NTB List [%2]")
+                                             .arg(QLatin1String(nm)).arg(cnt));
+                    for (int i = 0; i < cnt; ++i) {
+                        MsduFieldNode d;
+                        d.name  = QStringLiteral("DiffNTB[%1]").arg(i);
+                        d.value = QString::number(read12());
+                        g.children.append(d);
+                    }
+                    Q_UNUSED(src); Q_UNUSED(rel_off);
+                };
+                diff_group(root.children, "LineA", la_show, tab, 10);
+                diff_group(root.children, "LineB", lb, tab, 10);
+                diff_group(root.children, "LineC", lc, tab, 10);
                 break;
             }
             default: {
