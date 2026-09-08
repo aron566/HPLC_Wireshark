@@ -130,7 +130,7 @@ void MainWindow::build_ui() {
     m_toolbar->addWidget(new QLabel(trl::L("  显示过滤器:"), m_toolbar));
     m_edt_filter = new QLineEdit(m_toolbar);
     m_edt_filter->setPlaceholderText(QStringLiteral("beacon | sof | hrf | plc | sta-3 | drop | 0xf0f1f2 ..."));
-    m_edt_filter->setMinimumWidth(280);
+    m_edt_filter->setMinimumWidth(180);
     m_toolbar->addWidget(m_edt_filter);
     m_btn_apply_filter = new QToolButton(m_toolbar);
     m_btn_apply_filter->setText(trl::L("应用"));
@@ -167,7 +167,7 @@ void MainWindow::build_ui() {
     m_splitter_bottom = new QSplitter(Qt::Horizontal, m_splitter_main);
 
     m_tree_protocol = new ProtocolTree(m_splitter_bottom);
-    m_tree_protocol->setMinimumWidth(280);
+    m_tree_protocol->setMinimumWidth(220);
 
     auto* hex_pane   = new QWidget(m_splitter_bottom);
     auto* hex_layout = new QVBoxLayout(hex_pane);

@@ -29,7 +29,8 @@ HexView::HexView(QWidget* parent) : QPlainTextEdit(parent),
     setLineWrapMode(QPlainTextEdit::NoWrap);
     QFontMetrics fm(font());
     int char_w = fm.horizontalAdvance('0');
-    setMinimumWidth(char_w * 78 + 30);
+    // 不按整行(73 字符)设下限:过窄时出现横向滚动,允许窗口自由缩放
+    setMinimumWidth(char_w * 32 + 16);   // ≈8 字节宽,左右分屏/多实例不互相挤压
 }
 
 void HexView::set_data(const QByteArray& bytes) {
