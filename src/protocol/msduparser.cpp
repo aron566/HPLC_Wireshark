@@ -1004,7 +1004,7 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                         ug.children.append(rt);
                     }
                 }
-                // Discovery STAList BitMap:逐 bit → STA TEI
+                // ---- 发现站点列表位图(独立展示,勿与接收发现列表信息合并) ----
                 QByteArray bm;
                 int bm_base = -1;   // bitmap 相对 body 起点(供高亮)
                 if (bitmap_size > 0 && off + bitmap_size <= b.size()) {
@@ -1012,50 +1012,61 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                     bm = b.mid(off, bitmap_size);
                     off += bitmap_size;
                 }
-                // ReceivedDiscoveryInfo:DiscoverNodeNum 字节(按 bitmap 置位顺序配对)
+                bool bm_any = false;
+                QStringList tei_list;
+                for (int i = 0; i < bm.size() && !bm_any; ++i)
+                    bm_any = ((quint8)bm[i]) != 0;
+                // bitmap 值:全 0 → NULL;否则列出该位图置位对应的 TEI0,TEI1…
+                MsduFieldNode bl;
+                bl.name  = QStringLiteral("DiscoverySTAList BitMap [%1b]").arg(bm.size());
+                if (!bm_any) {
+                    bl.value = QStringLiteral("NULL");
+                } else {
+                    for (int i = 0; i < bm.size(); ++i) {
+                        quint8 byte = (quint8)bm[i];
+                        for (int j = 0; j < 8; ++j)
+                            if (byte & (1u << j))
+                                tei_list << QString::number(8 * i + j);
+                    }
+                    bl.value = tei_list.join(QStringLiteral(", "));
+                }
+                if (bm_base >= 0) { bl.rel_start = bm_base; bl.rel_len = bm.size(); }
+                root.children.append(bl);
+
+                // ---- 接收发现列表信息(表99:置位 TEI 各一条,1B 计数) ----
                 QByteArray cnts;
                 int cnts_base = -1;  // 计数区相对 body 起点(供高亮)
                 if (node_num > 0 && off + node_num <= b.size()) {
                     cnts_base = head_size + 4 + off;
                     cnts = b.mid(off, node_num);
                 }
-                // 逐置位 bit:先展示位图中的 TEI,再展示该 TEI 的发现报文数量
-                // 与 Python log 权威一致:
-                //   MMeDiscoverNodeList DiscoveredSTATEI: 1;  ReceivedDiscoverCount: 57
                 int order = 0;
-                MsduFieldNode* dng = nullptr;
-                for (int i = 0; i < bm.size(); ++i) {
-                    quint8 byte = (quint8)bm[i];
-                    for (int j = 0; j < 8; ++j) {
-                        if (!(byte & (1u << j))) continue;
-                        if (!dng)
-                            dng = &group(root.children,
-                                QStringLiteral("DiscoveredNodeList [%1]").arg(node_num));
-                        auto& dn = group(dng->children,
-                                         QStringLiteral("Discovered[%1]").arg(order));
-                        // TEI 由位图 bit 位置决定:TEI = 8*i+j
-                        MsduFieldNode st;
-                        st.name  = QStringLiteral("STATEI [1b]");
-                        st.value = QString::number(8 * i + j);
-                        if (bm_base >= 0) {
-                            st.rel_start = bm_base + i;   // 位图该 bit 所在字节
-                            st.rel_len   = 1;
-                        }
-                        dn.children.append(st);
-                        // 对应发现报文数量(置位顺序取 cnts)
-                        MsduFieldNode ct;
-                        ct.name = QStringLiteral("ReceivedDiscoverCount [8b]");
-                        if (order < cnts.size()) {
-                            ct.value = QString::number((quint8)cnts[order]);
-                            if (cnts_base >= 0) {
-                                ct.rel_start = cnts_base + order;
-                                ct.rel_len   = 1;
+                if (bm_any && !tei_list.isEmpty()) {
+                    auto& rgi = group(root.children,
+                                      QStringLiteral("ReceivedDiscoveryInfo [%1]")
+                                          .arg(tei_list.size()));
+                    for (int i = 0; i < bm.size(); ++i) {
+                        quint8 byte = (quint8)bm[i];
+                        for (int j = 0; j < 8; ++j) {
+                            if (!(byte & (1u << j))) continue;
+                            const int tei = 8 * i + j;
+                            MsduFieldNode rc;
+                            // 每条含义:数量 - TEx
+                            rc.name = QStringLiteral("ReceivedDiscoverCount[%1]")
+                                          .arg(order);
+                            if (order < cnts.size()) {
+                                rc.value = QStringLiteral("%1 - TEI%2")
+                                               .arg((quint8)cnts[order]).arg(tei);
+                                if (cnts_base >= 0) {
+                                    rc.rel_start = cnts_base + order;
+                                    rc.rel_len   = 1;
+                                }
+                            } else {
+                                rc.value = QStringLiteral("? - TEI%1").arg(tei);
                             }
-                        } else {
-                            ct.value = QStringLiteral("?");
+                            rgi.children.append(rc);
+                            ++order;
                         }
-                        dn.children.append(ct);
-                        ++order;
                     }
                 }
                 break;
