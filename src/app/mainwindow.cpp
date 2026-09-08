@@ -57,8 +57,9 @@ MainWindow::MainWindow(QWidget* parent)
       m_status_left(nullptr), m_status_right(nullptr),
       m_reader(nullptr), m_dispatch(nullptr), m_model(nullptr),
       m_flush_timer(nullptr), m_status_timer(nullptr),
-      m_paused(false), m_follow_bottom(true), m_last_epoch_ms(0), m_index_counter(0),
-      m_last_ts(0), m_last_nid(-1), m_ts_valid(false) {
+      m_paused(false), m_follow_bottom(true),
+      m_last_epoch_ms(0), m_last_ts(0), m_last_nid(-1), m_ts_valid(false),
+      m_index_counter(0) {
     qRegisterMetaType<BplcParser::Result>("BplcParser::Result");
     qRegisterMetaType<BplcFrame>("BplcFrame");
     qRegisterMetaType<ReaderConfig>("ReaderConfig");
