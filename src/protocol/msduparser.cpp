@@ -742,7 +742,7 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                     else if (v.name.startsWith(QStringLiteral("ManufacturerID"))) {
                         const QByteArray as = b.mid(48, 2);
                         QString a;
-                        for (char c : qAsConst(as)) a += c >= 0x20 && c < 0x7F ? c : '.';
+                        for (char c : as) a += c >= 0x20 && c < 0x7F ? c : '.';
                         v.value = QStringLiteral("\"%1\" (0x%2)")
                                       .arg(a).arg(quint16(v.value.toUInt(nullptr, 16)),
                                                   4, 16, QChar('0'));
