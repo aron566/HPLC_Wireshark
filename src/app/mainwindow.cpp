@@ -425,6 +425,8 @@ PacketEntry MainWindow::make_entry(const BplcParser::Result& r, qint64 now) {
     qint64 t = (r.meta.frame_time.isValid())
                    ? r.meta.frame_time.toMSecsSinceEpoch() : now;
     e.epoch_ms  = t;
+    e.accepted  = r.accept;     // 先落 accepted,Delta/last 追踪依赖它
+    e.reason    = r.reject_reason;
     // Delta:同 NetID 内优先用 NTB tick 差(25 kHz,40 µs/格,回绕安全),
     // 否则回退墙上时间毫秒差 ×1000。
     // 例外:裸 hex 回放帧 ts 域为 epoch 毫秒(非 NTB tick),一律毫秒差
@@ -444,8 +446,6 @@ PacketEntry MainWindow::make_entry(const BplcParser::Result& r, qint64 now) {
         m_last_nid = int(r.mpdu.net_id);
         m_ts_valid = true;
     }
-    e.accepted  = r.accept;
-    e.reason    = r.reject_reason;
     e.meta      = r.meta;
     e.mpdu      = r.mpdu;
     e.msdu_body = r.msdu_body;
