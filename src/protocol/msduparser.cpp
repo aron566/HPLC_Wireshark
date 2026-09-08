@@ -1118,10 +1118,14 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                         MsduFieldNode dl;
                         dl.name  = QStringLiteral("DownCommRate");
                         dl.value = QStringLiteral("%1%").arg(down);
+                        dl.rel_start = abs0 + 2;   // 条目 byte2:下行成功率
+                        dl.rel_len   = 1;
                         en.children.append(dl);
                         MsduFieldNode ul;
                         ul.name  = QStringLiteral("UpCommRate");
                         ul.value = QStringLiteral("%1%").arg(up);
+                        ul.rel_start = abs0 + 3;   // 条目 byte3:上行成功率
+                        ul.rel_len   = 1;
                         en.children.append(ul);
                     }
                 }
