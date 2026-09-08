@@ -120,13 +120,16 @@ void HexView::rebuild_highlight() {
     }
     setExtraSelections(sels);
 
-    // 让高亮行滚动可见
-    int first_row = m_hl_start / 16;
-    ensureCursorVisible();
+    // 仅当高亮首行不在当前可视区时才滚动定位;视口内点击不跳动
     QScrollBar* vsb = verticalScrollBar();
     if (vsb) {
-        int row_h = fontMetrics().lineSpacing();
-        vsb->setValue(first_row * row_h - 8);
+        const int row_h = fontMetrics().lineSpacing();
+        const int first_row = m_hl_start / 16;
+        const int vh = viewport()->height();
+        const int top_row    = (vh > 0 && row_h > 0) ? vsb->value() / row_h : 0;
+        const int rows_vis   = (vh > 0 && row_h > 0) ? vh / row_h : 1;
+        if (first_row < top_row || first_row >= top_row + rows_vis)
+            vsb->setValue(first_row * row_h - 8);
     }
 }
 
