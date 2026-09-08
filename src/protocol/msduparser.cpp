@@ -828,15 +828,13 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                         ug.children.append(nh);
                         MsduFieldNode rt;
                         rt.name = QStringLiteral("RouteType [4b]");
+                        // 表98 路由类型(中文 key,随界面语言;勿用 QLatin1String 直出中文)
                         static const char* rtd[] = {
-                            "Incorrect Route",
-                            "Same-level route (同级路由)",
-                            "Upper-level route (上级路由)",
-                            "Proxy main-path route (代理主路径路由)",
-                            "Upper of upper-level route (上上级路由)"};
+                            "错误路由类型", "同级路由类型", "上级路由类型",
+                            "代理主路径路由类型", "上上级路由类型"};
                         rt.value = (rtype <= 4)
                             ? QStringLiteral("%1 - %2").arg(rtype)
-                                                      .arg(QLatin1String(rtd[rtype]))
+                                .arg(trl::L(QLatin1String(rtd[rtype])))
                             : QString::number(rtype);
                         rt.rel_start = abs0 + 1;  // byte1 高 4bit
                         rt.rel_len   = 1;
@@ -1028,6 +1026,11 @@ struct I18nReg {
         trl::register_en("终端主动并发抄表", "Terminal concurrent meter reading");
         trl::register_en("校时", "Time sync");
         trl::register_en("站点版本信息", "STA Version Info");
+        trl::register_en("错误路由类型", "Incorrect Route");
+        trl::register_en("同级路由类型", "Same-level route");
+        trl::register_en("上级路由类型", "Upper-level route");
+        trl::register_en("代理主路径路由类型", "Proxy main-path route");
+        trl::register_en("上上级路由类型", "Upper of upper-level route");
         trl::register_en("站点动态选择的代理", "Proxy chosen by the STA");
         trl::register_en("通信测试", "Comm test");
         trl::register_en("事件上报", "Event report");
