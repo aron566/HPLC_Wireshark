@@ -428,25 +428,32 @@ PacketEntry MainWindow::make_entry(const BplcParser::Result& r, qint64 now) {
     e.accepted  = r.accept;     // 先落 accepted,Delta/last 追踪依赖它
     e.reason    = r.reject_reason;
     // Delta 时间轴选择:
-    //  - 实时串口(帧 ts=NTB tick,40µs):同网络(网号非 0 且与上一帧一致)
-    //    时用 tick 差;未入网/跨网络(网号不同或 0)不可比 → 回退毫秒差
-    //  - 文件回放(bin/裸 hex,ts=epoch ms):一律 epoch ms 差(文件精度毫秒)
-    qint64 dts = 0;
+    //  - 实时串口(帧 ts=NTB tick,40µs):已入网(网号非 0)且与上一 NTB 帧
+    //    同网络时用 tick 差;未入网/跨网络/回放帧 → 墙上毫秒差
+    //  - NTB 基准(m_last_ts)只由连续同网 tick 帧推进:回退/跨网帧不得
+    //    污染基准(否则回网后 dts=跨网 tick 差,Delta 巨大)
     const int  nid = int(r.mpdu.net_id);
-    bool   use_ntb = e.accepted && m_ts_valid && nid != 0
-                     && m_last_nid == nid && r.meta.frame_ts_is_ntb;
-    if (use_ntb) {
+    const bool is_rt_ntb = e.accepted && r.meta.frame_ts_is_ntb && nid != 0;
+    qint64 dts = 0;
+    if (is_rt_ntb && m_ts_valid && m_last_nid == nid) {
         dts = (qint32)(r.meta.timestamp - m_last_ts);
-        if (dts < 0) use_ntb = false;   // tick 倒退/基准跳变 → 回退
+        if (dts > 0) {
+            e.delta_us = dts * 40;            // tick 差 ×40 µs
+            m_last_ts  = r.meta.timestamp;    // 推进基准
+        } else {
+            m_last_ts  = r.meta.timestamp;    // tick 倒退(设备复位/换轴):
+            // 以新 tick 为新基准,本帧回退毫秒差
+            e.delta_us = (m_last_epoch_ms == 0) ? 0 : (t - m_last_epoch_ms) * 1000;
+        }
+    } else {
+        if (is_rt_ntb) {                       // 首帧/跨网络:立新基准
+            m_last_ts  = r.meta.timestamp;
+            m_last_nid = nid;
+            m_ts_valid = true;
+        }
+        e.delta_us = (m_last_epoch_ms == 0) ? 0 : (t - m_last_epoch_ms) * 1000;
     }
-    e.delta_us = use_ntb ? (dts * 40)
-                         : ((m_last_epoch_ms == 0) ? 0 : (t - m_last_epoch_ms) * 1000);
     m_last_epoch_ms = t;
-    if (e.accepted) {
-        m_last_ts  = r.meta.timestamp;
-        m_last_nid = int(r.mpdu.net_id);
-        m_ts_valid = true;
-    }
     e.meta      = r.meta;
     e.mpdu      = r.mpdu;
     e.msdu_body = r.msdu_body;
