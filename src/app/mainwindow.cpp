@@ -58,7 +58,7 @@ MainWindow::MainWindow(QWidget* parent)
       m_reader(nullptr), m_dispatch(nullptr), m_model(nullptr),
       m_flush_timer(nullptr), m_status_timer(nullptr),
       m_paused(false), m_follow_bottom(true),
-      m_last_epoch_ms(0), m_last_ts(0), m_last_nid(-1), m_ts_valid(false),
+      m_last_epoch_ms(0),
       m_index_counter(0) {
     qRegisterMetaType<BplcParser::Result>("BplcParser::Result");
     qRegisterMetaType<BplcFrame>("BplcFrame");
@@ -341,8 +341,7 @@ void MainWindow::on_clear() {
     m_model->clear_all();
     m_index_counter = 0;
     m_last_epoch_ms = 0;
-    m_last_nid = -1;
-    m_ts_valid = false;
+    m_last_ts_by_nid.clear();
     {
         QMutexLocker lock(&m_pending_mutex);
         m_pending.clear();
@@ -428,30 +427,25 @@ PacketEntry MainWindow::make_entry(const BplcParser::Result& r, qint64 now) {
     e.accepted  = r.accept;     // 先落 accepted,Delta/last 追踪依赖它
     e.reason    = r.reject_reason;
     // Delta 时间轴选择:
-    //  - 实时串口(帧 ts=NTB tick,40µs):已入网(网号非 0)且与上一 NTB 帧
-    //    同网络时用 tick 差;未入网/跨网络/回放帧 → 墙上毫秒差
-    //  - NTB 基准(m_last_ts)只由连续同网 tick 帧推进:回退/跨网帧不得
-    //    污染基准(否则回网后 dts=跨网 tick 差,Delta 巨大)
+    //  - 实时串口(帧 ts=NTB tick,40µs):为每个网络(NID)独立维护 tick 基准
+    //    (多网时基互不相同),同网相邻帧用本网 tick 差;未入网(网号 0)不用
+    //  - 回退条件(tick 倒退/基准缺失/跨网/回放帧)→ 墙上毫秒差
     const int  nid = int(r.mpdu.net_id);
     const bool is_rt_ntb = e.accepted && r.meta.frame_ts_is_ntb && nid != 0;
-    qint64 dts = 0;
-    if (is_rt_ntb && m_ts_valid && m_last_nid == nid) {
-        dts = (qint32)(r.meta.timestamp - m_last_ts);
-        if (dts > 0) {
-            e.delta_us = dts * 40;            // tick 差 ×40 µs
-            m_last_ts  = r.meta.timestamp;    // 推进基准
+    const qint64 ms_fallback = (m_last_epoch_ms == 0)
+                                   ? 0 : (t - m_last_epoch_ms) * 1000;
+    if (is_rt_ntb) {
+        auto it = m_last_ts_by_nid.constFind(nid);
+        if (it != m_last_ts_by_nid.constEnd()) {
+            const qint64 dts = (qint32)(r.meta.timestamp - it.value());
+            m_last_ts_by_nid[nid] = r.meta.timestamp;   // 推进/重置基准
+            e.delta_us = (dts > 0) ? dts * 40 : ms_fallback;
         } else {
-            m_last_ts  = r.meta.timestamp;    // tick 倒退(设备复位/换轴):
-            // 以新 tick 为新基准,本帧回退毫秒差
-            e.delta_us = (m_last_epoch_ms == 0) ? 0 : (t - m_last_epoch_ms) * 1000;
+            m_last_ts_by_nid.insert(nid, r.meta.timestamp);  // 首帧立基准
+            e.delta_us = ms_fallback;
         }
     } else {
-        if (is_rt_ntb) {                       // 首帧/跨网络:立新基准
-            m_last_ts  = r.meta.timestamp;
-            m_last_nid = nid;
-            m_ts_valid = true;
-        }
-        e.delta_us = (m_last_epoch_ms == 0) ? 0 : (t - m_last_epoch_ms) * 1000;
+        e.delta_us = ms_fallback;
     }
     m_last_epoch_ms = t;
     e.meta      = r.meta;

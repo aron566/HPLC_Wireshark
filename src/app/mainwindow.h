@@ -8,6 +8,7 @@
 #include <QByteArray>
 #include <QList>
 #include <QVector>
+#include <QHash>
 #include "serialreader.h"
 #include "framedispatcher.h"
 #include "bplcparser.h"
@@ -90,9 +91,7 @@ private:
     bool             m_follow_bottom;  ///< 是否自动滚动到最新帧(用户滚离底部则暂停)
 
     qint64           m_last_epoch_ms;
-    quint32          m_last_ts;       ///< 上一 accepted 帧的 NTB tick(Delta NTB 差分)
-    int              m_last_nid;      ///< 上一 accepted 帧的 NetID(-1=无)
-    bool             m_ts_valid;      ///< 是否已有可比的上一帧 ts
+    QHash<int, quint32> m_last_ts_by_nid;   ///< 各网络(NID)独立的 NTB tick 基准
     int              m_index_counter;
 };
 
