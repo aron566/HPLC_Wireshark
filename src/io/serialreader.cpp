@@ -164,24 +164,20 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
     // 至少 ts4+media4+1B MPDU,否则无法构成可解析帧
     if (raw.size() < 9) return;
 
-    // ts(4B LE):导出端为 epoch ms 低 32 位;回放还原最近 epoch
-    // (同机回放 ±~24.8 天窗口内正确),使 Time/Delta 以原始捕获时刻为基准
-    const quint32 ts_le = (quint32)(quint8)raw[0]
-                        | (quint32)(quint8)raw[1] << 8
-                        | (quint32)(quint8)raw[2] << 16
-                        | (quint32)(quint8)raw[3] << 24;
+    // ts(4B LE):导出 v1.0.12 起为帧 NTB tick(25 kHz,40 µs/tick)。
+    // 回放 Delta 即 NTB 差;Time 列无绝对信息 → 用本地回放时刻。
+    // (v1.0.11 及更早导出文件 ts 为 epoch ms 低 32 位,无法与 NTB 混读)
     qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
-    qint64 hi = (now_ms >> 32) << 32;
-    qint64 t = hi | qint64(ts_le);
-    if (t - now_ms >  (1LL << 31)) t -= (1LL << 32);   // 取距当前最近候选
-    if (now_ms - t > (1LL << 31))  t += (1LL << 32);
-    if (m_raw_base_ms >= 0) t = m_raw_base_ms;          // 旧 TIME 头优先(兼容)
+    qint64 t = now_ms;
 
     // 重组为标准解码封装(读取端同构):[dlen2LE][ts4LE][phr][option]
     // [channel][isRF][MPDU] → 走常规解码路径(无 BCD 标签)
     const QByteArray mpdu = raw.mid(8);
     const quint16 dlen  = quint16(mpdu.size() + 4);
-    const quint32 ts    = ts_le;
+    const quint32 ts    = (quint32)(quint8)raw[0]
+                        | (quint32)(quint8)raw[1] << 8
+                        | (quint32)(quint8)raw[2] << 16
+                        | (quint32)(quint8)raw[3] << 24;   // NTB tick
     QByteArray data;
     data.reserve(mpdu.size() + 10);
     data.append(char(dlen & 0xFF)).append(char(dlen >> 8));
@@ -192,7 +188,6 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
 
     BplcFrame bf;
     bf.meta.from_raw = false;
-    bf.meta.ts_is_epoch_ms = true;   // ts4=epoch ms 低 32,非 NTB tick
     bf.meta.has_time_tag = false;
     bf.arrival_ms = t;
     bf.data = data;
