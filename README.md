@@ -28,6 +28,35 @@ BPLC/HRF(HPLC) 协议 STA 报文监控上位机(Windows,Qt 6 / C++17)。
 - **界面主题**:深色(QDarkStyleSheet,默认)/ 浅色,`设置` 对话框即切即生效;
   主题资源在 `src/app/qdarkstyle/`(MIT,见其 LICENSE.rst)
 
+## 显示过滤器
+
+帧列表上方的过滤器输入框支持多条件表达式,语法如下:
+
+- **`&`** → 与(AND):左右条件须同时满足;
+- **`|`** → 或(OR):任一满足即通过;
+- **优先级** `&` 高于 `|`(先按 `|` 分组、组内按 `&` 全命中)。例:
+  `a & b | c` 等价 `(a 且 b) 或 c`;暂不支持括号嵌套。
+
+可匹配的关键字(子串匹配,不区分大小写):
+
+| 内容 | 写法 | 示例 |
+|------|------|------|
+| 帧类型(精确) | `beacon` `sof` `ack` `coord` `search` `switch` | `sof` |
+| NetID | `cda1d5` 或 `0xcda1d5` | `cda1d5` |
+| 源 / 目的 | `cco`、`sta-N`、`broadcast` | `sta-2` |
+| 媒介 | `hplc` / `hrf` | `hplc` |
+| 帧索引 | 十进制序号 | `42` |
+| MSDU 概要 | MMe / 事件报文文本 | `assoc` |
+
+示例:
+
+```
+beacon & cda1d5        仅 NetID cda1d5 的信标帧
+sof & sta-2 | ack      (sof 且源/目含 sta-2) 或所有 ack
+coord & 0xcda1d5       指定网络的协调帧
+hplc & beacon          HPLC 信标(排除 HRF)
+```
+
 ## 环境与构建
 
 | 组件   | 版本 |
