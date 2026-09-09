@@ -82,6 +82,9 @@ private:
     qint64       m_last_ft;       ///< 上一帧 frame_time(回放时间轴基准)
     bool         m_running;
     qint64       m_raw_base_ms;   ///< 裸 hex 文本首帧时间(epoch ms;-1=未给出,回退本地)
+    bool         m_hex_seg_first; ///< 裸 hex 当前段首帧标志(段首用 TIME 头时间)
+    quint32      m_last_hex_ts;   ///< 裸 hex 上一帧 ts4(段内差分)
+    qint64       m_last_hex_ft;   ///< 裸 hex 上一帧 frame_time
     ReaderConfig m_cfg;
 };
 

@@ -12,7 +12,8 @@
 ReaderWorker::ReaderWorker(QObject* parent) : QObject(parent),
     m_serial(nullptr), m_file(nullptr), m_file_timer(nullptr),
     m_get3c(false), m_frame_rx_us(0), m_playback_base_ms(-1), m_first_frame(false),
-    m_last_ntb(0), m_last_ft(0), m_running(false) {}
+    m_last_ntb(0), m_last_ft(0), m_running(false), m_raw_base_ms(-1),
+    m_hex_seg_first(false), m_last_hex_ts(0), m_last_hex_ft(0) {}
 
 ReaderWorker::~ReaderWorker() {
     stop_reading();
@@ -69,7 +70,7 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
             if (line.isEmpty()) continue;
             // 时间头行(首帧时间文本,如 TIME: 2026-09-07 18:43:00.123)
             const qint64 hdr_ms = parse_time_header(line);
-            if (hdr_ms >= 0) { m_raw_base_ms = hdr_ms; continue; }
+            if (hdr_ms >= 0) { m_raw_base_ms = hdr_ms; m_hex_seg_first = true; continue; }
             process_raw_hex_line(line);
         }
         m_file->close();
@@ -223,7 +224,7 @@ void ReaderWorker::try_extract_frame() {
         }
         bf.arrival_us = m_frame_rx_us;   // 0x3C 起始高精度接收时刻(实时)
         bf.raw_wire   = wire;            // 原始串口帧原样(调试复制)
-        // 帧 ts 域语义:串口实时=设备填的 NTB tick(40µs 分辨);
+        // 帧 ts 域语义:串口实时=设备填的 NTB tick(40ns 分辨);
         // 文件回放(0x3C bin)=导出端 epoch ms 低 32 位(毫秒级)
         bf.meta.frame_ts_is_ntb = (m_cfg.mode == ReaderMode::SerialPort);
         // 新格式:8B 时间标注仅在文件头(已 seek 跳过),帧体无逐帧 BCD;
@@ -279,16 +280,30 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
                 data.append((char)b);
             }
         }
-        // ts4 = epoch ms 低 32 → 还原捕获时刻
+        // 时间:段首帧用 TIME 头(m_raw_base_ms)作基准;段内按 ts4 差(ms)推进,
+        // 避免后段 ts4 被手工改坏/非 epoch 时时间错乱;无 TIME 头才用 ts4 还原
         const quint32 ts_le2 = (quint32)(quint8)data[2]
                              | (quint32)(quint8)data[3] << 8
                              | (quint32)(quint8)data[4] << 16
                              | (quint32)(quint8)data[5] << 24;
-        qint64 now2 = QDateTime::currentMSecsSinceEpoch();
-        qint64 hi2 = (now2 >> 32) << 32;
-        qint64 t2 = hi2 | qint64(ts_le2);
-        if (t2 - now2 >  (1LL << 31)) t2 -= (1LL << 32);
-        if (now2 - t2 > (1LL << 31))  t2 += (1LL << 32);
+        qint64 t2;
+        if (m_raw_base_ms >= 0) {
+            if (m_hex_seg_first) {
+                t2 = m_raw_base_ms;
+                m_hex_seg_first = false;
+            } else {
+                const qint64 dts = (qint32)(ts_le2 - m_last_hex_ts);   // ms 差
+                t2 = m_last_hex_ft + dts;
+            }
+            m_last_hex_ts = ts_le2;
+            m_last_hex_ft = t2;
+        } else {
+            qint64 now2 = QDateTime::currentMSecsSinceEpoch();
+            qint64 hi2 = (now2 >> 32) << 32;
+            t2 = hi2 | qint64(ts_le2);
+            if (t2 - now2 >  (1LL << 31)) t2 -= (1LL << 32);
+            if (now2 - t2 > (1LL << 31))  t2 += (1LL << 32);
+        }
 
         BplcFrame bf;
         bf.meta.from_raw = false;
