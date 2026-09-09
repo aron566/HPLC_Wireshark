@@ -1,9 +1,9 @@
 {
   "updates": {
     "windows": {
-      "latest-version": "1.0.12",
-      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.12/BPLC_STA_Monitor_Setup_v1.0.12.exe",
-      "changelog": "Delta 列重做:弃用 NTB tick(实测各设备 tick 不同轴不可比),<br/>实时串口改按帧起始分节符 0x3C 到达时刻打点(µs 分辨);<br/>文件回放(bin/裸 hex)Delta=帧时间戳毫秒差;<br/>导出 ts 域恢复 epoch ms 低 32,回放还原捕获时刻",
+      "latest-version": "1.0.13",
+      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.13/BPLC_STA_Monitor_Setup_v1.0.13.exe",
+      "changelog": "bin 文件头 8B BCD 时间标注(独立、不参与切帧)+ 裸 hex TIME: 文本行;<br/>FCH CRC24 字段按小端读取(修复首帧误报 CRC 错);<br/>修复按 chunk 读文件时 8B 标注块被丢弃导致后续段时间戳失效;<br/>裸 hex 段首用 TIME 头、段内按 ts 差推进;<br/>跨段首帧 Delta 置 0、Timestamp 单位 40ns;<br/>RAW 字节视图偏移索引去冒号;<br/>显示过滤器支持 & (AND) 与 | (OR) 组合",
       "mandatory-update": false
     }
   }
