@@ -183,7 +183,7 @@ void MainWindow::build_ui() {
     auto* hex_pane   = new QWidget(m_splitter_bottom);
     auto* hex_layout = new QVBoxLayout(hex_pane);
     hex_layout->setContentsMargins(0, 0, 0, 0);
-    m_lbl_hex_title = new QLabel(trl::L("字节视图(十六进制,左偏移 + 中间 hex + 右侧 ASCII):"),
+    m_lbl_hex_title = new QLabel(trl::L("字节视图(十六进制,左偏移 + 中间 hex + 右侧 ASCII + RAW DATA):"),
                                  hex_pane);
 
     // 原始报文列:常显(无 checkbox/复制按钮),复制经右键菜单(0x 前缀可选)
@@ -601,8 +601,8 @@ struct I18nRegMainWindow {
         trl::register_en("回放文件 (*.bin)", "Replay files (*.bin)");
         trl::register_en("[错误] ", "[Error] ");
         trl::register_en("  显示过滤器:", "  Display filter:");
-        trl::register_en("字节视图(十六进制,左偏移 + 中间 hex + 右侧 ASCII):",
-                         "Byte view (hex, left offset + middle hex + right ASCII):");
+        trl::register_en("字节视图(十六进制,左偏移 + 中间 hex + 右侧 ASCII + RAW DATA):",
+                         "Byte view (hex, left offset + middle hex + right ASCII + RAW DATA):");
         trl::register_en("复制(含 0x 前缀)", "Copy (with 0x prefix)");
         trl::register_en("复制(纯 hex)", "Copy (plain hex)");
     }
