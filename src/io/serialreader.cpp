@@ -209,6 +209,7 @@ void ReaderWorker::try_extract_frame() {
                 m_last_ft = m_playback_base_ms;
                 m_last_ntb = ntb;
                 m_first_frame = false;
+                bf.meta.seg_start = true;   // 跨段断点:Delta 不计算
             } else {
                 const qint64 dn = (qint32)(ntb - m_last_ntb);   // 回绕安全
                 if (dn > 0 && dn <= playback::kMaxNtbGapTicks) {
@@ -287,10 +288,12 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
                              | (quint32)(quint8)data[4] << 16
                              | (quint32)(quint8)data[5] << 24;
         qint64 t2;
+        bool seg_start = false;
         if (m_raw_base_ms >= 0) {
             if (m_hex_seg_first) {
                 t2 = m_raw_base_ms;
                 m_hex_seg_first = false;
+                seg_start = true;
             } else {
                 const qint64 dts = (qint32)(ts_le2 - m_last_hex_ts);   // ms 差
                 t2 = m_last_hex_ft + dts;
@@ -309,6 +312,7 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
         bf.meta.from_raw = false;
         bf.meta.has_time_tag = false;
         bf.meta.frame_ts_is_ntb = false;
+        bf.meta.seg_start = seg_start;
         bf.arrival_ms = t2;
         bf.raw_wire   = raw;   // 0x3C...0x3E 原样
         bf.data       = data;  // 反转义后的 [dlen][ts][media][MPDU]

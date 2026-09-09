@@ -474,7 +474,9 @@ PacketEntry MainWindow::make_entry(const BplcParser::Result& r, qint64 now) {
     // 文件回放/无高精度打点(0x3C 未逐帧记录)时用帧时间戳 epoch ms 差
     const qint64 ms_fallback = (m_last_epoch_ms == 0)
                                    ? 0 : (t - m_last_epoch_ms) * 1000;
-    if (r.arrival_us > 0 && m_last_rx_us > 0) {
+    if (r.meta.seg_start) {
+        e.delta_us = 0;                            // 跨段断点:不计算与上一帧 delta
+    } else if (r.arrival_us > 0 && m_last_rx_us > 0) {
         const qint64 d = r.arrival_us - m_last_rx_us;
         if (d > 0 && d <= playback::ntb_to_us(playback::kMaxNtbGapTicks))
             e.delta_us = d;                       // 正常接收间隔

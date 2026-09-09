@@ -133,7 +133,7 @@ void ProtocolTree::show_packet(const PacketEntry& e) {
 
     auto* phys = add_item(root, "Physical", "");
     add_item(phys, "Media",       e.meta.is_rf ? "HRF (Wireless)" : "HPLC (PLC)");
-    add_item(phys, "Timestamp",   QString::number(e.meta.timestamp) + " (NTB tick, 40us)");
+    add_item(phys, "Timestamp",   QString::number(e.meta.timestamp) + " (NTB tick, 40ns)");
     add_item(phys, "Channel/Band", QString::number(e.meta.channel));
     if (e.meta.is_rf) {
         add_item(phys, "PHR MCS", QString::number(e.meta.phr_mcs));
