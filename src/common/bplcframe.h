@@ -65,6 +65,7 @@ struct BplcFrame {
     qint64       arrival_ms;      ///< PC 接收时刻(epoch ms),用于 UI 节流
     qint64       arrival_us;      ///< PC 收到帧起始分节符(0x3C)的单调高精度时刻
                                   ///< (µs;仅实时串口填充,文件回放=0 → Delta 用文件时间戳)
+    QByteArray   raw_wire;        ///< 原始串口帧(0x3C...0x3E 含哨兵与 0x3D 转义,原样)
 
     BplcFrame() : arrival_ms(0), arrival_us(0) {}
 };
@@ -197,6 +198,7 @@ struct PacketEntry {
     qint64       delta_us;     ///< 与上一帧的时间差(µs;NTB 40µs 分辨,不可比时=ms×1000)
     bool         accepted;     ///< true=accepted, false=dropped(CRC 错或格式异常)
     QString      reason;       ///< dropped 时填原因
+    QByteArray   raw_wire;     ///< 原始串口帧(0x3C...0x3E 原样,含转义;调试/复制用)
     PhysicalMeta meta;         ///< 物理层元信息
     MpduInfo     mpdu;         ///< MPDU 解析结果
     QByteArray   msdu_body;    ///< 重组后的 MSDU body(若完成)

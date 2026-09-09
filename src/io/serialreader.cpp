@@ -135,6 +135,11 @@ void ReaderWorker::try_extract_frame() {
         m_in_buf.remove(0, idx + 1);
         m_get3c = false;
 
+        // 原始串口帧(0x3C...0x3E,含哨兵与 0x3D 转义原样):调试复制用
+        QByteArray wire;
+        wire.reserve(frame.size() + 2);
+        wire.append(char(0x3C)).append(frame).append(char(0x3E));
+
         // 反转义 0x3D
         QByteArray unesc;
         unesc.reserve(frame.size());
@@ -151,6 +156,7 @@ void ReaderWorker::try_extract_frame() {
         BplcFrame bf;
         bf.arrival_ms = QDateTime::currentMSecsSinceEpoch();
         bf.arrival_us = m_frame_rx_us;   // 0x3C 起始高精度接收时刻(实时)
+        bf.raw_wire   = wire;            // 原始串口帧原样(调试复制)
         // 帧 ts 域语义:串口实时=设备填的 NTB tick(40µs 分辨);
         // 文件回放(0x3C bin)=导出端 epoch ms 低 32 位(毫秒级)
         bf.meta.frame_ts_is_ntb = (m_cfg.mode == ReaderMode::SerialPort);

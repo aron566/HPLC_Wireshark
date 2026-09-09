@@ -30,6 +30,11 @@
 #include <QDateTime>
 #include <QKeySequence>
 #include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QCheckBox>
+#include <QPushButton>
+#include <QApplication>
+#include <QClipboard>
 #include <QString>
 #include <QMessageBox>
 #include <QPushButton>
@@ -179,9 +184,39 @@ void MainWindow::build_ui() {
     hex_layout->setContentsMargins(0, 0, 0, 0);
     m_lbl_hex_title = new QLabel(trl::L("字节视图(十六进制,左偏移 + 中间 hex + 右侧 ASCII):"),
                                  hex_pane);
-    m_hex_view = new HexView(hex_pane);
+
+    // 原始报文列:标题行(显示开关 + 复制)+ HexView | RawFrame 水平分离
+    auto* hex_toolbar = new QWidget(hex_pane);
+    auto* tl = new QHBoxLayout(hex_toolbar);
+    tl->setContentsMargins(0, 0, 0, 0);
+    m_chk_raw = new QCheckBox(trl::L("显示原始报文(串口帧 3C...3E)"), hex_toolbar);
+    m_btn_copy_raw = new QPushButton(trl::L("复制"), hex_toolbar);
+    tl->addWidget(m_chk_raw);
+    tl->addStretch(1);
+    tl->addWidget(m_btn_copy_raw);
+
+    m_split_hex = new QSplitter(Qt::Horizontal, hex_pane);
+    m_hex_view  = new HexView(hex_pane);
+    m_raw_view  = new QPlainTextEdit(m_split_hex);
+    m_raw_view->setReadOnly(true);
+    m_raw_view->setLineWrapMode(QPlainTextEdit::NoWrap);
+    QFont mono(QStringLiteral("Consolas"));
+    mono.setStyleHint(QFont::Monospace);
+    m_raw_view->setFont(mono);
+    m_split_hex->addWidget(m_hex_view);
+    m_split_hex->addWidget(m_raw_view);
+    m_split_hex->setSizes({640, 480});
+    m_raw_view->setVisible(false);   // 默认隐藏,勾选后显示
+
     hex_layout->addWidget(m_lbl_hex_title);
-    hex_layout->addWidget(m_hex_view, 1);
+    hex_layout->addWidget(hex_toolbar);
+    hex_layout->addWidget(m_split_hex, 1);
+
+    connect(m_chk_raw, &QCheckBox::toggled,
+            m_raw_view, &QWidget::setVisible);
+    connect(m_btn_copy_raw, &QPushButton::clicked, this, [this] {
+        QApplication::clipboard()->setText(m_raw_view->toPlainText());
+    });
 
     m_splitter_bottom->addWidget(m_tree_protocol);
     m_splitter_bottom->addWidget(hex_pane);
@@ -442,6 +477,7 @@ PacketEntry MainWindow::make_entry(const BplcParser::Result& r, qint64 now) {
     e.meta      = r.meta;
     e.mpdu      = r.mpdu;
     e.msdu_body = r.msdu_body;
+    e.raw_wire  = r.raw_wire;
     e.msdu      = r.msdu;    // MSDU/MAC 层字段树(SOF 重组完成时非空)
     e.beacon    = r.beacon;  // BEACON 载荷区字段树(BEACON 帧时非空)
     e.msdu_raw_base = r.msdu_raw_base;
@@ -480,6 +516,12 @@ void MainWindow::on_row_activated(const PacketEntry& e) {
     m_tree_protocol->show_packet(e);
     m_hex_view->set_data(e.raw_bytes);
     m_hex_view->highlight_range(-1, 0);
+    // 原始串口帧(0x3C...0x3E)展示,便于复制调试
+    if (m_raw_view) {
+        m_raw_view->setPlainText(e.raw_wire.isEmpty()
+                                     ? QString()
+                                     : QString(e.raw_wire.toHex(' ')));
+    }
 }
 
 void MainWindow::on_range_selected(int start, int len) {
@@ -537,6 +579,9 @@ struct I18nRegMainWindow {
         trl::register_en("  显示过滤器:", "  Display filter:");
         trl::register_en("字节视图(十六进制,左偏移 + 中间 hex + 右侧 ASCII):",
                          "Byte view (hex, left offset + middle hex + right ASCII):");
+        trl::register_en("显示原始报文(串口帧 3C...3E)",
+                         "Show raw frame (serial 3C...3E)");
+        trl::register_en("复制", "Copy");
     }
 };
 const I18nRegMainWindow g_i18n_reg_mainwindow;

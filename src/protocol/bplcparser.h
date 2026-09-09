@@ -22,6 +22,7 @@ public:
         int          msdu_raw_base; ///< msdu_body[0] 在 payload_for_log 中的偏移;-1=跨帧
         MsduInfo     beacon;        ///< BEACON 载荷区解析结果(仅 BEACON 帧)
         qint64       arrival_us;    ///< 帧起始 0x3C 接收时刻(单调 µs,实时串口)
+        QByteArray   raw_wire;      ///< 原始串口帧(0x3C...0x3E 原样,含转义)
         bool         accept;
         QString      reject_reason;
         QByteArray   payload_for_log;
