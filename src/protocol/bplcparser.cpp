@@ -109,6 +109,7 @@ bool BplcParser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QString
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
 
     quint32 calc_crc = crc24_lsb(p, 16);
+    // FCH CRC24 字段小端存储(字节 6c 13 2a → 0x2a136c)
     quint32 fch_crc  = (quint32)p[13]
                      | ((quint32)p[14] << 8)
                      | ((quint32)p[15] << 16);
