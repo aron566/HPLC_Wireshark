@@ -196,9 +196,10 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
     // 至少 ts4+media4+1B MPDU,否则无法构成可解析帧
     if (raw.size() < 9) return;
 
-    // 完整 0x3C 原始帧行(导出 v1.0.13+):[0x3C][esc(data)][0x3E],
-    // data = [dlen 2B][ts 4B=epoch ms 低32][phr][option][channel][isRF][MPDU]
-    if ((quint8)raw[0] == 0x3C && (quint8)raw[raw.size() - 1] == 0x3E) {
+    // 仅支持完整 0x3C 原始帧行(导出 v1.0.13+ 格式);其它行格式忽略
+    if ((quint8)raw[0] != 0x3C || (quint8)raw[raw.size() - 1] != 0x3E) return;
+
+    {
         QByteArray body = raw.mid(1, raw.size() - 2);
         QByteArray data;
         data.reserve(body.size());
@@ -221,8 +222,6 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
         qint64 t2 = hi2 | qint64(ts_le2);
         if (t2 - now2 >  (1LL << 31)) t2 -= (1LL << 32);
         if (now2 - t2 > (1LL << 31))  t2 += (1LL << 32);
-        // ts4 即每帧本地 epoch 低 32 位 → 以还原为准(首帧 TIME 头仅作基准;
-        // 旧格式 ts 缺失时才回退到 m_raw_base_ms)
 
         BplcFrame bf;
         bf.meta.from_raw = false;
@@ -234,39 +233,6 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
         emit frame_ready(bf);
         return;
     }
-
-    // ts(4B LE):导出端为 epoch ms 低 32 位;回放还原最近 epoch
-    // (同机回放 ±~24.8 天窗口内正确),使 Time/Delta 以原始捕获时刻为基准
-    const quint32 ts_le = (quint32)(quint8)raw[0]
-                        | (quint32)(quint8)raw[1] << 8
-                        | (quint32)(quint8)raw[2] << 16
-                        | (quint32)(quint8)raw[3] << 24;
-    qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
-    qint64 hi = (now_ms >> 32) << 32;
-    qint64 t = hi | qint64(ts_le);
-    if (t - now_ms >  (1LL << 31)) t -= (1LL << 32);   // 取距当前最近候选
-    if (now_ms - t > (1LL << 31))  t += (1LL << 32);
-    if (m_raw_base_ms >= 0) t = m_raw_base_ms;          // 旧 TIME 头优先(兼容)
-
-    // 重组为标准解码封装(读取端同构):[dlen2LE][ts4LE][phr][option]
-    // [channel][isRF][MPDU] → 走常规解码路径(无 BCD 标签)
-    const QByteArray mpdu = raw.mid(8);
-    const quint16 dlen  = quint16(mpdu.size() + 4);
-    const quint32 ts    = ts_le;
-    QByteArray data;
-    data.reserve(mpdu.size() + 10);
-    data.append(char(dlen & 0xFF)).append(char(dlen >> 8));
-    data.append(char(ts & 0xFF)).append(char((ts >> 8) & 0xFF))
-        .append(char((ts >> 16) & 0xFF)).append(char((ts >> 24) & 0xFF));
-    data.append(raw.mid(4, 4));   // phr_mcs/option/channel/isRF 原样
-    data.append(mpdu);
-
-    BplcFrame bf;
-    bf.meta.from_raw = false;
-    bf.meta.has_time_tag = false;
-    bf.arrival_ms = t;
-    bf.data = data;
-    emit frame_ready(bf);
 }
 
 qint64 ReaderWorker::parse_time_header(const QByteArray& line) {
