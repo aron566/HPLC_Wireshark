@@ -121,30 +121,19 @@ inline QByteArray frame_to_playback(const PacketEntry& e) {
 }
 
 /// @brief 全部帧 → 完整回放 bin 文件内容(空帧自动跳过)
-/// @details 优先**原样保存实时原始帧(raw_wire)**:仅**首帧**前插一次 8B BCD
-///          首帧本地时间戳(首次本地时间戳机制),后续帧 raw_wire 逐字节原样,
-///          与实时捕获完全一致(不再每帧多 8B);无 raw_wire 的旧数据回退到
-///          frame_to_playback(重组帧体 + 每帧 BCD,保逐帧时间)。
+/// @details 文件**头部先写一次 8B BCD 时间标注**(首帧本地时刻,独立于帧,
+///          不参与 0x3C/0x3E 切帧),随后各帧 = 实时原始帧 raw_wire 逐字节
+///          原样(0x3C...0x3E),与实时捕获完全一致,无任何逐帧附加值。
+///          无 raw_wire 的旧数据回退到 frame_to_playback(重组+每帧 BCD)。
 inline QByteArray build_playback_bin(const QVector<PacketEntry>& entries) {
     QByteArray buf;
     buf.reserve(entries.size() * 72);
-    bool first = true;
+    if (entries.isEmpty()) return buf;
+    // 文件头 8B BCD 时间标注(首帧本地时刻;读取端据此 seek 跳过)
+    buf.append(bcd_time_tag(entries.first().epoch_ms));
     for (const PacketEntry& e : entries) {
         if (!e.raw_wire.isEmpty()) {
-            if (first) {
-                // 首帧:0x3C + esc(BCD8 + 未转义体) + 0x3E —— 仅此一次
-                QByteArray inner = e.raw_wire.mid(1, e.raw_wire.size() - 2);
-                QByteArray body = bcd_time_tag(e.epoch_ms)
-                                  + unescape_frame_data(inner);
-                QByteArray fr;
-                fr.reserve(body.size() + 2);
-                fr.append(char(0x3C)).append(escape_frame_data(body))
-                  .append(char(0x3E));
-                buf.append(fr);
-                first = false;
-            } else {
-                buf.append(e.raw_wire);   // 逐字节原样
-            }
+            buf.append(e.raw_wire);   // 逐字节原样
         } else {
             const QByteArray fr = frame_to_playback(e);
             if (!fr.isEmpty()) buf.append(fr);

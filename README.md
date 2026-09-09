@@ -117,15 +117,21 @@ mingw32-make -j4
 ### 回放 .bin 文件格式
 
 导出(菜单 `捕获 → 导出...`)与回放使用**实时串口原始帧(raw_wire)**:
-每帧 = `0x3C` + 转义(data) + `0x3E`,data = `[dlen 2B][ts 4B][phr_mcs]
-[option][channel][isRF][MPDU]`(与实时捕获逐字节一致)。
-
-**仅首帧**在 data 前多 8 字节 BCD 时间标签(首次本地时间戳机制),后续
-帧不再携带——避免与原始帧多 8 B/帧:
+文件**头部先写一次 8 字节 BCD 时间标注**(首帧本地时刻,独立于帧、不参与
+切帧),随后各帧 = `0x3C` + 转义(data) + `0x3E`,data = `[dlen 2B][ts 4B]
+[phr_mcs][option][channel][isRF][MPDU]`(与实时捕获**逐字节一致**,无任何
+逐帧附加值):
 
 ```
-[BCD 时间 8B][dlen 2B LE][ts 4B LE][phr_mcs][option][channel][isRF][MPDU...]
+[BCD 时间标注 8B](仅文件一次)
+0x3C [dlen 2B][ts 4B][phr_mcs][option][channel][isRF][MPDU] 0x3E   ← 帧1
+0x3C ... 0x3E                                                    ← 帧2
+…
 ```
+
+**时间**:首帧 Time 列用标注时刻;后续帧无逐帧时间标签,回放按本地读取
+时刻(单调毫秒)。旧版"每帧带 BCD"的 bin 仍自动兼容(读取端校验帧体
+是否 BCD 前缀)。
 
 BCD 时间标签布局(本地时间,与解码器 `has_time_tag` 头同构):
 

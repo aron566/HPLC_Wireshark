@@ -11,7 +11,7 @@
 
 ReaderWorker::ReaderWorker(QObject* parent) : QObject(parent),
     m_serial(nullptr), m_file(nullptr), m_file_timer(nullptr),
-    m_get3c(false), m_frame_rx_us(0), m_running(false) {}
+    m_get3c(false), m_frame_rx_us(0), m_playback_base_ms(-1), m_first_frame(false), m_running(false) {}
 
 ReaderWorker::~ReaderWorker() {
     stop_reading();
@@ -42,6 +42,14 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
         if (!m_file->open(QIODevice::ReadOnly)) {
             emit error_occurred(trl::L("打开文件失败: %1").arg(m_file->errorString()));
             return;
+        }
+        // 新 bin:文件头 8B BCD 时间标注(首帧本地时刻,独立于帧);读取并跳过
+        m_playback_base_ms = -1;
+        m_first_frame = true;
+        QByteArray head = m_file->peek(8);
+        if (head.size() == 8 && playback::looks_like_bcd_time(head)) {
+            m_playback_base_ms = bcd_ms_of(head);
+            m_file->seek(8);
         }
         m_file_timer = new QTimer(this);
         connect(m_file_timer, &QTimer::timeout, this, &ReaderWorker::on_file_poll_tick);
@@ -157,6 +165,11 @@ void ReaderWorker::try_extract_frame() {
 
         BplcFrame bf;
         bf.arrival_ms = QDateTime::currentMSecsSinceEpoch();
+        // 新 bin:首帧用文件头 8B BCD 时间标注(其余帧用本地读取时刻)
+        if (m_playback_base_ms >= 0 && m_first_frame) {
+            bf.arrival_ms = m_playback_base_ms;
+            m_first_frame = false;
+        }
         bf.arrival_us = m_frame_rx_us;   // 0x3C 起始高精度接收时刻(实时)
         bf.raw_wire   = wire;            // 原始串口帧原样(调试复制)
         // 帧 ts 域语义:串口实时=设备填的 NTB tick(40µs 分辨);
@@ -249,6 +262,17 @@ qint64 ReaderWorker::parse_time_header(const QByteArray& line) {
                                         : m.captured(5).leftJustified(3, '0').toInt());
     if (!date.isValid() || !time.isValid()) return -1;
     return QDateTime(date, time).toMSecsSinceEpoch();
+}
+
+qint64 ReaderWorker::bcd_ms_of(const QByteArray& b) {
+    // 8B BCD:[年-2000][月][日][时][分][秒][毫秒低2][毫秒低2]→ 本地 epoch ms
+    auto d2 = [](quint8 x) { return int((x >> 4) * 10 + (x & 0x0F)); };
+    if (b.size() < 8) return -1;
+    const QDate date(2000 + d2(quint8(b[0])), d2(quint8(b[1])), d2(quint8(b[2])));
+    const QTime time(d2(quint8(b[3])), d2(quint8(b[4])), d2(quint8(b[5])));
+    if (!date.isValid() || !time.isValid()) return -1;
+    const int ms = d2(quint8(b[6])) * 100 + d2(quint8(b[7]));
+    return QDateTime(date, time).addMSecs(ms).toMSecsSinceEpoch();
 }
 
 SerialReader::SerialReader(QObject* parent) : QObject(parent), m_thread(nullptr), m_worker(nullptr) {

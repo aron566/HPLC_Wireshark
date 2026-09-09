@@ -67,6 +67,8 @@ private:
     void process_raw_hex_line(const QByteArray& line);
     /// @brief 解析裸 hex 文本头行时间(TIME: / ISO 文本),失败返回 -1
     qint64 parse_time_header(const QByteArray& line);
+    /// @brief 8B BCD 时间标注 → epoch ms(文件头;非法返回 -1)
+    qint64 bcd_ms_of(const QByteArray& bcd8);
 
     QSerialPort* m_serial;
     QFile*       m_file;
@@ -74,6 +76,8 @@ private:
     QByteArray   m_in_buf;
     bool         m_get3c;
     qint64       m_frame_rx_us;   ///< 当前帧起始 0x3C 的单调 µs 接收时刻(实时)
+    qint64       m_playback_base_ms;  ///< 回放 bin 文件头 8B BCD 时间标注(首帧本地时刻;-1=无)
+    bool         m_first_frame;   ///< 回放首帧标志(首帧用标注时间)
     bool         m_running;
     qint64       m_raw_base_ms;   ///< 裸 hex 文本首帧时间(epoch ms;-1=未给出,回退本地)
     ReaderConfig m_cfg;
