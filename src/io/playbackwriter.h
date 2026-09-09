@@ -191,14 +191,19 @@ inline QByteArray build_raw_hex_text(const QVector<PacketEntry>& entries) {
     bool    have = false;
     for (const PacketEntry& e : entries) {
         if (e.raw_bytes.isEmpty()) continue;
-        // 段起点/断段:在该帧前写一行 8B BCD 时间标注(该帧本地时刻)
+        // 段起点/断段:在该帧前写一行 TIME: 文本时间戳(该帧本地时刻)
+        const QByteArray ts_hdr =
+            QStringLiteral("TIME: %1\n")
+                .arg(QDateTime::fromMSecsSinceEpoch(e.epoch_ms)
+                         .toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")))
+                .toUtf8();
         if (e.raw_wire.isEmpty() || !have) {
             // 无 raw_wire(旧/无 NTB):首帧也标注一次
-            buf.append(hex_line_of(bcd_time_tag(e.epoch_ms)));
+            buf.append(ts_hdr);
         } else {
             const qint64 dn = (qint32)(raw_wire_ntb(e.raw_wire) - last_ntb);
             if (dn <= 0 || dn > kMaxNtbGapTicks)
-                buf.append(hex_line_of(bcd_time_tag(e.epoch_ms)));
+                buf.append(ts_hdr);
         }
         const QByteArray mpdu = e.raw_bytes;
         const quint16 dlen = quint16(mpdu.size() + 4);
