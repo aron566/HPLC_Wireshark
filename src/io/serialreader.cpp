@@ -141,8 +141,9 @@ void ReaderWorker::try_extract_frame() {
                     m_in_buf.remove(0, 8);
                     continue;
                 }
-                // 非 BCD(噪声):丢弃该段前置字节
+                // 非 BCD(噪声):丢弃前置字节,重新循环找帧(不得用旧 idx 删 0x3C)
                 m_in_buf.remove(0, idx);
+                continue;
             }
             m_in_buf.remove(0, idx + 1);
             m_get3c = true;
