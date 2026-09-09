@@ -35,6 +35,7 @@
 #include <QPushButton>
 #include <QApplication>
 #include <QClipboard>
+#include <QRegularExpression>
 #include <QString>
 #include <QMessageBox>
 #include <QPushButton>
@@ -215,7 +216,15 @@ void MainWindow::build_ui() {
     connect(m_chk_raw, &QCheckBox::toggled,
             m_raw_view, &QWidget::setVisible);
     connect(m_btn_copy_raw, &QPushButton::clicked, this, [this] {
-        QApplication::clipboard()->setText(m_raw_view->toPlainText());
+        // 复制原始帧:逐行剥掉偏移索引(如 "0000:  "),仅保留 hex 值列
+        QString out;
+        const QStringList lines = m_raw_view->toPlainText().split(QLatin1Char('\n'));
+        for (const QString& raw : lines) {
+            QString line = raw;
+            line.remove(QRegularExpression(QStringLiteral("^\\s*[0-9A-Fa-f]+:\\s*")));
+            if (!line.isEmpty()) out += line + QLatin1Char('\n');
+        }
+        QApplication::clipboard()->setText(out);
     });
 
     m_splitter_bottom->addWidget(m_tree_protocol);
@@ -512,16 +521,30 @@ void MainWindow::on_flush_buffer() {
     }
 }
 
+namespace {
+// 原始帧 hex 文本:每行 "偏移:  xx xx …"(16 字节/行,无 ASCII 列)
+QString raw_frame_text(const QByteArray& w) {
+    if (w.isEmpty()) return QString();
+    QString s;
+    for (int i = 0; i < w.size(); ++i) {
+        if (i % 16 == 0)
+            s += QStringLiteral("%1:  ").arg(i, 4, 16, QChar('0'));
+        s += QStringLiteral("%1 ")
+                 .arg(quint8(w[i]), 2, 16, QChar('0'));
+        if ((i % 16) == 15 || i == w.size() - 1)
+            s += QLatin1Char('\n');
+    }
+    return s;
+}
+}  // namespace
+
 void MainWindow::on_row_activated(const PacketEntry& e) {
     m_tree_protocol->show_packet(e);
     m_hex_view->set_data(e.raw_bytes);
     m_hex_view->highlight_range(-1, 0);
-    // 原始串口帧(0x3C...0x3E)展示,便于复制调试
-    if (m_raw_view) {
-        m_raw_view->setPlainText(e.raw_wire.isEmpty()
-                                     ? QString()
-                                     : QString(e.raw_wire.toHex(' ')));
-    }
+    // 原始串口帧(0x3C...0x3E)展示,便于复制调试(无 ASCII,带偏移索引)
+    if (m_raw_view)
+        m_raw_view->setPlainText(raw_frame_text(e.raw_wire));
 }
 
 void MainWindow::on_range_selected(int start, int len) {
