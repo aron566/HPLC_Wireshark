@@ -127,7 +127,20 @@ void ReaderWorker::try_extract_frame() {
         if (!m_get3c) {
             int idx = m_in_buf.indexOf(char(0x3C));
             if (idx < 0) {
-                m_in_buf.clear();
+                // 无帧起点:若缓冲以完整 8B BCD 时间标注块开头(文件回放),
+                // 立即解析它(块可能恰好是本次 read 的末尾,0x3C 在下一段),
+                // 否则保留缓冲等待更多数据(帧可能被拆在多次 read 之间),
+                // 仅当缓冲异常过大(噪声)时清空,避免无限增长
+                if (m_cfg.mode == ReaderMode::FilePlayback
+                    && m_in_buf.size() >= 8
+                    && bcd_ms_of(m_in_buf.left(8)) >= 0) {
+                    m_playback_base_ms = bcd_ms_of(m_in_buf.left(8));
+                    m_first_frame = true;
+                    m_last_ntb = 0;
+                    m_in_buf.remove(0, 8);
+                    continue;
+                }
+                if (m_in_buf.size() > 64) m_in_buf.clear();
                 return;
             }
             // 帧间若出现 8B BCD 时间标注块(新段):解析并重置时间轴
