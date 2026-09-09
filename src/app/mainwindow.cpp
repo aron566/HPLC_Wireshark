@@ -534,7 +534,7 @@ QString raw_frame_text(const QByteArray& w) {
     QString s;
     for (int i = 0; i < w.size(); ++i) {
         if (i % 16 == 0)
-            s += QStringLiteral("%1:  ").arg(i, 4, 16, QChar('0'));
+            s += QStringLiteral("%1  ").arg(i, 4, 16, QChar('0'));
         s += QStringLiteral("%1 ")
                  .arg(quint8(w[i]), 2, 16, QChar('0'));
         if ((i % 16) == 15 || i == w.size() - 1)
