@@ -75,10 +75,11 @@ inline QByteArray unescape_frame_data(const QByteArray& esc) {
 }
 
 // —— 时间轴/NTB 约定 ——
-// NTB 为 u32,40 µs/tick;相邻帧 NTB 差须在合理范围(长时间无报文会跨越
-// u32 回绕/多段,差不可信)。超过该阈值视为"断段",需用新的 8B 时间标注。
-const qint64 kMaxNtbGapTicks = 25000LL * 60;   // 60 s(1.5e6 tick),安全 < 2^31
-inline qint64 ntb_to_us(quint32 dn) { return qint64(dn) * 40; }   // tick → µs
+// NTB 为 u32,40 ns/tick(25 MHz);u32 约 171 s 回绕一次。
+// 相邻帧 NTB 差须在合理范围(长时间无报文会跨越 u32 回绕/多段,差不可信)。
+// 超过该阈值视为"断段",需用新的 8B 时间标注。
+const qint64 kMaxNtbGapTicks = 25000000LL * 60;   // 25M tick/s × 60 s(1.5e9,< 2^31)
+inline qint64 ntb_to_us(quint32 dn) { return qint64(dn) * 40 / 1000; }   // tick(40ns) → µs
 
 /// @brief 从 raw_wire(0x3C...0x3E)取帧内 NTB(体 data[2..5],LE);无则 0
 inline quint32 raw_wire_ntb(const QByteArray& wire) {

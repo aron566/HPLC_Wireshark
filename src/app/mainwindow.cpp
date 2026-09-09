@@ -476,7 +476,7 @@ PacketEntry MainWindow::make_entry(const BplcParser::Result& r, qint64 now) {
                                    ? 0 : (t - m_last_epoch_ms) * 1000;
     if (r.arrival_us > 0 && m_last_rx_us > 0) {
         const qint64 d = r.arrival_us - m_last_rx_us;
-        if (d > 0 && d <= playback::kMaxNtbGapTicks * 40)
+        if (d > 0 && d <= playback::ntb_to_us(playback::kMaxNtbGapTicks))
             e.delta_us = d;                       // 正常接收间隔
         else if (d > 0)
             e.delta_us = 0;                       // 长时间无报文:不计算与上一帧 delta
