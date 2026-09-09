@@ -191,21 +191,31 @@ QString entry_search_text(const PacketEntry& e) {
 
 bool PacketListModel::passes_filter(const PacketEntry& e) const {
     if (m_filter.isEmpty()) return true;
-    // 支持 " | " 分隔的多个条件:任一命中即通过(OR 语义)
+    // 支持 "&" 与 "|" 组合:
+    //   "|" 分隔的组之间 OR(任一命中即通过);
+    //   "&" 分隔的组内条件 AND(全部命中才通过)。
+    //   例: "beacon & cda1d5 | sof & sta-2" = (beacon 且含 cda1d5) 或 (sof 且含 sta-2)
     const QString haystack = entry_search_text(e);
-    const QStringList conds = m_filter.split('|', Qt::SkipEmptyParts);
-    for (const QString& c : conds) {
-        const QString t = c.trimmed().toLower();
-        if (t.isEmpty()) continue;
+    const QString ft = e.mpdu.frame_type_name().toLower();
+    auto cond_hit = [&](const QString& raw) -> bool {
+        const QString t = raw.trimmed().toLower();
+        if (t.isEmpty()) return false;
         // 帧类型词精确语义:避免 "ack" 误中 "packetid" 之类的子串
-        const QString ft = e.mpdu.frame_type_name().toLower();
         if (t == QLatin1String("beacon") || t == QLatin1String("sof")
             || t == QLatin1String("ack")   || t == QLatin1String("coord")
             || t == QLatin1String("search")|| t == QLatin1String("switch")) {
-            if (ft == t) return true;
-            continue;   // 帧类型关键词不匹配时不再做子串匹配
+            return ft == t;
         }
-        if (haystack.contains(t)) return true;
+        return haystack.contains(t);
+    };
+    const QStringList or_groups = m_filter.split('|', Qt::SkipEmptyParts);
+    for (const QString& g : or_groups) {
+        const QStringList ands = g.split('&');
+        bool all = true;
+        for (const QString& c : ands) {
+            if (!cond_hit(c)) { all = false; break; }
+        }
+        if (all) return true;
     }
     return false;
 }
