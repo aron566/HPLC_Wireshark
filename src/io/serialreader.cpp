@@ -130,6 +130,20 @@ void ReaderWorker::try_extract_frame() {
                 m_in_buf.clear();
                 return;
             }
+            // 帧间若出现 8B BCD 时间标注块(新段):解析并重置时间轴
+            if (idx > 0) {
+                if (idx < 8) return;   // 块不足 8B,等更多数据
+                if (m_cfg.mode == ReaderMode::FilePlayback
+                    && playback::looks_like_bcd_time(m_in_buf.left(8))) {
+                    m_playback_base_ms = bcd_ms_of(m_in_buf.left(8));
+                    m_first_frame = true;   // 下帧用标注
+                    m_last_ntb = 0;
+                    m_in_buf.remove(0, 8);
+                    continue;
+                }
+                // 非 BCD(噪声):丢弃该段前置字节
+                m_in_buf.remove(0, idx);
+            }
             m_in_buf.remove(0, idx + 1);
             m_get3c = true;
             // 帧起始分节符 0x3C 的本地接收时刻(单调 µs):
@@ -165,9 +179,11 @@ void ReaderWorker::try_extract_frame() {
         }
 
         BplcFrame bf;
-        // 新 bin:时间轴以帧内 NTB(tick)差推进——
-        //   首帧  frame_time = 文件头 8B 标注时刻
-        //   后续帧 frame_time = 上一帧 frame_time + (本帧 NTB − 上一帧 NTB)
+        // 新 bin:时间轴以帧内 NTB(u32,40 µs)差推进——
+        //   首帧  frame_time = 文件头/段 8B 标注时刻
+        //   后续帧 frame_time = 上一帧 frame_time + (本帧 NTB − 上一帧 NTB)×40 µs
+        //   帧间 NTB 差超出合理范围(长时间无报文/跨 u32 回绕)→ 用本地时刻,不
+        //   沿用上一帧 NTB(本帧为断点,重置链)
         if (m_playback_base_ms >= 0) {
             const quint32 ntb = ((quint32)(quint8)unesc[2])
                               | ((quint32)(quint8)unesc[3] << 8)
@@ -180,7 +196,11 @@ void ReaderWorker::try_extract_frame() {
                 m_first_frame = false;
             } else {
                 const qint64 dn = (qint32)(ntb - m_last_ntb);   // 回绕安全
-                bf.arrival_ms = m_last_ft + dn;
+                if (dn > 0 && dn <= playback::kMaxNtbGapTicks) {
+                    bf.arrival_ms = m_last_ft + playback::ntb_to_us(quint32(dn)) / 1000;
+                } else {
+                    bf.arrival_ms = QDateTime::currentMSecsSinceEpoch();  // 断点:本地时刻
+                }
                 m_last_ft = bf.arrival_ms;
                 m_last_ntb = ntb;
             }
@@ -219,6 +239,12 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
             if (!ok) return;
             raw.append(char(v));
         }
+    }
+    // 8B BCD 时间标注行(非 0x3C 开头,裸 hex 多段):解析记录(断点/基准)
+    if (raw.size() == 8 && (quint8)raw[0] != 0x3C
+        && playback::looks_like_bcd_time(raw)) {
+        m_raw_base_ms = bcd_ms_of(raw);
+        return;
     }
     // 至少 ts4+media4+1B MPDU,否则无法构成可解析帧
     if (raw.size() < 9) return;
