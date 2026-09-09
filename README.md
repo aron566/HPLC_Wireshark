@@ -116,8 +116,12 @@ mingw32-make -j4
 
 ### 回放 .bin 文件格式
 
-导出(菜单 `捕获 → 导出...`)与回放使用**相同帧流**,差异仅在数据最前面
-**多 8 字节 BCD 绝对时间标签**(起始时间):
+导出(菜单 `捕获 → 导出...`)与回放使用**实时串口原始帧(raw_wire)**:
+每帧 = `0x3C` + 转义(data) + `0x3E`,data = `[dlen 2B][ts 4B][phr_mcs]
+[option][channel][isRF][MPDU]`(与实时捕获逐字节一致)。
+
+**仅首帧**在 data 前多 8 字节 BCD 时间标签(首次本地时间戳机制),后续
+帧不再携带——避免与原始帧多 8 B/帧:
 
 ```
 [BCD 时间 8B][dlen 2B LE][ts 4B LE][phr_mcs][option][channel][isRF][MPDU...]

@@ -58,6 +58,22 @@ inline QByteArray escape_frame_data(const QByteArray& data) {
     return esc;
 }
 
+/// @brief 0x3D 反转义(与 escape_frame_data 互逆):0x3D xx → 0xFF ^ xx
+inline QByteArray unescape_frame_data(const QByteArray& esc) {
+    QByteArray out;
+    out.reserve(esc.size());
+    for (int i = 0; i < esc.size(); ++i) {
+        const quint8 b = static_cast<quint8>(esc[i]);
+        if (b == 0x3D && i + 1 < esc.size()) {
+            ++i;
+            out.append(char(0xFF - static_cast<quint8>(esc[i])));
+        } else {
+            out.append(esc[i]);
+        }
+    }
+    return out;
+}
+
 /// @brief epoch_ms → 8B BCD 时间标签(本地时间,与解码器 has_time_tag 同构)
 inline QByteArray bcd_time_tag(qint64 epoch_ms) {
     const QDateTime dt = QDateTime::fromMSecsSinceEpoch(epoch_ms);
@@ -105,12 +121,34 @@ inline QByteArray frame_to_playback(const PacketEntry& e) {
 }
 
 /// @brief 全部帧 → 完整回放 bin 文件内容(空帧自动跳过)
+/// @details 优先**原样保存实时原始帧(raw_wire)**:仅**首帧**前插一次 8B BCD
+///          首帧本地时间戳(首次本地时间戳机制),后续帧 raw_wire 逐字节原样,
+///          与实时捕获完全一致(不再每帧多 8B);无 raw_wire 的旧数据回退到
+///          frame_to_playback(重组帧体 + 每帧 BCD,保逐帧时间)。
 inline QByteArray build_playback_bin(const QVector<PacketEntry>& entries) {
     QByteArray buf;
     buf.reserve(entries.size() * 72);
+    bool first = true;
     for (const PacketEntry& e : entries) {
-        const QByteArray fr = frame_to_playback(e);
-        if (!fr.isEmpty()) buf.append(fr);
+        if (!e.raw_wire.isEmpty()) {
+            if (first) {
+                // 首帧:0x3C + esc(BCD8 + 未转义体) + 0x3E —— 仅此一次
+                QByteArray inner = e.raw_wire.mid(1, e.raw_wire.size() - 2);
+                QByteArray body = bcd_time_tag(e.epoch_ms)
+                                  + unescape_frame_data(inner);
+                QByteArray fr;
+                fr.reserve(body.size() + 2);
+                fr.append(char(0x3C)).append(escape_frame_data(body))
+                  .append(char(0x3E));
+                buf.append(fr);
+                first = false;
+            } else {
+                buf.append(e.raw_wire);   // 逐字节原样
+            }
+        } else {
+            const QByteArray fr = frame_to_playback(e);
+            if (!fr.isEmpty()) buf.append(fr);
+        }
     }
     return buf;
 }
