@@ -48,7 +48,7 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
         m_playback_base_ms = -1;
         m_first_frame = true;
         QByteArray head = m_file->peek(8);
-        if (head.size() == 8 && playback::looks_like_bcd_time(head)) {
+        if (head.size() == 8 && bcd_ms_of(head) >= 0) {   // 强校验(BCD 且日期合法)
             m_playback_base_ms = bcd_ms_of(head);
             m_file->seek(8);
         }
@@ -134,7 +134,7 @@ void ReaderWorker::try_extract_frame() {
             if (idx > 0) {
                 if (idx < 8) return;   // 块不足 8B,等更多数据
                 if (m_cfg.mode == ReaderMode::FilePlayback
-                    && playback::looks_like_bcd_time(m_in_buf.left(8))) {
+                    && bcd_ms_of(m_in_buf.left(8)) >= 0) {   // 强校验
                     m_playback_base_ms = bcd_ms_of(m_in_buf.left(8));
                     m_first_frame = true;   // 下帧用标注
                     m_last_ntb = 0;
