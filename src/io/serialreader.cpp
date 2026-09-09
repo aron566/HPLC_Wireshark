@@ -12,7 +12,7 @@
 ReaderWorker::ReaderWorker(QObject* parent) : QObject(parent),
     m_serial(nullptr), m_file(nullptr), m_file_timer(nullptr),
     m_get3c(false), m_frame_rx_us(0), m_playback_base_ms(-1), m_first_frame(false),
-    m_first_now_ms(0), m_running(false) {}
+    m_last_ntb(0), m_last_ft(0), m_running(false) {}
 
 ReaderWorker::~ReaderWorker() {
     stop_reading();
@@ -165,16 +165,24 @@ void ReaderWorker::try_extract_frame() {
         }
 
         BplcFrame bf;
-        // 新 bin:以文件头 8B BCD 时间标注为基准,后续帧按处理增量递推,
-        // 使 Time 从标注时刻连续推进(而非跳到当前本地时刻)
+        // 新 bin:时间轴以帧内 NTB(tick)差推进——
+        //   首帧  frame_time = 文件头 8B 标注时刻
+        //   后续帧 frame_time = 上一帧 frame_time + (本帧 NTB − 上一帧 NTB)
         if (m_playback_base_ms >= 0) {
-            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            const quint32 ntb = ((quint32)(quint8)unesc[2])
+                              | ((quint32)(quint8)unesc[3] << 8)
+                              | ((quint32)(quint8)unesc[4] << 16)
+                              | ((quint32)(quint8)unesc[5] << 24);
             if (m_first_frame) {
                 bf.arrival_ms = m_playback_base_ms;
-                m_first_now_ms = now;
+                m_last_ft = m_playback_base_ms;
+                m_last_ntb = ntb;
                 m_first_frame = false;
             } else {
-                bf.arrival_ms = m_playback_base_ms + (now - m_first_now_ms);
+                const qint64 dn = (qint32)(ntb - m_last_ntb);   // 回绕安全
+                bf.arrival_ms = m_last_ft + dn;
+                m_last_ft = bf.arrival_ms;
+                m_last_ntb = ntb;
             }
         } else {
             bf.arrival_ms = QDateTime::currentMSecsSinceEpoch();

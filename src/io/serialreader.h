@@ -78,7 +78,8 @@ private:
     qint64       m_frame_rx_us;   ///< 当前帧起始 0x3C 的单调 µs 接收时刻(实时)
     qint64       m_playback_base_ms;  ///< 回放 bin 文件头 8B BCD 时间标注(首帧本地时刻;-1=无)
     bool         m_first_frame;   ///< 回放首帧标志(首帧用标注时间)
-    qint64       m_first_now_ms;  ///< 首帧处理时的本地时刻(回放时间轴增量基准)
+    quint32      m_last_ntb;      ///< 上一帧帧内 NTB(回放时间轴 tick 差)
+    qint64       m_last_ft;       ///< 上一帧 frame_time(回放时间轴基准)
     bool         m_running;
     qint64       m_raw_base_ms;   ///< 裸 hex 文本首帧时间(epoch ms;-1=未给出,回退本地)
     ReaderConfig m_cfg;
