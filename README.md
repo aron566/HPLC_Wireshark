@@ -146,25 +146,26 @@ BCD 时间标签布局(本地时间,与解码器 `has_time_tag` 头同构):
 ### 裸 hex 数据(raw 模式)
 
 `RawHex` 模式与「导出为裸 hex 文本」使用**同一裸数据格式**:纯 hex 文本,
-每行一帧,**不封装 0x3C/0x3E/0x3D、无 BCD 时间标签**,行分隔即帧边界
-(支持 `0x01 0xd5 …` 与 `01 d5 …` 写法):
+每行一**完整 0x3C 原始帧**(与串口/回放 bin 同构,含 0x3C/0x3E 哨兵与
+0x3D 转义),行分隔即帧边界(支持 `0x01 0xd5 …` 与 `01 d5 …` 写法):
 
 ```
-[ts 4B LE][phr_mcs 1B][option 1B][channel 1B][isRF 1B][MPDU...]
+[0x3C][esc(data)][0x3E]
+data = [dlen 2B LE][ts 4B LE][phr_mcs 1B][option 1B][channel 1B][isRF 1B][MPDU...]
 ```
 
 | 字段 | 字节 | 说明 |
 |------|------|------|
-| ts | 0-3 | 帧捕获时刻,epoch ms 的**低 32 位**,小端序 |
-| phr_mcs | 4 | 物理层调制编码参数 |
-| option | 5 | 物理层 option |
-| channel | 6 | 信道编号 |
-| isRF | 7 | 0=HPLC,非 0=HRF |
-| MPDU | 8.. | 纯 MPDU(帧解析/CRC 校验按常规进行,坏帧 dropped) |
+| 0x3C / 0x3E | 首位/末位 | 帧哨兵(0x3D 按 0x3D+补码转义) |
+| dlen | data 0-1 | MPDU+4(与固件一致,读取端不校验) |
+| ts | data 2-5 | 帧捕获时刻,epoch ms 的**低 32 位**,小端序 |
+| phr_mcs/option/channel/isRF | data 6-9 | 物理元数据 |
+| MPDU | data 10.. | 纯 MPDU(CRC 校验,坏帧 dropped) |
 
 **起始时间戳**:ts 是 epoch 低 32 位,回放时按当前时刻取最近候选还原
 **原始捕获时刻**(±约 24.8 天窗口内正确),Time 列/Delta 以原始捕获时刻为
 基准(Delta 精度=文件毫秒);行解析失败或 ts 缺失时自动**回退本地时间**。
+(v1.0.12 及更早导出的无哨兵 `[ts][media][MPDU]` 行仍兼容识别。)
 导出路径:菜单 `捕获 → 导出...` → 文件类型选「裸 hex 文本 (*.txt)」。
 
 ## 打包发布(安装包制作)

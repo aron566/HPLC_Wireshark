@@ -115,27 +115,34 @@ inline QByteArray build_playback_bin(const QVector<PacketEntry>& entries) {
     return buf;
 }
 
-/// @brief 导出裸数据 hex 文本(与 RawHex 导入对称,每行一帧,无 0x3C/0x3E/
-///        0x3D 封装):[ts 4B LE][phr_mcs][option][channel][isRF][MPDU]。
-///        ts = epoch ms 低 32 位(捕获时刻);回放端还原捕获时刻,
-///        Delta 为 epoch ms 差(文件精度上限为毫秒)。
+/// @brief 导出裸数据 hex 文本(与 RawHex 导入对称,每行一完整 0x3C 原始帧):
+///        [0x3C][esc(data)][0x3E],data = [dlen 2B][ts 4B=epoch ms 低32]
+///        [phr_mcs][option][channel][isRF][MPDU]。
+///        回放端识别 0x3C 行 → 反转义还原 data;ts 还原每帧捕获时刻(与 bin
+///        同构,仅无 8B BCD 标签;时间精度同文件毫秒)。
 inline QByteArray build_raw_hex_text(const QVector<PacketEntry>& entries) {
     QByteArray buf;
     for (const PacketEntry& e : entries) {
         if (e.raw_bytes.isEmpty()) continue;
-        const quint32 ts = quint32(e.epoch_ms & 0xFFFFFFFFu);
+        const QByteArray mpdu = e.raw_bytes;
+        const quint16 dlen = quint16(mpdu.size() + 4);
+        const quint32 ts   = quint32(e.epoch_ms & 0xFFFFFFFFu);
+        QByteArray data;
+        data.reserve(mpdu.size() + 10);
+        data.append(char(dlen & 0xFF)).append(char(dlen >> 8));
+        data.append(char(ts & 0xFF)).append(char((ts >> 8) & 0xFF))
+            .append(char((ts >> 16) & 0xFF)).append(char((ts >> 24) & 0xFF));
+        data.append(char(e.meta.phr_mcs)).append(char(e.meta.option))
+            .append(char(e.meta.channel)).append(char(e.meta.is_rf ? 1 : 0));
+        data.append(mpdu);
+        // 0x3C + 转义(data) + 0x3E
+        QByteArray frame;
+        frame.reserve(data.size() + 2);
+        frame.append(char(0x3C));
+        frame.append(escape_frame_data(data));
+        frame.append(char(0x3E));
         QByteArray line;
-        // ts(4B LE)
-        line += QStringLiteral(" 0x%1").arg(ts & 0xFF, 2, 16, QChar('0')).toLatin1();
-        line += QStringLiteral(" 0x%1").arg((ts >> 8) & 0xFF, 2, 16, QChar('0')).toLatin1();
-        line += QStringLiteral(" 0x%1").arg((ts >> 16) & 0xFF, 2, 16, QChar('0')).toLatin1();
-        line += QStringLiteral(" 0x%1").arg((ts >> 24) & 0xFF, 2, 16, QChar('0')).toLatin1();
-        // media 4B:phr_mcs/option/channel/isRF
-        line += QStringLiteral(" 0x%1").arg(e.meta.phr_mcs, 2, 16, QChar('0')).toLatin1();
-        line += QStringLiteral(" 0x%1").arg(e.meta.option, 2, 16, QChar('0')).toLatin1();
-        line += QStringLiteral(" 0x%1").arg(e.meta.channel, 2, 16, QChar('0')).toLatin1();
-        line += QStringLiteral(" 0x%1").arg(e.meta.is_rf ? 1 : 0, 2, 16, QChar('0')).toLatin1();
-        for (char c : e.raw_bytes)
+        for (char c : frame)
             line += QStringLiteral(" 0x%1")
                         .arg(quint8(c), 2, 16, QChar('0')).toLatin1();
         buf.append(line.mid(1));   // 去掉行首空格

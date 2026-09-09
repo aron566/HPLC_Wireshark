@@ -196,6 +196,44 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
     // 至少 ts4+media4+1B MPDU,否则无法构成可解析帧
     if (raw.size() < 9) return;
 
+    // 完整 0x3C 原始帧行(导出 v1.0.13+):[0x3C][esc(data)][0x3E],
+    // data = [dlen 2B][ts 4B=epoch ms 低32][phr][option][channel][isRF][MPDU]
+    if ((quint8)raw[0] == 0x3C && (quint8)raw[raw.size() - 1] == 0x3E) {
+        QByteArray body = raw.mid(1, raw.size() - 2);
+        QByteArray data;
+        data.reserve(body.size());
+        for (int i = 0; i < body.size(); ++i) {
+            quint8 b = (quint8)body[i];
+            if (b == 0x3D && i + 1 < body.size()) {
+                ++i;
+                data.append((char)(0xFF - (quint8)body[i]));
+            } else {
+                data.append((char)b);
+            }
+        }
+        // ts4 = epoch ms 低 32 → 还原捕获时刻
+        const quint32 ts_le2 = (quint32)(quint8)data[2]
+                             | (quint32)(quint8)data[3] << 8
+                             | (quint32)(quint8)data[4] << 16
+                             | (quint32)(quint8)data[5] << 24;
+        qint64 now2 = QDateTime::currentMSecsSinceEpoch();
+        qint64 hi2 = (now2 >> 32) << 32;
+        qint64 t2 = hi2 | qint64(ts_le2);
+        if (t2 - now2 >  (1LL << 31)) t2 -= (1LL << 32);
+        if (now2 - t2 > (1LL << 31))  t2 += (1LL << 32);
+        if (m_raw_base_ms >= 0) t2 = m_raw_base_ms;
+
+        BplcFrame bf;
+        bf.meta.from_raw = false;
+        bf.meta.has_time_tag = false;
+        bf.meta.frame_ts_is_ntb = false;
+        bf.arrival_ms = t2;
+        bf.raw_wire   = raw;   // 0x3C...0x3E 原样
+        bf.data       = data;  // 反转义后的 [dlen][ts][media][MPDU]
+        emit frame_ready(bf);
+        return;
+    }
+
     // ts(4B LE):导出端为 epoch ms 低 32 位;回放还原最近 epoch
     // (同机回放 ±~24.8 天窗口内正确),使 Time/Delta 以原始捕获时刻为基准
     const quint32 ts_le = (quint32)(quint8)raw[0]
