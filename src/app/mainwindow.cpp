@@ -186,15 +186,11 @@ void MainWindow::build_ui() {
     m_lbl_hex_title = new QLabel(trl::L("字节视图(十六进制,左偏移 + 中间 hex + 右侧 ASCII):"),
                                  hex_pane);
 
-    // 原始报文列:标题行(显示开关 + 复制)+ HexView | RawFrame 水平分离
+    // 原始报文列:常显(无 checkbox/复制按钮),复制经右键菜单(0x 前缀可选)
     auto* hex_toolbar = new QWidget(hex_pane);
     auto* tl = new QHBoxLayout(hex_toolbar);
     tl->setContentsMargins(0, 0, 0, 0);
-    m_chk_raw = new QCheckBox(trl::L("显示原始报文(串口帧 3C...3E)"), hex_toolbar);
-    m_btn_copy_raw = new QPushButton(trl::L("复制"), hex_toolbar);
-    tl->addWidget(m_chk_raw);
     tl->addStretch(1);
-    tl->addWidget(m_btn_copy_raw);
 
     m_split_hex = new QSplitter(Qt::Horizontal, hex_pane);
     m_hex_view  = new HexView(hex_pane);
@@ -207,22 +203,25 @@ void MainWindow::build_ui() {
     m_split_hex->addWidget(m_hex_view);
     m_split_hex->addWidget(m_raw_view);
     m_split_hex->setSizes({640, 480});
-    m_raw_view->setVisible(false);   // 默认隐藏,勾选后显示
 
     hex_layout->addWidget(m_lbl_hex_title);
     hex_layout->addWidget(hex_toolbar);
     hex_layout->addWidget(m_split_hex, 1);
 
-    connect(m_chk_raw, &QCheckBox::toggled,
-            m_raw_view, &QWidget::setVisible);
-    connect(m_btn_copy_raw, &QPushButton::clicked, this, [this] {
-        // 复制原始帧:逐行剥掉偏移索引(如 "0000:  "),仅保留 hex 值列
+    // 右键复制:加 0x 前缀 / 纯 hex 两种方式
+    m_raw_view->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_raw_view, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QMenu menu(m_raw_view);
+        QAction* a0 = menu.addAction(trl::L("复制(含 0x 前缀)"));
+        QAction* a1 = menu.addAction(trl::L("复制(纯 hex)"));
+        QAction* a = menu.exec(m_raw_view->mapToGlobal(pos));
+        if (!a || m_raw_bytes.isEmpty()) return;
         QString out;
-        const QStringList lines = m_raw_view->toPlainText().split(QLatin1Char('\n'));
-        for (const QString& raw : lines) {
-            QString line = raw;
-            line.remove(QRegularExpression(QStringLiteral("^\\s*[0-9A-Fa-f]+:\\s*")));
-            if (!line.isEmpty()) out += line + QLatin1Char('\n');
+        if (a == a0) {
+            for (char c : m_raw_bytes)
+                out += QStringLiteral("0x%1 ").arg(quint8(c), 2, 16, QChar('0'));
+        } else if (a == a1) {
+            out = QString::fromLatin1(m_raw_bytes.toHex(' '));
         }
         QApplication::clipboard()->setText(out);
     });
@@ -543,8 +542,10 @@ void MainWindow::on_row_activated(const PacketEntry& e) {
     m_hex_view->set_data(e.raw_bytes);
     m_hex_view->highlight_range(-1, 0);
     // 原始串口帧(0x3C...0x3E)展示,便于复制调试(无 ASCII,带偏移索引)
-    if (m_raw_view)
+    if (m_raw_view) {
+        m_raw_bytes = e.raw_wire;
         m_raw_view->setPlainText(raw_frame_text(e.raw_wire));
+    }
 }
 
 void MainWindow::on_range_selected(int start, int len) {
@@ -602,9 +603,8 @@ struct I18nRegMainWindow {
         trl::register_en("  显示过滤器:", "  Display filter:");
         trl::register_en("字节视图(十六进制,左偏移 + 中间 hex + 右侧 ASCII):",
                          "Byte view (hex, left offset + middle hex + right ASCII):");
-        trl::register_en("显示原始报文(串口帧 3C...3E)",
-                         "Show raw frame (serial 3C...3E)");
-        trl::register_en("复制", "Copy");
+        trl::register_en("复制(含 0x 前缀)", "Copy (with 0x prefix)");
+        trl::register_en("复制(纯 hex)", "Copy (plain hex)");
     }
 };
 const I18nRegMainWindow g_i18n_reg_mainwindow;

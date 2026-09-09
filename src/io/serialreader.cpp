@@ -135,10 +135,13 @@ void ReaderWorker::try_extract_frame() {
         m_in_buf.remove(0, idx + 1);
         m_get3c = false;
 
-        // 原始串口帧(0x3C...0x3E,含哨兵与 0x3D 转义原样):调试复制用
+        // 原始串口帧(0x3C...0x3E,含哨兵与 0x3D 转义原样):仅实时串口保留,
+        // 回放文件(bin/裸 hex)无需显示原始 hex → 不构造
         QByteArray wire;
-        wire.reserve(frame.size() + 2);
-        wire.append(char(0x3C)).append(frame).append(char(0x3E));
+        if (m_cfg.mode == ReaderMode::SerialPort) {
+            wire.reserve(frame.size() + 2);
+            wire.append(char(0x3C)).append(frame).append(char(0x3E));
+        }
 
         // 反转义 0x3D
         QByteArray unesc;

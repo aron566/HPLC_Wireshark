@@ -77,9 +77,8 @@ private:
     HexView*       m_hex_view;
     QLabel*        m_lbl_hex_title;
     QSplitter*     m_split_hex;       ///< HexView | 原始报文 水平分离
-    QPlainTextEdit* m_raw_view;       ///< 原始串口帧(0x3C...0x3E)只读文本
-    QCheckBox*     m_chk_raw;         ///< 显示/隐藏原始报文列
-    QPushButton*   m_btn_copy_raw;    ///< 复制原始报文
+    QPlainTextEdit* m_raw_view;       ///< 原始串口帧(0x3C...0x3E)只读文本(常显)
+    QByteArray     m_raw_bytes;       ///< 当前帧原始字节(右键复制用)
 
     QLabel*        m_status_left;
     QLabel*        m_status_right;
