@@ -11,7 +11,8 @@
 
 ReaderWorker::ReaderWorker(QObject* parent) : QObject(parent),
     m_serial(nullptr), m_file(nullptr), m_file_timer(nullptr),
-    m_get3c(false), m_frame_rx_us(0), m_playback_base_ms(-1), m_first_frame(false), m_running(false) {}
+    m_get3c(false), m_frame_rx_us(0), m_playback_base_ms(-1), m_first_frame(false),
+    m_first_now_ms(0), m_running(false) {}
 
 ReaderWorker::~ReaderWorker() {
     stop_reading();
@@ -164,11 +165,19 @@ void ReaderWorker::try_extract_frame() {
         }
 
         BplcFrame bf;
-        bf.arrival_ms = QDateTime::currentMSecsSinceEpoch();
-        // 新 bin:首帧用文件头 8B BCD 时间标注(其余帧用本地读取时刻)
-        if (m_playback_base_ms >= 0 && m_first_frame) {
-            bf.arrival_ms = m_playback_base_ms;
-            m_first_frame = false;
+        // 新 bin:以文件头 8B BCD 时间标注为基准,后续帧按处理增量递推,
+        // 使 Time 从标注时刻连续推进(而非跳到当前本地时刻)
+        if (m_playback_base_ms >= 0) {
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (m_first_frame) {
+                bf.arrival_ms = m_playback_base_ms;
+                m_first_now_ms = now;
+                m_first_frame = false;
+            } else {
+                bf.arrival_ms = m_playback_base_ms + (now - m_first_now_ms);
+            }
+        } else {
+            bf.arrival_ms = QDateTime::currentMSecsSinceEpoch();
         }
         bf.arrival_us = m_frame_rx_us;   // 0x3C 起始高精度接收时刻(实时)
         bf.raw_wire   = wire;            // 原始串口帧原样(调试复制)
