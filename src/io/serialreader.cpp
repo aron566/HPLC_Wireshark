@@ -221,7 +221,8 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
         qint64 t2 = hi2 | qint64(ts_le2);
         if (t2 - now2 >  (1LL << 31)) t2 -= (1LL << 32);
         if (now2 - t2 > (1LL << 31))  t2 += (1LL << 32);
-        if (m_raw_base_ms >= 0) t2 = m_raw_base_ms;
+        // ts4 即每帧本地 epoch 低 32 位 → 以还原为准(首帧 TIME 头仅作基准;
+        // 旧格式 ts 缺失时才回退到 m_raw_base_ms)
 
         BplcFrame bf;
         bf.meta.from_raw = false;

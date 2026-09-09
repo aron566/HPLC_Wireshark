@@ -122,6 +122,12 @@ inline QByteArray build_playback_bin(const QVector<PacketEntry>& entries) {
 ///        同构,仅无 8B BCD 标签;时间精度同文件毫秒)。
 inline QByteArray build_raw_hex_text(const QVector<PacketEntry>& entries) {
     QByteArray buf;
+    if (entries.isEmpty()) return buf;
+    // 首帧显式本地时间戳头(首次本地时间戳机制):TIME: yyyy-MM-dd HH:mm:ss.zzz
+    const QDateTime first = QDateTime::fromMSecsSinceEpoch(entries.first().epoch_ms);
+    buf.append(QStringLiteral("TIME: %1\n")
+                   .arg(first.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")))
+                   .toUtf8());
     for (const PacketEntry& e : entries) {
         if (e.raw_bytes.isEmpty()) continue;
         const QByteArray mpdu = e.raw_bytes;
