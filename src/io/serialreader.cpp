@@ -184,12 +184,9 @@ void ReaderWorker::try_extract_frame() {
         // 帧 ts 域语义:串口实时=设备填的 NTB tick(40µs 分辨);
         // 文件回放(0x3C bin)=导出端 epoch ms 低 32 位(毫秒级)
         bf.meta.frame_ts_is_ntb = (m_cfg.mode == ReaderMode::SerialPort);
-        // 文件回放:导出的 bin 带 8B BCD 起始时间标签时自动识别(无需用户勾选);
-        // 无该字段的旧文件保持原行为,帧时间用本地时间
-        bf.meta.has_time_tag =
-            m_cfg.has_time_tag ||
-            (m_cfg.mode == ReaderMode::FilePlayback &&
-             playback::looks_like_bcd_time(unesc));
+        // 新格式:8B 时间标注仅在文件头(已 seek 跳过),帧体无逐帧 BCD;
+        // 不做旧版每帧 BCD 兼容检测
+        bf.meta.has_time_tag = false;
         bf.data = unesc;
         emit frame_ready(bf);
     }
