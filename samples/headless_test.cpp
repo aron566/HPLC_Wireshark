@@ -172,10 +172,10 @@ int main(int argc, char* argv[]) {
             }
             if (r.mpdu.frame_type == 3 && printed_coord < 2) {
                 ++printed_coord;
-                std::printf("COORD #%d: dur=%d shift=%d nbrnid=0x%06X ch=%d opt=%d\n",
+                std::printf("COORD #%d: dur=%d shift=%d nbrnid=0x%06X ch=%d rsv0=%d\n",
                             frames, r.mpdu.coord_duration, r.mpdu.coord_shift,
                             r.mpdu.coord_neighbour_nid, r.mpdu.coord_rf_channel,
-                            r.mpdu.coord_rf_option);
+                            r.mpdu.coord_rsv0);
             }
         } else {
             ++dropped;

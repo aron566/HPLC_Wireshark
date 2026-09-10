@@ -42,6 +42,14 @@ inline bool looks_like_bcd8(const QByteArray& d) {
     return true;
 }
 
+/// @brief 自动识别帧 data 开头是否带 8B BCD 时间标签(旧格式,帧体 ≥28B)
+/// @note  仅旧格式逐帧 BCD 标签识别用(无 raw_wire 数据的 frame_to_playback
+///        回退路径 + viewtest 往返测试);新格式段头/段间标注用 looks_like_bcd8。
+inline bool looks_like_bcd_time(const QByteArray& d) {
+    if (d.size() < 28) return false;
+    return looks_like_bcd8(d);
+}
+
 inline QByteArray escape_frame_data(const QByteArray& data) {
     QByteArray esc;
     esc.reserve(data.size() + 8);
