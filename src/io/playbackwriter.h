@@ -8,7 +8,6 @@
 ///          导出的文件在 data 最前面带 8 字节 BCD 绝对时间标签
 ///          (年月日时分秒毫秒,与解码器 has_time_tag 头同构):
 ///          data = [bcd_time8][dlen2LE][ts4LE][phr][option][channel][isRF][MPDU]。
-///          回放读取端用 looks_like_bcd_time() 自动识别该字段并恢复每帧
 ///          原始捕获时刻;老文件(无该字段)回退到本地时间。
 #ifndef PLAYBACKWRITER_H
 #define PLAYBACKWRITER_H
@@ -26,13 +25,12 @@ inline bool bcd_ok(quint8 byte, int max_dec) {
     return hi <= 9 && lo <= 9 && (hi * 10 + lo) <= max_dec;
 }
 
-/// @brief 自动识别 data 开头是否带 8B BCD 时间标签(年份/月/日/时/分/秒/毫秒)
-/// @note  判定失败(误判旧格式)的概率极低:8 字节同时满足 BCD 日期时间约束
-///        的组合很少;识别仅用于"文件回放/导出"的 bin,不参与串口帧。
-inline bool looks_like_bcd_time(const QByteArray& d) {
-    if (d.size() < 28) return false;
+/// @brief 8 字节是否为独立 BCD 时间标注(段头/段间,不含帧体)
+/// @note  合法 BCD 的两个 nibble 均 <=9,故 0x3C/0x3D/0x3E 不可能出现在标注内。
+inline bool looks_like_bcd8(const QByteArray& d) {
+    if (d.size() < 8) return false;
     const auto at = [&d](int i) { return static_cast<quint8>(d[i]); };
-    // 前 8B:yy(00-99) mo(1-12) dd(1-31) hh(0-23) mm(0-59) ss(0-59) msH(0-9) msL(0-99)
+    // yy(00-99) mo(1-12) dd(1-31) hh(0-23) mm(0-59) ss(0-59) msH(0-9) msL(0-99)
     if (!bcd_ok(at(0), 99)) return false;
     if (!bcd_ok(at(1), 12) || at(1) == 0) return false;
     if (!bcd_ok(at(2), 31) || at(2) == 0) return false;

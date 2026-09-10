@@ -2,7 +2,7 @@
 /// @brief ReaderWorker + SerialReader 实现
 #include "serialreader.h"
 #include "i18n.h"
-#include "playbackwriter.h"   // playback::looks_like_bcd_time(回放时间标签识别)
+#include "playbackwriter.h"
 #include <QSerialPortInfo>
 #include <QRegularExpression>
 #include <QDateTime>
@@ -13,7 +13,8 @@ ReaderWorker::ReaderWorker(QObject* parent) : QObject(parent),
     m_serial(nullptr), m_file(nullptr), m_file_timer(nullptr),
     m_get3c(false), m_frame_rx_us(0), m_playback_base_ms(-1), m_first_frame(false),
     m_last_ntb(0), m_last_ft(0), m_running(false), m_raw_base_ms(-1),
-    m_hex_seg_first(false), m_last_hex_ts(0), m_last_hex_ft(0) {}
+    m_hex_seg_first(false), m_last_hex_ts(0), m_last_hex_ft(0),
+    m_file_size(0), m_last_progress(-1) {}
 
 ReaderWorker::~ReaderWorker() {
     stop_reading();
@@ -45,6 +46,8 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
             emit error_occurred(trl::L("打开文件失败: %1").arg(m_file->errorString()));
             return;
         }
+        m_file_size = m_file->size();
+        m_last_progress = -1;
         // 新 bin:文件头 8B BCD 时间标注(首帧本地时刻,独立于帧);读取并跳过
         m_playback_base_ms = -1;
         m_first_frame = true;
@@ -114,6 +117,7 @@ void ReaderWorker::on_serial_ready_read() {
 void ReaderWorker::on_file_poll_tick() {
     if (!m_file || m_file->atEnd()) {
         m_file_timer->stop();
+        emit progress_percent(100);
         emit status_message(trl::L("文件回放结束"));
         emit finished();
         return;
@@ -121,45 +125,69 @@ void ReaderWorker::on_file_poll_tick() {
     QByteArray chunk = m_file->read(1024);
     m_in_buf.append(chunk);
     try_extract_frame();
+    // 回放进度百分比(按已读字节/文件总大小,仅变化时上报)
+    if (m_file_size > 0) {
+        const int percent = int(m_file->pos() * 100 / m_file_size);
+        if (percent != m_last_progress) {
+            m_last_progress = percent;
+            emit progress_percent(percent);
+        }
+    }
+}
+
+bool ReaderWorker::try_consume_bcd_tag() {
+    // 仅文件回放有段间 8B 标注;合法 BCD 不含 0x3C/0x3D/0x3E,不会误吃帧哨兵
+    if (m_cfg.mode != ReaderMode::FilePlayback || m_in_buf.size() < 8)
+        return false;
+    const qint64 ms = bcd_ms_of(m_in_buf.left(8));
+    if (ms < 0) return false;
+    m_playback_base_ms = ms;
+    m_first_frame = true;
+    m_last_ntb = 0;
+    m_in_buf.remove(0, 8);
+    return true;
 }
 
 void ReaderWorker::try_extract_frame() {
     while (!m_in_buf.isEmpty()) {
         if (!m_get3c) {
+            // 段间 8B 标注可能独占本段缓冲(0x3C 在下一次 1024B read)
+            if (try_consume_bcd_tag())
+                continue;
+
             int idx = m_in_buf.indexOf(char(0x3C));
             if (idx < 0) {
-                // 无帧起点:若缓冲以完整 8B BCD 时间标注块开头(文件回放),
-                // 立即解析它(块可能恰好是本次 read 的末尾,0x3C 在下一段),
-                // 否则保留缓冲等待更多数据(帧可能被拆在多次 read 之间),
-                // 仅当缓冲异常过大(噪声)时清空,避免无限增长
-                if (m_cfg.mode == ReaderMode::FilePlayback
-                    && m_in_buf.size() >= 8
-                    && bcd_ms_of(m_in_buf.left(8)) >= 0) {
-                    m_playback_base_ms = bcd_ms_of(m_in_buf.left(8));
-                    m_first_frame = true;
-                    m_last_ntb = 0;
-                    m_in_buf.remove(0, 8);
-                    continue;
-                }
-                if (m_in_buf.size() > 64) m_in_buf.clear();
-                return;
+                // 无 0x3C:剔除 1 字节,回到循环顶重新匹配 8B BCD(滑窗对齐帧头)
+                m_in_buf.remove(0, 1);
+                continue;
             }
-            // 帧间若出现 8B BCD 时间标注块(新段):解析并重置时间轴
             if (idx > 0) {
-                if (idx < 8) return;   // 块不足 8B,等更多数据
-                if (m_cfg.mode == ReaderMode::FilePlayback
-                    && bcd_ms_of(m_in_buf.left(8)) >= 0) {   // 强校验
-                    m_playback_base_ms = bcd_ms_of(m_in_buf.left(8));
-                    m_first_frame = true;   // 下帧用标注
-                    m_last_ntb = 0;
-                    m_in_buf.remove(0, 8);
+                // 0x3C 前紧贴完整 8B 标注(标注前允许有噪声)
+                if (m_cfg.mode == ReaderMode::FilePlayback && idx >= 8
+                    && bcd_ms_of(m_in_buf.mid(idx - 8, 8)) >= 0) {
+                    if (idx > 8)
+                        m_in_buf.remove(0, idx - 8);
+                    if (!try_consume_bcd_tag() && m_in_buf.size() >= 8)
+                        m_in_buf.remove(0, 8);
                     continue;
                 }
-                // 非 BCD(噪声):丢弃前置字节,重新循环找帧(不得用旧 idx 删 0x3C)
+                // 1~7B 前缀不可能是完整标注:合法 BCD 不含 0x3C,
+                // 半截标注且尚无 0x3C 已在 idx<0 分支等待。
+                // 串口/回放都立刻丢掉,否则已缓冲的完整帧被卡住。
                 m_in_buf.remove(0, idx);
                 continue;
             }
-            m_in_buf.remove(0, idx + 1);
+            // idx == 0:3C 在缓冲开头。验证是否为假帧头——
+            // 帧体中的 0x3C/0x3E 均已 0x3D 转义,故合法帧 3C 后应直达 3E;
+            // 若 3C 后先遇到另一个 3C(而非 3E),说明第一个 3C 是孤立的假帧头,
+            // 丢弃它,以第二个 3C 为帧头重新对齐。
+            const int next_3c = m_in_buf.indexOf(char(0x3C), idx + 1);
+            const int next_3e = m_in_buf.indexOf(char(0x3E), idx + 1);
+            if (next_3c >= 0 && next_3e >= 0 && next_3c < next_3e) {
+                m_in_buf.remove(0, 1);   // 第一个 3C 失效,丢弃
+                continue;
+            }
+            m_in_buf.remove(0, 1);
             m_get3c = true;
             // 帧起始分节符 0x3C 的本地接收时刻(单调 µs):
             // 批内后续帧/缓冲中发现的起点在此打点(实时串口);文件回放不填
@@ -228,8 +256,7 @@ void ReaderWorker::try_extract_frame() {
         // 帧 ts 域语义:串口实时=设备填的 NTB tick(40ns 分辨);
         // 文件回放(0x3C bin)=导出端 epoch ms 低 32 位(毫秒级)
         bf.meta.frame_ts_is_ntb = (m_cfg.mode == ReaderMode::SerialPort);
-        // 新格式:8B 时间标注仅在文件头(已 seek 跳过),帧体无逐帧 BCD;
-        // 不做旧版每帧 BCD 兼容检测
+        // 8B 标注在文件头/段间,帧体无逐帧 BCD;不做旧版每帧 BCD 兼容检测
         bf.meta.has_time_tag = false;
         bf.data = unesc;
         emit frame_ready(bf);
@@ -258,7 +285,7 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
     }
     // 8B BCD 时间标注行(非 0x3C 开头,裸 hex 多段):解析记录(断点/基准)
     if (raw.size() == 8 && (quint8)raw[0] != 0x3C
-        && playback::looks_like_bcd_time(raw)) {
+        && playback::looks_like_bcd8(raw)) {
         m_raw_base_ms = bcd_ms_of(raw);
         return;
     }
@@ -338,9 +365,9 @@ qint64 ReaderWorker::parse_time_header(const QByteArray& line) {
 }
 
 qint64 ReaderWorker::bcd_ms_of(const QByteArray& b) {
-    // 8B BCD:[年-2000][月][日][时][分][秒][毫秒低2][毫秒低2]→ 本地 epoch ms
+    // 8B BCD:[年-2000][月][日][时][分][秒][毫秒百位][毫秒低2]→ 本地 epoch ms
+    if (!playback::looks_like_bcd8(b)) return -1;
     auto d2 = [](quint8 x) { return int((x >> 4) * 10 + (x & 0x0F)); };
-    if (b.size() < 8) return -1;
     const QDate date(2000 + d2(quint8(b[0])), d2(quint8(b[1])), d2(quint8(b[2])));
     const QTime time(d2(quint8(b[3])), d2(quint8(b[4])), d2(quint8(b[5])));
     if (!date.isValid() || !time.isValid()) return -1;
@@ -360,6 +387,7 @@ SerialReader::SerialReader(QObject* parent) : QObject(parent), m_thread(nullptr)
     connect(m_worker, &ReaderWorker::frame_ready,    this, &SerialReader::on_frame);
     connect(m_worker, &ReaderWorker::status_message, this, &SerialReader::on_status);
     connect(m_worker, &ReaderWorker::error_occurred, this, &SerialReader::on_error);
+    connect(m_worker, &ReaderWorker::progress_percent, this, &SerialReader::on_progress);
 
     m_thread->start();
 }
@@ -382,6 +410,7 @@ void SerialReader::stop() {
 void SerialReader::on_frame(BplcFrame f) { emit frame_ready(f); }
 void SerialReader::on_status(QString s) { emit status_message(s); }
 void SerialReader::on_error(QString e)  { emit error_occurred(e); }
+void SerialReader::on_progress(int p)   { emit progress_percent(p); }
 namespace {
 // 中→英注册(文件级:数据源状态/错误消息)
 struct I18nRegSerialReader {
