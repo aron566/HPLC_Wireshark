@@ -16,6 +16,7 @@
 #include "bplcframe.h"
 #include <QVector>
 #include <QDateTime>
+#include <QIODevice>
 
 namespace playback {
 
@@ -233,6 +234,88 @@ inline QByteArray build_raw_hex_text(const QVector<PacketEntry>& entries) {
     }
     return buf;
 }
+
+/// @brief 流式回放 bin writer:逐条 add(边写 QIODevice),时间轴状态内部保持。
+///        用于磁盘换页模型下按序遍历全部帧导出,避免一次性载入内存。
+class PlaybackBinWriter {
+public:
+    explicit PlaybackBinWriter(QIODevice* dev) : dev_(dev), last_ntb_(0), have_(false) {}
+
+    void add(const PacketEntry& e) {
+        if (!e.raw_wire.isEmpty()) {
+            const quint32 ntb = raw_wire_ntb(e.raw_wire);
+            bool need_block = !have_;
+            if (have_) {
+                const qint64 dn = (qint32)(ntb - last_ntb_);
+                if (dn <= 0 || dn > kMaxNtbGapTicks) need_block = true;
+            }
+            if (need_block)
+                dev_->write(bcd_time_tag(e.epoch_ms));   // 段起点标注
+            dev_->write(e.raw_wire);
+            last_ntb_ = ntb;
+            have_ = true;
+        } else {
+            const QByteArray fr = frame_to_playback(e);
+            if (!fr.isEmpty()) dev_->write(fr);
+        }
+    }
+
+private:
+    QIODevice* dev_;
+    quint32    last_ntb_;
+    bool       have_;
+};
+
+/// @brief 流式裸 hex writer:逐条 add,段起点/断段前写 TIME: 行。
+class RawHexWriter {
+public:
+    explicit RawHexWriter(QIODevice* dev) : dev_(dev), last_ntb_(0), have_(false) {}
+
+    void add(const PacketEntry& e) {
+        if (e.raw_bytes.isEmpty()) return;
+        const QByteArray ts_hdr =
+            QStringLiteral("TIME: %1\n")
+                .arg(QDateTime::fromMSecsSinceEpoch(e.epoch_ms)
+                         .toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")))
+                .toUtf8();
+        if (e.raw_wire.isEmpty() || !have_) {
+            dev_->write(ts_hdr);
+        } else {
+            const qint64 dn = (qint32)(raw_wire_ntb(e.raw_wire) - last_ntb_);
+            if (dn <= 0 || dn > kMaxNtbGapTicks)
+                dev_->write(ts_hdr);
+        }
+        const QByteArray mpdu = e.raw_bytes;
+        const quint16 dlen = quint16(mpdu.size() + 4);
+        const quint32 ts   = quint32(e.epoch_ms & 0xFFFFFFFFu);
+        QByteArray data;
+        data.reserve(mpdu.size() + 10);
+        data.append(char(dlen & 0xFF)).append(char(dlen >> 8));
+        data.append(char(ts & 0xFF)).append(char((ts >> 8) & 0xFF))
+            .append(char((ts >> 16) & 0xFF)).append(char((ts >> 24) & 0xFF));
+        data.append(char(e.meta.phr_mcs)).append(char(e.meta.option))
+            .append(char(e.meta.channel)).append(char(e.meta.is_rf ? 1 : 0));
+        data.append(mpdu);
+        QByteArray frame;
+        frame.reserve(data.size() + 2);
+        frame.append(char(0x3C));
+        frame.append(escape_frame_data(data));
+        frame.append(char(0x3E));
+        QByteArray line;
+        for (char c : frame)
+            line += QStringLiteral(" 0x%1")
+                        .arg(quint8(c), 2, 16, QChar('0')).toLatin1();
+        dev_->write(line.mid(1));
+        dev_->write("\n");
+        last_ntb_ = raw_wire_ntb(e.raw_wire);
+        have_ = !e.raw_wire.isEmpty();
+    }
+
+private:
+    QIODevice* dev_;
+    quint32    last_ntb_;
+    bool       have_;
+};
 
 }  // namespace playback
 

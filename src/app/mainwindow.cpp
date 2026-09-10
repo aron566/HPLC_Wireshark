@@ -330,6 +330,14 @@ void MainWindow::wire_signals() {
             this, [this](int value) {
                 m_follow_bottom =
                     (value >= m_table_packets->verticalScrollBar()->maximum());
+                // 滚动预取:按视口首/尾可见行预加载其所在盘块及相邻块,保证丝滑
+                if (m_model && m_model->rowCount() > 0) {
+                    const int top = m_table_packets->rowAt(0);
+                    const int bottom =
+                        m_table_packets->rowAt(m_table_packets->viewport()->height() - 1);
+                    if (top >= 0) m_model->ensure_loaded(top);
+                    if (bottom >= 0 && bottom != top) m_model->ensure_loaded(bottom);
+                }
             });
 }
 
@@ -396,8 +404,7 @@ void MainWindow::on_clear() {
 }
 
 void MainWindow::on_export() {
-    const auto& entries = m_model->all_entries();
-    if (entries.isEmpty()) {
+    if (m_model->total_count() == 0) {
         m_status_left->setText(trl::L("无可导出的帧"));
         return;
     }
@@ -425,24 +432,21 @@ void MainWindow::on_export() {
         return;
     }
 
-    // 回放 bin 帧 = 0x3C + 转义(data) + 0x3E;data = [dlen2LE][ts4LE][phr]
-    // [option][channel][isRF][MPDU](与 SerialReader/回放读取格式一致,
-    // dlen 读取端不校验,按 MPDU+4 填写即可被重新解析)
-    QByteArray buf = as_text
-        ? playback::build_raw_hex_text(entries)
-        : playback::build_playback_bin(entries);
-    if (buf.isEmpty()) {
+    // 磁盘换页模型下按全局顺序流式遍历全部帧导出(不一次性载入内存)
+    if (as_text) {
+        playback::RawHexWriter w(&out);
+        m_model->for_each_entry([&](const PacketEntry& e) { w.add(e); });
+    } else {
+        playback::PlaybackBinWriter w(&out);
+        m_model->for_each_entry([&](const PacketEntry& e) { w.add(e); });
+    }
+    out.close();
+    if (out.size() == 0) {
         m_status_left->setText(trl::L("没有可写入的帧数据"));
         return;
     }
-
-    if (out.write(buf) != buf.size()) {
-        m_status_left->setText(trl::L("导出写入失败"));
-        return;
-    }
-    out.close();
     m_status_left->setText(
-        trl::L("已导出 %1 帧 → %2").arg(entries.size()).arg(f));
+        trl::L("已导出 %1 帧 → %2").arg(m_model->total_count()).arg(f));
 }
 
 void MainWindow::on_settings() {

@@ -1,9 +1,13 @@
 /// @file packetlistmodel.cpp
-/// @brief PacketListModel 实现
+/// @brief PacketListModel 实现(磁盘换页)
 #include "packetlistmodel.h"
+#include "packetentry_serialize.h"
 #include <QColor>
+#include <QDataStream>
+#include <QFile>
 
-PacketListModel::PacketListModel(QObject* parent) : QAbstractTableModel(parent) {}
+PacketListModel::PacketListModel(QObject* parent)
+    : QAbstractTableModel(parent), m_block_count(0), m_total(0) {}
 
 int PacketListModel::rowCount(const QModelIndex& parent) const {
     if (parent.isValid()) return 0;
@@ -40,7 +44,7 @@ QVariant PacketListModel::headerData(int section, Qt::Orientation orient, int ro
 
 QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
     if (!idx.isValid() || idx.row() >= m_visible.size()) return {};
-    const PacketEntry& e = m_all[m_visible[idx.row()]];
+    const PacketEntry& e = locate(m_visible[idx.row()]);
 
     if (role == Qt::DisplayRole) {
         switch (idx.column()) {
@@ -48,13 +52,11 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
             case COL_TIME: {
                 if (e.meta.frame_time.isValid())
                     return e.meta.frame_time.toString("HH:mm:ss.zzz");
-                // 无绝对时钟(如回放)时回退为相对秒数,带单位
                 return QStringLiteral("%1 s").arg(e.epoch_ms / 1000.0, 0, 'f', 6);
             }
             case COL_DELTA:
                 return QStringLiteral("%1 s").arg(e.delta_us / 1e6, 0, 'f', 6);
             case COL_ORIG_SRC: {
-                // 原始发起 TEI(MSDU 头 SourceTEI):仅 SOF 重组完成且长头时
                 if (e.accepted && e.msdu.present && !e.msdu.simple_head
                     && e.msdu.msdu_src_tei > 0)
                     return (e.msdu.msdu_src_tei == 1)
@@ -73,14 +75,12 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                 return QString();
             }
             case COL_DIR: {
-                // 方向:↑=上行(原始终点=CCO) ↓=下行(原始发起=CCO)
-                // 广播(原始终点=0xFFF):按发送类型标识——本地广播=横线,全网/代理广播=省略号
                 if (!e.accepted || !e.msdu.present || e.msdu.simple_head)
                     return QStringLiteral("*");
                 if (e.msdu.msdu_dst_tei == 0xFFF) {
                     if (e.msdu.msdu_send_type == 1 || e.msdu.msdu_send_type == 3)
-                        return QStringLiteral("\u2192");   // 全网/代理广播:需转发
-                    return QStringLiteral("*");   // 本地广播(不转发)及其它
+                        return QStringLiteral("\u2192");
+                    return QStringLiteral("*");
                 }
                 if (e.msdu.msdu_dst_tei == 1) return QStringLiteral("\u2191");
                 if (e.msdu.msdu_src_tei == 1) return QStringLiteral("\u2193");
@@ -108,12 +108,10 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                 return e.mpdu.frame_type_name();
             }
             case COL_MSDU_TYPE: {
-                // SOF 帧重组完成时显示 MSDU 概要(MMe 类型 / APP PacketID)
                 if (e.accepted && e.msdu.present) return e.msdu.summary;
                 return QString();
             }
             case COL_MSDU_SEQ: {
-                // SOF 帧重组完成时显示 MSDU 序号
                 if (e.accepted && e.msdu.present) return (int)e.msdu.msdu_seq;
                 return QString();
             }
@@ -171,7 +169,6 @@ QString entry_search_text(const PacketEntry& e) {
     parts << (e.meta.is_rf ? QStringLiteral("hrf") : QStringLiteral("hplc"))
           << QStringLiteral("plc");
     parts << e.mpdu.frame_type_name().toLower();
-    // 源/目的文本与列表列一致
     parts << (e.mpdu.src_tei == 0x0001 ? QStringLiteral("cco")
             : e.mpdu.src_tei != 0      ? QStringLiteral("sta-%1").arg(e.mpdu.src_tei)
             : e.meta.is_rf ? QStringLiteral("hrf") : QStringLiteral("plc"));
@@ -179,11 +176,9 @@ QString entry_search_text(const PacketEntry& e) {
             : e.mpdu.dst_tei == 0x0001 ? QStringLiteral("cco")
             : e.mpdu.dst_tei != 0      ? QStringLiteral("sta-%1").arg(e.mpdu.dst_tei)
                                        : QStringLiteral("*"));
-    // NetID:支持 "cda1d5" / "0xcda1d5" 两种写法
     QString nid = QString::number(e.mpdu.net_id, 16);
     parts << nid << QStringLiteral("0x%1").arg(nid);
     parts << QString::number(e.mpdu.src_tei) << QString::number(e.mpdu.dst_tei);
-    // MSDU 概要(MMeAssocReq / APP EventPacket 等)
     if (e.msdu.present) parts << e.msdu.summary.toLower();
     return parts.join(' ');
 }
@@ -191,16 +186,11 @@ QString entry_search_text(const PacketEntry& e) {
 
 bool PacketListModel::passes_filter(const PacketEntry& e) const {
     if (m_filter.isEmpty()) return true;
-    // 支持 "&" 与 "|" 组合:
-    //   "|" 分隔的组之间 OR(任一命中即通过);
-    //   "&" 分隔的组内条件 AND(全部命中才通过)。
-    //   例: "beacon & cda1d5 | sof & sta-2" = (beacon 且含 cda1d5) 或 (sof 且含 sta-2)
     const QString haystack = entry_search_text(e);
     const QString ft = e.mpdu.frame_type_name().toLower();
     auto cond_hit = [&](const QString& raw) -> bool {
         const QString t = raw.trimmed().toLower();
         if (t.isEmpty()) return false;
-        // 帧类型词精确语义:避免 "ack" 误中 "packetid" 之类的子串
         if (t == QLatin1String("beacon") || t == QLatin1String("sof")
             || t == QLatin1String("ack")   || t == QLatin1String("coord")
             || t == QLatin1String("search")|| t == QLatin1String("switch")) {
@@ -220,20 +210,83 @@ bool PacketListModel::passes_filter(const PacketEntry& e) const {
     return false;
 }
 
+QString PacketListModel::block_path(int idx) const {
+    return m_paging_dir.filePath(QStringLiteral("blk_%1.bin").arg(idx));
+}
+
+void PacketListModel::touch_lru(int idx) const {
+    m_lru.removeAll(idx);
+    m_lru.append(idx);
+}
+
+bool PacketListModel::load_block(int idx) const {
+    if (m_block_cache.contains(idx)) { touch_lru(idx); return true; }
+    QFile f(block_path(idx));
+    if (!f.open(QIODevice::ReadOnly)) return false;
+    QVector<PacketEntry> block;
+    block.reserve(kBlockSize);
+    QDataStream s(&f);
+    while (!f.atEnd()) {
+        quint32 len = 0;
+        s >> len;
+        if (s.status() != QDataStream::Ok || len == 0) break;
+        QByteArray payload(int(len), Qt::Uninitialized);
+        if (s.readRawData(payload.data(), int(len)) != int(len)) break;
+        PacketEntry e;
+        if (pser::deserialize_entry(payload, e)) block.append(std::move(e));
+    }
+    f.close();
+    // LRU 淘汰(先插入再淘汰,保证新块存活)
+    m_block_cache.insert(idx, block);
+    touch_lru(idx);
+    while (m_lru.size() > kMaxCacheBlocks) {
+        int old = m_lru.takeFirst();
+        if (old != idx) m_block_cache.remove(old);
+    }
+    return true;
+}
+
+const PacketEntry& PacketListModel::locate(int g) const {
+    const int hot_start = m_block_count * kBlockSize;
+    if (g >= hot_start)
+        return m_hot[g - hot_start];
+    const int bi = g / kBlockSize;
+    const int off = g % kBlockSize;
+    load_block(bi);
+    return m_block_cache[bi].at(off);
+}
+
+void PacketListModel::flush_hot_block() {
+    if (m_hot.size() < kBlockSize) return;
+    const int idx = m_block_count;
+    QFile f(block_path(idx));
+    if (!f.open(QIODevice::WriteOnly)) return;   // 写失败:保留在热区,不丢弃数据
+    QDataStream s(&f);
+    for (int i = 0; i < kBlockSize; ++i) {
+        const QByteArray payload = pser::serialize_entry(m_hot[i]);
+        s << quint32(payload.size());
+        s.writeRawData(payload.constData(), payload.size());
+    }
+    f.close();
+    m_block_count++;
+    m_hot.remove(0, kBlockSize);
+}
+
 void PacketListModel::append_packets(const QVector<PacketEntry>& entries) {
     if (entries.isEmpty()) return;
-    int first_new_row = m_visible.size();
     QVector<int> new_visible;
     new_visible.reserve(entries.size());
-    for (const auto& e : entries) {
-        int all_idx = m_all.size();
-        m_all.append(e);
-        if (passes_filter(e)) new_visible.append(all_idx);
+    const int first_new = m_visible.size();
+    for (const PacketEntry& e : entries) {
+        const int g = int(m_total);
+        ++m_total;
+        m_hot.append(e);
+        if (passes_filter(m_hot.last())) new_visible.append(g);
+        if (m_hot.size() >= kBlockSize) flush_hot_block();
     }
-    int last_new_row = first_new_row + new_visible.size() - 1;
     if (new_visible.isEmpty()) return;
-    beginInsertRows(QModelIndex(), first_new_row, last_new_row);
-    for (int idx : new_visible) m_visible.append(idx);
+    beginInsertRows(QModelIndex(), first_new, first_new + new_visible.size() - 1);
+    m_visible += new_visible;
     endInsertRows();
 }
 
@@ -243,14 +296,18 @@ void PacketListModel::append_packet(const PacketEntry& entry) {
 
 void PacketListModel::clear_all() {
     beginResetModel();
-    m_all.clear();
+    m_hot.clear();
+    m_block_cache.clear();
+    m_lru.clear();
     m_visible.clear();
+    m_block_count = 0;
+    m_total = 0;
     endResetModel();
 }
 
 void PacketListModel::activate_row(int visible_row) {
     if (visible_row < 0 || visible_row >= m_visible.size()) return;
-    emit packet_activated(m_all[m_visible[visible_row]]);
+    emit packet_activated(locate(m_visible[visible_row]));
 }
 
 void PacketListModel::set_display_filter(const QString& expr) {
@@ -258,8 +315,30 @@ void PacketListModel::set_display_filter(const QString& expr) {
     m_filter = expr;
     beginResetModel();
     m_visible.clear();
-    for (int i = 0; i < m_all.size(); ++i) {
-        if (passes_filter(m_all[i])) m_visible.append(i);
+    const qint64 total = m_total;
+    m_visible.reserve(int(qMin<qint64>(total, 1000000)));
+    for (int g = 0; g < int(total); ++g) {
+        if (passes_filter(locate(g))) m_visible.append(g);
     }
     endResetModel();
+}
+
+void PacketListModel::ensure_loaded(int visible_row) {
+    if (visible_row < 0 || visible_row >= m_visible.size()) return;
+    const int g = m_visible[visible_row];
+    const int hot_start = m_block_count * kBlockSize;
+    if (g >= hot_start) return;   // 热区无需加载
+    const int bi = g / kBlockSize;
+    load_block(bi);
+    if (bi + 1 < m_block_count) load_block(bi + 1);
+    if (bi - 1 >= 0)             load_block(bi - 1);
+}
+
+void PacketListModel::for_each_entry(const std::function<void(const PacketEntry&)>& fn) {
+    for (int b = 0; b < m_block_count; ++b) {
+        load_block(b);
+        const QVector<PacketEntry>& blk = m_block_cache[b];
+        for (const PacketEntry& e : blk) fn(e);
+    }
+    for (const PacketEntry& e : m_hot) fn(e);
 }
