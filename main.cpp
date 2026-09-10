@@ -32,7 +32,7 @@ static void decide_language() {
 int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationName("ZbMonitor");
     QCoreApplication::setApplicationName("BPLC_STA_Monitor");
-    QCoreApplication::setApplicationVersion("1.0.13");
+    QCoreApplication::setApplicationVersion("1.0.14");
 
     QApplication app(argc, argv);
     decide_language();

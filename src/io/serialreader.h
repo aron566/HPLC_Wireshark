@@ -57,6 +57,7 @@ signals:
     void status_message(QString msg);
     void error_occurred(QString err);
     void finished();
+    void progress_percent(int percent);   ///< 文件回放进度(0-100)
 
 private slots:
     void on_serial_ready_read();
@@ -67,8 +68,10 @@ private:
     void process_raw_hex_line(const QByteArray& line);
     /// @brief 解析裸 hex 文本头行时间(TIME: / ISO 文本),失败返回 -1
     qint64 parse_time_header(const QByteArray& line);
-    /// @brief 8B BCD 时间标注 → epoch ms(文件头;非法返回 -1)
+    /// @brief 8B BCD 时间标注 → epoch ms(文件头/段间;非法返回 -1)
     qint64 bcd_ms_of(const QByteArray& bcd8);
+    /// @brief 文件回放:缓冲开头若为完整 8B BCD 段标注则消费并重置时间轴
+    bool try_consume_bcd_tag();
 
     QSerialPort* m_serial;
     QFile*       m_file;
@@ -76,7 +79,7 @@ private:
     QByteArray   m_in_buf;
     bool         m_get3c;
     qint64       m_frame_rx_us;   ///< 当前帧起始 0x3C 的单调 µs 接收时刻(实时)
-    qint64       m_playback_base_ms;  ///< 回放 bin 文件头 8B BCD 时间标注(首帧本地时刻;-1=无)
+    qint64       m_playback_base_ms;  ///< 回放 bin 当前段 8B BCD 标注(首帧/断段本地时刻;-1=无)
     bool         m_first_frame;   ///< 回放首帧标志(首帧用标注时间)
     quint32      m_last_ntb;      ///< 上一帧帧内 NTB(回放时间轴 tick 差)
     qint64       m_last_ft;       ///< 上一帧 frame_time(回放时间轴基准)
@@ -85,6 +88,8 @@ private:
     bool         m_hex_seg_first; ///< 裸 hex 当前段首帧标志(段首用 TIME 头时间)
     quint32      m_last_hex_ts;   ///< 裸 hex 上一帧 ts4(段内差分)
     qint64       m_last_hex_ft;   ///< 裸 hex 上一帧 frame_time
+    qint64       m_file_size;     ///< 回放文件总大小(字节,算进度用)
+    int          m_last_progress; ///< 上次上报的进度百分比(节流,避免重复刷)
     ReaderConfig m_cfg;
 };
 
@@ -103,11 +108,13 @@ signals:
     void frame_ready(BplcFrame frame);
     void status_message(QString msg);
     void error_occurred(QString err);
+    void progress_percent(int percent);
 
 private slots:
     void on_frame(BplcFrame f);
     void on_status(QString s);
     void on_error(QString e);
+    void on_progress(int p);
 
 private:
     QThread*      m_thread;

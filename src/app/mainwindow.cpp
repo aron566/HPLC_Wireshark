@@ -46,7 +46,7 @@
 
 namespace {
 // 当前版本与仓库信息(更新检查地址见 config.ini [general] update_url)
-const QString kAppVersion = QStringLiteral("1.0.13");
+const QString kAppVersion = QStringLiteral("1.0.14");
 const QString kModuleName = QStringLiteral("BPLC STA Monitor");
 const QString kAuthorName = QStringLiteral("aron566");
 const QString kAuthorEmail = QStringLiteral("aron566@163.com");
@@ -85,6 +85,10 @@ MainWindow::MainWindow(QWidget* parent)
             this,      &MainWindow::on_status_message);
     connect(m_reader, &SerialReader::error_occurred,
             this,      &MainWindow::on_error);
+    connect(m_reader, &SerialReader::progress_percent,
+            this,      [this](int p) {
+                m_status_left->setText(trl::L("回放进度: %1%").arg(p));
+            });
 
     m_flush_timer = new QTimer(this);
     connect(m_flush_timer, &QTimer::timeout, this, &MainWindow::on_flush_buffer);
@@ -616,6 +620,7 @@ struct I18nRegMainWindow {
                          "Byte view (hex, left offset + middle hex + right ASCII + RAW DATA):");
         trl::register_en("复制(含 0x 前缀)", "Copy (with 0x prefix)");
         trl::register_en("复制(纯 hex)", "Copy (plain hex)");
+        trl::register_en("回放进度: %1%", "Replay progress: %1%");
     }
 };
 const I18nRegMainWindow g_i18n_reg_mainwindow;

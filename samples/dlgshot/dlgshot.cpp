@@ -21,11 +21,13 @@ int main(int argc, char* argv[]) {
         if (popup_mode) {
             // 打开第一个下拉框的选项弹层并截取(view 独立窗口)
             if (auto* cb = dlg.findChild<QComboBox*>()) {
-                // 取选项最多的下拉(如波特率 9 项)更容易暴露底部截断
+                // 指定序号或取选项最多的下拉
                 QComboBox* target = cb;
-                for (auto* c : dlg.findChildren<QComboBox*>())
-                    if (c->count() > target->count()) target = c;
-                std::printf("combo '%s' items: %d\n", qPrintable(target->objectName()), target->count());
+                int want = argc > 4 ? QString::fromLocal8Bit(argv[4]).toInt() : -1;
+                const auto all = dlg.findChildren<QComboBox*>();
+                if (want >= 0 && want < all.size()) target = all.at(want);
+                else for (auto* c : all) if (c->count() > target->count()) target = c;
+                std::printf("combo #%d items: %d\n", want, target->count());
                 target->showPopup();
                 QTimer::singleShot(300, [&, target, out]() {
                     auto* v = target->view();   // QAbstractItemView*
