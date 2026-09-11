@@ -10,11 +10,11 @@
 #include <chrono>
 
 ReaderWorker::ReaderWorker(QObject* parent) : QObject(parent),
-    m_serial(nullptr), m_file(nullptr), m_file_timer(nullptr),
+    m_serial(nullptr), m_file(nullptr),
     m_get3c(false), m_frame_rx_us(0), m_playback_base_ms(-1), m_first_frame(false),
     m_last_ntb(0), m_last_ft(0), m_running(false), m_raw_base_ms(-1),
     m_hex_seg_first(false), m_last_hex_ts(0), m_last_hex_ft(0),
-    m_file_size(0), m_last_progress(-1) {}
+    m_last_local_ms(0), m_file_size(0), m_last_progress(-1) {}
 
 ReaderWorker::~ReaderWorker() {
     stop_reading();
@@ -25,6 +25,7 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
     m_cfg = cfg;
     m_in_buf.clear();
     m_get3c = false;
+    m_last_local_ms = 0;   // 每次启动重置断段判断基准
 
     if (cfg.mode == ReaderMode::SerialPort) {
         m_serial = new QSerialPort(this);
@@ -56,10 +57,27 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
             m_playback_base_ms = bcd_ms_of(head);
             m_file->seek(8);
         }
-        m_file_timer = new QTimer(this);
-        connect(m_file_timer, &QTimer::timeout, this, &ReaderWorker::on_file_poll_tick);
-        m_file_timer->start(5);
         emit status_message(trl::L("文件回放: %1").arg(cfg.file_path));
+        // 一次性读完整文件(不用 timer,快速回放);每块 1MB,切帧即时 emit
+        while (!m_file->atEnd()) {
+            QByteArray chunk = m_file->read(1024 * 1024);
+            if (chunk.isEmpty()) break;
+            m_in_buf.append(chunk);
+            try_extract_frame();
+            // 回放进度百分比(按已读字节/文件总大小,仅变化时上报)
+            if (m_file_size > 0) {
+                const int percent = int(m_file->pos() * 100 / m_file_size);
+                if (percent != m_last_progress) {
+                    m_last_progress = percent;
+                    emit progress_percent(percent);
+                }
+            }
+        }
+        m_file->close();
+        emit progress_percent(100);
+        emit status_message(trl::L("文件回放结束"));
+        emit finished();
+        return;
     } else if (cfg.mode == ReaderMode::RawHex) {
         m_file = new QFile(cfg.file_path, this);
         if (!m_file->open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -86,7 +104,6 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
 
 void ReaderWorker::stop_reading() {
     m_running = false;
-    if (m_file_timer) { m_file_timer->stop(); m_file_timer->deleteLater(); m_file_timer = nullptr; }
     if (m_serial)   { m_serial->close(); m_serial->deleteLater(); m_serial = nullptr; }
     if (m_file)     { m_file->close(); m_file->deleteLater(); m_file = nullptr; }
     emit finished();
@@ -112,27 +129,6 @@ void ReaderWorker::on_serial_ready_read() {
         m_frame_rx_us = steady_us();
     m_in_buf.append(chunk);
     try_extract_frame();
-}
-
-void ReaderWorker::on_file_poll_tick() {
-    if (!m_file || m_file->atEnd()) {
-        m_file_timer->stop();
-        emit progress_percent(100);
-        emit status_message(trl::L("文件回放结束"));
-        emit finished();
-        return;
-    }
-    QByteArray chunk = m_file->read(1024);
-    m_in_buf.append(chunk);
-    try_extract_frame();
-    // 回放进度百分比(按已读字节/文件总大小,仅变化时上报)
-    if (m_file_size > 0) {
-        const int percent = int(m_file->pos() * 100 / m_file_size);
-        if (percent != m_last_progress) {
-            m_last_progress = percent;
-            emit progress_percent(percent);
-        }
-    }
 }
 
 bool ReaderWorker::try_consume_bcd_tag() {
@@ -249,13 +245,22 @@ void ReaderWorker::try_extract_frame() {
                 m_last_ntb = ntb;
             }
         } else {
-            bf.arrival_ms = QDateTime::currentMSecsSinceEpoch();
+            // 实时串口:无 8B 标注,arrival=本地时刻;断段判断用本地接收时间差
+            // (超过 NTB u32 回绕周期 ≈171.8s 视为断段,标 seg_start)
+            const qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
+            bf.arrival_ms = now_ms;
+            if (m_cfg.mode == ReaderMode::SerialPort) {
+                if (m_last_local_ms != 0
+                    && now_ms - m_last_local_ms > playback::kMaxLocalGapMs)
+                    bf.meta.seg_start = true;   // 长时间无报文 → 断段
+                m_last_local_ms = now_ms;
+            }
         }
         bf.arrival_us = m_frame_rx_us;   // 0x3C 起始高精度接收时刻(实时)
         bf.raw_wire   = wire;            // 原始串口帧原样(调试复制)
-        // 帧 ts 域语义:串口实时=设备填的 NTB tick(40ns 分辨);
-        // 文件回放(0x3C bin)=导出端 epoch ms 低 32 位(毫秒级)
-        bf.meta.frame_ts_is_ntb = (m_cfg.mode == ReaderMode::SerialPort);
+        // 帧 ts 域语义(2026-09 统一):ts 一律为 NTB tick(25kHz,40ns),
+        // 无论实时串口(设备填)还是文件回放(bin/裸 hex 导出均写 NTB)
+        bf.meta.frame_ts_is_ntb = true;
         // 8B 标注在文件头/段间,帧体无逐帧 BCD;不做旧版每帧 BCD 兼容检测
         bf.meta.has_time_tag = false;
         bf.data = unesc;
@@ -308,8 +313,9 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
                 data.append((char)b);
             }
         }
-        // 时间:段首帧用 TIME 头(m_raw_base_ms)作基准;段内按 ts4 差(ms)推进,
-        // 避免后段 ts4 被手工改坏/非 epoch 时时间错乱;无 TIME 头才用 ts4 还原
+        // 时间:ts 统一 NTB tick(25kHz,40ns)。段首帧用 TIME 头(m_raw_base_ms)
+        // 作基准;段内按 NTB 差×40ns 推进(与 bin 回放同构);断段(差超阈值/回绕)
+        // 回退本地时刻。无 TIME 头则回退本地。
         const quint32 ts_le2 = (quint32)(quint8)data[2]
                              | (quint32)(quint8)data[3] << 8
                              | (quint32)(quint8)data[4] << 16
@@ -322,23 +328,23 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
                 m_hex_seg_first = false;
                 seg_start = true;
             } else {
-                const qint64 dts = (qint32)(ts_le2 - m_last_hex_ts);   // ms 差
-                t2 = m_last_hex_ft + dts;
+                const qint64 dn = (qint32)(ts_le2 - m_last_hex_ts);   // NTB 差(tick)
+                if (dn > 0 && dn <= playback::kMaxNtbGapTicks)
+                    t2 = m_last_hex_ft + playback::ntb_to_us(quint32(dn)) / 1000;
+                else
+                    t2 = QDateTime::currentMSecsSinceEpoch();   // 断段:回退本地
             }
             m_last_hex_ts = ts_le2;
             m_last_hex_ft = t2;
         } else {
-            qint64 now2 = QDateTime::currentMSecsSinceEpoch();
-            qint64 hi2 = (now2 >> 32) << 32;
-            t2 = hi2 | qint64(ts_le2);
-            if (t2 - now2 >  (1LL << 31)) t2 -= (1LL << 32);
-            if (now2 - t2 > (1LL << 31))  t2 += (1LL << 32);
+            // 无 TIME 头:ts4=NTB 无法还原绝对时刻,回退本地
+            t2 = QDateTime::currentMSecsSinceEpoch();
         }
 
         BplcFrame bf;
         bf.meta.from_raw = false;
         bf.meta.has_time_tag = false;
-        bf.meta.frame_ts_is_ntb = false;
+        bf.meta.frame_ts_is_ntb = true;
         bf.meta.seg_start = seg_start;
         bf.arrival_ms = t2;
         bf.raw_wire   = raw;   // 0x3C...0x3E 原样

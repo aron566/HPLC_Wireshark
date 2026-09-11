@@ -87,6 +87,9 @@ inline QByteArray unescape_frame_data(const QByteArray& esc) {
 // 超过该阈值视为"断段",需用新的 8B 时间标注。
 const qint64 kMaxNtbGapTicks = 25000000LL * 60;   // 25M tick/s × 60 s(1.5e9,< 2^31)
 inline qint64 ntb_to_us(quint32 dn) { return qint64(dn) * 40 / 1000; }   // tick(40ns) → µs
+/// @brief 实时串口断段阈值:本地接收时间差超过 NTB u32 回绕周期(≈171.8s)
+///        即视为断段(设备长时间无报文/NTB 已回绕,时间轴不可比)
+const qint64 kMaxLocalGapMs = 171800;   // 2^32 tick / 25 MHz ≈ 171.8 s
 
 /// @brief 从 raw_wire(0x3C...0x3E)取帧内 NTB(体 data[2..5],LE);无则 0
 inline quint32 raw_wire_ntb(const QByteArray& wire) {
@@ -157,27 +160,18 @@ inline QByteArray frame_to_playback(const PacketEntry& e) {
 }
 
 /// @brief 全部帧 → 完整回放 bin 文件内容(空帧自动跳过)
-/// @details 时间轴按帧内 NTB(u32,40 µs)差推进;当帧间 NTB 差超出合理范围
-///          (长时间无报文/跨 u32 回绕)时,在该帧前**再写入一次 8B BCD 时间
-///          标注**(该帧本地时刻),开启新段;首帧文件头亦写 8B 标注。
-///          帧本身为 raw_wire 原样(0x3C...0x3E),无逐帧附加值。
+/// @details 断段只认 seg_start 标志(实时串口采集按本地接收时间差标定、
+///          文件回放按段间 8B BCD 标注标定),不用 NTB 差兜底(多设备 NTB
+///          基准不同,差不可靠)。段首前写 8B BCD 标注,帧本身 raw_wire 原样。
 inline QByteArray build_playback_bin(const QVector<PacketEntry>& entries) {
     QByteArray buf;
     buf.reserve(entries.size() * 72);
-    quint32 last_ntb = 0;
-    bool    have = false;
+    bool have = false;
     for (const PacketEntry& e : entries) {
         if (!e.raw_wire.isEmpty()) {
-            const quint32 ntb = raw_wire_ntb(e.raw_wire);
-            bool need_block = !have;
-            if (have) {
-                const qint64 dn = (qint32)(ntb - last_ntb);
-                if (dn <= 0 || dn > kMaxNtbGapTicks) need_block = true;
-            }
-            if (need_block)
+            if (!have || e.meta.seg_start)
                 buf.append(bcd_time_tag(e.epoch_ms));   // 段起点标注
             buf.append(e.raw_wire);
-            last_ntb = ntb;
             have = true;
         } else {
             const QByteArray fr = frame_to_playback(e);
@@ -188,13 +182,12 @@ inline QByteArray build_playback_bin(const QVector<PacketEntry>& entries) {
 }
 
 /// @brief 导出裸数据 hex 文本(与 RawHex 导入对称,每行一完整 0x3C 原始帧):
-///        [0x3C][esc(data)][0x3E],data = [dlen 2B][ts 4B=epoch ms 低32]
+///        [0x3C][esc(data)][0x3E],data = [dlen 2B][ts 4B=NTB tick]
 ///        [phr_mcs][option][channel][isRF][MPDU]。
-///        回放端识别 0x3C 行 → 反转义还原 data;ts 还原每帧捕获时刻(与 bin
-///        同构,仅无 8B BCD 标签;时间精度同文件毫秒)。
+///        回放端识别 0x3C 行 → 反转义还原 data;ts 为 NTB(与 bin 同构,
+///        时间轴按 NTB 差推进,无逐帧绝对时刻)。
 inline QByteArray build_raw_hex_text(const QVector<PacketEntry>& entries) {
     QByteArray buf;
-    quint32 last_ntb = 0;
     bool    have = false;
     for (const PacketEntry& e : entries) {
         if (e.raw_bytes.isEmpty()) continue;
@@ -204,38 +197,38 @@ inline QByteArray build_raw_hex_text(const QVector<PacketEntry>& entries) {
                 .arg(QDateTime::fromMSecsSinceEpoch(e.epoch_ms)
                          .toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")))
                 .toUtf8();
-        if (e.raw_wire.isEmpty() || !have) {
-            // 无 raw_wire(旧/无 NTB):首帧也标注一次
+        if (e.raw_wire.isEmpty() || !have || e.meta.seg_start) {
+            // 无 raw_wire / 首帧 / 段首(seg_start):标注一次
             buf.append(ts_hdr);
-        } else {
-            const qint64 dn = (qint32)(raw_wire_ntb(e.raw_wire) - last_ntb);
-            if (dn <= 0 || dn > kMaxNtbGapTicks)
-                buf.append(ts_hdr);
         }
-        const QByteArray mpdu = e.raw_bytes;
-        const quint16 dlen = quint16(mpdu.size() + 4);
-        const quint32 ts   = quint32(e.epoch_ms & 0xFFFFFFFFu);
-        QByteArray data;
-        data.reserve(mpdu.size() + 10);
-        data.append(char(dlen & 0xFF)).append(char(dlen >> 8));
-        data.append(char(ts & 0xFF)).append(char((ts >> 8) & 0xFF))
-            .append(char((ts >> 16) & 0xFF)).append(char((ts >> 24) & 0xFF));
-        data.append(char(e.meta.phr_mcs)).append(char(e.meta.option))
-            .append(char(e.meta.channel)).append(char(e.meta.is_rf ? 1 : 0));
-        data.append(mpdu);
-        // 0x3C + 转义(data) + 0x3E
+        // 帧字节:优先 raw_wire 原样(与 bin 导出一致,保证 round-trip 无损);
+        // 无 raw_wire(旧数据)才重新构造
         QByteArray frame;
-        frame.reserve(data.size() + 2);
-        frame.append(char(0x3C));
-        frame.append(escape_frame_data(data));
-        frame.append(char(0x3E));
+        if (!e.raw_wire.isEmpty()) {
+            frame = e.raw_wire;   // 0x3C + 转义体 + 0x3E 原样
+        } else {
+            const QByteArray mpdu = e.raw_bytes;
+            const quint16 dlen = quint16(mpdu.size() + 4);
+            const quint32 ts   = e.meta.timestamp;   // NTB tick
+            QByteArray data;
+            data.reserve(mpdu.size() + 10);
+            data.append(char(dlen & 0xFF)).append(char(dlen >> 8));
+            data.append(char(ts & 0xFF)).append(char((ts >> 8) & 0xFF))
+                .append(char((ts >> 16) & 0xFF)).append(char((ts >> 24) & 0xFF));
+            data.append(char(e.meta.phr_mcs)).append(char(e.meta.option))
+                .append(char(e.meta.channel)).append(char(e.meta.is_rf ? 1 : 0));
+            data.append(mpdu);
+            frame.reserve(data.size() + 2);
+            frame.append(char(0x3C));
+            frame.append(escape_frame_data(data));
+            frame.append(char(0x3E));
+        }
         QByteArray line;
         for (char c : frame)
             line += QStringLiteral(" 0x%1")
                         .arg(quint8(c), 2, 16, QChar('0')).toLatin1();
         buf.append(line.mid(1));   // 去掉行首空格
         buf.append('\n');
-        last_ntb = raw_wire_ntb(e.raw_wire);
         have = !e.raw_wire.isEmpty();
     }
     return buf;

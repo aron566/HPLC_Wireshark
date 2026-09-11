@@ -61,7 +61,6 @@ signals:
 
 private slots:
     void on_serial_ready_read();
-    void on_file_poll_tick();
 
 private:
     void try_extract_frame();
@@ -75,7 +74,6 @@ private:
 
     QSerialPort* m_serial;
     QFile*       m_file;
-    QTimer*      m_file_timer;
     QByteArray   m_in_buf;
     bool         m_get3c;
     qint64       m_frame_rx_us;   ///< 当前帧起始 0x3C 的单调 µs 接收时刻(实时)
@@ -88,6 +86,7 @@ private:
     bool         m_hex_seg_first; ///< 裸 hex 当前段首帧标志(段首用 TIME 头时间)
     quint32      m_last_hex_ts;   ///< 裸 hex 上一帧 ts4(段内差分)
     qint64       m_last_hex_ft;   ///< 裸 hex 上一帧 frame_time
+    qint64       m_last_local_ms; ///< 实时串口上一帧本地接收时刻(断段判断)
     qint64       m_file_size;     ///< 回放文件总大小(字节,算进度用)
     int          m_last_progress; ///< 上次上报的进度百分比(节流,避免重复刷)
     ReaderConfig m_cfg;

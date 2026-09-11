@@ -1,9 +1,9 @@
 {
   "updates": {
     "windows": {
-      "latest-version": "1.0.14",
-      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.14/BPLC_STA_Monitor_Setup_v1.0.14.exe",
-      "changelog": "修复实时串口收若干帧后停收(帧前 1~7B 噪声触发 idx&lt;8 等待导致缓冲卡死);<br/>解帧状态机统一:先匹配 8B BCD 标注→找 0x3C→无 0x3C 逐字节滑窗对齐;<br/>假帧头防御:0x3C 后先遇 0x3C(非 0x3E)则丢弃前一 0x3C;<br/>文件回放进度百分比;<br/>8B BCD 标注识别重构(looks_like_bcd8 强校验)",
+      "latest-version": "1.0.15",
+      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.15/BPLC_STA_Monitor_Setup_v1.0.15.exe",
+      "changelog": "ts 字段统一为 NTB tick(实时串口/文件回放/bin/裸 hex 语义一致);<br/>裸 hex 导出改 raw_wire 原样(bin/裸 hex 任意 round-trip 无损);<br/>断段只认 seg_start:实时串口按本地接收时间差(&gt;171.8s NTB 回绕)标断点,导出写 8B BCD/TIME 头,不再用 NTB 差兜底;<br/>文件回放去掉 timer,一次性读完整文件(回放提速一个量级)",
       "mandatory-update": false
     }
   }
