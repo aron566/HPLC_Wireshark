@@ -208,6 +208,8 @@ inline void write_msdu_info(QDataStream& s, const MsduInfo& m) {
     write_str(s, m.summary);
     write_u32(s, quint32(m.tree.size()));
     for (const MsduFieldNode& n : m.tree) write_field_node(s, n);
+    write_u32(s, quint32(m.tei_mac_pairs.size()));
+    for (const TeiMacPair& p : m.tei_mac_pairs) { write_u16(s, p.tei); s << p.mac; }
 }
 
 inline void read_msdu_info(QDataStream& s, MsduInfo& m) {
@@ -223,6 +225,11 @@ inline void read_msdu_info(QDataStream& s, MsduInfo& m) {
     m.tree.clear(); m.tree.reserve(int(cnt));
     for (quint32 i = 0; i < cnt; ++i) {
         MsduFieldNode n; read_field_node(s, n); m.tree.append(n);
+    }
+    quint32 pc = 0; read_u32(s, pc);
+    m.tei_mac_pairs.clear(); m.tei_mac_pairs.reserve(int(pc));
+    for (quint32 i = 0; i < pc; ++i) {
+        TeiMacPair p; read_u16(s, p.tei); s >> p.mac; m.tei_mac_pairs.append(p);
     }
 }
 

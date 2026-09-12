@@ -6,6 +6,18 @@
 #include <QDataStream>
 #include <QFile>
 
+namespace {
+/// @brief 48-bit MAC 帧内原始字节序 → "aa:bb:cc:dd:ee:ff"(与 fieldspec::mac_str 一致)
+QString format_mac(quint64 v) {
+    QString s;
+    for (int i = 0; i < 6; ++i) {
+        s += QStringLiteral("%1").arg((v >> (8 * i)) & 0xFF, 2, 16, QChar('0'));
+        if (i < 5) s += QLatin1Char(':');
+    }
+    return s;
+}
+}  // namespace
+
 PacketListModel::PacketListModel(QObject* parent)
     : QAbstractTableModel(parent), m_block_count(0), m_total(0) {}
 
@@ -77,31 +89,60 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
             case COL_DIR: {
                 if (!e.accepted || !e.msdu.present || e.msdu.simple_head)
                     return QStringLiteral("*");
+                // 中继判定:当前发送者(MPDU src_tei)≠原始发起者(MSDU src_tei) → 中继转发
+                const bool relay = (e.mpdu.src_tei != 0)
+                                && (e.msdu.msdu_src_tei > 0)
+                                && (quint16(e.msdu.msdu_src_tei) != e.mpdu.src_tei);
+                QString dir;
                 if (e.msdu.msdu_dst_tei == 0xFFF) {
-                    if (e.msdu.msdu_send_type == 1 || e.msdu.msdu_send_type == 3)
-                        return QStringLiteral("\u2192");
-                    return QStringLiteral("*");
+                    dir = (e.msdu.msdu_send_type == 1 || e.msdu.msdu_send_type == 3)
+                            ? QStringLiteral("\u2192") : QStringLiteral("*");
+                } else if (e.msdu.msdu_dst_tei == 1) {
+                    dir = QStringLiteral("\u2191");
+                } else if (e.msdu.msdu_src_tei == 1) {
+                    dir = QStringLiteral("\u2193");
+                } else {
+                    dir = QStringLiteral("*");
                 }
-                if (e.msdu.msdu_dst_tei == 1) return QStringLiteral("\u2191");
-                if (e.msdu.msdu_src_tei == 1) return QStringLiteral("\u2193");
-                return QStringLiteral("*");
+                if (relay && dir != QStringLiteral("*"))
+                    dir += QStringLiteral("R");
+                return dir;
             }
             case COL_SOURCE: {
                 if (!e.accepted) return QStringLiteral("DROP");
-                if (e.mpdu.src_tei == 0x0001) return QStringLiteral("CCO");
-                if (e.mpdu.src_tei != 0)      return QStringLiteral("STA-%1").arg(e.mpdu.src_tei);
-                return e.meta.is_rf ? QStringLiteral("HRF") : QStringLiteral("PLC");
+                const quint16 tei = e.mpdu.src_tei;
+                // COORD 帧:CCO 发出(src_tei 未解析),用 NID 查 CCO MAC
+                if (e.mpdu.frame_type == 3 && tei == 0) {
+                    QString s = QStringLiteral("CCO");
+                    const quint64 mac = lookup_mac(e.mpdu.net_id, 1);
+                    if (mac) s += QStringLiteral(" [%1]").arg(format_mac(mac));
+                    return s;
+                }
+                if (tei != 0) {
+                    QString s = (tei == 0x0001) ? QStringLiteral("CCO")
+                                                : QStringLiteral("STA-%1").arg(tei);
+                    const quint64 mac = lookup_mac(e.mpdu.net_id, tei);
+                    if (mac) s += QStringLiteral(" [%1]").arg(format_mac(mac));
+                    return s;
+                }
+                return e.meta.is_rf ? QStringLiteral("RF") : QStringLiteral("PLC");
             }
             case COL_DEST: {
                 if (!e.accepted) return e.reason;
-                if (e.mpdu.dst_tei == 0xFFFF) return QStringLiteral("BROADCAST");
-                if (e.mpdu.dst_tei == 0x0001) return QStringLiteral("CCO");
-                if (e.mpdu.dst_tei != 0)      return QStringLiteral("STA-%1").arg(e.mpdu.dst_tei);
+                if (e.mpdu.dst_tei == 0xFFF) return QStringLiteral("BROADCAST");
+                const quint16 tei = e.mpdu.dst_tei;
+                if (tei != 0) {
+                    QString s = (tei == 0x0001) ? QStringLiteral("CCO")
+                                                : QStringLiteral("STA-%1").arg(tei);
+                    const quint64 mac = lookup_mac(e.mpdu.net_id, tei);
+                    if (mac) s += QStringLiteral(" [%1]").arg(format_mac(mac));
+                    return s;
+                }
                 return QStringLiteral("*");
             }
             case COL_PROTOCOL: {
                 if (!e.accepted) return QStringLiteral("ERR");
-                return e.meta.is_rf ? QStringLiteral("HRF") : QStringLiteral("HPLC");
+                return e.meta.is_rf ? QStringLiteral("RF") : QStringLiteral("HPLC");
             }
             case COL_FRAME_TYPE: {
                 if (!e.accepted) return QStringLiteral("-");
@@ -172,7 +213,7 @@ QString entry_search_text(const PacketEntry& e) {
     parts << (e.mpdu.src_tei == 0x0001 ? QStringLiteral("cco")
             : e.mpdu.src_tei != 0      ? QStringLiteral("sta-%1").arg(e.mpdu.src_tei)
             : e.meta.is_rf ? QStringLiteral("hrf") : QStringLiteral("plc"));
-    parts << (e.mpdu.dst_tei == 0xFFFF ? QStringLiteral("broadcast")
+    parts << (e.mpdu.dst_tei == 0xFFF ? QStringLiteral("broadcast")
             : e.mpdu.dst_tei == 0x0001 ? QStringLiteral("cco")
             : e.mpdu.dst_tei != 0      ? QStringLiteral("sta-%1").arg(e.mpdu.dst_tei)
                                        : QStringLiteral("*"));
@@ -281,6 +322,7 @@ void PacketListModel::append_packets(const QVector<PacketEntry>& entries) {
         const int g = int(m_total);
         ++m_total;
         m_hot.append(e);
+        update_tei_mac(e);
         if (passes_filter(m_hot.last())) new_visible.append(g);
         if (m_hot.size() >= kBlockSize) flush_hot_block();
     }
@@ -302,7 +344,31 @@ void PacketListModel::clear_all() {
     m_visible.clear();
     m_block_count = 0;
     m_total = 0;
+    m_tei_mac.clear();
     endResetModel();
+}
+
+void PacketListModel::update_tei_mac(const PacketEntry& e) {
+    if (!e.accepted) return;
+    const quint32 nid = e.mpdu.net_id;
+    // BEACON 帧:CCO 的 MAC(TEI=1),供 COORD 等 CCO 发出帧查表
+    if (e.mpdu.frame_type == 0 && e.mpdu.beacon_cco_mac)
+        m_tei_mac[nid][1] = e.mpdu.beacon_cco_mac;
+    // 管理帧(发现列表等)携带的 TEI→MAC 学习对
+    for (const TeiMacPair& p : e.msdu.tei_mac_pairs)
+        if (p.tei != 0 && p.mac) m_tei_mac[nid][p.tei] = p.mac;
+    if (!e.msdu.present || e.msdu.simple_head) return;
+    if (e.msdu.msdu_src_tei > 0 && e.msdu.msdu_src_mac)
+        m_tei_mac[nid][quint16(e.msdu.msdu_src_tei)] = e.msdu.msdu_src_mac;
+    if (e.msdu.msdu_dst_tei > 0 && e.msdu.msdu_dst_mac)
+        m_tei_mac[nid][quint16(e.msdu.msdu_dst_tei)] = e.msdu.msdu_dst_mac;
+}
+
+quint64 PacketListModel::lookup_mac(quint32 nid, quint16 tei) const {
+    auto it = m_tei_mac.constFind(nid);
+    if (it == m_tei_mac.constEnd()) return 0;
+    auto mit = it->constFind(tei);
+    return (mit == it->constEnd()) ? 0 : mit.value();
 }
 
 void PacketListModel::activate_row(int visible_row) {

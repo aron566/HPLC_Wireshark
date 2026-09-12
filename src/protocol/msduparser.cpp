@@ -687,6 +687,9 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
 
     if (mac_flag && body.size() >= 28) {
         add_fields(out.tree, body, 0, kMsduMacSpec, 2);
+        // 提取源/目的 MAC(48-bit),供 TEI→MAC 映射表与列表地址显示
+        out.msdu_src_mac = get_bits(p, 16, 0, 48);
+        out.msdu_dst_mac = get_bits(p, 22, 0, 48);
     }
 
     QByteArray msdu_body = body.mid(head_size, msdu_len);
@@ -964,6 +967,16 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
             case MME_DISCOVER_NODE_LIST: {
                 // MMeDiscoverNodeList
                 add_fields(root.children, b, 0, kDiscoverNodeListSpec, kDiscoverNodeListSpecN, head_size + 4);
+                // 学习 TEI→MAC:STATEI→MACAddr、CCOMACAddr(TEI=1)
+                if (b.size() >= 16) {
+                    const quint16 sta_tei = (quint16)get_bits(b, 0, 0, 12);
+                    const quint64 sta_mac = get_bits(b, 4, 0, 48);
+                    const quint64 cco_mac = get_bits(b, 10, 0, 48);
+                    if (sta_tei != 0 && sta_mac)
+                        out.tei_mac_pairs.append({sta_tei, sta_mac});
+                    if (cco_mac)
+                        out.tei_mac_pairs.append({1, cco_mac});
+                }
                 apply_dicts(root.children);
                 // 成功率字段带 %(与 Python log "ProxyCommRate: 85%" 一致)
                 annotate_unit(root.children, "ProxyCommRate", QStringLiteral("%"));

@@ -40,7 +40,7 @@ public:
     };
 
     /// @brief 驻留内存的条目上限(超出后 flush 落盘)
-    static constexpr int kBlockSize = 10000;
+    static constexpr int kBlockSize = 1000;
     /// @brief 盘块 LRU 缓存上限(滚动预取窗口,可调;块数 × kBlockSize = 预取内存)
     static constexpr int kMaxCacheBlocks = 4;
 
@@ -81,12 +81,17 @@ private:
     void flush_hot_block();
     QString block_path(int idx) const;
     void touch_lru(int idx) const;
+    /// @brief 更新 TEI→MAC 映射表(按 NID 分表;取自 MSDU 头 MACAddrFlag 扩展字段)
+    void update_tei_mac(const PacketEntry& e);
+    /// @brief 查 TEI 对应 MAC(48-bit;无记录返回 0)
+    quint64 lookup_mac(quint32 nid, quint16 tei) const;
 
     QVector<PacketEntry>  m_hot;         ///< 驻留热区(最近未 flush 条目,≤kBlockSize)
     int                    m_block_count; ///< 已落盘满块数量
     qint64                 m_total;       ///< 总条目数
     QVector<int>           m_visible;     ///< 过滤器命中的全局行号(升序)
     QString                m_filter;
+    QHash<quint32, QHash<quint16, quint64>> m_tei_mac; ///< TEI→MAC 映射表(NID → TEI → MAC48)
     QTemporaryDir          m_paging_dir;  ///< 盘块临时目录(进程结束自动清理)
 
     mutable QHash<int, QVector<PacketEntry>> m_block_cache; ///< 已加载盘块 LRU

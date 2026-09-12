@@ -175,6 +175,12 @@ struct MsduFieldNode {
     MsduFieldNode() : rel_start(-1), rel_len(0) {}
 };
 
+/// @brief 管理帧携带的 TEI→MAC 学习对(供列表 TEI→MAC 映射表建立)
+struct TeiMacPair {
+    quint16 tei;   ///< TEI(12-bit)
+    quint64 mac;   ///< MAC 48-bit
+};
+
 /// @brief MSDU 解析结果(由 MsduParser 填充)
 struct MsduInfo {
     bool    present;         ///< 本帧携带完整 MSDU(重组完成)
@@ -183,13 +189,16 @@ struct MsduInfo {
     int     msdu_src_tei;    ///< 原始发起 TEI(MSDU 头 SourceTEI;-1=无/简头)
     int     msdu_dst_tei;    ///< 原始终点 TEI(MSDU 头 DestinationTEI;-1=无/简头)
     int     msdu_send_type;  ///< 发送类型(MSDU 头 bit:0单播 1全网广播 2本地广播 3代理广播;-1=无)
+    quint64 msdu_src_mac;    ///< 源 MAC 48-bit(MSDU 头 MACAddrFlag=1 时;0=无)
+    quint64 msdu_dst_mac;    ///< 目的 MAC 48-bit(MSDU 头 MACAddrFlag=1 时;0=无)
     int     total_len;       ///< MSDU 帧总长(头+数据+CRC,不含 PB 填充;-1=未知)
     QString summary;         ///< 概要,如 "MMeDiscoverNodeList" / "APP EventPacket"
     QVector<MsduFieldNode> tree;  ///< 字段树(协议树直接挂载显示)
+    QVector<TeiMacPair> tei_mac_pairs; ///< 本帧携带的 TEI→MAC 学习对(发现列表等)
 
     MsduInfo() : present(false), simple_head(false), msdu_seq(0),
                  msdu_src_tei(-1), msdu_dst_tei(-1), msdu_send_type(-1),
-                 total_len(-1) {}
+                 msdu_src_mac(0), msdu_dst_mac(0), total_len(-1) {}
 };
 
 /// @brief Wireshark 风格 PacketList 的一行条目
