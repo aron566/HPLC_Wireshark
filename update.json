@@ -1,9 +1,9 @@
 {
   "updates": {
     "windows": {
-      "latest-version": "1.0.15",
-      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.15/BPLC_STA_Monitor_Setup_v1.0.15.exe",
-      "changelog": "ts 字段统一为 NTB tick(实时串口/文件回放/bin/裸 hex 语义一致);<br/>裸 hex 导出改 raw_wire 原样(bin/裸 hex 任意 round-trip 无损);<br/>断段只认 seg_start:实时串口按本地接收时间差(&gt;171.8s NTB 回绕)标断点,导出写 8B BCD/TIME 头,不再用 NTB 差兜底;<br/>文件回放去掉 timer,一次性读完整文件(回放提速一个量级)",
+      "latest-version": "1.0.16",
+      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.16/BPLC_STA_Monitor_Setup_v1.0.16.exe",
+      "changelog": "源/目的地址显示 TEI+MAC 地址(CCO/STA-n [MAC]),MAC 按 NID 分表学习(信标 CCO MAC / 发现列表 STATEI→MAC / MSDU 头扩展地址);<br/>网络协调帧源恒为 CCO 并查 CCO MAC;<br/>Dir 列:中继转发帧箭头旁加 R 标志;<br/>广播地址修正(STA-4095→BROADCAST);<br/>内存换页:驻留上限 1000 条 + 临时文件落盘,长时间采集内存有界;<br/>附带 Wireshark 解析支持插件(wireshark_support_plugins/)",
       "mandatory-update": false
     }
   }
