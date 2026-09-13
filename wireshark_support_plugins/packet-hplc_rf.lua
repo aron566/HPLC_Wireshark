@@ -68,6 +68,31 @@ local function crc24_lsb(tvb, off, len)
     return band(crc, 0xFFFFFF)
 end
 
+-- CRC32 (poly=0xEDB88320, init=0xFFFFFFFF, LSB-first, 末取反, 校验前 len-4 字节)
+-- 与 Qt fieldspec.h crc32_le / Python cal_crc32 一致 (MSDU/信标载荷 ICV/BPCS 同算法)
+-- 查找表法: 预计算 256 项, 每字节 O(1)
+local crc32_table = {}
+for v = 0, 255 do
+    local crc = v
+    for _ = 1, 8 do
+        if band(crc, 1) == 1 then
+            crc = bxor(math.floor(crc / 2), 0xEDB88320)
+        else
+            crc = math.floor(crc / 2)
+        end
+    end
+    crc32_table[v] = crc
+end
+
+local function crc32_le(tvb, off, len)
+    local crc = 0xFFFFFFFF
+    for i = 0, len - 4 - 1 do
+        local idx = band(bxor(crc, tvb(off + i, 1):uint()), 0xFF)
+        crc = bxor(math.floor(crc / 256), crc32_table[idx])
+    end
+    return bxor(crc, 0xFFFFFFFF)  -- 末取反
+end
+
 -- 语言开关: 读取 Wireshark 界面语言 (Edit→Preferences→Appearance→Language)
 -- Wireshark 4.x 把界面语言存于 %APPDATA%\Wireshark\language 文件 (内容如 "language: en")
 -- Lua pref 在脚本加载阶段恒为默认值, 无法用于决定字段名; 直接读该文件最可靠
@@ -290,6 +315,8 @@ f.fc_nid = ProtoField.uint24 ("hplc_rf.fc.nid", T("网络标识(NID)", "Network 
 f.fc_vf = ProtoField.bytes ("hplc_rf.fc.vf", T("可变区域", "Variant Field"), base.NONE)
 f.fc_std_ver = ProtoField.uint8 ("hplc_rf.fc.std_ver", T("标准版本号", "Standard Version"), base.DEC, std_ver_vals, 0xF0)
 f.fc_fccs = ProtoField.uint24 ("hplc_rf.fc.fccs", T("帧控制校验序列(FCCS,CRC24)", "Frame Control Check Sequence (FCCS, CRC24)"), base.HEX)
+f.fc_fccs_calc = ProtoField.uint24 ("hplc_rf.fc.fccs_calc", T("FCCS 计算值", "FCCS Calculated"), base.HEX)
+f.fc_fccs_ok = ProtoField.bool ("hplc_rf.fc.fccs_ok", T("FCCS 校验通过", "FCCS Check Passed"), 8, nil, 0x01)
 
 -- 物理块头 (表37)
 f.pb_seq = ProtoField.uint8 ("hplc_rf.pb.seq", T("序列号", "Sequence Number"), base.DEC, nil, 0x3F)
@@ -322,6 +349,8 @@ f.beacon_bpc = ProtoField.uint32 ("hplc_rf.beacon.bpc", T("信标周期计数(BP
 f.beacon_rf_ch = ProtoField.uint8 ("hplc_rf.beacon.rf_ch", T("本网络无线信道编号", "RF Channel Number"), base.DEC)
 f.beacon_entry_cnt = ProtoField.uint8 ("hplc_rf.beacon.entry_cnt", T("信标条目数", "Beacon Item Count"), base.DEC)
 f.beacon_bpcs = ProtoField.uint32 ("hplc_rf.beacon.bpcs", T("帧载荷校验序列(BPCS,CRC32)", "Beacon Payload Check Sequence (BPCS, CRC32)"), base.HEX)
+f.beacon_bpcs_calc = ProtoField.uint32 ("hplc_rf.beacon.bpcs_calc", T("BPCS 计算值", "BPCS Calculated"), base.HEX)
+f.beacon_bpcs_ok = ProtoField.bool ("hplc_rf.beacon.bpcs_ok", T("BPCS 校验通过", "BPCS Check Passed"), 8, nil, 0x01)
 
 -- 信标管理信息条目 (表46-57)
 f.beacon_ent_type = ProtoField.uint8 ("hplc_rf.beacon.ent.type", T("信标条目头", "Beacon Item Head"), base.HEX, beacon_entry_type_vals)
@@ -445,6 +474,8 @@ f.mac_rsv4 = ProtoField.uint8 ("hplc_rf.mac.rsv4", T("保留", "Reserved"), base
 f.mac_osmac = ProtoField.ether ("hplc_rf.mac.osmac", T("原始源MAC地址", "Original Source MAC"))
 f.mac_odmac = ProtoField.ether ("hplc_rf.mac.odmac", T("原始目的MAC地址", "Original Destination MAC"))
 f.mac_icv = ProtoField.uint32 ("hplc_rf.mac.icv", T("完整性校验值(ICV,CRC32)", "Integrity Check Value (ICV, CRC32)"), base.HEX)
+f.mac_icv_calc = ProtoField.uint32 ("hplc_rf.mac.icv_calc", T("ICV 计算值", "ICV Calculated"), base.HEX)
+f.mac_icv_ok = ProtoField.bool ("hplc_rf.mac.icv_ok", T("ICV 校验通过", "ICV Check Passed"), 8, nil, 0x01)
 
 -- 原始目标地址列 (自定义列引用, 显示 ODTEI + MAC 映射)
 f.col_orig_dst = ProtoField.string ("hplc_rf.col_orig_dst", T("原始目标地址", "Original Destination Address"))
@@ -583,6 +614,8 @@ f.dl_min_rate = ProtoField.uint8 ("hplc_rf.dl.min_rate", T("最小通信成功�
 f.dl_next_hop_tei = ProtoField.uint16 ("hplc_rf.dl.next_hop_tei", T("下一跳站点TEI", "Next Hop STA TEI"), base.DEC)
 f.dl_route_type = ProtoField.uint8 ("hplc_rf.dl.route_type", T("路由类型", "Route Type"), base.DEC, route_type_vals, 0xF0)
 f.dl_disc_bmp = ProtoField.bytes ("hplc_rf.dl.disc_bmp", T("发现站点列表位图", "Discovery STA List Bitmap"), base.NONE)
+f.dl_rcv_cnt = ProtoField.uint8 ("hplc_rf.dl.rcv_cnt", T("接收发现列表数", "Received Discovery List Count"), base.DEC)
+f.dl_rcv_item = ProtoField.string ("hplc_rf.dl.rcv_item", T("接收发现列表数(按TEI)", "Received Discovery List Count (by TEI)"))
 
 -- 通信成功率上报 (表100-101)
 f.sr_tei = ProtoField.uint16 ("hplc_rf.sr.tei", T("TEI", "TEI"), base.DEC)
@@ -678,12 +711,14 @@ f.bmp_byte = ProtoField.string ("hplc_rf.bmp.byte", T("位图字节", "Bitmap By
 
 hplc.fields = {
     f.fc_dt, f.fc_net_type, f.fc_nid, f.fc_vf, f.fc_std_ver, f.fc_fccs,
+    f.fc_fccs_calc, f.fc_fccs_ok,
     f.pb_seq, f.pb_sof, f.pb_eof, f.pb_pbcs, f.pb_size, f.pb_crc_ok, f.pb_crc_calc,
     f.pb_body, f.pb_padding,
     f.beacon_bts, f.beacon_bts_sec, f.beacon_src_tei, f.beacon_div_mode,
     f.beacon_symbol_cnt, f.beacon_phase, f.beacon_type, f.beacon_net_cplt,
     f.beacon_simple, f.beacon_start_assoc, f.beacon_use_flag, f.beacon_net_seq,
     f.beacon_cco_mac, f.beacon_bpc, f.beacon_rf_ch, f.beacon_entry_cnt, f.beacon_bpcs,
+    f.beacon_bpcs_calc, f.beacon_bpcs_ok,
     f.beacon_ent_type, f.beacon_ent_len, f.beacon_ent_data,
     f.ent_tei, f.ent_proxy_tei, f.ent_path_rate, f.ent_sta_mac, f.ent_role,
     f.ent_level, f.ent_proxy_qual, f.ent_phase, f.ent_rf_hop,
@@ -708,6 +743,7 @@ hplc.fields = {
     f.mac_restart_cnt, f.mac_proxy_main, f.mac_route_total, f.mac_route_left,
     f.mac_bcast_dir, f.mac_path_repair, f.mac_addr_flag, f.mac_rsv1, f.mac_rsv2, f.mac_net_seq,
     f.mac_rsv3, f.mac_rsv4, f.mac_osmac, f.mac_odmac, f.mac_icv,
+    f.mac_icv_calc, f.mac_icv_ok,
     f.col_orig_dst,
     f.rsvd, f.beacon_vf_rsv, f.sack_rsv, f.coord_rsv,
     f.sh_version, f.sh_msgtype, f.sh_msdulen,
@@ -736,6 +772,7 @@ hplc.fields = {
     f.dl_phase, f.dl_proxy_qual, f.dl_proxy_rate, f.dl_proxy_dl_rate,
     f.dl_sta_cnt, f.dl_send_cnt, f.dl_up_route_cnt, f.dl_route_remain,
     f.dl_bitmap_size, f.dl_min_rate, f.dl_next_hop_tei, f.dl_route_type, f.dl_disc_bmp,
+    f.dl_rcv_cnt, f.dl_rcv_item,
     f.sr_tei, f.sr_sta_cnt, f.sr_sta_tei, f.sr_down_rate, f.sr_up_rate,
     f.ncr_cco_mac, f.ncr_nbr_cnt, f.ncr_nid_width, f.ncr_nbr_nid,
     f.zc_tei, f.zc_collect_site, f.zc_collect_period, f.zc_collect_cnt,
@@ -1055,9 +1092,13 @@ local function dissect_beacon_payload(tvb, tree, off)
         tree:add(f.beacon_ent_data, tvb(pos, gb_end - 4 - pos))
     end
 
-    -- CRC32 (帧载荷尾 4B)
+    -- BPCS CRC32 (帧载荷尾 4B): 校验帧载荷 off..gb_end-4 (不含 CRC32 本身)
     if gb_end - 4 >= off then
-        add_le(tree, f.beacon_bpcs, tvb, gb_end - 4, 4)
+        local bpcs_rx = tvb(gb_end - 4, 4):le_uint()
+        local bpcs_calc = crc32_le(tvb, off, gb_end - off)
+        tree:add(f.beacon_bpcs, tvb(gb_end - 4, 4), bpcs_rx)
+        tree:add(f.beacon_bpcs_calc, tvb(gb_end - 4, 4), bpcs_calc)
+        tree:add(f.beacon_bpcs_ok, tvb(gb_end - 4, 1), bpcs_calc == bpcs_rx)
     end
     -- PB CRC24 (块尾 3B)
     if off + pbsize <= tvb:len() then
@@ -1090,7 +1131,11 @@ local function dissect_simple_beacon_payload(tvb, tree, off)
         tree:add(f.beacon_ent_data, tvb(pos, gb_end - 4 - pos))
     end
     if gb_end - 4 >= off then
-        add_le(tree, f.beacon_bpcs, tvb, gb_end - 4, 4)
+        local bpcs_rx = tvb(gb_end - 4, 4):le_uint()
+        local bpcs_calc = crc32_le(tvb, off, gb_end - off)
+        tree:add(f.beacon_bpcs, tvb(gb_end - 4, 4), bpcs_rx)
+        tree:add(f.beacon_bpcs_calc, tvb(gb_end - 4, 4), bpcs_calc)
+        tree:add(f.beacon_bpcs_ok, tvb(gb_end - 4, 1), bpcs_calc == bpcs_rx)
     end
     if off + pbsize <= tvb:len() then
         tree:add(f.pb_pbcs, tvb(off + pbsize - 3, 3), tvb(off + pbsize - 3, 3):le_uint())
@@ -1319,6 +1364,29 @@ local function dissect_disc_list(tvb, tree, off)
         pos = pos + 2
     end
     dissect_tei_bitmap(tvb, tree, pos, bmp_size, f.dl_disc_bmp, T("发现站点列表位图", "Discovery STA List Bitmap"), "Discovery STA List Bitmap")
+
+    -- 接收发现列表信息 (表99): 条目数 = 位图中置位 bit 总数, 每个 1 字节
+    -- 依次对应位图从 0 字节起第 1/2/.../N 个有效 TEI 站点的接收报文数
+    local rcv_pos = pos + bmp_size
+    if rcv_pos <= tvb:len() then
+        -- 收集位图中置位 bit 对应的 TEI (bit 全局索引 = TEI: 字节i的bit j → TEI=i*8+j)
+        local set_teis = {}
+        for bi = 0, bmp_size - 1 do
+            local b = tvb(pos + bi, 1):uint()
+            for j = 0, 7 do
+                if band(b, 2 ^ j) ~= 0 then
+                    set_teis[#set_teis + 1] = bi * 8 + j
+                end
+            end
+        end
+        for k = 1, #set_teis do
+            local tei = set_teis[k]
+            local v = tvb(rcv_pos + k - 1, 1):uint()
+            tree:add(f.dl_rcv_cnt, tvb(rcv_pos + k - 1, 1), v)
+            tree:add(f.dl_rcv_item, tvb(rcv_pos + k - 1, 1),
+                string.format(T("接收发现列表数[%d] (TEI %d): %d", "Rcv Discovery List Count[%d] (TEI %d): %d"), k - 1, tei, v))
+        end
+    end
 end
 
 -- 通信成功率上报 (表100)
@@ -1587,7 +1655,12 @@ function hplc.dissector(tvb, pinfo, tree)
     end
 
     fc_tree:add(f.fc_std_ver, tvb(12, 1))
-    fc_tree:add(f.fc_fccs, tvb(13, 3), tvb(13, 3):le_uint())
+    -- FCCS CRC24: 校验 FCH 前 13 字节(0-12), 存储值字节 13-15
+    local fccs_rx = tvb(13, 3):le_uint()
+    local fccs_calc = crc24_lsb(tvb, 0, 16)
+    fc_tree:add(f.fc_fccs, tvb(13, 3), fccs_rx)
+    fc_tree:add(f.fc_fccs_calc, tvb(13, 3), fccs_calc)
+    fc_tree:add(f.fc_fccs_ok, tvb(13, 1), fccs_calc == fccs_rx)
 
     -- 信标帧载荷 (dt=0)
     if dt == 0 and tvb:len() > 16 then
@@ -1744,10 +1817,14 @@ function hplc.dissector(tvb, pinfo, tree)
                 end
             end
 
-            -- ICV CRC32 在 MSDU 末尾
+            -- ICV CRC32 在 MSDU 末尾: 校验 MSDU(msdu_off..icv_off, 不含 MAC 帧头)
             local icv_off = msdu_off + msdu_len
             if msdu_len > 0 and icv_off + 4 <= tvb:len() then
-                add_le(tree, f.mac_icv, tvb, icv_off, 4)
+                local icv_rx = tvb(icv_off, 4):le_uint()
+                local icv_calc = crc32_le(tvb, msdu_off, msdu_len + 4)
+                tree:add(f.mac_icv, tvb(icv_off, 4), icv_rx)
+                tree:add(f.mac_icv_calc, tvb(icv_off, 4), icv_calc)
+                tree:add(f.mac_icv_ok, tvb(icv_off, 1), icv_calc == icv_rx)
             end
 
             -- padding: 最后一个 PB 块中, MAC 帧(头+MSDU+ICV)结束到块 CRC24 前的填充区
