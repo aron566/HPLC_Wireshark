@@ -61,7 +61,7 @@ Section "主程序" SEC_MAIN
   File /nonfatal "${SRC}\config.ini"
   SetOverwrite on
   ; 清旧版残留 DLL(升级时旧 DLL 可能多余;先删后写保证新包干净)
-  File /r /x "*.o" /x "*.obj" /x "*.res" /x "Makefile*" /x ".qmake.stash" "${SRC}\*.*"
+  File /r /x "*.o" /x "*.obj" /x "*.res" /x "*.cpp" /x "*.h" /x "object_script*" /x "Makefile*" /x ".qmake.stash" "${SRC}\*.*"
   WriteRegStr HKCU "Software\BPLC_STA_Monitor" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BPLC_STA_Monitor" \
     "DisplayName" "BPLC STA Monitor"
