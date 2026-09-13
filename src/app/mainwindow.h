@@ -59,6 +59,7 @@ private:
     void wire_signals();
     PacketEntry make_entry(const BplcParser::Result& r, qint64 now);
     void enqueue_entry(PacketEntry&& e);
+    void check_for_updates(bool silent);   // 检查更新(silent=true:启动静默检查)
 
     QToolBar*      m_toolbar;
     QToolButton*   m_btn_start;
@@ -67,6 +68,7 @@ private:
     QToolButton*   m_btn_clear;
     QToolButton*   m_btn_export;
     QToolButton*   m_btn_settings;
+    QToolButton*   m_btn_update;   ///< 发现新版本时显示的"立即更新"按钮(菜单栏右上角,默认隐藏)
     QLineEdit*     m_edt_filter;
     QToolButton*   m_btn_apply_filter;
 

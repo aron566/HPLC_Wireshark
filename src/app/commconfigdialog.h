@@ -37,6 +37,7 @@ private:
     QLineEdit*    m_edt_file_path;
     QPushButton*  m_btn_browse;
     QCheckBox*    m_chk_time_tag;
+    QCheckBox*    m_chk_auto_check;
 
     ReaderConfig  m_cfg;
 };

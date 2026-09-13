@@ -39,6 +39,8 @@ inline void ensure_default_file() {
         "filter=\n"
         "; 界面主题:auto=跟随系统(默认)/ dark=深色 / light=浅色\n"
         "theme=auto\n"
+        "; 启动时自动检查更新(true=检查 / false=不检查)\n"
+        "auto_check=true\n"
         "\n"
         "[reader]\n"
         "; 输入源:0=串口 1=文件回放(bin) 2=裸hex文本\n"
@@ -87,6 +89,14 @@ inline QString theme() {
 }
 inline void set_theme(const QString& t) {
     settings().setValue(QStringLiteral("general/theme"), t);
+}
+
+inline bool auto_check() {
+    ensure_default_file();
+    return settings().value(QStringLiteral("general/auto_check"), true).toBool();
+}
+inline void set_auto_check(bool v) {
+    settings().setValue(QStringLiteral("general/auto_check"), v);
 }
 
 // ---- reader ----

@@ -50,7 +50,7 @@
 
 namespace {
 // 当前版本与仓库信息(更新检查地址见 config.ini [general] update_url)
-const QString kAppVersion = QStringLiteral("1.0.17");
+const QString kAppVersion = QStringLiteral("1.0.18");
 const QString kModuleName = QStringLiteral("BPLC STA Monitor");
 const QString kAuthorName = QStringLiteral("aron566");
 const QString kAuthorEmail = QStringLiteral("aron566@163.com");
@@ -109,7 +109,7 @@ MainWindow::MainWindow(QWidget* parent)
     m_splitter_bottom->setStretchFactor(1, 4);
 
     QPalette pal = m_table_packets->palette();
-    pal.setColor(QPalette::Highlight, QColor("#3d6f9f"));
+    pal.setColor(QPalette::Highlight, QColor(0x3d, 0x6f, 0x9f));
     pal.setColor(QPalette::HighlightedText, Qt::white);
     m_table_packets->setPalette(pal);
     // 注意:浅色/深色主题由 src/app/theme.cpp 全局应用(设置→外观 即时切换);
@@ -125,6 +125,11 @@ MainWindow::MainWindow(QWidget* parent)
     if (!saved_filter.isEmpty() && m_edt_filter && m_model) {
         m_edt_filter->setText(saved_filter);
         m_model->set_display_filter(saved_filter);
+    }
+
+    // 启动时按配置自动检查更新(静默:无新版本不弹窗,有新版本显示"立即更新"按钮)
+    if (appcfg::auto_check()) {
+        QTimer::singleShot(0, this, [this]() { check_for_updates(true); });
     }
 }
 
@@ -227,8 +232,11 @@ void MainWindow::build_ui() {
         if (!a || m_raw_bytes.isEmpty()) return;
         QString out;
         if (a == a0) {
-            for (char c : m_raw_bytes)
-                out += QStringLiteral("0x%1 ").arg(quint8(c), 2, 16, QChar('0'));
+            // 含 0x 前缀的 hex:基于 toHex 生成 "xx xx" 后统一加前缀,
+            // 不做逐字节 char/unsigned 转换、也无循环内字符串分配
+            QByteArray hex = m_raw_bytes.toHex(' ');   // "3c 1c 02"
+            hex.replace(' ', " 0x");                    // "3c 0x1c 0x02"
+            out = QStringLiteral("0x") + QString::fromLatin1(hex);
         } else if (a == a1) {
             out = QString::fromLatin1(m_raw_bytes.toHex(' '));
         }
@@ -275,14 +283,7 @@ void MainWindow::build_ui() {
     auto* menu_help = menuBar()->addMenu(trl::L("帮助(&H)"));
     auto* act_check = menu_help->addAction(trl::L("检查更新(&U)..."));
     connect(act_check, &QAction::triggered, this, [this]() {
-        auto* su = QSimpleUpdater::getInstance();
-        const QString up_url = appcfg::update_url();   // 更新地址来自 config.ini
-        su->setModuleVersion(up_url, kAppVersion);
-        su->setModuleName(up_url, kModuleName);
-        su->setNotifyOnUpdate(up_url, true);   // 发现新版本 → 弹窗询问下载
-        su->setNotifyOnFinish(up_url, true);   // 无新版本/清单正常 → 弹窗告知
-        m_status_left->setText(trl::L("正在检查更新…"));
-        su->checkForUpdates(up_url);
+        check_for_updates(false);   // 手动检查:无新版本也弹窗告知
     });
     // 检查更新结束(无论结果)在状态栏留痕;失败(网络/清单)时以保守文案提示。
     // 注意:不用 Qt::UniqueConnection + lambda(Qt6 断言要求成员函数指针)。
@@ -309,6 +310,24 @@ void MainWindow::build_ui() {
                      trl::L("版本"), trl::L("作者邮箱"), kAuthorEmail));
         box.addButton(QMessageBox::Close);
         box.exec();
+    });
+
+    // 发现新版本时在菜单栏右上角显示的"立即更新"按钮(默认隐藏;VSCode 风格蓝底)
+    m_btn_update = new QToolButton(this);
+    m_btn_update->setText(QStringLiteral("● ") + trl::L("立即更新"));
+    m_btn_update->setCursor(Qt::PointingHandCursor);
+    m_btn_update->setToolTip(trl::L("发现新版本,点击下载安装"));
+    m_btn_update->setStyleSheet(QStringLiteral(
+        "QToolButton { color: #ffffff; background-color: #0e639c;"
+        " border: none; border-radius: 3px; padding: 3px 10px; font-weight: bold; }"
+        "QToolButton:hover { background-color: #1177bb; }"));
+    m_btn_update->setVisible(false);
+    menuBar()->setCornerWidget(m_btn_update, Qt::TopRightCorner);
+    connect(m_btn_update, &QToolButton::clicked, this, [this]() {
+        const QString u = appcfg::update_url();
+        const QString dl = QSimpleUpdater::getInstance()->getDownloadUrl(u);
+        if (!dl.isEmpty())
+            QDesktopServices::openUrl(QUrl(dl));
     });
 }
 
@@ -610,11 +629,25 @@ void MainWindow::on_range_selected(int start, int len) {
     m_hex_view->highlight_range(start, len);
 }
 
+void MainWindow::check_for_updates(bool silent) {
+    auto* su = QSimpleUpdater::getInstance();
+    const QString up_url = appcfg::update_url();   // 更新地址来自 config.ini
+    su->setModuleVersion(up_url, kAppVersion);
+    su->setModuleName(up_url, kModuleName);
+    su->setNotifyOnUpdate(up_url, true);      // 有新版本 → 弹窗 + 显示"立即更新"按钮
+    su->setNotifyOnFinish(up_url, !silent);   // 静默(启动):无新版本不弹窗
+    if (!silent)
+        m_status_left->setText(trl::L("正在检查更新…"));
+    su->checkForUpdates(up_url);
+}
+
 void MainWindow::on_check_finished(const QString& url) {
     if (url != appcfg::update_url()) return;
     bool avail = QSimpleUpdater::getInstance()->getUpdateAvailable(url);
+    if (m_btn_update)
+        m_btn_update->setVisible(avail);   // 有新版本 → 显示"立即更新"按钮
     m_status_left->setText(
-        avail ? trl::L("发现新版本,请按提示下载更新")
+        avail ? trl::L("发现新版本,请点击右上角\"立即更新\"下载")
               : trl::L("检查更新完成:暂无可更新版本(若网络不可达请检查连接)"));
 }
 
@@ -664,6 +697,8 @@ struct I18nRegMainWindow {
         trl::register_en("复制(含 0x 前缀)", "Copy (with 0x prefix)");
         trl::register_en("复制(纯 hex)", "Copy (plain hex)");
         trl::register_en("回放进度: %1%", "Replay progress: %1%");
+        trl::register_en("立即更新", "Update Now");
+        trl::register_en("发现新版本,点击下载安装", "New version available, click to download");
     }
 };
 const I18nRegMainWindow g_i18n_reg_mainwindow;

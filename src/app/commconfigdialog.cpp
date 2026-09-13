@@ -143,6 +143,14 @@ void CommConfigDialog::build_ui() {
     theme_row->addWidget(cmb_theme);
     theme_row->addStretch(1);
     opt_lay->addLayout(theme_row);
+
+    // 启动时自动检查更新(config.ini general/auto_check,默认开启)
+    m_chk_auto_check = new QCheckBox(trl::L("启动时自动检查更新"), opt_group);
+    opt_lay->addWidget(m_chk_auto_check);
+    m_chk_auto_check->setChecked(appcfg::auto_check());
+    connect(m_chk_auto_check, &QCheckBox::toggled, this,
+            [](bool on) { appcfg::set_auto_check(on); });
+
     root->addWidget(opt_group);
 
     // 恢复已保存主题并放在 connect 之前;变更即保存并即时全局应用
@@ -284,6 +292,7 @@ struct I18nRegCommConfig {
         trl::register_en("其他", "Other");
         trl::register_en("带时间标签(has_time_tag=1,BCD 8B)",
                          "With time tag (has_time_tag=1,BCD 8B)");
+        trl::register_en("启动时自动检查更新", "Auto-check for updates at startup");
         trl::register_en("开始捕获", "Start Capture");
         trl::register_en("取消", "Cancel");
         trl::register_en("二进制文件 (*.bin);;所有 (*.*)",
