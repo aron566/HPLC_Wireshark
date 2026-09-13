@@ -15,6 +15,7 @@
 #include <QAbstractTableModel>
 #include <QVector>
 #include <QHash>
+#include <QStringList>
 #include <QTemporaryDir>
 #include <functional>
 
@@ -60,6 +61,15 @@ public:
 
     /// @brief 按全局顺序流式遍历全部条目(导出用;不一次性载入内存)
     void for_each_entry(const std::function<void(const PacketEntry&)>& fn);
+
+    /// @brief 导出快照:热区拷贝 + 已落盘块文件路径(升序),供工作线程流式导出
+    /// @note 在 GUI 线程调用;快照独立于模型(热区深拷贝、盘块路径为快照值),
+    ///       之后模型继续 append/滚动均不影响该快照,可安全传给工作线程。
+    struct ExportSnapshot {
+        QVector<PacketEntry> hot;         ///< 热区条目拷贝(≤ kBlockSize)
+        QStringList          block_paths; ///< 盘块文件路径(升序,对应块 0..N-1)
+    };
+    ExportSnapshot make_export_snapshot() const;
 
 public slots:
     void append_packets(const QVector<PacketEntry>& entries);

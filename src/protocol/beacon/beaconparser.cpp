@@ -341,6 +341,13 @@ MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
         switch (head) {
             case 0x00: {  // STA Cap(13B)
                 add_fields(grp.children, it, 0, kStaCapSpec, kStaCapSpecN, abs0);
+                // 学习 TEI→SourceMAC(发送信标站点)
+                {
+                    const quint16 tei = (quint16)get_bits(it, 0, 0, 12);
+                    const quint64 mac = get_bits(it, 4, 0, 48);
+                    if (tei != 0 && mac)
+                        out.tei_mac_pairs.append({tei, mac});
+                }
                 annotate_unit(grp.children, "LinkMinCommSuccessRate", QStringLiteral("%"));
                 annotate_unit(grp.children, "PCOChannelQuality", QStringLiteral("dB"));
                 for (auto& ch : grp.children) {
@@ -398,6 +405,13 @@ MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
             }
             case 0x05: {  // 精简信标站点信息及时隙条目(51243 表57)
                 add_fields(grp.children, it, 0, kLiteStaSpec, kLiteStaSpecN, abs0);
+                // 学习 TEI→SourceMAC
+                {
+                    const quint16 tei = (quint16)get_bits(it, 0, 0, 12);
+                    const quint64 mac = get_bits(it, 4, 0, 48);
+                    if (tei != 0 && mac)
+                        out.tei_mac_pairs.append({tei, mac});
+                }
                 for (auto& ch : grp.children) {
                     if (ch.name.startsWith(QStringLiteral("Role"))) {
                         quint8 r = (quint8)get_bits(it, 3, 0, 4);

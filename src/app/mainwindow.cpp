@@ -10,7 +10,11 @@
 #include "appconfig.h"
 #include "playbackwriter.h"
 #include "i18n.h"
+#include "packetentry_serialize.h"
 
+#include <QtConcurrent>
+#include <QDataStream>
+#include <QFutureWatcher>
 #include <QToolBar>
 #include <QToolButton>
 #include <QAction>
@@ -46,7 +50,7 @@
 
 namespace {
 // 当前版本与仓库信息(更新检查地址见 config.ini [general] update_url)
-const QString kAppVersion = QStringLiteral("1.0.16");
+const QString kAppVersion = QStringLiteral("1.0.17");
 const QString kModuleName = QStringLiteral("BPLC STA Monitor");
 const QString kAuthorName = QStringLiteral("aron566");
 const QString kAuthorEmail = QStringLiteral("aron566@163.com");
@@ -63,7 +67,8 @@ MainWindow::MainWindow(QWidget* parent)
       m_status_left(nullptr), m_status_right(nullptr),
       m_reader(nullptr), m_dispatch(nullptr), m_model(nullptr),
       m_flush_timer(nullptr), m_status_timer(nullptr),
-      m_paused(false), m_follow_bottom(true),
+      m_paused(false), m_exporting(false),
+      m_follow_bottom(true),
       m_last_epoch_ms(0), m_last_rx_us(0),
       m_index_counter(0) {
     qRegisterMetaType<BplcParser::Result>("BplcParser::Result");
@@ -407,6 +412,43 @@ void MainWindow::on_clear() {
     m_status_left->setText(QStringLiteral("Cleared"));
 }
 
+namespace {
+/// @brief 从盘块文件逐条反序列化并交给 writer(独立文件句柄,线程安全)
+template <typename Writer>
+void export_block_file(const QString& path, Writer& w) {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return;
+    QDataStream s(&f);
+    while (!f.atEnd()) {
+        quint32 len = 0;
+        s >> len;
+        if (s.status() != QDataStream::Ok || len == 0) break;
+        QByteArray payload(int(len), Qt::Uninitialized);
+        if (s.readRawData(payload.data(), int(len)) != int(len)) break;
+        PacketEntry e;
+        if (pser::deserialize_entry(payload, e)) w.add(e);
+    }
+    f.close();
+}
+
+/// @brief 工作线程导出:遍历快照盘块 + 热区,流式写文件(不阻塞 GUI)
+void run_export(const PacketListModel::ExportSnapshot& snap,
+                const QString& path, bool as_text) {
+    QFile out(path);
+    if (!out.open(QIODevice::WriteOnly)) return;
+    if (as_text) {
+        playback::RawHexWriter w(&out);
+        for (const QString& bp : snap.block_paths) export_block_file(bp, w);
+        for (const PacketEntry& e : snap.hot) w.add(e);
+    } else {
+        playback::PlaybackBinWriter w(&out);
+        for (const QString& bp : snap.block_paths) export_block_file(bp, w);
+        for (const PacketEntry& e : snap.hot) w.add(e);
+    }
+    out.close();
+}
+}  // namespace
+
 void MainWindow::on_export() {
     if (m_model->total_count() == 0) {
         m_status_left->setText(trl::L("无可导出的帧"));
@@ -430,27 +472,27 @@ void MainWindow::on_export() {
         f += QStringLiteral(".txt");
     if (!as_text && !f.endsWith(QStringLiteral(".bin"), Qt::CaseInsensitive))
         f += QStringLiteral(".bin");
-    QFile out(f);
-    if (!out.open(QIODevice::WriteOnly)) {
-        m_status_left->setText(trl::L("导出失败:%1").arg(out.errorString()));
-        return;
-    }
+    // 导出快照 + 工作线程流式导出(不阻塞界面)
+    const PacketListModel::ExportSnapshot snap = m_model->make_export_snapshot();
+    const qint64 total = m_model->total_count();
+    m_exporting = true;   // 暂停 flush 进模型,保证快照一致 + 线程安全
+    m_status_left->setText(trl::L("正在导出 %1 帧...").arg(total));
 
-    // 磁盘换页模型下按全局顺序流式遍历全部帧导出(不一次性载入内存)
-    if (as_text) {
-        playback::RawHexWriter w(&out);
-        m_model->for_each_entry([&](const PacketEntry& e) { w.add(e); });
-    } else {
-        playback::PlaybackBinWriter w(&out);
-        m_model->for_each_entry([&](const PacketEntry& e) { w.add(e); });
-    }
-    out.close();
-    if (out.size() == 0) {
-        m_status_left->setText(trl::L("没有可写入的帧数据"));
-        return;
-    }
-    m_status_left->setText(
-        trl::L("已导出 %1 帧 → %2").arg(m_model->total_count()).arg(f));
+    auto* watcher = new QFutureWatcher<void>(this);
+    connect(watcher, &QFutureWatcher<void>::finished, this,
+            [this, watcher, f, total]() {
+        m_exporting = false;
+        watcher->deleteLater();
+        QFile out(f);
+        if (!out.exists() || out.size() == 0) {
+            m_status_left->setText(trl::L("没有可写入的帧数据"));
+        } else {
+            m_status_left->setText(trl::L("已导出 %1 帧 → %2").arg(total).arg(f));
+        }
+    });
+    watcher->setFuture(QtConcurrent::run([snap, f, as_text]() {
+        run_export(snap, f, as_text);
+    }));
 }
 
 void MainWindow::on_settings() {
@@ -519,6 +561,7 @@ void MainWindow::on_parsed(const BplcParser::Result& r) {
 }
 
 void MainWindow::on_flush_buffer() {
+    if (m_exporting) return;   // 导出期间暂停 append 进模型,保证快照一致且线程安全
     QList<PacketEntry> snapshot;
     {
         QMutexLocker lock(&m_pending_mutex);

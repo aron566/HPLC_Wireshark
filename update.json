@@ -1,9 +1,9 @@
 {
   "updates": {
     "windows": {
-      "latest-version": "1.0.16",
-      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.16/BPLC_STA_Monitor_Setup_v1.0.16.exe",
-      "changelog": "源/目的地址显示 TEI+MAC 地址(CCO/STA-n [MAC]),MAC 按 NID 分表学习(信标 CCO MAC / 发现列表 STATEI→MAC / MSDU 头扩展地址);<br/>网络协调帧源恒为 CCO 并查 CCO MAC;<br/>Dir 列:中继转发帧箭头旁加 R 标志;<br/>广播地址修正(STA-4095→BROADCAST);<br/>内存换页:驻留上限 1000 条 + 临时文件落盘,长时间采集内存有界;<br/>附带 Wireshark 解析支持插件(wireshark_support_plugins/)",
+      "latest-version": "1.0.17",
+      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.17/BPLC_STA_Monitor_Setup_v1.0.17.exe",
+      "changelog": "导出改为后台线程:大数据量导出不再卡界面;<br/>信标管理信息条目(站点能力/精简站点)学习 TEI→MAC;<br/>Wireshark 插件更新(FCCS/BPCS/ICV CRC 校验 + 发现列表接收计数)",
       "mandatory-update": false
     }
   }

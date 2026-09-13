@@ -354,6 +354,9 @@ void PacketListModel::update_tei_mac(const PacketEntry& e) {
     // BEACON 帧:CCO 的 MAC(TEI=1),供 COORD 等 CCO 发出帧查表
     if (e.mpdu.frame_type == 0 && e.mpdu.beacon_cco_mac)
         m_tei_mac[nid][1] = e.mpdu.beacon_cco_mac;
+    // 信标管理信息条目(站点能力/精简站点)携带的 TEI→SourceMAC 学习对
+    for (const TeiMacPair& p : e.beacon.tei_mac_pairs)
+        if (p.tei != 0 && p.mac) m_tei_mac[nid][p.tei] = p.mac;
     // 管理帧(发现列表等)携带的 TEI→MAC 学习对
     for (const TeiMacPair& p : e.msdu.tei_mac_pairs)
         if (p.tei != 0 && p.mac) m_tei_mac[nid][p.tei] = p.mac;
@@ -407,4 +410,13 @@ void PacketListModel::for_each_entry(const std::function<void(const PacketEntry&
         for (const PacketEntry& e : blk) fn(e);
     }
     for (const PacketEntry& e : m_hot) fn(e);
+}
+
+PacketListModel::ExportSnapshot PacketListModel::make_export_snapshot() const {
+    ExportSnapshot s;
+    s.hot = m_hot;   // 深拷贝(≤ kBlockSize 条)
+    s.block_paths.reserve(m_block_count);
+    for (int i = 0; i < m_block_count; ++i)
+        s.block_paths << block_path(i);
+    return s;
 }

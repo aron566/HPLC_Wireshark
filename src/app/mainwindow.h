@@ -92,6 +92,7 @@ private:
     QList<PacketEntry> m_pending;
     QMutex           m_pending_mutex;
     bool             m_paused;
+    bool             m_exporting;      ///< 导出中(on_flush_buffer 暂停 append 进模型)
     bool             m_follow_bottom;  ///< 是否自动滚动到最新帧(用户滚离底部则暂停)
 
     qint64           m_last_epoch_ms;
