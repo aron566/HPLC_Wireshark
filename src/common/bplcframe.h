@@ -191,6 +191,7 @@ struct MsduInfo {
     int     msdu_send_type;  ///< 发送类型(MSDU 头 bit:0单播 1全网广播 2本地广播 3代理广播;-1=无)
     quint64 msdu_src_mac;    ///< 源 MAC 48-bit(MSDU 头 MACAddrFlag=1 时;0=无)
     quint64 msdu_dst_mac;    ///< 目的 MAC 48-bit(MSDU 头 MACAddrFlag=1 时;0=无)
+    quint64 sta_mac;         ///< 报文体携带的 STA MAC(如关联请求 STAMACAddr;0=无)
     int     total_len;       ///< MSDU 帧总长(头+数据+CRC,不含 PB 填充;-1=未知)
     QString summary;         ///< 概要,如 "MMeDiscoverNodeList" / "APP EventPacket"
     QVector<MsduFieldNode> tree;  ///< 字段树(协议树直接挂载显示)
@@ -198,7 +199,7 @@ struct MsduInfo {
 
     MsduInfo() : present(false), simple_head(false), msdu_seq(0),
                  msdu_src_tei(-1), msdu_dst_tei(-1), msdu_send_type(-1),
-                 msdu_src_mac(0), msdu_dst_mac(0), total_len(-1) {}
+                 msdu_src_mac(0), msdu_dst_mac(0), sta_mac(0), total_len(-1) {}
 };
 
 /// @brief Wireshark 风格 PacketList 的一行条目
@@ -216,11 +217,38 @@ struct PacketEntry {
     MsduInfo     beacon;       ///< BEACON 载荷区字段解析(仅 BEACON 帧)
     int          msdu_raw_base;///< MSDU body 在 raw_bytes 中的偏移;-1=不在本帧(跨帧重组)
     QByteArray   raw_bytes;    ///< 原始字节,用于 HexView 显示
+    QString      search_text;  ///< 可搜索全文缓存(小写;make_entry/反序列化时填充,过滤匹配用)
 
     PacketEntry()
         : index(0), epoch_ms(0), delta_us(0), accepted(false),
           msdu_raw_base(-1) {}
 };
+
+/// @brief 生成一行的可搜索全文(小写),供过滤器快速匹配;缓存于 PacketEntry::search_text
+inline QString make_search_text(const PacketEntry& e) {
+    QStringList parts;
+    parts << QString::number(e.index);
+    if (!e.accepted) {
+        parts << QStringLiteral("drop") << QStringLiteral("err");
+        parts << e.reason.toLower();
+        return parts.join(QLatin1Char(' '));
+    }
+    parts << (e.meta.is_rf ? QStringLiteral("hrf") : QStringLiteral("hplc"))
+          << QStringLiteral("plc");
+    parts << e.mpdu.frame_type_name().toLower();
+    parts << (e.mpdu.src_tei == 0x0001 ? QStringLiteral("cco")
+            : e.mpdu.src_tei != 0      ? QStringLiteral("sta-%1").arg(e.mpdu.src_tei)
+            : e.meta.is_rf ? QStringLiteral("hrf") : QStringLiteral("plc"));
+    parts << (e.mpdu.dst_tei == 0xFFF ? QStringLiteral("broadcast")
+            : e.mpdu.dst_tei == 0x0001 ? QStringLiteral("cco")
+            : e.mpdu.dst_tei != 0      ? QStringLiteral("sta-%1").arg(e.mpdu.dst_tei)
+                                       : QStringLiteral("*"));
+    const QString nid = QString::number(e.mpdu.net_id, 16);
+    parts << nid << QStringLiteral("0x%1").arg(nid);
+    parts << QString::number(e.mpdu.src_tei) << QString::number(e.mpdu.dst_tei);
+    if (e.msdu.present) parts << e.msdu.summary.toLower();
+    return parts.join(QLatin1Char(' '));
+}
 Q_DECLARE_METATYPE(PacketEntry)
 
 #endif // BPLCFRAME_H

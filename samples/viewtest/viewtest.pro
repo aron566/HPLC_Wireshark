@@ -1,4 +1,4 @@
-QT       += core gui widgets
+QT       += core gui widgets concurrent
 CONFIG   += c++17 console
 CONFIG   -= app_bundle
 TARGET    = viewtest

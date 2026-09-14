@@ -415,6 +415,7 @@ int main(int argc, char* argv[]) {
             int total_rows = model.rowCount();
             auto rows_with = [&](const QString& expr) -> int {
                 model.set_display_filter(expr);
+                while (model.filtering()) app.processEvents();  // 等待异步过滤完成
                 return model.rowCount();
             };
             // 期望值基于 Python 权威分布(871/347/170/1069)

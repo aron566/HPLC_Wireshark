@@ -56,6 +56,9 @@ public:
     /// @brief 总条目数(含已落盘历史)
     qint64 total_count() const { return m_total; }
 
+    /// @brief 是否正在异步过滤(测试等待用)
+    bool filtering() const { return m_filtering; }
+
     /// @brief 滚动预取:按可见行定位全局行号,预加载其所在盘块及前后相邻块
     void ensure_loaded(int visible_row);
 
@@ -101,6 +104,9 @@ private:
     qint64                 m_total;       ///< 总条目数
     QVector<int>           m_visible;     ///< 过滤器命中的全局行号(升序)
     QString                m_filter;
+    bool                   m_filtering = false; ///< 过滤进行中(异步;期间 append 暂存到 m_deferred)
+    int                    m_filter_gen = 0; ///< 过滤代计数,丢弃过期异步结果
+    QVector<PacketEntry>   m_deferred;    ///< 过滤期间暂存的 append 条目
     QHash<quint32, QHash<quint16, quint64>> m_tei_mac; ///< TEI→MAC 映射表(NID → TEI → MAC48)
     QTemporaryDir          m_paging_dir;  ///< 盘块临时目录(进程结束自动清理)
 

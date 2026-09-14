@@ -7,6 +7,7 @@
 #include "packetlistmodel.h"
 #include <QApplication>
 #include <QTableView>
+#include <QThread>
 #include <cstdio>
 #include <functional>
 
@@ -76,14 +77,20 @@ int main(int argc, char* argv[]) {
     check(count == TOTAL, "for_each_entry 遍历 25000 条");
     check(ordered, "for_each_entry 顺序 1..25000 连续");
 
-    // 过滤遍历盘:BEACON 全命中 / coord 零命中 / 组合条件
+    // 过滤遍历盘:BEACON 全命中 / coord 零命中 / 组合条件(异步过滤,等待完成)
+    auto wait_filter = [&]() {
+        while (model.filtering()) { app.processEvents(); QThread::msleep(1); }
+    };
     model.set_display_filter("beacon");
+    wait_filter();
     check(model.rowCount() == TOTAL, "过滤 beacon → 25000 行");
     model.set_display_filter("coord");
+    wait_filter();
     check(model.rowCount() == 0, "过滤 coord → 0 行");
     model.set_display_filter("beacon & a1d5");
+    wait_filter();
     check(model.rowCount() == TOTAL, "过滤 beacon & a1d5 → 25000 行");
-    model.set_display_filter("");   // 恢复
+    model.set_display_filter("");   // 恢复(同步清空)
 
     std::printf(g_fail == 0 ? "PASS rows=%d\n" : "FAIL(fail=%d)\n",
                 int(model.rowCount()), g_fail);

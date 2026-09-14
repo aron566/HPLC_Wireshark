@@ -50,7 +50,7 @@
 
 namespace {
 // 当前版本与仓库信息(更新检查地址见 config.ini [general] update_url)
-const QString kAppVersion = QStringLiteral("1.0.18");
+const QString kAppVersion = QStringLiteral("1.0.19");
 const QString kModuleName = QStringLiteral("BPLC STA Monitor");
 const QString kAuthorName = QStringLiteral("aron566");
 const QString kAuthorEmail = QStringLiteral("aron566@163.com");
@@ -566,6 +566,7 @@ PacketEntry MainWindow::make_entry(const BplcParser::Result& r, qint64 now) {
     e.beacon    = r.beacon;  // BEACON 载荷区字段树(BEACON 帧时非空)
     e.msdu_raw_base = r.msdu_raw_base;
     e.raw_bytes = r.payload_for_log;
+    e.search_text = make_search_text(e);   // 缓存可搜索全文,过滤匹配复用
     return e;
 }
 

@@ -87,6 +87,7 @@ private:
     quint32      m_last_hex_ts;   ///< 裸 hex 上一帧 ts4(段内差分)
     qint64       m_last_hex_ft;   ///< 裸 hex 上一帧 frame_time
     qint64       m_last_local_ms; ///< 实时串口上一帧本地接收时刻(断段判断)
+    bool         m_pending_seg_start; ///< 实时串口新采集段首帧待标 seg_start(停止→恢复/首帧)
     qint64       m_file_size;     ///< 回放文件总大小(字节,算进度用)
     int          m_last_progress; ///< 上次上报的进度百分比(节流,避免重复刷)
     ReaderConfig m_cfg;

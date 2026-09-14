@@ -14,7 +14,7 @@ ReaderWorker::ReaderWorker(QObject* parent) : QObject(parent),
     m_get3c(false), m_frame_rx_us(0), m_playback_base_ms(-1), m_first_frame(false),
     m_last_ntb(0), m_last_ft(0), m_running(false), m_raw_base_ms(-1),
     m_hex_seg_first(false), m_last_hex_ts(0), m_last_hex_ft(0),
-    m_last_local_ms(0), m_file_size(0), m_last_progress(-1) {}
+    m_last_local_ms(0), m_pending_seg_start(false), m_file_size(0), m_last_progress(-1) {}
 
 ReaderWorker::~ReaderWorker() {
     stop_reading();
@@ -26,6 +26,7 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
     m_in_buf.clear();
     m_get3c = false;
     m_last_local_ms = 0;   // 每次启动重置断段判断基准
+    m_pending_seg_start = true;   // 新采集段首帧标 seg_start(含停止→恢复)
 
     if (cfg.mode == ReaderMode::SerialPort) {
         m_serial = new QSerialPort(this);
@@ -250,10 +251,29 @@ void ReaderWorker::try_extract_frame() {
             const qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
             bf.arrival_ms = now_ms;
             if (m_cfg.mode == ReaderMode::SerialPort) {
-                if (m_last_local_ms != 0
-                    && now_ms - m_last_local_ms > playback::kMaxLocalGapMs)
-                    bf.meta.seg_start = true;   // 长时间无报文 → 断段
+                // 帧内 NTB(实时串口也读取,用于 NTB 差 vs 本地时间差一致性判段)
+                const quint32 ntb = (unesc.size() >= 6)
+                    ? (quint32)(quint8)unesc[2] | ((quint32)(quint8)unesc[3] << 8)
+                      | ((quint32)(quint8)unesc[4] << 16) | ((quint32)(quint8)unesc[5] << 24)
+                    : 0;
+                if (m_pending_seg_start) {          // 新采集段首帧(停止→恢复/首帧)
+                    bf.meta.seg_start = true;
+                    m_pending_seg_start = false;
+                } else if (m_last_local_ms != 0) {
+                    const qint64 local_delta_ms = now_ms - m_last_local_ms;
+                    if (local_delta_ms > playback::kMaxLocalGapMs) {
+                        bf.meta.seg_start = true;   // 长时间无报文 → 断段
+                    } else {
+                        // NTB 差 vs 本地时间差一致性:两者差 ≥3s 视为断段
+                        // (设备 NTB 回绕/跳变,而本地接收时间仍连续时)
+                        const qint64 ntb_delta_ms =
+                            (qint64)(qint32)(ntb - m_last_ntb) * 40 / 1000000;  // tick→ms
+                        if (qAbs(local_delta_ms - ntb_delta_ms) >= 3000)
+                            bf.meta.seg_start = true;
+                    }
+                }
                 m_last_local_ms = now_ms;
+                m_last_ntb = ntb;
             }
         }
         bf.arrival_us = m_frame_rx_us;   // 0x3C 起始高精度接收时刻(实时)

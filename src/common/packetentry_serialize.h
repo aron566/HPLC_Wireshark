@@ -204,6 +204,9 @@ inline void write_msdu_info(QDataStream& s, const MsduInfo& m) {
     write_i32(s, m.msdu_src_tei);
     write_i32(s, m.msdu_dst_tei);
     write_i32(s, m.msdu_send_type);
+    s << m.msdu_src_mac;   // quint64(48-bit MAC)
+    s << m.msdu_dst_mac;
+    s << m.sta_mac;
     write_i32(s, m.total_len);
     write_str(s, m.summary);
     write_u32(s, quint32(m.tree.size()));
@@ -219,6 +222,9 @@ inline void read_msdu_info(QDataStream& s, MsduInfo& m) {
     read_i32(s, m.msdu_src_tei);
     read_i32(s, m.msdu_dst_tei);
     read_i32(s, m.msdu_send_type);
+    s >> m.msdu_src_mac;
+    s >> m.msdu_dst_mac;
+    s >> m.sta_mac;
     read_i32(s, m.total_len);
     read_str(s, m.summary);
     quint32 cnt = 0; read_u32(s, cnt);
@@ -250,6 +256,7 @@ inline QByteArray serialize_entry(const PacketEntry& e) {
     write_msdu_info(s, e.beacon);
     write_i32(s, e.msdu_raw_base);
     write_bytes(s, e.raw_bytes);
+    write_str(s, e.search_text);
     return buf;
 }
 
@@ -269,6 +276,7 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e) {
     read_msdu_info(s, e.beacon);
     read_i32(s, e.msdu_raw_base);
     read_bytes(s, e.raw_bytes);
+    read_str(s, e.search_text);
     return s.status() == QDataStream::Ok;
 }
 

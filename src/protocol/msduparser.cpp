@@ -732,6 +732,8 @@ MsduInfo MsduParser::parse(const QByteArray& body) {
                 // 固定区(0..23)→ 厂家自定义信息(24-41)→ 站点版本信息
                 // (42-51,组)→ 复位计数/代理类型/端到端序号(52..60)→ 管理ID
                 add_fields(root.children, b, 0, kAssocReqSpec, kAssocReqSpecN, head_size + 4);
+                // STAMACAddr(0,0,48):关联请求源 TEI 未知(0)时,供 Source 列显示 STA-X [MAC]
+                out.sta_mac = get_bits(b, 0, 0, 48);
                 MsduFieldNode mn;
                 mn.name  = QStringLiteral("ManufacturerInfo [144b]");
                 mn.value = bytes_hex(b, 24, 18);
