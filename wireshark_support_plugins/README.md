@@ -71,7 +71,7 @@ dissector 加载时读取该文件决定字段名。
 | 无线发现列表（表123-137，TLV） | ✅ 完整 |
 | 源/目的地址列（Source/Destination） | ✅ 完整 |
 | 中英双语显示 | ✅ 完整 |
-| ICV / FCCS / BPCS CRC 校验 | ❌ 仅显示原始值，未做校验判断 |
+| ICV / FCCS / BPCS CRC 校验 | ✅ 完整(原始值 + 计算值 + 校验通过标志) |
 
 ## 关键实现约定（字节序）
 
@@ -90,6 +90,6 @@ dissector 加载时读取该文件决定字段名。
 
 脚本不依赖 bit/bit32 库，不用原生 `&` 运算符（纯算术 `band`），兼容标准 Wireshark 和定制版（WiresharkRenesas 等）。
 
-## 下一步（可选）
+## 下一步(可选)
 
-- 补 ICV CRC32 / FCCS CRC24 / BPCS CRC32 校验判断（算法在 BPLC_STA 监控器现成，可移植）
+(暂无——ICV/FCCS/BPCS CRC 校验已实现)

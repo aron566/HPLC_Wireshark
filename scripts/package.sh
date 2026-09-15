@@ -19,6 +19,10 @@ windeployqt --release --no-translations --no-system-d3d-compiler \
     release/BPLC_STA_Monitor.exe
 # 防本机 config.ini 被打包:用户配置文件永不属于安装包(升级时旧配置保留)
 rm -f release/config.ini
+# 附 Wireshark 解析插件(方便用户配合 Wireshark 用)
+mkdir -p release/wireshark_support_plugins
+cp -r wireshark_support_plugins/. release/wireshark_support_plugins/
+rm -f release/wireshark_support_plugins/*.c   # 排除已落后的 C 版(README 标注勿用)
 
 echo "== 3/3 NSIS 打包"
 mkdir -p dist

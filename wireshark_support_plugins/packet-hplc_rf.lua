@@ -15,7 +15,7 @@
       - SOF 帧: 物理块 + MAC帧 + 管理消息 (5.1.1/5.1.3)[完整]
       - SACK / 网间协调帧 (5.1.2)                     [完整]
       - 单跳帧 + 无线发现列表 (5.1.1.4/5.1.3.23)      [完整]
-      - ICV / BPCS / FCCS CRC 字段                     [显示原始值]
+      - ICV / BPCS / FCCS CRC 校验                     [完整:原始值+计算值+校验通过标志]
 
     使用:
       tshark -r capture.pcap -X lua_script:packet-hplc_rf.lua -V
