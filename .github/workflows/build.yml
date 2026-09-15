@@ -1,0 +1,65 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:   # 手动触发(便于调试,不建 release 时可选)
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 解析并校验版本号
+        id: ver
+        shell: bash
+        run: |
+          V="${GITHUB_REF#refs/tags/v}"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          PRO_VER=$(grep -oP '^VERSION\s*=\s*\K[0-9.]+' BPLC_STA_Monitor.pro)
+          if [ "$PRO_VER" != "$V" ]; then
+            echo "::error::tag v$V 与 .pro VERSION=$PRO_VER 不一致,请先改版本号再打 tag"
+            exit 1
+          fi
+          echo "版本 v$V 与仓库一致,校验通过"
+
+      - name: 安装 Qt 6.10.1 + MinGW 13.1.0
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.10.1'
+          arch: 'win64_mingw'
+          tools: 'tools_mingw1310'
+          cache: true
+
+      - name: 安装 NSIS
+        shell: bash
+        run: |
+          choco install nsis -y --no-progress
+
+      - name: 构建 + 打包
+        shell: bash
+        run: bash scripts/package_ci.sh "${{ steps.ver.outputs.version }}"
+
+      - name: 提取 changelog 作为发布说明
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          d = json.load(open('update.json', encoding='utf-8'))
+          body = d['updates']['windows']['changelog'].replace('<br/>', '\n')
+          open('release_body.md', 'w', encoding='utf-8').write(body)
+          PY
+
+      - name: 建 Release + 传 asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: release_body.md
+          files: dist/BPLC_STA_Monitor_Setup_v*.exe
