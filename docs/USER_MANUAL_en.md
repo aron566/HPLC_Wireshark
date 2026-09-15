@@ -1,6 +1,6 @@
 # BPLC STA Monitor User Manual
 
-Applies to: `v1.0.15`  
+Applies to: `v1.0.20`  
 Platform: Windows
 
 ## 1. Overview

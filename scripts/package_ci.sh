@@ -23,6 +23,10 @@ rm -f release/wireshark_support_plugins/*.c   # 排除已落后的 C 版(README 
 # 中英文使用说明 md → pdf 附带
 bash scripts/md2pdf.sh wireshark_support_plugins/README.md    "release/wireshark_support_plugins/Wireshark插件使用说明.pdf"
 bash scripts/md2pdf.sh wireshark_support_plugins/README_EN.md "release/wireshark_support_plugins/Wireshark_Plugin_Manual_EN.pdf"
+# 本软件使用说明书(中英文)md → pdf 附带
+mkdir -p release/docs
+bash scripts/md2pdf.sh docs/USER_MANUAL_zh-CN.md "release/docs/BPLC_STA_Monitor使用说明书.pdf"
+bash scripts/md2pdf.sh docs/USER_MANUAL_en.md    "release/docs/BPLC_STA_Monitor_User_Manual_EN.pdf"
 
 echo "== 3/3 NSIS 打包"
 mkdir -p dist
