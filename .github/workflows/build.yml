@@ -63,7 +63,7 @@ jobs:
           cd samples/roundtrip
           qmake roundtrip.pro
           mingw32-make -j4
-          ./release/roundtrip.exe roundtrip_test.bin
+          ./release/roundtrip.exe roundtrip_test.bin roundtrip_test.txt
 
       - name: 构建 + 打包
         shell: bash

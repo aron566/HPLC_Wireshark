@@ -183,25 +183,17 @@ static QVector<PacketEntry> parse_rawhex(const QByteArray& data) {
 }
 
 int main(int argc, char* argv[]) {
-    if (argc < 2) { std::printf("usage: roundtrip <bin> [txt_out]\n"); return 2; }
-    QFile fbin(QString::fromLocal8Bit(argv[1]));
-    if (!fbin.open(QIODevice::ReadOnly)) { std::printf("open bin fail\n"); return 2; }
-    const QByteArray src_bin = fbin.readAll();
-    fbin.close();
-    const QString txt_path = argc >= 3 ? QString::fromLocal8Bit(argv[2])
-                                       : QString::fromLocal8Bit(argv[1]) + ".txt";
-
+    if (argc < 3) { std::printf("usage: roundtrip <bin> <txt>\n"); return 2; }
     int fails = 0;
 
     // ---- 正向: bin → 裸hex → bin,比对 == 源 bin ----
-    const QVector<PacketEntry> e1 = parse_bin(src_bin);
-    const QByteArray txt = playback::build_raw_hex_text(e1);
-    // 把导出的裸hex落到 txt 文件(作为反向源样本)
     {
-        QFile fo(txt_path);
-        if (fo.open(QIODevice::WriteOnly)) { fo.write(txt); fo.close(); }
-    }
-    {
+        QFile fbin(QString::fromLocal8Bit(argv[1]));
+        if (!fbin.open(QIODevice::ReadOnly)) { std::printf("open bin fail\n"); return 2; }
+        const QByteArray src_bin = fbin.readAll();
+        fbin.close();
+        const QVector<PacketEntry> e1 = parse_bin(src_bin);
+        const QByteArray txt = playback::build_raw_hex_text(e1);
         const QVector<PacketEntry> e2 = parse_rawhex(txt);
         const QByteArray bin2 = playback::build_playback_bin(e2);
         const bool ok = (bin2 == src_bin);
@@ -212,31 +204,35 @@ int main(int argc, char* argv[]) {
             ++fails;
             const int n = qMin(bin2.size(), src_bin.size());
             for (int i = 0; i < n; ++i)
-                if (bin2[i] != src_bin[i]) { std::printf("  首差异 @%d\n", i); break; }
+                if (bin2[i] != src_bin[i]) {
+                    std::printf("  首差异 @%d (bin2=%02x src=%02x)\n",
+                                i, (quint8)bin2[i], (quint8)src_bin[i]); break;
+                }
         }
     }
 
     // ---- 反向: 裸hex → bin → 裸hex,比对 == 源裸hex ----
-    QFile ftxt(txt_path);
-    if (!ftxt.open(QIODevice::ReadOnly)) {
-        std::printf("反向: 无法打开 %s\n", txt_path.toLocal8Bit().constData());
-        ++fails;
-    } else {
+    {
+        QFile ftxt(QString::fromLocal8Bit(argv[2]));
+        if (!ftxt.open(QIODevice::ReadOnly)) { std::printf("open txt fail\n"); return 2; }
         const QByteArray src_txt = ftxt.readAll();
         ftxt.close();
-        const QVector<PacketEntry> e3 = parse_rawhex(src_txt);
-        const QByteArray bin = playback::build_playback_bin(e3);
-        const QVector<PacketEntry> e4 = parse_bin(bin);
-        const QByteArray txt2 = playback::build_raw_hex_text(e4);
+        const QVector<PacketEntry> e1 = parse_rawhex(src_txt);
+        const QByteArray bin = playback::build_playback_bin(e1);
+        const QVector<PacketEntry> e2 = parse_bin(bin);
+        const QByteArray txt2 = playback::build_raw_hex_text(e2);
         const bool ok = (txt2 == src_txt);
         std::printf("反向 裸hex→bin→裸hex: 帧 %d,bin %d B,裸hex %d B vs 源 %d B → %s\n",
-                    int(e3.size()), bin.size(), txt2.size(), src_txt.size(),
+                    int(e1.size()), bin.size(), txt2.size(), src_txt.size(),
                     ok ? "一致" : "不一致");
         if (!ok) {
             ++fails;
             const int n = qMin(txt2.size(), src_txt.size());
             for (int i = 0; i < n; ++i)
-                if (txt2[i] != src_txt[i]) { std::printf("  首差异 @%d\n", i); break; }
+                if (txt2[i] != src_txt[i]) {
+                    std::printf("  首差异 @%d (txt2=%02x src=%02x)\n",
+                                i, (quint8)txt2[i], (quint8)src_txt[i]); break;
+                }
         }
     }
 
