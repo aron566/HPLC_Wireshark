@@ -215,8 +215,13 @@ int main(int argc, char* argv[]) {
     {
         QFile ftxt(QString::fromLocal8Bit(argv[2]));
         if (!ftxt.open(QIODevice::ReadOnly)) { std::printf("open txt fail\n"); return 2; }
-        const QByteArray src_txt = ftxt.readAll();
+        const QByteArray src_txt_raw = ftxt.readAll();
         ftxt.close();
+        // 规范化换行:git autocrlf 可能把仓库里的 txt 检出成 CRLF,
+        // 统一转 LF 再比对,避免 CRLF/LF 差异造成假失败
+        QByteArray src_txt = src_txt_raw;
+        src_txt.replace("\r\n", "\n");
+        src_txt.replace('\r', '\n');
         const QVector<PacketEntry> e1 = parse_rawhex(src_txt);
         const QByteArray bin = playback::build_playback_bin(e1);
         const QVector<PacketEntry> e2 = parse_bin(bin);
