@@ -51,6 +51,7 @@ jobs:
           version: '6.10.1'
           arch: 'win64_mingw'
           tools: 'tools_mingw1310'
+          modules: 'qtserialport'
           cache: true
 
       - name: 安装 NSIS
