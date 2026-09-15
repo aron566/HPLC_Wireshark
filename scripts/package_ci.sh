@@ -19,6 +19,15 @@ rm -f release/config.ini
 
 echo "== 3/3 NSIS 打包"
 mkdir -p dist
+# makensis:choco 装到 'C:\Program Files (x86)\NSIS' 但未必进当前 shell 的 PATH,
+# 显式探测补 PATH(本地 tools/nsis-3.09 不在此列,仍由本地 package.sh 处理)
+if ! command -v makensis >/dev/null 2>&1; then
+    if [ -x "/c/Program Files (x86)/NSIS/makensis.exe" ]; then
+        export PATH="/c/Program Files (x86)/NSIS:$PATH"
+    elif [ -x "/c/Program Files/NSIS/makensis.exe" ]; then
+        export PATH="/c/Program Files/NSIS:$PATH"
+    fi
+fi
 SRCWIN=$(cygpath -w "$PWD/release")
 makensis -DVERSION="$VER" "-DSRC=$SRCWIN" scripts/installer.nsi
 ls -la "dist/BPLC_STA_Monitor_Setup_v${VER}.exe"
