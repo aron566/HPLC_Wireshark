@@ -1,9 +1,9 @@
 {
   "updates": {
     "windows": {
-      "latest-version": "1.0.20",
-      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.20/BPLC_STA_Monitor_Setup_v1.0.20.exe",
-      "changelog": "测试 GitHub Actions 自动构建流程(round-trip 无损验证 + NSIS 打包 + Release 发布)",
+      "latest-version": "1.0.19",
+      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.19/BPLC_STA_Monitor_Setup_v1.0.19.exe",
+      "changelog": "Source/Dest/Orig Src/Orig Dst 列 MAC 地址显示规则统一(MACAddrFlag=1 用帧内扩展 MAC,否则查 TEI→MAC 映射表;广播特殊处理;关联请求未知 TEI 显示 STA-X [MAC]);<br/>过滤性能优化:搜索全文预计算缓存 + 批量遍历 + 异步线程,数据量大时过滤不再卡界面;<br/>导出断段时间戳修复:停止→恢复首帧与设备 NTB 回绕(本地时间差 vs NTB 差≥3s)正确标段写时间戳;<br/>修复清空过滤/重新采集时过滤状态卡死导致新帧不再上屏的问题",
       "mandatory-update": false
     }
   }
