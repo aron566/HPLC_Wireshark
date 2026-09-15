@@ -54,9 +54,11 @@ jobs:
           modules: 'qtserialport'
           cache: true
 
-      - name: 安装 NSIS
+      - name: 安装 NSIS + pandoc
         shell: bash
-        run: choco install nsis -y --no-progress
+        run: |
+          choco install nsis -y --no-progress
+          choco install pandoc -y --no-progress
 
       - name: round-trip 无损验证(bin↔裸hex 往返一致)
         shell: bash
