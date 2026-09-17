@@ -50,7 +50,7 @@
 
 namespace {
 // 当前版本与仓库信息(更新检查地址见 config.ini [general] update_url)
-const QString kAppVersion = QStringLiteral("1.0.20");
+const QString kAppVersion = QStringLiteral("1.0.21");
 const QString kModuleName = QStringLiteral("BPLC STA Monitor");
 const QString kAuthorName = QStringLiteral("aron566");
 const QString kAuthorEmail = QStringLiteral("aron566@163.com");
@@ -69,7 +69,7 @@ MainWindow::MainWindow(QWidget* parent)
       m_flush_timer(nullptr), m_status_timer(nullptr),
       m_paused(false), m_exporting(false),
       m_follow_bottom(true),
-      m_last_epoch_ms(0), m_last_rx_us(0),
+      m_last_ntb(0),
       m_index_counter(0) {
     qRegisterMetaType<BplcParser::Result>("BplcParser::Result");
     qRegisterMetaType<BplcFrame>("BplcFrame");
@@ -419,8 +419,7 @@ void MainWindow::on_pause() {
 void MainWindow::on_clear() {
     m_model->clear_all();
     m_index_counter = 0;
-    m_last_epoch_ms = 0;
-    m_last_rx_us = 0;
+    m_last_ntb = 0;
     {
         QMutexLocker lock(&m_pending_mutex);
         m_pending.clear();
@@ -538,26 +537,20 @@ PacketEntry MainWindow::make_entry(const BplcParser::Result& r, qint64 now) {
     e.epoch_ms  = t;
     e.accepted  = r.accept;     // 先落 accepted,Delta/last 追踪依赖它
     e.reason    = r.reject_reason;
-    // Delta:不用 NTB(各设备 tick 不同轴,实测不可比)。实时串口帧在
-    // 收到起始分节符 0x3C 的当下打单调 µs 时刻 → 接收时刻差(µs 分辨);
-    // 文件回放/无高精度打点(0x3C 未逐帧记录)时用帧时间戳 epoch ms 差
-    const qint64 ms_fallback = (m_last_epoch_ms == 0)
-                                   ? 0 : (t - m_last_epoch_ms) * 1000;
+    // Delta:统一用帧内 NTB 差(tick × 40ns),实时串口与回放 bin 一致。
+    // 本地接收时间(0x3C 打点 arrival_us)只作 serialreader 断段(seg_start)
+    // 判断参考,不参与 Delta 计算。
+    const quint32 ntb = r.meta.timestamp;   // NTB tick(实时/回放统一)
     if (r.meta.seg_start) {
-        e.delta_us = 0;                            // 跨段断点:不计算与上一帧 delta
-    } else if (r.arrival_us > 0 && m_last_rx_us > 0) {
-        const qint64 d = r.arrival_us - m_last_rx_us;
-        if (d > 0 && d <= playback::ntb_to_us(playback::kMaxNtbGapTicks))
-            e.delta_us = d;                       // 正常接收间隔
-        else if (d > 0)
-            e.delta_us = 0;                       // 长时间无报文:不计算与上一帧 delta
-        else
-            e.delta_us = ms_fallback;
+        e.delta_us = 0;                     // 跨段断点:不计算与上一帧 delta
     } else {
-        e.delta_us = ms_fallback;
+        const qint64 dn = (qint32)(ntb - m_last_ntb);   // u32 回绕安全
+        if (dn > 0 && dn <= playback::kMaxNtbGapTicks)
+            e.delta_us = playback::ntb_to_us(quint32(dn));  // tick→µs
+        else
+            e.delta_us = 0;                 // NTB 异常(回绕/跳变):不计算
     }
-    if (r.arrival_us > 0) m_last_rx_us = r.arrival_us;
-    m_last_epoch_ms = t;
+    m_last_ntb = ntb;
     e.meta      = r.meta;
     e.mpdu      = r.mpdu;
     e.msdu_body = r.msdu_body;
