@@ -12,6 +12,7 @@
 #include <QTimer>
 #include <QString>
 #include <QMetaType>
+#include <atomic>
 
 #include "ringbuffer.h"
 #include "bplcframe.h"
@@ -48,6 +49,10 @@ public:
     explicit ReaderWorker(QObject* parent = nullptr);
     ~ReaderWorker() override;
 
+    /// @brief 立即请求中止文件/裸 hex 回放(原子标志,线程安全);
+    ///        供 GUI 线程在 stop() 时直接调用,无需等待事件循环。
+    void abort();
+
 public slots:
     void start_reading(const ReaderConfig& cfg);
     void stop_reading();
@@ -82,6 +87,7 @@ private:
     quint32      m_last_ntb;      ///< 上一帧帧内 NTB(回放时间轴 tick 差)
     qint64       m_last_ft;       ///< 上一帧 frame_time(回放时间轴基准)
     bool         m_running;
+    std::atomic<bool> m_abort;   ///< 中止回放标志(GUI 线程 stop() 直接置位,while 循环检查)
     qint64       m_raw_base_ms;   ///< 裸 hex 文本首帧时间(epoch ms;-1=未给出,回退本地)
     bool         m_hex_seg_first; ///< 裸 hex 当前段首帧标志(段首用 TIME 头时间)
     quint32      m_last_hex_ts;   ///< 裸 hex 上一帧 ts4(段内差分)

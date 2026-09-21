@@ -12,7 +12,7 @@
 ReaderWorker::ReaderWorker(QObject* parent) : QObject(parent),
     m_serial(nullptr), m_file(nullptr),
     m_get3c(false), m_frame_rx_us(0), m_playback_base_ms(-1), m_first_frame(false),
-    m_last_ntb(0), m_last_ft(0), m_running(false), m_raw_base_ms(-1),
+    m_last_ntb(0), m_last_ft(0), m_running(false), m_abort(false), m_raw_base_ms(-1),
     m_hex_seg_first(false), m_last_hex_ts(0), m_last_hex_ft(0),
     m_last_local_ms(0), m_pending_seg_start(false), m_file_size(0), m_last_progress(-1) {}
 
@@ -20,9 +20,14 @@ ReaderWorker::~ReaderWorker() {
     stop_reading();
 }
 
+void ReaderWorker::abort() {
+    m_abort.store(true);
+}
+
 void ReaderWorker::start_reading(const ReaderConfig& cfg) {
     if (m_running) stop_reading();
     m_cfg = cfg;
+    m_abort.store(false);
     m_in_buf.clear();
     m_get3c = false;
     m_last_local_ms = 0;   // 每次启动重置断段判断基准
@@ -61,6 +66,7 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
         emit status_message(trl::L("文件回放: %1").arg(cfg.file_path));
         // 一次性读完整文件(不用 timer,快速回放);每块 1MB,切帧即时 emit
         while (!m_file->atEnd()) {
+            if (m_abort.load()) break;   // 立即响应 stop()(切协议重建等)
             QByteArray chunk = m_file->read(1024 * 1024);
             if (chunk.isEmpty()) break;
             m_in_buf.append(chunk);
@@ -88,6 +94,7 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
         emit status_message(trl::L("裸 hex 模式: %1").arg(cfg.file_path));
         m_raw_base_ms = -1;   // 未给出时间头 → 回退本地时间
         while (!m_file->atEnd()) {
+            if (m_abort.load()) break;   // 立即响应 stop()
             QByteArray line = m_file->readLine().trimmed();
             if (line.isEmpty()) continue;
             // 时间头行(首帧时间文本,如 TIME: 2026-09-07 18:43:00.123)
@@ -105,6 +112,7 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
 
 void ReaderWorker::stop_reading() {
     m_running = false;
+    m_abort.store(true);
     if (m_serial)   { m_serial->close(); m_serial->deleteLater(); m_serial = nullptr; }
     if (m_file)     { m_file->close(); m_file->deleteLater(); m_file = nullptr; }
     emit finished();
@@ -430,7 +438,10 @@ bool SerialReader::start(const ReaderConfig& cfg) {
 }
 
 void SerialReader::stop() {
-    emit request_stop();
+    // 立即置中止标志(GUI 线程直调,无需等待 worker 事件循环):
+    // 文件/裸 hex 回放是同步 while 循环,必须靠原子标志打断,否则停不住。
+    if (m_worker) m_worker->abort();
+    emit request_stop();   // 异步清理资源(close 文件/串口)
 }
 
 void SerialReader::on_frame(BplcFrame f) { emit frame_ready(f); }
