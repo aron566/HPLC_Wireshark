@@ -325,11 +325,11 @@ static const FieldSpec kMMeConvergenceDataReportSpec[] = {
     { "RSV", 0, 12, 4, Fmt::HEX4 },
     { "PackIndex", 2, 0, 8, Fmt::DEC },
     { "PackCount", 3, 0, 8, Fmt::DEC },
-    { "SourceAddr", 0, 0, 48, Fmt::MAC },
-    { "DestinationAddr", 6, 0, 48, Fmt::MAC },
-    { "RSV0", 12, 0, 8, Fmt::HEX4 },
-    { "BusCode", 13, 0, 8, Fmt::DEC },
-    { "ForwardDataLen", 14, 0, 16, Fmt::DEC },
+    { "SourceAddr", 4, 0, 48, Fmt::MAC },
+    { "DestinationAddr", 10, 0, 48, Fmt::MAC },
+    { "RSV0", 16, 0, 8, Fmt::HEX4 },
+    { "BusCode", 17, 0, 8, Fmt::DEC },
+    { "ForwardDataLen", 18, 0, 16, Fmt::DEC },
 };
 static const int kMMeConvergenceDataReportSpecN = int(sizeof(kMMeConvergenceDataReportSpec)/sizeof(kMMeConvergenceDataReportSpec[0]));
 
@@ -762,7 +762,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         case MME_ASSOCGATHERIND: {
             add_fields(out.tree, mme, 6, kMMeAssocGatherIndSpec, kMMeAssocGatherIndSpecN);
             const quint8 sta_num = (quint8)get_bits(mme, 17, 0, 8);
-            int off = 28;
+            int off = 34;  // 消息体 byte 28(MMeHeadSize 6 + 28),RSV0(15B) 之后
             for (int i = 0; i < sta_num && off + 8 <= mme.size(); ++i) {
                 MsduFieldNode& n = group(out.tree, QStringLiteral("NewSTA[%1]").arg(i));
                 n.rel_start = off; n.rel_len = 8;
@@ -811,7 +811,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         case MME_DELAYLEAVEIND: {
             add_fields(out.tree, mme, 6, kMMeDelayLeaveIndSpec, kMMeDelayLeaveIndSpecN);
             const quint16 sta_num = (quint16)get_bits(mme, 8, 0, 16);
-            int off = 16;
+            int off = 22;  // 消息体 byte 16(MMeHeadSize 6 + 16),RSV0(10B) 之后
             for (int i = 0; i < sta_num && off + 6 <= mme.size(); ++i) {
                 MsduFieldNode& n = group(out.tree, QStringLiteral("LeaveSTA[%1]").arg(i),
                     mac_str(get_bits(mme, off, 0, 48)));
