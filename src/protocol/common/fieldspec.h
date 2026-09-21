@@ -1,48 +1,16 @@
 /// @file fieldspec.h
 /// @brief 字段树构建公共工具(各帧解析模块共用)
-/// @details 位域取值/字段说明表(FieldSpec)/字段节点树(add_fields/group)/
-///          单位注释/CRC32 校验。从原 msduparser.cpp 匿名工具区提取为
-///          公共 inline 头,供 msduparser / beaconparser 等帧解析模块使用。
+/// @details 字段说明表(FieldSpec)/字段节点树(add_fields/group)/单位注释。
+///          位域取值/格式化见 fieldtools.h,CRC 见 crc.h(已抽取,勿在本文件重复定义)。
 /// @note 头文件常驻 inline,无 .cpp;改动本文件后依赖模块需重编。
 #ifndef FIELDSPEC_H
 #define FIELDSPEC_H
 
 #include "bplcframe.h"
+#include "fieldtools.h"
 #include <QByteArray>
 #include <QString>
 #include <QVector>
-
-/// 取位域值(LSB 位序,与 Python BitDefine 一致)
-inline quint64 get_bits(const quint8* d, int start_byte, int start_bit, int bit_len) {
-    quint64 v = 0;
-    int total = start_byte * 8 + start_bit;
-    for (int i = 0; i < bit_len; ++i) {
-        int byte = (total + i) / 8;
-        int bit  = (total + i) % 8;
-        if ((d[byte] >> bit) & 1) v |= (1ULL << i);
-    }
-    return v;
-}
-
-inline quint64 get_bits(const QByteArray& d, int start_byte, int start_bit, int bit_len) {
-    return get_bits(reinterpret_cast<const quint8*>(d.constData()),
-                    start_byte, start_bit, bit_len);
-}
-
-inline QString hex6(quint64 v)  { return QString("0x%1").arg(v, 6, 16, QChar('0')); }
-inline QString hex8(quint64 v)  { return QString("0x%1").arg(v, 8, 16, QChar('0')); }
-inline QString hex12(quint64 v) { return QString("0x%1").arg(v, 12, 16, QChar('0')); }
-inline QString hex4(quint64 v)  { return QString("0x%1").arg(v, 4, 16, QChar('0')); }
-
-/// 48-bit MAC:帧内原始字节序显示
-inline QString mac_str(quint64 v) {
-    QString s;
-    for (int i = 0; i < 6; ++i) {
-        s += QString("%1").arg((v >> (8 * i)) & 0xFF, 2, 16, QChar('0'));
-        if (i < 5) s += ':';
-    }
-    return s;
-}
 
 /// 一个位域字段说明:名 / 相对字节 / 位偏移 / 位长 / 格式化
 enum class Fmt { DEC, HEX6, HEX8, HEX12, HEX4, MAC, BOOL_Y };
@@ -105,38 +73,6 @@ inline void annotate_unit(QVector<MsduFieldNode>& nodes, const char* field,
                    : (n.name == QLatin1String(field)))
             n.value += unit;
     }
-}
-
-/// 通用 CRC32(poly=0xEDB88320, init=0xFFFFFFFF, LSB 先行, 末取反);
-/// 遍历前 len-4 字节,存储值为末 4B(小端)——MSDU/信标载荷 CRC32 同算法
-inline quint32 crc32_le(const quint8* d, int len) {
-    const quint32 poly = 0xEDB88320;
-    quint32 crc = 0xFFFFFFFF;
-    for (int i = 0; i < len - 4; ++i) {
-        for (int j = 0; j < 8; ++j) {
-            quint32 bit_in  = (d[i] >> j) & 0x1;
-            quint32 bit_lsb = crc & 0x1;
-            crc >>= 1;
-            if (bit_in ^ bit_lsb) crc ^= poly;
-        }
-    }
-    return (~crc) & 0xFFFFFFFF;
-}
-
-/// 通用 CRC24(poly=0xC60001, init=0, LSB 先行);遍历前 len-3 字节,
-/// 存储值为末 3B(低字节在前)——FCH/PB 物理块检查序列同算法
-inline quint32 crc24_lsb(const quint8* d, int len) {
-    const quint32 poly = 0xC60001;
-    quint32 crc = 0;
-    for (int i = 0; i < len - 3; ++i) {
-        for (int j = 0; j < 8; ++j) {
-            quint32 bit_in  = (d[i] >> j) & 0x1;
-            quint32 bit_lsb = crc & 0x1;
-            crc >>= 1;
-            if (bit_in ^ bit_lsb) crc ^= poly;
-        }
-    }
-    return crc & 0xFFFFFF;
 }
 
 #endif // FIELDSPEC_H

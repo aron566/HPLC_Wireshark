@@ -7,13 +7,13 @@
 
 #include "bplcframe.h"
 
-namespace coordp {
+namespace gw_2022_coordp {
 
 /// @brief 解析 COORD 帧 FCH 字段(相对 FCH 起点)
 /// @param p  MPDU 数据指针(自 FrameType 起)
 /// @param m  [out] 填充 coord_* 字段
 void parse_fch(const quint8* p, MpduInfo& m);
 
-}  // namespace coordp
+}  // namespace gw_2022_coordp
 
 #endif // CORDPARSER_H

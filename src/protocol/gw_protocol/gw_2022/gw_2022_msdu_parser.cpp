@@ -2,8 +2,9 @@
 /// @brief MSDU 解析器实现
 /// @details 字段位域坐标与 Python MSDU_Class.py 的 BitDefine 定义一一对应。
 ///          解析 = 公共头(MSDU_BASE/MSDU_BASE_S) + 类型分支(MMe / APP)。
-#include "msduparser.h"
-#include "fieldspec.h"
+#include "gw_2022_msdu_parser.h"
+#include "common/fieldspec.h"
+#include "crc.h"
 #include "i18n.h"
 #include <QtEndian>
 #include <cstdint>
@@ -639,7 +640,7 @@ static const FieldSpec kMsduBaseSSpec[] = {
 static const int kMsduBaseSSpecN = int(sizeof(kMsduBaseSSpec) / sizeof(kMsduBaseSSpec[0]));
 
 // ================= 主解析 =================
-MsduInfo MsduParser::parse(const QByteArray& body) {
+MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
     MsduInfo out;
     out.present = false;
     out.simple_head = false;

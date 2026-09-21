@@ -1,18 +1,18 @@
 /// @file bplcparser.h
 /// @brief BPLC/HPLC+HRF 协议解析器头文件
-/// @details 提供 BplcParser 类,把一帧 BplcFrame 解码为 MPDU/MAC 字段,
+/// @details 提供 GW_2022_Parser 类,把一帧 BplcFrame 解码为 MPDU/MAC 字段,
 ///          并支持 SOF 多 PB 块的 MSDU 重组。
 #ifndef BPLCPARSER_H
 #define BPLCPARSER_H
 
 #include "bplcframe.h"
-#include "msduparser.h"
+#include "gw_2022_msdu_parser.h"
 #include <QObject>
 #include <functional>
 
 class Statistics;
 
-class BplcParser {
+class GW_2022_Parser {
 public:
     struct Result {
         PhysicalMeta meta;
@@ -53,7 +53,7 @@ public:
               tei_filter(false) {}
     };
 
-    BplcParser();
+    GW_2022_Parser();
 
     Result parse(const BplcFrame& in, MsduState& msdu, const Filter& f);
 
@@ -62,7 +62,7 @@ private:
     bool parse_mpdu_base(const QByteArray& body, MpduInfo& info, QString& err);
 };
 
-Q_DECLARE_METATYPE(BplcParser::Filter)
-Q_DECLARE_METATYPE(BplcParser::Result)
+Q_DECLARE_METATYPE(GW_2022_Parser::Filter)
+Q_DECLARE_METATYPE(GW_2022_Parser::Result)
 
 #endif // BPLCPARSER_H

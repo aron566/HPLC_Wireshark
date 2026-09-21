@@ -13,7 +13,7 @@
 #include "bplcframe.h"
 
 /// @brief MSDU 解析器(纯静态,无状态)
-class MsduParser {
+class GW_2022_MsduParser {
 public:
     /// @brief 解析完整 MSDU
     /// @param body  重组后的完整 MSDU(MSDU_BASE 起,含尾 CRC32)

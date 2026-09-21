@@ -7,7 +7,7 @@
 #include "hexview.h"
 #include "io/playbackwriter.h"
 #include "i18n.h"
-#include "bplcparser.h"
+#include "gw_2022_parser.h"
 #include "packetlistmodel.h"
 #include <QApplication>
 #include <QFile>
@@ -46,7 +46,7 @@ int main(int argc, char* argv[]) {
         "08001e0000014464518514ffffffffffff0800000003100012014464"
         "51851400002974775682185064020054013500010050efbe02013006");
 
-    // 构造 MSDU 解析结果(模拟真实 MsduParser 输出:MMeDiscoverNodeList)
+    // 构造 MSDU 解析结果(模拟真实 GW_2022_MsduParser 输出:MMeDiscoverNodeList)
     e.msdu.present = true;
     e.msdu.summary = QStringLiteral("MMeDiscoverNodeList");
     e.msdu_body = QByteArray(41, char(0));
@@ -167,7 +167,7 @@ int main(int argc, char* argv[]) {
     std::printf(ok ? "PASS\n" : "FAIL\n");
 
     // ---- 第二段:真实链路验证 ----
-    // 读 replay_test.bin,逐帧 BplcParser::parse,SOF 帧经 make_entry 同款
+    // 读 replay_test.bin,逐帧 GW_2022_Parser::parse,SOF 帧经 make_entry 同款
     // 拷贝(PacketEntry.msdu = r.msdu)后渲染,断言协议树出现 MSDU 字段。
     std::printf("\n--- 真实链路:replay_test.bin -> parse -> PacketEntry -> ProtocolTree ---\n");
     QFile f(QStringLiteral("D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/samples/replay_test.bin"));
@@ -175,9 +175,9 @@ int main(int argc, char* argv[]) {
     int msdu_hl_ok = -1;   // -1=未测 0=无高亮 1=高亮区间有效
     if (f.open(QIODevice::ReadOnly)) {
         QByteArray buf = f.readAll();
-        BplcParser parser;
+        GW_2022_Parser parser;
         MsduState  msdu_state;
-        BplcParser::Filter f0;
+        GW_2022_Parser::Filter f0;
         f0.allow_beacon = f0.allow_sof = f0.allow_ack = f0.allow_coord = true;
         f0.link_hplc = f0.link_hrf = true;
 
@@ -370,9 +370,9 @@ int main(int argc, char* argv[]) {
         QFile ff(QStringLiteral("D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/samples/replay_test.bin"));
         if (ff.open(QIODevice::ReadOnly)) {
             QByteArray buf = ff.readAll();
-            BplcParser parser;
+            GW_2022_Parser parser;
             MsduState  msdu_state;
-            BplcParser::Filter f0;
+            GW_2022_Parser::Filter f0;
             f0.allow_beacon = f0.allow_sof = f0.allow_ack = f0.allow_coord = true;
             f0.link_hplc = f0.link_hrf = true;
 
@@ -466,7 +466,7 @@ int main(int argc, char* argv[]) {
     std::printf("\n--- 多 PB 块重组验证 ---\n");
     bool multi_ok = true;
     {
-        // 与 BplcParser 内部同款 CRC24(0xC60001 poly,遍历 len-3)
+        // 与 GW_2022_Parser 内部同款 CRC24(0xC60001 poly,遍历 len-3)
         auto crc24 = [](const quint8* d, int len) -> quint32 {
             quint32 reg = 0;
             const quint32 poly = 0xC60001;
@@ -564,9 +564,9 @@ int main(int argc, char* argv[]) {
         body += mpdu;
         fr.data = body;
 
-        BplcParser parser;
+        GW_2022_Parser parser;
         MsduState  st;
-        BplcParser::Filter f0;
+        GW_2022_Parser::Filter f0;
         f0.allow_beacon = f0.allow_sof = f0.allow_ack = f0.allow_coord = true;
         f0.link_hplc = f0.link_hrf = true;
         auto rr = parser.parse(fr, st, f0);
@@ -627,7 +627,7 @@ int main(int argc, char* argv[]) {
             body2.append(char(0)); body2.append(char(0));
             body2 += mpdu2;
             fr2.data = body2;
-            BplcParser p2;
+            GW_2022_Parser p2;
             MsduState st2;
             auto r2 = p2.parse(fr2, st2, f0);
             // 乱序块被丢弃 → MSDU 未完成(不 present)
@@ -661,9 +661,9 @@ int main(int argc, char* argv[]) {
                     unesc.append(char(b));
                 }
             }
-            BplcParser parser;
+            GW_2022_Parser parser;
             MsduState  msdu_state;
-            BplcParser::Filter f0;
+            GW_2022_Parser::Filter f0;
             f0.allow_beacon = f0.allow_sof = f0.allow_ack = f0.allow_coord = true;
             f0.link_hplc = f0.link_hrf = true;
             BplcFrame fr;
@@ -770,9 +770,9 @@ int main(int argc, char* argv[]) {
         bool seq_ok = false;
         if (ff.open(QIODevice::ReadOnly)) {
             QByteArray buf = ff.readAll();
-            BplcParser parser;
+            GW_2022_Parser parser;
             MsduState  msdu_state;
-            BplcParser::Filter f0;
+            GW_2022_Parser::Filter f0;
             f0.allow_beacon = f0.allow_sof = f0.allow_ack = f0.allow_coord = true;
             f0.link_hplc = f0.link_hrf = true;
             BplcFrame fr;
@@ -897,9 +897,9 @@ int main(int argc, char* argv[]) {
                             un2.append(char(bb));
                         }
                     }
-                    BplcParser p6b;
+                    GW_2022_Parser p6b;
                     MsduState s6b;
-                    BplcParser::Filter f0b;
+                    GW_2022_Parser::Filter f0b;
                     f0b.allow_beacon = f0b.allow_sof = f0b.allow_ack = f0b.allow_coord = true;
                     f0b.link_hplc = f0b.link_hrf = true;
                     BplcFrame fr6;
@@ -979,9 +979,9 @@ int main(int argc, char* argv[]) {
         QFile ff(QStringLiteral("D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/samples/replay_test.bin"));
         if (ff.open(QIODevice::ReadOnly)) {
             QByteArray src = ff.readAll();
-            BplcParser parser;
+            GW_2022_Parser parser;
             MsduState  msdu_state;
-            BplcParser::Filter f0;
+            GW_2022_Parser::Filter f0;
             f0.allow_beacon = f0.allow_sof = f0.allow_ack = f0.allow_coord = true;
             f0.link_hplc = f0.link_hrf = true;
 
@@ -1022,7 +1022,7 @@ int main(int argc, char* argv[]) {
             std::printf("  源帧 %d,导出字节 %d\n", n_src, outbin.size());
 
             // 以与 SerialReader 相同方式重读导出文件
-            BplcParser parser2;
+            GW_2022_Parser parser2;
             MsduState  msdu_state2;
             int n_back = 0;
             int n_mismatch = 0;
@@ -1075,9 +1075,9 @@ int main(int argc, char* argv[]) {
         QFile fb(QStringLiteral("D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/samples/replay_test.bin"));
         if (fb.open(QIODevice::ReadOnly)) {
             QByteArray buf = fb.readAll();
-            BplcParser bp;
+            GW_2022_Parser bp;
             MsduState  bs;
-            BplcParser::Filter bf0;
+            GW_2022_Parser::Filter bf0;
             bf0.allow_beacon = bf0.allow_sof = bf0.allow_ack = bf0.allow_coord = true;
             bf0.link_hplc = bf0.link_hrf = true;
             int n_bcn = 0, n_pad = 0, n_zero = 0, n_crc_last = 0, n_pb24 = 0, n_pb24_ok = 0;

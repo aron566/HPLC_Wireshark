@@ -1,18 +1,20 @@
 /// @file bplcparser.cpp
-/// @brief BplcParser 实现(总控):物理头剥取 + FCH 公共头 + 帧分发
+/// @brief GW_2022_Parser 实现(总控):物理头剥取 + FCH 公共头 + 帧分发
 /// @details 各帧型字段/载荷解析委托给独立模块:
-///          BEACON -> BeaconParser(beacon/);SOF -> sof::assemble(sof/);
-///          ACK -> ackp::parse_fch(ack/);COORD -> coordp::parse_fch(coord/)。
+///          BEACON -> GW_2022_BeaconParser(beacon/);SOF -> gw_2022_sof::assemble(sof/);
+///          ACK -> gw_2022_ackp::parse_fch(ack/);COORD -> gw_2022_coordp::parse_fch(coord/)。
 ///          位域/CRC 公共工具见 fieldspec.h。
-#include "bplcparser.h"
+#include "gw_2022_parser.h"
+#include "gw_2022_pb_table.h"
 #include "i18n.h"
 #include "statistics.h"
-#include "msduparser.h"
-#include "beaconparser.h"
-#include "sofparser.h"
-#include "ackparser.h"
-#include "coordparser.h"
-#include "fieldspec.h"
+#include "gw_2022_msdu_parser.h"
+#include "gw_2022_beacon_parser.h"
+#include "gw_2022_sof_parser.h"
+#include "gw_2022_ack_parser.h"
+#include "gw_2022_coord_parser.h"
+#include "common/fieldspec.h"
+#include "crc.h"
 #include <QDateTime>
 #include <QtEndian>
 
@@ -24,10 +26,10 @@ int bcd2dec(quint8 b) {
 
 }  // namespace
 
-BplcParser::BplcParser() {}
+GW_2022_Parser::GW_2022_Parser() {}
 
 // 剥物理层头
-bool BplcParser::decode_envelope(const BplcFrame& in, Result& r) {
+bool GW_2022_Parser::decode_envelope(const BplcFrame& in, Result& r) {
     r.meta = in.meta;
     r.arrival_us = in.arrival_us;   // 实时串口帧起始 0x3C 高精度接收时刻
     r.raw_wire   = in.raw_wire;     // 原始串口帧原样(调试复制)
@@ -104,7 +106,7 @@ bool BplcParser::decode_envelope(const BplcFrame& in, Result& r) {
 }
 
 // MPDU_BASE 公共头(FCH 前 16B:类型/网络/版本/FCH CRC24)
-bool BplcParser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QString& err) {
+bool GW_2022_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QString& err) {
     if (body.size() < 16) { err = trl::L("MPDU_BASE 长度不足 16B"); return false; }
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
 
@@ -128,7 +130,7 @@ bool BplcParser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QString
 }
 
 // 主入口:帧分发
-BplcParser::Result BplcParser::parse(const BplcFrame& in, MsduState& msdu, const Filter& f) {
+GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msdu, const Filter& f) {
     Result r;
     if (!decode_envelope(in, r)) {
         r.accept = false;
@@ -165,7 +167,7 @@ BplcParser::Result BplcParser::parse(const BplcFrame& in, MsduState& msdu, const
 
     if (r.mpdu.frame_type == 1) {
         // SOF:FCH 字段 + 多 PB 重组(sof 模块)
-        err = sof::assemble(r.payload_for_log, r.mpdu, msdu, r.msdu_body);
+        err = gw_2022_sof::assemble(r.payload_for_log, r.mpdu, msdu, r.msdu_body);
         if (!err.isEmpty()) { r.reject_reason = err; r.accept = false; return r; }
         if (f.tei_filter && !f.tei_list.contains(r.mpdu.src_tei)
                         && !f.tei_list.contains(r.mpdu.dst_tei)) {
@@ -175,7 +177,7 @@ BplcParser::Result BplcParser::parse(const BplcFrame& in, MsduState& msdu, const
         }
         // MSDU 重组完整:解析 MAC 层字段
         if (!r.msdu_body.isEmpty()) {
-            r.msdu = MsduParser::parse(r.msdu_body);
+            r.msdu = GW_2022_MsduParser::parse(r.msdu_body);
             // MSDU body 起点在 payload_for_log 中的偏移:FCH 16B + 1B pb_head = 17。
             // 仅当单块(整条 MSDU 连续位于本帧 17..)时才能把字段映射到 raw 高亮;
             // 多块重组时各 pb_body 在 raw 中被 pb_head/CRC 隔断,不连续,置 -1。
@@ -186,10 +188,10 @@ BplcParser::Result BplcParser::parse(const BplcFrame& in, MsduState& msdu, const
         r.mpdu.beacon_timestamp = (quint32)get_bits(p, 4, 0, 32);
         r.mpdu.src_tei          = (quint16)get_bits(p, 8, 0, 12);
         r.mpdu.tmi              = (quint8) get_bits(p, 9, 4, 4);
-        r.mpdu.pb_size          = (quint16)beacon_pb_size(r.mpdu.tmi);  // 单块帧块长
+        r.mpdu.pb_size          = (quint16)gw_2022_pb_size(r.mpdu.tmi);  // 单块帧块长
         r.mpdu.symbol_num       = (quint16)get_bits(p, 10, 0, 9);
         r.mpdu.beacon_line      = (quint8) get_bits(p, 11, 1, 2);
-        r.beacon = BeaconParser::parse_beacon(r.payload_for_log);
+        r.beacon = GW_2022_BeaconParser::parse_beacon(r.payload_for_log);
         if (r.beacon.present) {
             const QByteArray& gb = r.payload_for_log;
             const quint8* gp = reinterpret_cast<const quint8*>(gb.constData());
@@ -207,10 +209,10 @@ BplcParser::Result BplcParser::parse(const BplcFrame& in, MsduState& msdu, const
         }
     } else if (r.mpdu.frame_type == 2) {
         // ACK(ack 模块)
-        ackp::parse_fch(p, r.mpdu);
+        gw_2022_ackp::parse_fch(p, r.mpdu);
     } else if (r.mpdu.frame_type == 3) {
         // 网间协调帧 COORD(coord 模块)
-        coordp::parse_fch(p, r.mpdu);
+        gw_2022_coordp::parse_fch(p, r.mpdu);
     }
 
     r.accept = true;

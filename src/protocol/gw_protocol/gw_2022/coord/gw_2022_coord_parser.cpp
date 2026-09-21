@@ -4,10 +4,11 @@
 ///          TimeDuration(4,0,16) NextTimeSlotShift(6,0,16)
 ///          NeighbourNID(8,0,24) NetRfChannel(11,0,8) RSV0(12,0,4)。
 ///          公共位域工具见 fieldspec.h。
-#include "coordparser.h"
-#include "fieldspec.h"
+#include "gw_2022_coord_parser.h"
+#include "common/fieldspec.h"
+#include "crc.h"
 
-namespace coordp {
+namespace gw_2022_coordp {
 
 void parse_fch(const quint8* p, MpduInfo& m) {
     m.coord_duration      = (quint16)get_bits(p, 4, 0, 16);
@@ -17,4 +18,4 @@ void parse_fch(const quint8* p, MpduInfo& m) {
     m.coord_rsv0          = (quint8)get_bits(p, 12, 0, 4);
 }
 
-}  // namespace coordp
+}  // namespace gw_2022_coordp

@@ -8,7 +8,7 @@
 
 #include "bplcframe.h"
 
-namespace sof {
+namespace gw_2022_sof {
 
 /// @brief SOF FCH 字段解析 + 多 PB 重组
 /// @param body      payload_for_log(自 FrameType 起,含 16B FCH)
@@ -19,6 +19,6 @@ namespace sof {
 QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
                  QByteArray& complete_msdu_body);
 
-}  // namespace sof
+}  // namespace gw_2022_sof
 
 #endif // SOFPARSER_H

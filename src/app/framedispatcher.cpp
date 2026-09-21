@@ -4,7 +4,7 @@
 
 DispatcherWorker::DispatcherWorker(QObject* parent) : QObject(parent) {}
 
-void DispatcherWorker::on_filter_changed(BplcParser::Filter f) {
+void DispatcherWorker::on_filter_changed(GW_2022_Parser::Filter f) {
     m_filter = f;
 }
 
@@ -32,7 +32,7 @@ FrameDispatcher::~FrameDispatcher() {
     m_thread->wait(2000);
 }
 
-void FrameDispatcher::set_filter(const BplcParser::Filter& f) {
+void FrameDispatcher::set_filter(const GW_2022_Parser::Filter& f) {
     emit filter_changed(f);
 }
 
@@ -42,7 +42,7 @@ void FrameDispatcher::connect_source(QObject* source) {
             Qt::QueuedConnection);
 }
 
-void FrameDispatcher::on_parsed(const BplcParser::Result& r) {
+void FrameDispatcher::on_parsed(const GW_2022_Parser::Result& r) {
     m_total.fetch_add(1);
     if (!r.accept) m_dropped.fetch_add(1);
 

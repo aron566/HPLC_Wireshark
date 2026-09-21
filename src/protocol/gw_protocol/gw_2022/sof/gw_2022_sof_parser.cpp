@@ -3,8 +3,9 @@
 /// @details 移植自 BPLCMonitor/MPDU_Class.py 的 MPDU_SOF 逻辑:
 ///          FCH 内业务字段位域 + 逐 PB 块 CRC24 校验与 MSDU 重组
 ///          (PB 头 START/END/seq 语义)。公共位域/CRC 工具见 fieldspec.h。
-#include "sofparser.h"
-#include "fieldspec.h"
+#include "gw_2022_sof_parser.h"
+#include "common/fieldspec.h"
+#include "crc.h"
 #include "i18n.h"
 #include <algorithm>
 
@@ -24,7 +25,7 @@ int sof_pb_size(quint8 tmi, quint8 tmi_ext) {
 
 }  // namespace
 
-namespace sof {
+namespace gw_2022_sof {
 
 QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
                  QByteArray& complete_msdu_body) {
@@ -112,7 +113,7 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
     return QString();
 }
 
-}  // namespace sof
+}  // namespace gw_2022_sof
 
 // ===== i18n:SOF 模块 中→英 词典 =====
 namespace {

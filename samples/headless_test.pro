@@ -19,7 +19,7 @@ SOURCES += \
 
 HEADERS += \
     ../src/common/bplcframe.h \
-    ../src/protocol/bplcparser.h \
+    ../src/protocol/gw_protocol/gw_2022/gw_2022_parser.h \
     ../src/protocol/statistics.h
 
 qnx: target.path = /tmp/$${TARGET}/bin

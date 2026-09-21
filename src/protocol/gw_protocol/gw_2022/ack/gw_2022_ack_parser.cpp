@@ -4,10 +4,11 @@
 ///          FCH ExtFrameType(bit 12,0,4) 分派:
 ///          0 常规(收包结果+信道质量+STA 负载)/1 搜索/2 同步/3 切频。
 ///          公共位域工具见 fieldspec.h。
-#include "ackparser.h"
-#include "fieldspec.h"
+#include "gw_2022_ack_parser.h"
+#include "common/fieldspec.h"
+#include "crc.h"
 
-namespace ackp {
+namespace gw_2022_ackp {
 
 void parse_fch(const quint8* p, MpduInfo& m) {
     m.ack_ext_type = (quint8)get_bits(p, 12, 0, 4);
@@ -41,4 +42,4 @@ void parse_fch(const quint8* p, MpduInfo& m) {
     }
 }
 
-}  // namespace ackp
+}  // namespace gw_2022_ackp

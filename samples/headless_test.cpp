@@ -1,4 +1,4 @@
-// Headless test:用 BplcParser 直接切帧并解析 replay_test.bin
+// Headless test:用 GW_2022_Parser 直接切帧并解析 replay_test.bin
 // 不启动 Qt GUI,只验证协议解析器与 Python comdrv 一致
 //
 // Build: 放在 samples/ 下,与 Qt 工程独立编译(链接 QtCore)
@@ -10,7 +10,7 @@
 #include <QDateTime>
 
 #include "bplcframe.h"
-#include "bplcparser.h"
+#include "gw_2022_parser.h"
 #include "statistics.h"
 
 #include <cstdio>
@@ -50,7 +50,7 @@ static bool extract_frame(QByteArray& buf, BplcFrame& out) {
 
 int main(int argc, char* argv[]) {
     QCoreApplication app(argc, argv);
-    qRegisterMetaType<BplcParser::Result>("BplcParser::Result");
+    qRegisterMetaType<GW_2022_Parser::Result>("GW_2022_Parser::Result");
     qRegisterMetaType<BplcFrame>("BplcFrame");
     qRegisterMetaType<PacketEntry>("PacketEntry");
 
@@ -66,9 +66,9 @@ int main(int argc, char* argv[]) {
     std::printf("Loaded %lld bytes from %s\n",
                 (long long)buf.size(), qPrintable(path));
 
-    BplcParser parser;
+    GW_2022_Parser parser;
     MsduState  msdu;
-    BplcParser::Filter f0;
+    GW_2022_Parser::Filter f0;
     // 默认全部接受
     f0.allow_beacon = f0.allow_sof = f0.allow_ack = f0.allow_coord = true;
     f0.link_hplc = f0.link_hrf = true;

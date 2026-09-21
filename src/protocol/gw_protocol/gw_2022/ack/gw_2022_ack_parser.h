@@ -6,13 +6,13 @@
 
 #include "bplcframe.h"
 
-namespace ackp {
+namespace gw_2022_ackp {
 
 /// @brief 解析 ACK 帧 FCH 字段(相对 FCH 起点;ExtFrameType 于 bit(12,0,4))
 /// @param p  MPDU 数据指针(自 FrameType 起)
 /// @param m  [out] 填充 ack_ext_type 及对应分支字段
 void parse_fch(const quint8* p, MpduInfo& m);
 
-}  // namespace ackp
+}  // namespace gw_2022_ackp
 
 #endif // ACKPARSER_H

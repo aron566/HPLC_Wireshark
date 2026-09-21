@@ -71,10 +71,10 @@ MainWindow::MainWindow(QWidget* parent)
       m_follow_bottom(true),
       m_last_ntb(0),
       m_index_counter(0) {
-    qRegisterMetaType<BplcParser::Result>("BplcParser::Result");
+    qRegisterMetaType<GW_2022_Parser::Result>("GW_2022_Parser::Result");
     qRegisterMetaType<BplcFrame>("BplcFrame");
     qRegisterMetaType<ReaderConfig>("ReaderConfig");
-    qRegisterMetaType<BplcParser::Filter>("BplcParser::Filter");
+    qRegisterMetaType<GW_2022_Parser::Filter>("GW_2022_Parser::Filter");
     qRegisterMetaType<PacketEntry>("PacketEntry");
 
     build_ui();
@@ -527,7 +527,7 @@ void MainWindow::on_apply_filter() {
     appcfg::set_filter(expr);              // 记忆到 config.ini,下次启动恢复
 }
 
-PacketEntry MainWindow::make_entry(const BplcParser::Result& r, qint64 now) {
+PacketEntry MainWindow::make_entry(const GW_2022_Parser::Result& r, qint64 now) {
     PacketEntry e;
     e.index     = ++m_index_counter;
     // 带时间标签(回放导出的 bin)时用帧内绝对时刻,保证 Time/Delta/再导出
@@ -568,7 +568,7 @@ void MainWindow::enqueue_entry(PacketEntry&& e) {
     m_pending.append(std::move(e));
 }
 
-void MainWindow::on_parsed(const BplcParser::Result& r) {
+void MainWindow::on_parsed(const GW_2022_Parser::Result& r) {
     if (m_paused) return;
     enqueue_entry(make_entry(r, QDateTime::currentMSecsSinceEpoch()));
 }

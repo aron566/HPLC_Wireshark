@@ -17,17 +17,6 @@
 #include <QStringList>
 #include <QVector>
 
-/// @brief TMI → PB 块大小(字节)。与 51242 物理块大小表一致;
-///        信标/单块帧同样按 FCH TMI 查表。-1 = TMI 无效
-inline int beacon_pb_size(quint8 tmi) {
-    if (tmi == 0 || tmi == 1)                           return 520;
-    if (tmi >= 2 && tmi <= 6)                           return 136;
-    if (tmi >= 7 && tmi <= 10)                          return 520;
-    if (tmi == 11 || tmi == 12)                         return 264;
-    if (tmi == 13 || tmi == 14)                         return 72;
-    return -1;
-}
-
 /// @brief MSDU 跨帧重组状态(SOF 多 PB 块)
 struct MsduState {
     QByteArray buffer;
@@ -181,7 +170,7 @@ struct TeiMacPair {
     quint64 mac;   ///< MAC 48-bit
 };
 
-/// @brief MSDU 解析结果(由 MsduParser 填充)
+/// @brief MSDU 解析结果(由 GW_2022_MsduParser 填充)
 struct MsduInfo {
     bool    present;         ///< 本帧携带完整 MSDU(重组完成)
     bool    simple_head;     ///< 是否为 MSDU_BASE_S 简头(单跳)

@@ -10,7 +10,7 @@
 #include "bplcframe.h"
 
 /// @brief BEACON 载荷解析器(纯静态,无状态)
-class BeaconParser {
+class GW_2022_BeaconParser {
 public:
     /// @brief 解析 BEACON 帧载荷区
     /// @param payload_for_log 整帧 MPDU(payload_for_log,自 FrameType 起含 16B FCH)

@@ -4,8 +4,10 @@
 ///          51243 解析载荷区:固定头 + 信标管理信息(条目)/PB Padding/
 ///          载荷 CRC32/PB CRC24。字段树复用 MsduFieldNode(见 bplcframe.h),
 ///          公共字段工具见 fieldspec.h。
-#include "beaconparser.h"
-#include "fieldspec.h"
+#include "gw_2022_beacon_parser.h"
+#include "gw_2022_pb_table.h"
+#include "common/fieldspec.h"
+#include "crc.h"
 #include "i18n.h"
 #include <QtEndian>
 #include <cstdint>
@@ -91,7 +93,7 @@ static void slot_leaf(QVector<MsduFieldNode>& out, const QString& name,
     out.append(n);
 }
 
-// beacon_pb_size 公共实现见 bplcframe.h(供 bplcparser/protocoltree 共用)
+// gw_2022_pb_size 公共实现见 gw_2022_pb_table.h(供 parser/beacon 共用)
 
 // 载荷固定头(相对 gb)。依据 51242 表38 标准信标帧载荷字段:
 //   字节0:类型3b+组网1b+精简1b+保留1b+开始关联1b+信标使用1b
@@ -211,13 +213,13 @@ static const FieldSpec kTsaHeadSpec[] = {
 };
 static const int kTsaHeadSpecN = int(sizeof(kTsaHeadSpec) / sizeof(kTsaHeadSpec[0]));
 
-MsduInfo BeaconParser::parse_beacon(const QByteArray& payload) {
+MsduInfo GW_2022_BeaconParser::parse_beacon(const QByteArray& payload) {
     MsduInfo out;
     out.present = false;
     if (payload.size() < 40) return out;  // 16 FCH + 载荷头
     const quint8* p = reinterpret_cast<const quint8*>(payload.constData());
     quint8 tmi = (quint8)get_bits(p, 9, 4, 4);   // BEACON TMI 在 FCH b9 高 4bit
-    int pbsize = beacon_pb_size(tmi);
+    int pbsize = gw_2022_pb_size(tmi);
     if (pbsize <= 0 || payload.size() < 16 + pbsize) return out;
 
     // gbBeaconMPDU = payload[16 : 16+PBSize-3](含载荷头 + 管理区 + 4B CRC32)

@@ -3,7 +3,7 @@
 #ifndef FRAMEDISPATCHER_H
 #define FRAMEDISPATCHER_H
 
-#include "bplcparser.h"
+#include "gw_2022_parser.h"
 #include "ringbuffer.h"
 #include "statistics.h"
 #include <QObject>
@@ -17,16 +17,16 @@ public:
 
 public slots:
     void on_frame(const BplcFrame& frame);
-    void on_filter_changed(BplcParser::Filter f);
+    void on_filter_changed(GW_2022_Parser::Filter f);
 
 signals:
-    void parsed(const BplcParser::Result& r);
+    void parsed(const GW_2022_Parser::Result& r);
     void stats_updated(qint64 total, qint64 dropped);
 
 private:
-    BplcParser        m_parser;
+    GW_2022_Parser        m_parser;
     MsduState         m_msdu;
-    BplcParser::Filter m_filter;
+    GW_2022_Parser::Filter m_filter;
 };
 
 class FrameDispatcher : public QObject {
@@ -35,18 +35,18 @@ public:
     explicit FrameDispatcher(QObject* parent = nullptr);
     ~FrameDispatcher() override;
 
-    void set_filter(const BplcParser::Filter& f);
+    void set_filter(const GW_2022_Parser::Filter& f);
     FrameStatistics* statistics() { return &m_stats; }
 
     void connect_source(QObject* source);
 
 signals:
-    void filter_changed(BplcParser::Filter f);
-    void parsed(const BplcParser::Result& r);
+    void filter_changed(GW_2022_Parser::Filter f);
+    void parsed(const GW_2022_Parser::Result& r);
     void stats_updated();
 
 private slots:
-    void on_parsed(const BplcParser::Result& r);
+    void on_parsed(const GW_2022_Parser::Result& r);
 
 private:
     QThread*            m_thread;
