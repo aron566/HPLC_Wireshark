@@ -29,7 +29,8 @@ CommConfigDialog::CommConfigDialog(QWidget* parent, const ReaderConfig& initial)
       m_cmb_baud_rate(nullptr), m_cmb_data_bits(nullptr),
       m_cmb_stop_bits(nullptr), m_cmb_parity(nullptr),
       m_edt_file_path(nullptr), m_btn_browse(nullptr),
-      m_chk_time_tag(nullptr) {
+      m_chk_time_tag(nullptr), m_chk_auto_check(nullptr),
+      m_cmb_protocol(nullptr) {
     setWindowTitle(trl::L("通讯口设置"));
     setMinimumWidth(420);
     m_cfg = initial;          // 必须承接传入配置:非串口分支只改 mode/file,
@@ -150,6 +151,28 @@ void CommConfigDialog::build_ui() {
     m_chk_auto_check->setChecked(appcfg::auto_check());
     connect(m_chk_auto_check, &QCheckBox::toggled, this,
             [](bool on) { appcfg::set_auto_check(on); });
+
+    // 协议/Protocol:gw_2022=国网双模标准2022 / nw_2021=南网双模2021报批版
+    // (config.ini general/protocol)
+    auto* proto_row = new QHBoxLayout;
+    proto_row->addWidget(new QLabel(trl::L("协议/Protocol:"), opt_group));
+    m_cmb_protocol = new QComboBox(opt_group);
+    m_cmb_protocol->addItem(trl::L("国网 GW_2022"), QStringLiteral("gw_2022"));
+    m_cmb_protocol->addItem(trl::L("南网 NW_2021"), QStringLiteral("nw_2021"));
+    m_cmb_protocol->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    m_cmb_protocol->setMinimumContentsLength(12);
+    proto_row->addWidget(m_cmb_protocol);
+    proto_row->addStretch(1);
+    opt_lay->addLayout(proto_row);
+
+    // 恢复已保存协议并放在 connect 之前;变更即写回 config.ini
+    const QString saved_proto = appcfg::protocol();
+    const int proto_idx = m_cmb_protocol->findData(saved_proto);
+    if (proto_idx >= 0) m_cmb_protocol->setCurrentIndex(proto_idx);
+    connect(m_cmb_protocol, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [this](int) {
+        appcfg::set_protocol(m_cmb_protocol->currentData().toString());
+    });
 
     root->addWidget(opt_group);
 
@@ -306,6 +329,9 @@ struct I18nRegCommConfig {
         trl::register_en("语言", "Language");
         trl::register_en("重启后界面语言完全生效",
                          "UI language fully applies after restart");
+        trl::register_en("协议/Protocol:", "Protocol:");
+        trl::register_en("国网 GW_2022", "State Grid GW_2022");
+        trl::register_en("南网 NW_2021", "CSG NW_2021");
     }
 };
 const I18nRegCommConfig g_i18n_reg_commconfig;

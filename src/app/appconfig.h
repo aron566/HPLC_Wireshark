@@ -41,6 +41,8 @@ inline void ensure_default_file() {
         "theme=auto\n"
         "; 启动时自动检查更新(true=检查 / false=不检查)\n"
         "auto_check=true\n"
+        "; 协议:gw_2022=国网双模标准2022 / nw_2021=南网双模2021报批版\n"
+        "protocol=gw_2022\n"
         "\n"
         "[reader]\n"
         "; 输入源:0=串口 1=文件回放(bin) 2=裸hex文本\n"
@@ -97,6 +99,16 @@ inline bool auto_check() {
 }
 inline void set_auto_check(bool v) {
     settings().setValue(QStringLiteral("general/auto_check"), v);
+}
+
+/// 协议变体:gw_2022=国网双模标准2022 / nw_2021=南网双模2021报批版
+inline QString protocol() {
+    ensure_default_file();
+    return settings().value(QStringLiteral("general/protocol"),
+                            QStringLiteral("gw_2022")).toString();
+}
+inline void set_protocol(const QString& v) {
+    settings().setValue(QStringLiteral("general/protocol"), v);
 }
 
 // ---- reader ----
