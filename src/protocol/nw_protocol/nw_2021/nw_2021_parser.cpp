@@ -5,6 +5,7 @@
 ///          物理头 [dlen2][ts4][phr_mcs][option][channel][isRF] 与国网一致。
 #include "nw_2021_parser.h"
 #include "nw_2021_pb_table.h"
+#include "nw_2021_msdu_parser.h"
 #include "common/fieldtools.h"
 #include "crc.h"
 #include "bcd.h"
@@ -167,6 +168,21 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
             r.reject_reason = trl::L("TEI 不在白名单");
             r.accept = false;
             return r;
+        }
+        // PB 块重组(南网:块体 = PBSize-8(PB头4B+保留1B+CRC3B),单帧内按块序拼接)
+        if (r.mpdu.pb_size > 8 && r.mpdu.pb_num > 0) {
+            const int body_len = r.mpdu.pb_size - 8;
+            QByteArray msdu_body;
+            for (int i = 0; i < r.mpdu.pb_num; ++i) {
+                const int block_start = 16 + i * r.mpdu.pb_size;
+                if (block_start + r.mpdu.pb_size > r.payload_for_log.size()) break;
+                msdu_body += r.payload_for_log.mid(block_start + 4, body_len);
+            }
+            if (!msdu_body.isEmpty()) {
+                r.msdu_body = msdu_body;
+                r.msdu = NW_2021_MsduParser::parse(msdu_body);
+                r.msdu_raw_base = (r.mpdu.pb_num == 1) ? (16 + 4) : -1;
+            }
         }
     } else if (r.mpdu.frame_type == 0) {
         // BEACON:信标时间戳/周期计数/源 TEI(载波与无线同坐标)
