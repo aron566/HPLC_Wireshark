@@ -5,7 +5,7 @@
 ///          NeighbourNID(8,0,24) NetRfChannel(11,0,8) RSV0(12,0,4)。
 ///          公共位域工具见 fieldspec.h。
 #include "gw_2022_coord_parser.h"
-#include "common/fieldspec.h"
+#include "common/fieldtools.h"
 #include "crc.h"
 
 namespace gw_2022_coordp {

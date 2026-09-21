@@ -4,9 +4,10 @@
 ///          FCH 内业务字段位域 + 逐 PB 块 CRC24 校验与 MSDU 重组
 ///          (PB 头 START/END/seq 语义)。公共位域/CRC 工具见 fieldspec.h。
 #include "gw_2022_sof_parser.h"
-#include "common/fieldspec.h"
+#include "gw_2022_pb_table.h"
 #include "crc.h"
 #include "i18n.h"
+#include "fieldtools.h"
 #include <algorithm>
 
 namespace {
@@ -28,7 +29,7 @@ int sof_pb_size(quint8 tmi, quint8 tmi_ext) {
 namespace gw_2022_sof {
 
 QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
-                 QByteArray& complete_msdu_body) {
+                 QByteArray& complete_msdu_body, quint8 band) {
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
 
     // FCH 业务字段(相对 FCH 起点)
@@ -45,9 +46,12 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
     info.tmi_ext      = (quint8) get_bits(p, 12, 0, 4);
     info.pb_size      = (quint16)sof_pb_size(info.tmi, info.tmi_ext);
 
-    if (info.pb_size <= 0 || info.pb_num == 0 || info.pb_num > 4) {
-        return QString("PB 配置非法(tmi=%1 ext=%2 num=%3)")
-                   .arg(info.tmi).arg(info.tmi_ext).arg(info.pb_num);
+    const int max_pb_num = (band < 4)
+        ? gw_2022_max_pb_num(band, info.tmi, info.tmi_ext) : 4;  // 非 PLC:1-4 上限
+    if (info.pb_size <= 0 || info.pb_num == 0 || info.pb_num > max_pb_num) {
+        return QString("PB 数量非法(band=%1 tmi=%2 ext=%3 num=%4 max=%5)")
+                   .arg(band).arg(info.tmi).arg(info.tmi_ext)
+                   .arg(info.pb_num).arg(max_pb_num);
     }
 
     int block_offset = 16;

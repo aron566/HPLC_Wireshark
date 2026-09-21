@@ -20,4 +20,28 @@ inline int gw_2022_pb_size(quint8 tmi) {
     return -1;
 }
 
+/// 国网各频段(PL band 0-3)× TMI/TMI_EXT 支持的最大 PB 块数量。
+/// 列索引 0-15 = TMI 0x0-0xF;列 16-29 = TMI_EXT 1-14(TMI=0xF 时用扩展)。
+inline constexpr quint8 gw_2022_pb_num_table[4][30] = {
+    //  tmi: 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f | 1  2  3  4  5  6  7  8  9  a  b  c  d  e
+    { 4, 4, 4, 4, 4, 4, 4, 3, 4, 4, 4, 4, 4, 4, 4, 0,   4, 4, 4, 4, 4, 4, 0, 0, 0, 4, 4, 4, 4, 4 },  // PL band0
+    { 3, 4, 4, 2, 4, 4, 4, 1, 1, 2, 3, 4, 2, 4, 4, 0,   4, 4, 4, 4, 4, 4, 0, 0, 0, 4, 4, 4, 4, 4 },  // PL band1
+    { 2, 4, 4, 1, 2, 3, 4, 0, 1, 1, 2, 2, 1, 4, 4, 0,   4, 4, 4, 4, 4, 4, 0, 0, 0, 4, 4, 4, 4, 4 },  // PL band2
+    { 1, 2, 3, 0, 1, 1, 2, 0, 0, 0, 1, 1, 0, 4, 2, 0,   4, 4, 4, 4, 2, 4, 0, 0, 0, 4, 4, 4, 4, 4 },  // PL band3
+};
+
+/// 查国网某频段 + TMI/TMI_EXT 支持的最大 PB 块数量。返回 -1 = 配置无效。
+inline int gw_2022_max_pb_num(quint8 band, quint8 tmi, quint8 tmi_ext) {
+    if (band >= 4) return -1;                       // 频段越界(0-3)
+    int col;
+    if (tmi <= 14) {
+        col = tmi;                                  // TMI 主表(0x0-0xE)
+    } else if (tmi_ext >= 1 && tmi_ext <= 14) {
+        col = 16 + (tmi_ext - 1);                   // TMI=0xF → TMI_EXT 扩展(1-14)
+    } else {
+        return -1;                                  // TMI=0xF 且无有效 TMI_EXT
+    }
+    return gw_2022_pb_num_table[band][col];
+}
+
 #endif // GW_2022_PB_TABLE_H

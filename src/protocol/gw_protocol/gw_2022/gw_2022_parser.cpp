@@ -13,7 +13,7 @@
 #include "gw_2022_sof_parser.h"
 #include "gw_2022_ack_parser.h"
 #include "gw_2022_coord_parser.h"
-#include "common/fieldspec.h"
+#include "common/fieldtools.h"
 #include "crc.h"
 #include <QDateTime>
 #include <QtEndian>
@@ -167,7 +167,8 @@ GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msd
 
     if (r.mpdu.frame_type == 1) {
         // SOF:FCH 字段 + 多 PB 重组(sof 模块)
-        err = gw_2022_sof::assemble(r.payload_for_log, r.mpdu, msdu, r.msdu_body);
+        err = gw_2022_sof::assemble(r.payload_for_log, r.mpdu, msdu, r.msdu_body,
+                                    r.meta.is_rf ? 0xFF : (quint8)r.meta.channel);
         if (!err.isEmpty()) { r.reject_reason = err; r.accept = false; return r; }
         if (f.tei_filter && !f.tei_list.contains(r.mpdu.src_tei)
                         && !f.tei_list.contains(r.mpdu.dst_tei)) {
