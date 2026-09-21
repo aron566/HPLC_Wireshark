@@ -388,11 +388,18 @@ static void save_config_to_settings(const ReaderConfig& c) {
 void MainWindow::on_start() {
     if (!m_reader) return;
     ReaderConfig init = load_config_from_settings();
+    const QString old_proto = appcfg::protocol();
     CommConfigDialog dlg(this, init);
     if (dlg.exec() != QDialog::Accepted) return;
 
     ReaderConfig cfg = dlg.config();
     save_config_to_settings(cfg);
+
+    // 协议下拉框变更确定后:提示「重启后生效,若点击开始则立即生效」;
+    // 点「开始」→ 停止 + 清空 + 重建 dispatcher(用新协议立即生效)。
+    if (appcfg::protocol() != old_proto && confirm_protocol_rebuild())
+        rebuild_dispatcher();
+
     m_reader->start(cfg);
     m_status_left->setText(QString("Running: %1")
         .arg(cfg.mode == ReaderMode::SerialPort
@@ -515,10 +522,41 @@ void MainWindow::on_export() {
 
 void MainWindow::on_settings() {
     ReaderConfig init = load_config_from_settings();
+    const QString old_proto = appcfg::protocol();
     CommConfigDialog dlg(this, init);
     if (dlg.exec() != QDialog::Accepted) return;
     save_config_to_settings(dlg.config());
+    if (appcfg::protocol() != old_proto && confirm_protocol_rebuild())
+        rebuild_dispatcher();
     m_status_left->setText(trl::L("配置已保存(Ctrl+E 开始捕获)"));
+}
+
+/// @brief 协议下拉框变更后的提示;返回 true=立即生效(点「开始」),false=重启后生效
+bool MainWindow::confirm_protocol_rebuild() {
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Information);
+    box.setWindowTitle(trl::L("协议已更改"));
+    box.setText(trl::L("协议已更改,重启后生效。若点击「开始」则立即生效。"));
+    QPushButton* btn_apply = box.addButton(trl::L("开始"), QMessageBox::AcceptRole);
+    box.addButton(trl::L("重启后生效"), QMessageBox::RejectRole);
+    box.exec();
+    return box.clickedButton() == btn_apply;
+}
+
+/// @brief 协议切换立即生效:停止当前采集/回放 → 清空 → 用新协议重建解析器
+void MainWindow::rebuild_dispatcher() {
+    if (m_reader) m_reader->stop();
+    on_clear();                       // 清空列表/协议树/hex/统计(旧 dispatcher 仍在)
+    if (m_dispatch) {
+        delete m_dispatch;            // 销毁旧解析器线程(自动断开 frame_ready 连接)
+        m_dispatch = nullptr;
+    }
+    m_dispatch = new FrameDispatcher(this);   // 按 config.ini 新协议实例化解析器
+    m_dispatch->connect_source(m_reader);
+    connect(m_dispatch, &FrameDispatcher::parsed,
+            this,       &MainWindow::on_parsed,
+            Qt::QueuedConnection);
+    m_status_left->setText(trl::L("协议已立即生效(Ctrl+E 开始捕获)"));
 }
 
 void MainWindow::on_apply_filter() {
@@ -693,6 +731,11 @@ struct I18nRegMainWindow {
         trl::register_en("回放进度: %1%", "Replay progress: %1%");
         trl::register_en("立即更新", "Update Now");
         trl::register_en("发现新版本,点击下载安装", "New version available, click to download");
+        trl::register_en("协议已更改", "Protocol changed");
+        trl::register_en("协议已更改,重启后生效。若点击「开始」则立即生效。",
+                         "Protocol changed. Takes effect after restart, or click [Start] to apply immediately.");
+        trl::register_en("重启后生效", "Apply after restart");
+        trl::register_en("协议已立即生效(Ctrl+E 开始捕获)", "Protocol applied immediately (Ctrl+E to start capture)");
     }
 };
 const I18nRegMainWindow g_i18n_reg_mainwindow;

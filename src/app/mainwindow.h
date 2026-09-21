@@ -60,6 +60,8 @@ private:
     PacketEntry make_entry(const ParseResult& r, qint64 now);
     void enqueue_entry(PacketEntry&& e);
     void check_for_updates(bool silent);   // 检查更新(silent=true:启动静默检查)
+    void rebuild_dispatcher();             // 协议切换立即生效:停止+清空+重建解析器
+    bool confirm_protocol_rebuild();       // 协议变更提示,返回是否立即生效
 
     QToolBar*      m_toolbar;
     QToolButton*   m_btn_start;
