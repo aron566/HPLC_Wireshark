@@ -200,9 +200,9 @@ struct MsduInfo {
 
     MsduInfo() : present(false), simple_head(false), msdu_seq(0),
                  msdu_src_tei(-1), msdu_dst_tei(-1), msdu_send_type(-1),
-                 msdu_src_mac(0), msdu_dst_mac(0), sta_mac(0), total_len(-1),
+                 msdu_src_mac(0), msdu_dst_mac(0), sta_mac(0),
                  vlan_tag(0), msdu_type(0), restart_count(0),
-                 broadcast_direction(0) {}
+                 broadcast_direction(0), total_len(-1) {}
 };
 
 /// @brief Wireshark 风格 PacketList 的一行条目
