@@ -4,10 +4,6 @@
 #include "protocolfactory.h"
 #include "appconfig.h"
 
-#include <QElapsedTimer>
-#include <QFile>
-#include <QTextStream>
-
 DispatcherWorker::DispatcherWorker(std::unique_ptr<IProtocolParser> parser,
                                    QObject* parent)
     : QObject(parent), m_parser(std::move(parser)) {}
@@ -41,22 +37,12 @@ FrameDispatcher::FrameDispatcher(QObject* parent)
 
 FrameDispatcher::~FrameDispatcher() {
     if (m_thread) {
-        QElapsedTimer t; t.start();
         m_thread->quit();
-        const bool ok = m_thread->wait(2000);
-        const qint64 waited = t.elapsed();
-        if (!ok) {
+        if (!m_thread->wait(2000)) {
             // 线程 2 秒未退出(异常):强制终止兜底,避免 QThread 析构时
             // 线程仍运行触发 qFatal("Destroyed while thread is still running")。
             m_thread->terminate();
             m_thread->wait();
-        }
-        {
-            QFile lf(QStringLiteral("rebuild_timing.log"));
-            if (lf.open(QIODevice::WriteOnly | QIODevice::Append)) {
-                QTextStream ts(&lf);
-                ts << QString("[dtor] waited=%1ms ok=%2\n").arg(waited).arg(ok ? "yes" : "NO");
-            }
         }
     }
 }

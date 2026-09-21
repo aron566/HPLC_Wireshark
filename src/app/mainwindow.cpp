@@ -42,8 +42,6 @@
 #include <QRegularExpression>
 #include <QString>
 #include <QMessageBox>
-#include <QElapsedTimer>
-#include <QDebug>
 #include <QPushButton>
 #include <QDesktopServices>
 #include <QUrl>
@@ -547,11 +545,8 @@ bool MainWindow::confirm_protocol_rebuild() {
 
 /// @brief 协议切换立即生效:停止当前采集/回放 → 清空 → 用新协议重建解析器
 void MainWindow::rebuild_dispatcher() {
-    QElapsedTimer tmr; tmr.start();
     if (m_reader) m_reader->stop();
-    const qint64 t_stop = tmr.elapsed();
     on_clear();                       // 清空列表/协议树/hex/统计(旧 dispatcher 仍在)
-    const qint64 t_clear = tmr.elapsed();
     if (m_dispatch) {
         // 回放忙碌时不能同步 delete(析构里 wait 会卡 GUI 直至崩溃):
         // shutdown 立即断开 worker 信号 + 退出解析线程(停止处理积压帧、
@@ -562,24 +557,12 @@ void MainWindow::rebuild_dispatcher() {
         m_dispatch->deleteLater();
         m_dispatch = nullptr;
     }
-    const qint64 t_shutdown = tmr.elapsed();
     m_dispatch = new FrameDispatcher(this);   // 按 config.ini 新协议实例化解析器
     m_dispatch->connect_source(m_reader);
     connect(m_dispatch, &FrameDispatcher::parsed,
             this,       &MainWindow::on_parsed,
             Qt::QueuedConnection);
-    const qint64 t_new = tmr.elapsed();
     m_status_left->setText(trl::L("协议已立即生效(Ctrl+E 开始捕获)"));
-    {
-        QFile lf(QStringLiteral("rebuild_timing.log"));
-        if (lf.open(QIODevice::WriteOnly | QIODevice::Append)) {
-            QTextStream ts(&lf);
-            ts << QString("stop=%1ms clear=%2ms shutdown=%3ms new=%4ms total=%5ms\n")
-                      .arg(t_stop).arg(t_clear - t_stop)
-                      .arg(t_shutdown - t_clear).arg(t_new - t_shutdown)
-                      .arg(t_new);
-        }
-    }
 }
 
 void MainWindow::on_apply_filter() {
