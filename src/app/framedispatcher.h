@@ -41,6 +41,7 @@ public:
     FrameStatistics* statistics() { return &m_stats; }
 
     void connect_source(QObject* source);
+    void disconnect_source(QObject* source);
 
 signals:
     void filter_changed(ParseFilter f);

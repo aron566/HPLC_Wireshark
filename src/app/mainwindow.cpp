@@ -548,7 +548,11 @@ void MainWindow::rebuild_dispatcher() {
     if (m_reader) m_reader->stop();
     on_clear();                       // 清空列表/协议树/hex/统计(旧 dispatcher 仍在)
     if (m_dispatch) {
-        delete m_dispatch;            // 销毁旧解析器线程(自动断开 frame_ready 连接)
+        // 回放忙碌时不能同步 delete(析构里 wait 会卡 GUI 直至崩溃):
+        // 先断开旧帧源/信号,再 deleteLater 异步销毁(旧线程处理完积压帧即退出)。
+        m_dispatch->disconnect_source(m_reader);
+        m_dispatch->disconnect(this);
+        m_dispatch->deleteLater();
         m_dispatch = nullptr;
     }
     m_dispatch = new FrameDispatcher(this);   // 按 config.ini 新协议实例化解析器

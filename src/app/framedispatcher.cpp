@@ -49,6 +49,11 @@ void FrameDispatcher::connect_source(QObject* source) {
             Qt::QueuedConnection);
 }
 
+void FrameDispatcher::disconnect_source(QObject* source) {
+    if (source && m_worker)
+        disconnect(source, nullptr, m_worker, nullptr);
+}
+
 void FrameDispatcher::on_parsed(const ParseResult& r) {
     m_total.fetch_add(1);
     if (!r.accept) m_dropped.fetch_add(1);
