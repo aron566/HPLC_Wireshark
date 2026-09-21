@@ -1,68 +1,32 @@
-/// @file bplcparser.h
-/// @brief BPLC/HPLC+HRF 协议解析器头文件
-/// @details 提供 GW_2022_Parser 类,把一帧 BplcFrame 解码为 MPDU/MAC 字段,
-///          并支持 SOF 多 PB 块的 MSDU 重组。
-#ifndef BPLCPARSER_H
-#define BPLCPARSER_H
+/// @file gw_2022_parser.h
+/// @brief 国网 GW_2022 双模协议解析器头文件
+/// @details 提供 GW_2022_Parser 类(IProtocolParser 实现),把一帧 BplcFrame
+///          解码为 MPDU/MAC 字段,并支持 SOF 多 PB 块的 MSDU 重组。
+#ifndef GW_2022_PARSER_H
+#define GW_2022_PARSER_H
 
 #include "bplcframe.h"
+#include "iprotocolparser.h"
 #include "gw_2022_msdu_parser.h"
-#include <QObject>
-#include <functional>
 
 class Statistics;
 
-class GW_2022_Parser {
+/// @brief 国网双模标准 2022(202203)协议解析器
+class GW_2022_Parser : public IProtocolParser {
 public:
-    struct Result {
-        PhysicalMeta meta;
-        MpduInfo     mpdu;
-        QByteArray   msdu_body;
-        MsduInfo     msdu;          ///< MSDU/MAC 层解析结果(SOF 重组完整时填充)
-        int          msdu_raw_base; ///< msdu_body[0] 在 payload_for_log 中的偏移;-1=跨帧
-        MsduInfo     beacon;        ///< BEACON 载荷区解析结果(仅 BEACON 帧)
-        qint64       arrival_us;    ///< 帧起始 0x3C 接收时刻(单调 µs,实时串口)
-        QByteArray   raw_wire;      ///< 原始串口帧(0x3C...0x3E 原样,含转义)
-        bool         accept;
-        QString      reject_reason;
-        QByteArray   payload_for_log;
-
-        Result() : msdu_raw_base(-1), arrival_us(0), accept(false) {}
-    };
-
-    struct Filter {
-        bool           enable_type_filter;
-        bool           allow_beacon;
-        bool           allow_sof;
-        bool           allow_ack;
-        bool           allow_coord;
-        bool           link_hplc;
-        bool           link_hrf;
-        bool           nid_filter;
-        quint32        nid_mask;
-        QList<quint32> nid_list;
-        bool           tei_filter;
-        QList<quint16> tei_list;
-
-        Filter()
-            : enable_type_filter(false),
-              allow_beacon(true), allow_sof(true),
-              allow_ack(true), allow_coord(true),
-              link_hplc(true), link_hrf(true),
-              nid_filter(false), nid_mask(0xFFFFFF),
-              tei_filter(false) {}
-    };
+    // 向后兼容别名:Result/Filter 即协议无关的 ParseResult/ParseFilter
+    using Result = ParseResult;
+    using Filter = ParseFilter;
 
     GW_2022_Parser();
 
-    Result parse(const BplcFrame& in, MsduState& msdu, const Filter& f);
+    ProtocolVariant variant() const override { return ProtocolVariant::GW_2022; }
+
+    Result parse(const BplcFrame& in, MsduState& msdu, const Filter& f) override;
 
 private:
     bool decode_envelope(const BplcFrame& in, Result& r);
     bool parse_mpdu_base(const QByteArray& body, MpduInfo& info, QString& err);
 };
 
-Q_DECLARE_METATYPE(GW_2022_Parser::Filter)
-Q_DECLARE_METATYPE(GW_2022_Parser::Result)
-
-#endif // BPLCPARSER_H
+#endif // GW_2022_PARSER_H

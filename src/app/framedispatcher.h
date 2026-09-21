@@ -3,30 +3,32 @@
 #ifndef FRAMEDISPATCHER_H
 #define FRAMEDISPATCHER_H
 
-#include "gw_2022_parser.h"
+#include "iprotocolparser.h"
 #include "ringbuffer.h"
 #include "statistics.h"
 #include <QObject>
 #include <QThread>
 #include <atomic>
+#include <memory>
 
 class DispatcherWorker : public QObject {
     Q_OBJECT
 public:
-    explicit DispatcherWorker(QObject* parent = nullptr);
+    explicit DispatcherWorker(std::unique_ptr<IProtocolParser> parser,
+                              QObject* parent = nullptr);
 
 public slots:
     void on_frame(const BplcFrame& frame);
-    void on_filter_changed(GW_2022_Parser::Filter f);
+    void on_filter_changed(ParseFilter f);
 
 signals:
-    void parsed(const GW_2022_Parser::Result& r);
+    void parsed(const ParseResult& r);
     void stats_updated(qint64 total, qint64 dropped);
 
 private:
-    GW_2022_Parser        m_parser;
-    MsduState         m_msdu;
-    GW_2022_Parser::Filter m_filter;
+    std::unique_ptr<IProtocolParser> m_parser;
+    MsduState   m_msdu;
+    ParseFilter m_filter;
 };
 
 class FrameDispatcher : public QObject {
@@ -35,18 +37,18 @@ public:
     explicit FrameDispatcher(QObject* parent = nullptr);
     ~FrameDispatcher() override;
 
-    void set_filter(const GW_2022_Parser::Filter& f);
+    void set_filter(const ParseFilter& f);
     FrameStatistics* statistics() { return &m_stats; }
 
     void connect_source(QObject* source);
 
 signals:
-    void filter_changed(GW_2022_Parser::Filter f);
-    void parsed(const GW_2022_Parser::Result& r);
+    void filter_changed(ParseFilter f);
+    void parsed(const ParseResult& r);
     void stats_updated();
 
 private slots:
-    void on_parsed(const GW_2022_Parser::Result& r);
+    void on_parsed(const ParseResult& r);
 
 private:
     QThread*            m_thread;

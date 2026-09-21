@@ -14,9 +14,12 @@ include($$PWD/gw_protocol/gw_2022/gw_2022.pri)
 include($$PWD/nw_protocol/nw_2021/nw_2021.pri)
 
 HEADERS += \
+    $$PWD/iprotocolparser.h \
+    $$PWD/protocolfactory.h \
     $$PWD/statistics.h
 
 SOURCES += \
+    $$PWD/protocolfactory.cpp \
     $$PWD/statistics.cpp
 
 INCLUDEPATH += $$PWD \

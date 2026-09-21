@@ -10,7 +10,7 @@
 #include <QVector>
 #include "serialreader.h"
 #include "framedispatcher.h"
-#include "gw_2022_parser.h"
+#include "iprotocolparser.h"
 #include "commconfigdialog.h"
 
 class QComboBox;
@@ -45,7 +45,7 @@ private slots:
     void on_export();
     void on_settings();
     void on_apply_filter();
-    void on_parsed(const GW_2022_Parser::Result& r);
+    void on_parsed(const ParseResult& r);
     void on_status_message(const QString& s);
     void on_error(const QString& e);
     void on_row_activated(const PacketEntry& e);
@@ -57,7 +57,7 @@ private slots:
 private:
     void build_ui();
     void wire_signals();
-    PacketEntry make_entry(const GW_2022_Parser::Result& r, qint64 now);
+    PacketEntry make_entry(const ParseResult& r, qint64 now);
     void enqueue_entry(PacketEntry&& e);
     void check_for_updates(bool silent);   // 检查更新(silent=true:启动静默检查)
 

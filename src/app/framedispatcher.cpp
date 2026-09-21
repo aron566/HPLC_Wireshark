@@ -1,21 +1,28 @@
 /// @file framedispatcher.cpp
 /// @brief 帧分发器实现
 #include "framedispatcher.h"
+#include "protocolfactory.h"
+#include "appconfig.h"
 
-DispatcherWorker::DispatcherWorker(QObject* parent) : QObject(parent) {}
+DispatcherWorker::DispatcherWorker(std::unique_ptr<IProtocolParser> parser,
+                                   QObject* parent)
+    : QObject(parent), m_parser(std::move(parser)) {}
 
-void DispatcherWorker::on_filter_changed(GW_2022_Parser::Filter f) {
+void DispatcherWorker::on_filter_changed(ParseFilter f) {
     m_filter = f;
 }
 
 void DispatcherWorker::on_frame(const BplcFrame& frame) {
-    auto r = m_parser.parse(frame, m_msdu, m_filter);
+    auto r = m_parser->parse(frame, m_msdu, m_filter);
     emit parsed(r);
 }
 
-FrameDispatcher::FrameDispatcher(QObject* parent) : QObject(parent), m_thread(nullptr), m_worker(nullptr) {
+FrameDispatcher::FrameDispatcher(QObject* parent)
+    : QObject(parent), m_thread(nullptr), m_worker(nullptr) {
+    // 按 config.ini 协议选择实例化解析器(国网 GW_2022 / 南网 NW_2021)
+    auto parser = make_parser(protocol_from_key(appcfg::protocol()));
     m_thread = new QThread(this);
-    m_worker = new DispatcherWorker();
+    m_worker = new DispatcherWorker(std::move(parser));
     m_worker->moveToThread(m_thread);
     connect(m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
     connect(this,     &FrameDispatcher::filter_changed,
@@ -32,7 +39,7 @@ FrameDispatcher::~FrameDispatcher() {
     m_thread->wait(2000);
 }
 
-void FrameDispatcher::set_filter(const GW_2022_Parser::Filter& f) {
+void FrameDispatcher::set_filter(const ParseFilter& f) {
     emit filter_changed(f);
 }
 
@@ -42,7 +49,7 @@ void FrameDispatcher::connect_source(QObject* source) {
             Qt::QueuedConnection);
 }
 
-void FrameDispatcher::on_parsed(const GW_2022_Parser::Result& r) {
+void FrameDispatcher::on_parsed(const ParseResult& r) {
     m_total.fetch_add(1);
     if (!r.accept) m_dropped.fetch_add(1);
 
