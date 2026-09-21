@@ -104,6 +104,10 @@ inline void write_mpdu(QDataStream& s, const MpduInfo& m) {
     write_u32(s, m.coord_neighbour_nid);
     write_u8(s, m.coord_rf_channel);
     write_u8(s, m.coord_rsv0);
+    write_u8(s, m.coord_band_end_flag);
+    write_u8(s, m.coord_option);
+    write_u16(s, m.coord_band_end_offset);
+    write_u16(s, m.coord_band_start_offset);
     // ACK
     write_u8(s, m.ack_ext_type);
     write_u8(s, m.ack_rx_res);
@@ -161,6 +165,10 @@ inline void read_mpdu(QDataStream& s, MpduInfo& m) {
     read_u32(s, m.coord_neighbour_nid);
     read_u8(s, m.coord_rf_channel);
     read_u8(s, m.coord_rsv0);
+    read_u8(s, m.coord_band_end_flag);
+    read_u8(s, m.coord_option);
+    read_u16(s, m.coord_band_end_offset);
+    read_u16(s, m.coord_band_start_offset);
     read_u8(s, m.ack_ext_type);
     read_u8(s, m.ack_rx_res);
     read_u8(s, m.ack_rx_status);
@@ -207,6 +215,10 @@ inline void write_msdu_info(QDataStream& s, const MsduInfo& m) {
     s << m.msdu_src_mac;   // quint64(48-bit MAC)
     s << m.msdu_dst_mac;
     s << m.sta_mac;
+    write_u32(s, m.vlan_tag);
+    write_u16(s, m.msdu_type);
+    write_u8(s, m.restart_count);
+    write_u8(s, m.broadcast_direction);
     write_i32(s, m.total_len);
     write_str(s, m.summary);
     write_u32(s, quint32(m.tree.size()));
@@ -225,6 +237,10 @@ inline void read_msdu_info(QDataStream& s, MsduInfo& m) {
     s >> m.msdu_src_mac;
     s >> m.msdu_dst_mac;
     s >> m.sta_mac;
+    read_u32(s, m.vlan_tag);
+    read_u16(s, m.msdu_type);
+    read_u8(s, m.restart_count);
+    read_u8(s, m.broadcast_direction);
     read_i32(s, m.total_len);
     read_str(s, m.summary);
     quint32 cnt = 0; read_u32(s, cnt);

@@ -10,9 +10,11 @@
 
 HEADERS += \
     $$PWD/nw_2021_parser.h \
+    $$PWD/nw_2021_msdu_parser.h \
     $$PWD/nw_2021_pb_table.h
 
 SOURCES += \
-    $$PWD/nw_2021_parser.cpp
+    $$PWD/nw_2021_parser.cpp \
+    $$PWD/nw_2021_msdu_parser.cpp
 
 INCLUDEPATH += $$PWD

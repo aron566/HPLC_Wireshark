@@ -105,6 +105,11 @@ struct MpduInfo {
     quint32 coord_neighbour_nid; ///< 邻居网络号 24-bit
     quint8  coord_rf_channel; ///< 无线信道号 8-bit(表26 本网络无线信道编号)
     quint8  coord_rsv0;       ///< 保留 4-bit(表26 字节12 bit0-3)
+    // 南网 NW_2021 COORD 额外字段(国网填 0)
+    quint8  coord_band_end_flag;    ///< 频段时隙结束标志 1-bit(南网)
+    quint8  coord_option;           ///< Option 2-bit(南网)
+    quint16 coord_band_end_offset;  ///< 频段时隙结束偏移 16-bit(南网,×4ms)
+    quint16 coord_band_start_offset;///< 频段时隙开始偏移 16-bit(南网,×4ms)
 
     // ---- ACK 扩展帧类型(12,0,4):0=常规 ACK 1=Search 2=Sync 3=切频 ----
     quint8  ack_ext_type;     ///< ACK 扩展类型
@@ -133,6 +138,8 @@ struct MpduInfo {
           beacon_item_num(0),
           coord_duration(0), coord_shift(0), coord_neighbour_nid(0),
           coord_rf_channel(0), coord_rsv0(0),
+          coord_band_end_flag(0), coord_option(0),
+          coord_band_end_offset(0), coord_band_start_offset(0),
           ack_ext_type(0), ack_rx_res(0), ack_rx_status(0), ack_rx_pb_num(0),
           ack_rsv0(0), ack_channel_quality(0), ack_sta_load(0), ack_rsv1(0),
           ack_dst_addr(0),
@@ -181,6 +188,11 @@ struct MsduInfo {
     quint64 msdu_src_mac;    ///< 源 MAC 48-bit(MSDU 头 MACAddrFlag=1 时;0=无)
     quint64 msdu_dst_mac;    ///< 目的 MAC 48-bit(MSDU 头 MACAddrFlag=1 时;0=无)
     quint64 sta_mac;         ///< 报文体携带的 STA MAC(如关联请求 STAMACAddr;0=无)
+    // 南网 NW_2021 MSDU 头字段(国网填 0)
+    quint32 vlan_tag;            ///< VLAN 标签 32-bit(南网 MSDU 长头)
+    quint16 msdu_type;           ///< MSDU 类型 16-bit(南网 MSDU 长头)
+    quint8  restart_count;       ///< 重启次数 4-bit(南网 MAC 帧头)
+    quint8  broadcast_direction; ///< 广播方向 4-bit(南网 MAC 帧头)
     int     total_len;       ///< MSDU 帧总长(头+数据+CRC,不含 PB 填充;-1=未知)
     QString summary;         ///< 概要,如 "MMeDiscoverNodeList" / "APP EventPacket"
     QVector<MsduFieldNode> tree;  ///< 字段树(协议树直接挂载显示)
@@ -188,7 +200,9 @@ struct MsduInfo {
 
     MsduInfo() : present(false), simple_head(false), msdu_seq(0),
                  msdu_src_tei(-1), msdu_dst_tei(-1), msdu_send_type(-1),
-                 msdu_src_mac(0), msdu_dst_mac(0), sta_mac(0), total_len(-1) {}
+                 msdu_src_mac(0), msdu_dst_mac(0), sta_mac(0), total_len(-1),
+                 vlan_tag(0), msdu_type(0), restart_count(0),
+                 broadcast_direction(0) {}
 };
 
 /// @brief Wireshark 风格 PacketList 的一行条目
