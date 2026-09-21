@@ -586,6 +586,39 @@ static void parse_app(MsduInfo& out, const QByteArray& app) {
 }
 
 
+
+// ── 南网 MMe 循环结构条目表 ──────────────────────────
+static const FieldSpec kSTATEISpec[] = {
+    { "STATEI", 0, 0, 12, Fmt::DEC },
+    { "LinkType", 1, 4, 1, Fmt::BOOL_Y },
+    { "RSV", 1, 5, 3, Fmt::HEX4 },
+};
+static const int kSTATEISpecN = int(sizeof(kSTATEISpec)/sizeof(kSTATEISpec[0]));
+static const FieldSpec kStraightPCOSpec[] = {
+    { "PCOTEI", 0, 0, 12, Fmt::DEC },
+    { "LinkType", 1, 4, 1, Fmt::BOOL_Y },
+    { "RSV", 1, 5, 3, Fmt::HEX4 },
+    { "PCOChildSum", 2, 0, 16, Fmt::DEC },
+};
+static const int kStraightPCOSpecN = int(sizeof(kStraightPCOSpec)/sizeof(kStraightPCOSpec[0]));
+static const FieldSpec kSTAInfoSpec[] = {
+    { "STAMACAddr", 0, 0, 48, Fmt::MAC },
+    { "STATEI", 6, 0, 12, Fmt::DEC },
+    { "RSV", 7, 4, 4, Fmt::HEX4 },
+};
+static const int kSTAInfoSpecN = int(sizeof(kSTAInfoSpec)/sizeof(kSTAInfoSpec[0]));
+static const FieldSpec kUpRouteInfoSpec[] = {
+    { "NextHopTEI", 0, 0, 12, Fmt::DEC },
+    { "RouteType", 2, 0, 8, Fmt::DEC },
+};
+static const int kUpRouteInfoSpecN = int(sizeof(kUpRouteInfoSpec)/sizeof(kUpRouteInfoSpec[0]));
+static const FieldSpec kCommRateInfoSpec[] = {
+    { "STATEI", 0, 0, 16, Fmt::DEC },
+    { "DownCommRate", 2, 0, 8, Fmt::DEC },
+    { "UpCommRate", 3, 0, 8, Fmt::DEC },
+};
+static const int kCommRateInfoSpecN = int(sizeof(kCommRateInfoSpec)/sizeof(kCommRateInfoSpec[0]));
+
 }  // namespace
 
 MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
@@ -649,29 +682,178 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 add_fields(out.tree, mme, 52, kAssocReqSTAVerSpec, kAssocReqSTAVerSpecN);
             break;
         }
-        case MME_ASSOCCNF:
+        case MME_ASSOCCNF: {
             add_fields(out.tree, mme, 6, kMMeAssocCnfSpec, kMMeAssocCnfSpecN);
-            if (mme.size() >= 42)
-                add_fields(out.tree, mme, 42, kRouteInfoHeadSpec, kRouteInfoHeadSpecN);
+            const int rb = 42;
+            if (mme.size() >= rb + 8) {
+                add_fields(out.tree, mme, rb, kRouteInfoHeadSpec, kRouteInfoHeadSpecN);
+                const quint16 sta_sum = (quint16)get_bits(mme, rb, 0, 16);
+                const quint16 pco_sum = (quint16)get_bits(mme, rb + 2, 0, 16);
+                int off = rb + 8;
+                for (int i = 0; i < sta_sum && off + 2 <= mme.size(); ++i) {
+                    MsduFieldNode& n = group(out.tree, QStringLiteral("StraightSTA[%1]").arg(i));
+                    n.rel_start = off; n.rel_len = 2;
+                    add_fields(n.children, mme, off, kSTATEISpec, kSTATEISpecN);
+                    off += 2;
+                }
+                for (int i = 0; i < pco_sum && off + 4 <= mme.size(); ++i) {
+                    MsduFieldNode& n = group(out.tree, QStringLiteral("StraightPCO[%1]").arg(i));
+                    n.rel_start = off; n.rel_len = 4;
+                    add_fields(n.children, mme, off, kStraightPCOSpec, kStraightPCOSpecN);
+                    const quint16 child_sum = (quint16)get_bits(mme, off + 2, 0, 16);
+                    int coff = off + 4;
+                    for (int c = 0; c < child_sum && coff + 2 <= mme.size(); ++c) {
+                        MsduFieldNode& cn = group(n.children, QStringLiteral("Child[%1]").arg(c));
+                        cn.rel_start = coff; cn.rel_len = 2;
+                        add_fields(cn.children, mme, coff, kSTATEISpec, kSTATEISpecN);
+                        coff += 2;
+                    }
+                    off = coff;
+                }
+            }
             break;
+        }
         case MME_CHANGEPROXYREQ: add_fields(out.tree, mme, 6, kMMeChangeProxyReqSpec, kMMeChangeProxyReqSpecN); break;
-        case MME_ASSOCIND:
+        case MME_ASSOCIND: {
             add_fields(out.tree, mme, 6, kMMeAssocIndSpec, kMMeAssocIndSpecN);
-            if (mme.size() >= 70)
-                add_fields(out.tree, mme, 70, kRouteInfoHeadSpec, kRouteInfoHeadSpecN);
+            const int rb = 70;
+            if (mme.size() >= rb + 8) {
+                add_fields(out.tree, mme, rb, kRouteInfoHeadSpec, kRouteInfoHeadSpecN);
+                const quint16 sta_sum = (quint16)get_bits(mme, rb, 0, 16);
+                const quint16 pco_sum = (quint16)get_bits(mme, rb + 2, 0, 16);
+                int off = rb + 8;
+                for (int i = 0; i < sta_sum && off + 2 <= mme.size(); ++i) {
+                    MsduFieldNode& n = group(out.tree, QStringLiteral("StraightSTA[%1]").arg(i));
+                    n.rel_start = off; n.rel_len = 2;
+                    add_fields(n.children, mme, off, kSTATEISpec, kSTATEISpecN);
+                    off += 2;
+                }
+                for (int i = 0; i < pco_sum && off + 4 <= mme.size(); ++i) {
+                    MsduFieldNode& n = group(out.tree, QStringLiteral("StraightPCO[%1]").arg(i));
+                    n.rel_start = off; n.rel_len = 4;
+                    add_fields(n.children, mme, off, kStraightPCOSpec, kStraightPCOSpecN);
+                    const quint16 child_sum = (quint16)get_bits(mme, off + 2, 0, 16);
+                    int coff = off + 4;
+                    for (int c = 0; c < child_sum && coff + 2 <= mme.size(); ++c) {
+                        MsduFieldNode& cn = group(n.children, QStringLiteral("Child[%1]").arg(c));
+                        cn.rel_start = coff; cn.rel_len = 2;
+                        add_fields(cn.children, mme, coff, kSTATEISpec, kSTATEISpecN);
+                        coff += 2;
+                    }
+                    off = coff;
+                }
+            }
             break;
-        case MME_CHANGEPROXYCNF: add_fields(out.tree, mme, 6, kMMeChangeProxyCnfSpec, kMMeChangeProxyCnfSpecN); break;
-        case MME_ASSOCGATHERIND: add_fields(out.tree, mme, 6, kMMeAssocGatherIndSpec, kMMeAssocGatherIndSpecN); break;
-        case MME_CHANGEPROXYBITMAPCNF: add_fields(out.tree, mme, 6, kMMeChangeProxyBitMapCnfSpec, kMMeChangeProxyBitMapCnfSpecN); break;
+        }
+        case MME_CHANGEPROXYCNF: {
+            add_fields(out.tree, mme, 6, kMMeChangeProxyCnfSpec, kMMeChangeProxyCnfSpecN);
+            const quint16 child_sum = (quint16)get_bits(mme, 16, 0, 16);
+            int off = 38;
+            for (int i = 0; i < child_sum && off + 2 <= mme.size(); ++i) {
+                MsduFieldNode& n = group(out.tree, QStringLiteral("ChildSTA[%1]").arg(i));
+                n.rel_start = off; n.rel_len = 2;
+                add_fields(n.children, mme, off, kSTATEISpec, kSTATEISpecN);
+                off += 2;
+            }
+            break;
+        }
+        case MME_ASSOCGATHERIND: {
+            add_fields(out.tree, mme, 6, kMMeAssocGatherIndSpec, kMMeAssocGatherIndSpecN);
+            const quint8 sta_num = (quint8)get_bits(mme, 17, 0, 8);
+            int off = 28;
+            for (int i = 0; i < sta_num && off + 8 <= mme.size(); ++i) {
+                MsduFieldNode& n = group(out.tree, QStringLiteral("NewSTA[%1]").arg(i));
+                n.rel_start = off; n.rel_len = 8;
+                add_fields(n.children, mme, off, kSTAInfoSpec, kSTAInfoSpecN);
+                off += 8;
+            }
+            break;
+        }
+        case MME_CHANGEPROXYBITMAPCNF: {
+            add_fields(out.tree, mme, 6, kMMeChangeProxyBitMapCnfSpec, kMMeChangeProxyBitMapCnfSpecN);
+            if (mme.size() >= 145) {
+                MsduFieldNode& bm = group(out.tree, QStringLiteral("ChildSTA BitMap [130B]"),
+                    QString::fromLatin1(mme.mid(15, 130).toHex(' ').toUpper()));
+                bm.rel_start = 15; bm.rel_len = 130;
+            }
+            break;
+        }
         case MME_LEAVEIND: add_fields(out.tree, mme, 6, kMMeLeaveIndSpec, kMMeLeaveIndSpecN); break;
         case MME_HEARTBEATCHECK: add_fields(out.tree, mme, 6, kMMeHeartBeatCheckSpec, kMMeHeartBeatCheckSpecN); break;
-        case MME_DISCOVERNODELIST: add_fields(out.tree, mme, 6, kMMeDiscoverNodeListSpec, kMMeDiscoverNodeListSpecN); break;
-        case MME_DELAYLEAVEIND: add_fields(out.tree, mme, 6, kMMeDelayLeaveIndSpec, kMMeDelayLeaveIndSpecN); break;
-        case MME_SUCCESSRATEREPORT: add_fields(out.tree, mme, 6, kMMeSuccessRateReportSpec, kMMeSuccessRateReportSpecN); break;
+        case MME_DISCOVERNODELIST: {
+            add_fields(out.tree, mme, 6, kMMeDiscoverNodeListSpec, kMMeDiscoverNodeListSpecN);
+            const quint16 route_num = (quint16)get_bits(mme, 34, 0, 16);
+            const quint16 node_num  = (quint16)get_bits(mme, 30, 0, 16);
+            int off = 48;
+            for (int i = 0; i < route_num && off + 3 <= mme.size(); ++i) {
+                MsduFieldNode& n = group(out.tree, QStringLiteral("UpRoute[%1]").arg(i));
+                n.rel_start = off; n.rel_len = 3;
+                add_fields(n.children, mme, off, kUpRouteInfoSpec, kUpRouteInfoSpecN);
+                off += 3;
+            }
+            if (mme.size() >= off + 128) {
+                MsduFieldNode& bm = group(out.tree, QStringLiteral("DiscoverySTAListBitMap [128B]"),
+                    QString::fromLatin1(mme.mid(off, 128).toHex(' ').toUpper()));
+                bm.rel_start = off; bm.rel_len = 128;
+                off += 128;
+                if (mme.size() >= off + node_num) {
+                    for (int i = 0; i < node_num; ++i) {
+                        MsduFieldNode& n = group(out.tree, QStringLiteral("ReceivedCount[%1]").arg(i),
+                            QString::number((quint8)get_bits(mme, off + i, 0, 8)));
+                        n.rel_start = off + i; n.rel_len = 1;
+                    }
+                }
+            }
+            break;
+        }
+        case MME_DELAYLEAVEIND: {
+            add_fields(out.tree, mme, 6, kMMeDelayLeaveIndSpec, kMMeDelayLeaveIndSpecN);
+            const quint16 sta_num = (quint16)get_bits(mme, 8, 0, 16);
+            int off = 16;
+            for (int i = 0; i < sta_num && off + 6 <= mme.size(); ++i) {
+                MsduFieldNode& n = group(out.tree, QStringLiteral("LeaveSTA[%1]").arg(i),
+                    mac_str(get_bits(mme, off, 0, 48)));
+                n.rel_start = off; n.rel_len = 6;
+                off += 6;
+            }
+            break;
+        }
+        case MME_SUCCESSRATEREPORT: {
+            add_fields(out.tree, mme, 6, kMMeSuccessRateReportSpec, kMMeSuccessRateReportSpecN);
+            const quint16 sta_num = (quint16)get_bits(mme, 8, 0, 16);
+            int off = 10;
+            for (int i = 0; i < sta_num && off + 4 <= mme.size(); ++i) {
+                MsduFieldNode& n = group(out.tree, QStringLiteral("CommRate[%1]").arg(i));
+                n.rel_start = off; n.rel_len = 4;
+                add_fields(n.children, mme, off, kCommRateInfoSpec, kCommRateInfoSpecN);
+                off += 4;
+            }
+            break;
+        }
         case MME_ZEROCROSSNTBCOLLECTIND: add_fields(out.tree, mme, 6, kMMeZeroCrossNTBCollectIndSpec, kMMeZeroCrossNTBCollectIndSpecN); break;
         case MME_ZEROCROSSNTBREPORT: add_fields(out.tree, mme, 6, kMMeZeroCrossNTBReportSpec, kMMeZeroCrossNTBReportSpecN); break;
         case MME_NETDIAGNOSE: add_fields(out.tree, mme, 6, kMMeNetDiagnoseSpec, kMMeNetDiagnoseSpecN); break;
-        case MME_RFCHANNELCONFLICTREPORT: add_fields(out.tree, mme, 6, kMMeRFChannelConflictReportSpec, kMMeRFChannelConflictReportSpecN); break;
+        case MME_RFCHANNELCONFLICTREPORT: {
+            add_fields(out.tree, mme, 6, kMMeRFChannelConflictReportSpec, kMMeRFChannelConflictReportSpecN);
+            const quint8 n = (quint8)get_bits(mme, 12, 0, 8);
+            if (mme.size() >= 13 + 2 * n) {
+                for (int i = 0; i < n; ++i) {
+                    MsduFieldNode& e = group(out.tree, QStringLiteral("Neighbour[%1]").arg(i));
+                    e.rel_start = 13 + i; e.rel_len = 1;
+                    MsduFieldNode ch;
+                    ch.name = QStringLiteral("Channel");
+                    ch.value = QString::number((quint8)get_bits(mme, 13 + i, 0, 8));
+                    ch.rel_start = 13 + i; ch.rel_len = 1;
+                    e.children.append(ch);
+                    MsduFieldNode op;
+                    op.name = QStringLiteral("Option");
+                    op.value = QString::number((quint8)get_bits(mme, 13 + n + i, 0, 8));
+                    op.rel_start = 13 + n + i; op.rel_len = 1;
+                    e.children.append(op);
+                }
+            }
+            break;
+        }
         case MME_STATIONTEILISTREQUEST: add_fields(out.tree, mme, 6, kMMeStationTEIListRequestSpec, kMMeStationTEIListRequestSpecN); break;
         case MME_STATIONTEILISTRESPONSE: add_fields(out.tree, mme, 6, kMMeStationTEIListResponseSpec, kMMeStationTEIListResponseSpecN); break;
         case MME_CONVERGENCEDATAREPORT: add_fields(out.tree, mme, 6, kMMeConvergenceDataReportSpec, kMMeConvergenceDataReportSpecN); break;                        default: break;
