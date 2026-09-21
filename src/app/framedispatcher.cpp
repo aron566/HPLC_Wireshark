@@ -54,6 +54,13 @@ void FrameDispatcher::disconnect_source(QObject* source) {
         disconnect(source, nullptr, m_worker, nullptr);
 }
 
+void FrameDispatcher::shutdown() {
+    // 立即断开 worker→本对象的所有信号连接(含 parsed),并退出解析线程:
+    // 让旧线程停止处理积压帧、停止向 GUI 投递 parsed 事件。
+    if (m_worker) disconnect(m_worker, nullptr, this, nullptr);
+    if (m_thread) m_thread->quit();
+}
+
 void FrameDispatcher::on_parsed(const ParseResult& r) {
     m_total.fetch_add(1);
     if (!r.accept) m_dropped.fetch_add(1);

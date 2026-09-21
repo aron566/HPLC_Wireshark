@@ -549,7 +549,9 @@ void MainWindow::rebuild_dispatcher() {
     on_clear();                       // 清空列表/协议树/hex/统计(旧 dispatcher 仍在)
     if (m_dispatch) {
         // 回放忙碌时不能同步 delete(析构里 wait 会卡 GUI 直至崩溃):
-        // 先断开旧帧源/信号,再 deleteLater 异步销毁(旧线程处理完积压帧即退出)。
+        // shutdown 立即断开 worker 信号 + 退出解析线程(停止处理积压帧、
+        // 停止向 GUI 投递 parsed),再断外部连接并 deleteLater 异步销毁。
+        m_dispatch->shutdown();
         m_dispatch->disconnect_source(m_reader);
         m_dispatch->disconnect(this);
         m_dispatch->deleteLater();

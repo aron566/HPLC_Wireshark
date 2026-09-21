@@ -42,6 +42,9 @@ public:
 
     void connect_source(QObject* source);
     void disconnect_source(QObject* source);
+    /// @brief 立即停止解析:断开 worker 信号并退出解析线程;
+    ///        供重建 dispatcher 时快速让旧线程停止处理积压帧。
+    void shutdown();
 
 signals:
     void filter_changed(ParseFilter f);
