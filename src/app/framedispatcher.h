@@ -16,6 +16,8 @@ class DispatcherWorker : public QObject {
 public:
     explicit DispatcherWorker(std::unique_ptr<IProtocolParser> parser,
                               QObject* parent = nullptr);
+    /// @brief 请求停止:置位后 on_frame 立即返回不再解析(供 shutdown 快速清空积压帧)
+    void request_stop() { m_stopped.store(true); }
 
 public slots:
     void on_frame(const BplcFrame& frame);
@@ -29,6 +31,7 @@ private:
     std::unique_ptr<IProtocolParser> m_parser;
     MsduState   m_msdu;
     ParseFilter m_filter;
+    std::atomic<bool> m_stopped{false};
 };
 
 class FrameDispatcher : public QObject {

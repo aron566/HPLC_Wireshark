@@ -4,6 +4,10 @@
 #include "protocolfactory.h"
 #include "appconfig.h"
 
+#include <QElapsedTimer>
+#include <QFile>
+#include <QTextStream>
+
 DispatcherWorker::DispatcherWorker(std::unique_ptr<IProtocolParser> parser,
                                    QObject* parent)
     : QObject(parent), m_parser(std::move(parser)) {}
@@ -13,6 +17,7 @@ void DispatcherWorker::on_filter_changed(ParseFilter f) {
 }
 
 void DispatcherWorker::on_frame(const BplcFrame& frame) {
+    if (m_stopped.load()) return;   // 已停止:立即返回,快速清空积压帧
     auto r = m_parser->parse(frame, m_msdu, m_filter);
     emit parsed(r);
 }
@@ -36,12 +41,22 @@ FrameDispatcher::FrameDispatcher(QObject* parent)
 
 FrameDispatcher::~FrameDispatcher() {
     if (m_thread) {
+        QElapsedTimer t; t.start();
         m_thread->quit();
-        if (!m_thread->wait(2000)) {
+        const bool ok = m_thread->wait(2000);
+        const qint64 waited = t.elapsed();
+        if (!ok) {
             // 线程 2 秒未退出(异常):强制终止兜底,避免 QThread 析构时
             // 线程仍运行触发 qFatal("Destroyed while thread is still running")。
             m_thread->terminate();
             m_thread->wait();
+        }
+        {
+            QFile lf(QStringLiteral("rebuild_timing.log"));
+            if (lf.open(QIODevice::WriteOnly | QIODevice::Append)) {
+                QTextStream ts(&lf);
+                ts << QString("[dtor] waited=%1ms ok=%2\n").arg(waited).arg(ok ? "yes" : "NO");
+            }
         }
     }
 }
@@ -63,8 +78,12 @@ void FrameDispatcher::disconnect_source(QObject* source) {
 
 void FrameDispatcher::shutdown() {
     // 立即断开 worker→本对象的所有信号连接(含 parsed),并退出解析线程:
-    // 让旧线程停止处理积压帧、停止向 GUI 投递 parsed 事件。
-    if (m_worker) disconnect(m_worker, nullptr, this, nullptr);
+    // request_stop 置停止标志让 on_frame 直接返回(不清算积压帧),
+    // 再 quit,线程快速退出、不再向 GUI 投递 parsed 事件。
+    if (m_worker) {
+        m_worker->request_stop();
+        disconnect(m_worker, nullptr, this, nullptr);
+    }
     if (m_thread) m_thread->quit();
 }
 
