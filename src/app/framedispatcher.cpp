@@ -4,6 +4,8 @@
 #include "protocolfactory.h"
 #include "appconfig.h"
 
+#include <QElapsedTimer>
+
 DispatcherWorker::DispatcherWorker(std::unique_ptr<IProtocolParser> parser,
                                    QObject* parent)
     : QObject(parent), m_parser(std::move(parser)) {}
@@ -14,8 +16,17 @@ void DispatcherWorker::on_filter_changed(ParseFilter f) {
 
 void DispatcherWorker::on_frame(const BplcFrame& frame) {
     if (m_stopped.load()) return;   // 已停止:立即返回,快速清空积压帧
+    QElapsedTimer t; t.start();
     auto r = m_parser->parse(frame, m_msdu, m_filter);
     emit parsed(r);
+    // 错协议快解析(跳过 MSDU 重组/字段树,µs 级)会以数十万帧/秒洪泛
+    // parsed 事件,饿死 GUI 的 flush timer 导致 pending 堆积卡顿。
+    // 补足到最小帧间隔 ~20µs(≈50K 帧/秒),匹配 GUI 列表渲染速度。
+    // 正常协议解析本就 ≥20µs,此分支不触发。
+    if (t.nsecsElapsed() < 20000) {
+        while (t.nsecsElapsed() < 20000)
+            QThread::yieldCurrentThread();
+    }
 }
 
 FrameDispatcher::FrameDispatcher(QObject* parent)
