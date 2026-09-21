@@ -8,6 +8,7 @@
 #include <QByteArray>
 #include <QList>
 #include <QVector>
+#include <atomic>
 #include "serialreader.h"
 #include "framedispatcher.h"
 #include "iprotocolparser.h"
@@ -101,6 +102,7 @@ private:
 
     quint32          m_last_ntb;     ///< 上一帧帧内 NTB(tick),Delta 统一用 NTB 差
     int              m_index_counter;
+    std::atomic<int> m_pending_count{0};  ///< pending 帧数(原子,阈值触发同步 flush 用)
 };
 
 #endif // MAINWINDOW_H

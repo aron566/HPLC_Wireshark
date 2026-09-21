@@ -610,11 +610,17 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
 void MainWindow::enqueue_entry(PacketEntry&& e) {
     QMutexLocker lock(&m_pending_mutex);
     m_pending.append(std::move(e));
+    m_pending_count.fetch_add(1, std::memory_order_relaxed);
 }
 
 void MainWindow::on_parsed(const ParseResult& r) {
     if (m_paused) return;
     enqueue_entry(make_entry(r, QDateTime::currentMSecsSinceEpoch()));
+    // 高速灌帧(错协议解析跳过重活、极快)时,parsed 事件会把 100ms 的
+    // flush timer 挤出事件队列,导致 pending 堆积到数万帧、一次性 flush 卡顿。
+    // 达到阈值即同步 flush,把巨批摊平为小批,与国网正常解析的节奏一致。
+    if (m_pending_count.load(std::memory_order_relaxed) >= 1000)
+        on_flush_buffer();
 }
 
 void MainWindow::on_flush_buffer() {
@@ -624,6 +630,7 @@ void MainWindow::on_flush_buffer() {
         QMutexLocker lock(&m_pending_mutex);
         if (m_pending.isEmpty()) return;
         snapshot.swap(m_pending);
+        m_pending_count.store(0, std::memory_order_relaxed);
     }
     QVector<PacketEntry> entries;
     entries.reserve(snapshot.size());
