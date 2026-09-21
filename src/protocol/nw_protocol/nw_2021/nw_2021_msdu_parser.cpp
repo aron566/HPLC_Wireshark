@@ -320,6 +320,13 @@ static const FieldSpec kMMeStationTEIListResponseSpec[] = {
 };
 static const int kMMeStationTEIListResponseSpecN = int(sizeof(kMMeStationTEIListResponseSpec)/sizeof(kMMeStationTEIListResponseSpec[0]));
 
+// TEI 列表条目(8B):MAC 48b + TEI 16b(高 4 位保留)
+static const FieldSpec kMMeStationTEIListEntrySpec[] = {
+    { "MacAddress", 0, 0, 48, Fmt::MAC },
+    { "TEI", 6, 0, 16, Fmt::DEC },
+};
+static const int kMMeStationTEIListEntrySpecN = int(sizeof(kMMeStationTEIListEntrySpec)/sizeof(kMMeStationTEIListEntrySpec[0]));
+
 static const FieldSpec kMMeConvergenceDataReportSpec[] = {
     { "STATEI", 0, 0, 12, Fmt::DEC },
     { "RSV", 0, 12, 4, Fmt::HEX4 },
@@ -519,6 +526,18 @@ static const FieldSpec kAPP_PLC20TestSpec[] = {
 };
 static const int kAPP_PLC20TestSpecN = int(sizeof(kAPP_PLC20TestSpec)/sizeof(kAPP_PLC20TestSpec[0]));
 
+// 追加变长 hex 载荷节点(offset 起;max_len<0 到末尾,否则按 max_len 截断)
+static void append_payload_hex(MsduInfo& out, const QByteArray& app, int offset,
+                               int max_len, const QString& label) {
+    if (app.size() <= offset) return;
+    int avail = app.size() - offset;
+    if (max_len >= 0 && avail > max_len) avail = max_len;
+    if (avail <= 0) return;
+    MsduFieldNode& n = group(out.tree, QStringLiteral("%1 [%2 B]").arg(label).arg(avail),
+        QString::fromLatin1(app.mid(offset, avail).toHex(' ').toUpper()));
+    n.rel_start = offset; n.rel_len = avail;
+}
+
 // ── 南网 APP 报文分发(PacketType→BusinessID→TransDirectionFlag) ──
 static void parse_app_payload(MsduInfo& out, const QByteArray& app,
                               quint8 packet_type, quint8 business_id, quint8 trans_dir) {
@@ -527,34 +546,47 @@ static void parse_app_payload(MsduInfo& out, const QByteArray& app,
         if (business_id == 0x01) add_fields(out.tree, app, 12, kAPP_NACKSpec, kAPP_NACKSpecN);
         break;
     case 0x1:  // Data Forward
-        if      (business_id == 0x00 && trans_dir == 0) add_fields(out.tree, app, 12, kAPP_DataTransThroughDownStreamSpec, kAPP_DataTransThroughDownStreamSpecN);
-        else if (business_id == 0x00 && trans_dir == 1) add_fields(out.tree, app, 12, kAPP_DataTransThroughUpStreamSpec, kAPP_DataTransThroughUpStreamSpecN);
-        else if (business_id == 0x01 && trans_dir == 0) add_fields(out.tree, app, 12, kAPP_DataTransThroughModuleDownStreamSpec, kAPP_DataTransThroughModuleDownStreamSpecN);
-        else if (business_id == 0x01 && trans_dir == 1) add_fields(out.tree, app, 12, kAPP_DataTransThroughModuleUpStreamSpec, kAPP_DataTransThroughModuleUpStreamSpecN);
+        if      (business_id == 0x00 && trans_dir == 0) {
+            add_fields(out.tree, app, 12, kAPP_DataTransThroughDownStreamSpec, kAPP_DataTransThroughDownStreamSpecN);
+            append_payload_hex(out, app, 28, (int)get_bits(app, 26, 0, 16), QStringLiteral("ForwardData"));
+        }
+        else if (business_id == 0x00 && trans_dir == 1) {
+            add_fields(out.tree, app, 12, kAPP_DataTransThroughUpStreamSpec, kAPP_DataTransThroughUpStreamSpecN);
+            append_payload_hex(out, app, 28, (int)get_bits(app, 26, 0, 16), QStringLiteral("ForwardData"));
+        }
+        else if (business_id == 0x01 && trans_dir == 0) {
+            add_fields(out.tree, app, 12, kAPP_DataTransThroughModuleDownStreamSpec, kAPP_DataTransThroughModuleDownStreamSpecN);
+            append_payload_hex(out, app, 29, (int)get_bits(app, 26, 0, 16), QStringLiteral("ForwardData"));
+        }
+        else if (business_id == 0x01 && trans_dir == 1) {
+            add_fields(out.tree, app, 12, kAPP_DataTransThroughModuleUpStreamSpec, kAPP_DataTransThroughModuleUpStreamSpecN);
+            append_payload_hex(out, app, 28, (int)get_bits(app, 26, 0, 16), QStringLiteral("ForwardData"));
+        }
         break;
     case 0x2:  // Command
         switch (business_id) {
-        case 0x00: if (trans_dir == 1) add_fields(out.tree, app, 12, kAPP_CheckMeterSearchResultUpStreamSpec, kAPP_CheckMeterSearchResultUpStreamSpecN); break;
-        case 0x01: if (trans_dir == 0) add_fields(out.tree, app, 12, kAPP_DistributeMeterSearchResultDownStreamSpec, kAPP_DistributeMeterSearchResultDownStreamSpecN); break;
-        case 0x02: add_fields(out.tree, app, 12, kAPP_FileTransmissionSpec, kAPP_FileTransmissionSpecN); break;
+        case 0x00: if (trans_dir == 1) { add_fields(out.tree, app, 12, kAPP_CheckMeterSearchResultUpStreamSpec, kAPP_CheckMeterSearchResultUpStreamSpecN); append_payload_hex(out, app, 16, -1, QStringLiteral("DATAField")); } break;
+        case 0x01: if (trans_dir == 0) { add_fields(out.tree, app, 12, kAPP_DistributeMeterSearchResultDownStreamSpec, kAPP_DistributeMeterSearchResultDownStreamSpecN); append_payload_hex(out, app, 16, -1, QStringLiteral("DATAField")); } break;
+        case 0x02: { add_fields(out.tree, app, 12, kAPP_FileTransmissionSpec, kAPP_FileTransmissionSpecN); append_payload_hex(out, app, 16, -1, QStringLiteral("FileData")); } break;
         case 0x03: if (trans_dir == 0) add_fields(out.tree, app, 12, kAPP_EventReportSwitchDownStreamSpec, kAPP_EventReportSwitchDownStreamSpecN); break;
         case 0x04: if (trans_dir == 0) add_fields(out.tree, app, 12, kAPP_RebootSTADownStreamSpec, kAPP_RebootSTADownStreamSpecN); break;
-        case 0x06: if (trans_dir == 0) add_fields(out.tree, app, 12, kAPP_DistributeAddressMapDownStreamSpec, kAPP_DistributeAddressMapDownStreamSpecN); break;
-        case 0x10: add_fields(out.tree, app, 12, kAPP_StationAndPhaseIdentifySpec, kAPP_StationAndPhaseIdentifySpecN); break;
-        case 0xF0: if (trans_dir == 0) add_fields(out.tree, app, 12, kAPP_TestPacketDownStreamSpec, kAPP_TestPacketDownStreamSpecN); break;
+        case 0x06: if (trans_dir == 0) { add_fields(out.tree, app, 12, kAPP_DistributeAddressMapDownStreamSpec, kAPP_DistributeAddressMapDownStreamSpecN); append_payload_hex(out, app, 16, -1, QStringLiteral("MapData")); } break;
+        case 0x10: { add_fields(out.tree, app, 12, kAPP_StationAndPhaseIdentifySpec, kAPP_StationAndPhaseIdentifySpecN); append_payload_hex(out, app, 24, -1, QStringLiteral("IdentifyData")); } break;
+        case 0xF0: if (trans_dir == 0) { add_fields(out.tree, app, 12, kAPP_TestPacketDownStreamSpec, kAPP_TestPacketDownStreamSpecN); append_payload_hex(out, app, 16, -1, QStringLiteral("DATAbody")); } break;
         default: break;
         }
         break;
     case 0x3:  // Event Report
-        if      (business_id == 0x00 && trans_dir == 1) add_fields(out.tree, app, 12, kAPP_EventReportUpStreamSpec, kAPP_EventReportUpStreamSpecN);
-        else if (business_id == 0x01)                   add_fields(out.tree, app, 12, kAPP_PowerEventReportUpStreamSpec, kAPP_PowerEventReportUpStreamSpecN);
+        if      (business_id == 0x00 && trans_dir == 1) { add_fields(out.tree, app, 12, kAPP_EventReportUpStreamSpec, kAPP_EventReportUpStreamSpecN); append_payload_hex(out, app, 18, -1, QStringLiteral("EventData")); }
+        else if (business_id == 0x01)                   { add_fields(out.tree, app, 12, kAPP_PowerEventReportUpStreamSpec, kAPP_PowerEventReportUpStreamSpecN); append_payload_hex(out, app, 24, -1, QStringLiteral("EventData")); }
         break;
     case 0x4:  // Reader Frame
-        if      (business_id == 0x00) add_fields(out.tree, app, 12, kAPP_ReaderFrameCCOSpec, kAPP_ReaderFrameCCOSpecN);
-        else if (business_id == 0x01) add_fields(out.tree, app, 12, kAPP_ReaderFrameUartSpec, kAPP_ReaderFrameUartSpecN);
+        if      (business_id == 0x00) { add_fields(out.tree, app, 12, kAPP_ReaderFrameCCOSpec, kAPP_ReaderFrameCCOSpecN); append_payload_hex(out, app, 16, (int)get_bits(app, 14, 0, 16), QStringLiteral("ReaderData")); }
+        else if (business_id == 0x01) { add_fields(out.tree, app, 12, kAPP_ReaderFrameUartSpec, kAPP_ReaderFrameUartSpecN); append_payload_hex(out, app, 24, -1, QStringLiteral("ReaderData")); }
         break;
     case 0xF:  // Factory Frame
         add_fields(out.tree, app, 12, kAPP_FactorFrameSpec, kAPP_FactorFrameSpecN);
+        append_payload_hex(out, app, 18, -1, QStringLiteral("FactorData"));
         break;
     default: break;
     }
@@ -834,7 +866,16 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case MME_ZEROCROSSNTBCOLLECTIND: add_fields(out.tree, mme, 6, kMMeZeroCrossNTBCollectIndSpec, kMMeZeroCrossNTBCollectIndSpecN); break;
         case MME_ZEROCROSSNTBREPORT: add_fields(out.tree, mme, 6, kMMeZeroCrossNTBReportSpec, kMMeZeroCrossNTBReportSpecN); break;
-        case MME_NETDIAGNOSE: add_fields(out.tree, mme, 6, kMMeNetDiagnoseSpec, kMMeNetDiagnoseSpecN); break;
+        case MME_NETDIAGNOSE: {
+            add_fields(out.tree, mme, 6, kMMeNetDiagnoseSpec, kMMeNetDiagnoseSpecN);
+            // DiagInfo 变长诊断数据(mme byte 8 起 = 消息体 byte 2)
+            if (mme.size() > 8) {
+                MsduFieldNode& d = group(out.tree, QStringLiteral("DiagInfo [%1 B]").arg(mme.size() - 8),
+                    QString::fromLatin1(mme.mid(8).toHex(' ').toUpper()));
+                d.rel_start = 8; d.rel_len = mme.size() - 8;
+            }
+            break;
+        }
         case MME_RFCHANNELCONFLICTREPORT: {
             add_fields(out.tree, mme, 6, kMMeRFChannelConflictReportSpec, kMMeRFChannelConflictReportSpecN);
             const quint8 n = (quint8)get_bits(mme, 12, 0, 8);
@@ -856,9 +897,43 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             }
             break;
         }
-        case MME_STATIONTEILISTREQUEST: add_fields(out.tree, mme, 6, kMMeStationTEIListRequestSpec, kMMeStationTEIListRequestSpecN); break;
-        case MME_STATIONTEILISTRESPONSE: add_fields(out.tree, mme, 6, kMMeStationTEIListResponseSpec, kMMeStationTEIListResponseSpecN); break;
-        case MME_CONVERGENCEDATAREPORT: add_fields(out.tree, mme, 6, kMMeConvergenceDataReportSpec, kMMeConvergenceDataReportSpecN); break;                        default: break;
+        case MME_STATIONTEILISTREQUEST: {
+            add_fields(out.tree, mme, 6, kMMeStationTEIListRequestSpec, kMMeStationTEIListRequestSpecN);
+            const quint8 station_num = (quint8)get_bits(mme, 13, 0, 8);  // StationNum = 消息体 byte 7
+            int off = 14;  // mme byte 14 = MMeHeadSize 6 + 8
+            for (int i = 0; i < station_num && off + 6 <= mme.size(); ++i) {
+                MsduFieldNode& n = group(out.tree, QStringLiteral("StationMAC[%1]").arg(i),
+                    mac_str(get_bits(mme, off, 0, 48)));
+                n.rel_start = off; n.rel_len = 6;
+                off += 6;
+            }
+            break;
+        }
+        case MME_STATIONTEILISTRESPONSE: {
+            add_fields(out.tree, mme, 6, kMMeStationTEIListResponseSpec, kMMeStationTEIListResponseSpecN);
+            const quint8 station_num = (quint8)get_bits(mme, 13, 0, 8);
+            int off = 14;  // mme byte 14 = MMeHeadSize 6 + 8
+            for (int i = 0; i < station_num && off + 8 <= mme.size(); ++i) {
+                MsduFieldNode& n = group(out.tree, QStringLiteral("StationTEI[%1]").arg(i));
+                n.rel_start = off; n.rel_len = 8;
+                add_fields(n.children, mme, off, kMMeStationTEIListEntrySpec, kMMeStationTEIListEntrySpecN);
+                off += 8;
+            }
+            break;
+        }
+        case MME_CONVERGENCEDATAREPORT: {
+            add_fields(out.tree, mme, 6, kMMeConvergenceDataReportSpec, kMMeConvergenceDataReportSpecN);
+            // ForwardData(mme byte 26 起 = 消息体 byte 20,ForwardDataLen 字节)
+            const quint16 fwd_len = (quint16)get_bits(mme, 24, 0, 16);
+            if (mme.size() > 26 && fwd_len > 0) {
+                int avail = (int)fwd_len;
+                if (avail > mme.size() - 26) avail = mme.size() - 26;
+                MsduFieldNode& f = group(out.tree, QStringLiteral("ForwardData [%1 B]").arg(avail),
+                    QString::fromLatin1(mme.mid(26, avail).toHex(' ').toUpper()));
+                f.rel_start = 26; f.rel_len = avail;
+            }
+            break;
+        }                        default: break;
                     }
                 } else {
                     out.summary = QStringLiteral("MMe (truncated)");
