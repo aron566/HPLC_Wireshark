@@ -35,8 +35,15 @@ FrameDispatcher::FrameDispatcher(QObject* parent)
 }
 
 FrameDispatcher::~FrameDispatcher() {
-    m_thread->quit();
-    m_thread->wait(2000);
+    if (m_thread) {
+        m_thread->quit();
+        if (!m_thread->wait(2000)) {
+            // 线程 2 秒未退出(异常):强制终止兜底,避免 QThread 析构时
+            // 线程仍运行触发 qFatal("Destroyed while thread is still running")。
+            m_thread->terminate();
+            m_thread->wait();
+        }
+    }
 }
 
 void FrameDispatcher::set_filter(const ParseFilter& f) {

@@ -41,7 +41,11 @@ inline void add_fields(QVector<MsduFieldNode>& out, const QByteArray& d, int bas
                        const FieldSpec* specs, int n, int rel_base = 0) {
     for (int i = 0; i < n; ++i) {
         const FieldSpec& s = specs[i];
-        quint64 v = get_bits(d, base + s.byte, s.bit, s.len);
+        const int start_byte = base + s.byte;
+        const int end_byte   = start_byte + (s.bit + s.len - 1) / 8;
+        // 越界保护:数据不足时停止(错位/跨协议解析避免 get_bits 越界读)
+        if (start_byte < 0 || end_byte >= d.size()) break;
+        quint64 v = get_bits(d, start_byte, s.bit, s.len);
         MsduFieldNode node;
         node.name = QStringLiteral("%1 [%2b]").arg(QLatin1String(s.name)).arg(s.len);
         node.value = fmt_val(s.fmt, v);

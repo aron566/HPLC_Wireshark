@@ -640,6 +640,8 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
     }
 
     // 标准 MAC 帧头 MSDU_BASE:MACHeadFlag(0,0,1) 决定长(32B)/短(12B)
+    // 短头至少 12 字节(读到 msdu_seq 在 byte 10-11),不足则无法解析。
+    if (body.size() < 12) return out;
     const quint8 mac_head_flag = (quint8)get_bits(p, 0, 0, 1);
     const quint16 msdu_len     = (quint16)get_bits(p, 2, 0, 16);
 
