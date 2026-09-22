@@ -889,6 +889,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             annotate_unit(out.tree, "ProxyDownCommRate", QStringLiteral("%"));
             annotate_unit(out.tree, "MinCommRate", QStringLiteral("%"));
             annotate_unit(out.tree, "RoutePeriodLeftTime", QStringLiteral("s"));
+            annotate_unit(out.tree, "UpRouteEntrySize", QStringLiteral("bit"));
             const quint16 route_num = (quint16)get_bits(mme, 34, 0, 16);  // UpRouteEntryNum
             const quint16 node_num  = (quint16)get_bits(mme, 30, 0, 16);  // DiscoverNodeNum
             int off = 48;  // 固定头 42B(MMeHead 6 + 消息体 42)
