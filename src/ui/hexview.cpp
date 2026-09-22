@@ -121,7 +121,7 @@ void HexView::rebuild_highlight() {
     }
 
     QList<QTextEdit::ExtraSelection> sels;
-    int first_row = -1;
+    int first_byte = -1;
 
     // 每个片段逐字节高亮其 2 个 hex 字符;同字节簇背景相同,视觉上连成段
     for (const auto& r : m_hl_ranges) {
@@ -138,20 +138,25 @@ void HexView::rebuild_highlight() {
             sel.cursor = cur;
             sel.format.setBackground(QColor(255, 224, 32, 110));  // 半透明黄
             sels.append(sel);
-            if (first_row < 0) first_row = b / 16;
+            if (first_byte < 0) first_byte = b;
         }
     }
     setExtraSelections(sels);
 
-    // 仅当高亮首行不在当前可视区时才滚动定位;视口内点击不跳动
-    QScrollBar* vsb = verticalScrollBar();
-    if (vsb && first_row >= 0) {
-        const int row_h = fontMetrics().lineSpacing();
-        const int vh = viewport()->height();
-        const int top_row    = (vh > 0 && row_h > 0) ? vsb->value() / row_h : 0;
-        const int rows_vis   = (vh > 0 && row_h > 0) ? vh / row_h : 1;
-        if (first_row < top_row || first_row >= top_row + rows_vis)
-            vsb->setValue(first_row * row_h - 8);
+    // 仅当高亮首字节不在当前可视区时才滚动定位。用光标矩形(视口坐标)精确判断,
+    // 不手算行号/行高:fontMetrics().lineSpacing() 与 QPlainTextEdit 实际行高
+    // (fontMetrics().height()) 不一致,旧实现按 lineSpacing 算行号会使滚动目标
+    // 偏下,把高亮滚出视野(点击 PB Header 等字段后滑动块跳动、高亮被隐藏)。
+    if (first_byte >= 0) {
+        QTextCursor probe(document());
+        probe.setPosition(char_offset_of_byte(first_byte));
+        const QRect cr = cursorRect(probe);
+        const QRect vp = viewport()->rect();
+        if (!vp.intersects(cr)) {
+            const int target = verticalScrollBar()->value()
+                             + cr.center().y() - vp.center().y();
+            verticalScrollBar()->setValue(target);
+        }
     }
 }
 
