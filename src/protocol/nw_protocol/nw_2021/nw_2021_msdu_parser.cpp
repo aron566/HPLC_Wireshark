@@ -99,9 +99,9 @@ struct MMeI18nReg {
         trl::register_en("上级路由类型", "Upper-level Backup Route");
         trl::register_en("代理主路径路由类型", "Proxy Main Path Route");
         trl::register_en("上上级路由类型", "Upper-of-upper Backup Route");
-        trl::register_en(" (第一相线·高可信)", " (1st line, high confidence)");
-        trl::register_en(" (第二相线)", " (2nd line)");
-        trl::register_en(" (第三相线)", " (3rd line)");
+        trl::register_en(" (高可信)", " (high confidence)");
+        trl::register_en(" (中可信)", " (medium confidence)");
+        trl::register_en(" (低可信)", " (low confidence)");
     }
 } mme_i18n_reg;
 
@@ -301,7 +301,7 @@ static const FieldSpec kMMeDiscoverNodeListSpec[] = {
     { "RoutePeriodLeftTime", 33, 0, 16, Fmt::DEC },
     { "CandidateLinePhase2", 35, 0, 2, Fmt::DEC },
     { "CandidateLinePhase1", 35, 2, 2, Fmt::DEC },
-    { "LinePhase0", 35, 4, 2, Fmt::DEC },
+    { "CandidateLinePhase0", 35, 4, 2, Fmt::DEC },
     { "RSV2", 35, 6, 2, Fmt::HEX4 },
     { "MinCommRate", 36, 0, 8, Fmt::DEC },
     { "RSV3", 37, 0, 40, Fmt::HEX12 },
@@ -872,18 +872,18 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             add_fields(out.tree, mme, 6, kMMeDiscoverNodeListSpec, kMMeDiscoverNodeListSpecN, mme_rel_base);
             // 值解释(对齐国网:Role/LinePhase/CommRateCalculateFinish 双语,成功率带 %)
             translate_enum_i18n(out.tree, "Role", kRoleZh, 5);
-            translate_enum_i18n(out.tree, "LinePhase0", kLinePhaseZh, 4);
+            translate_enum_i18n(out.tree, "CandidateLinePhase0", kLinePhaseZh, 4);
             translate_enum_i18n(out.tree, "CandidateLinePhase1", kLinePhaseZh, 4);
             translate_enum_i18n(out.tree, "CandidateLinePhase2", kLinePhaseZh, 4);
             translate_enum_i18n(out.tree, "CommRateCalculateFinish", kCommRateCalcZh, 2);
-            // 相线可信程度说明(6.8.14):第一相线最可能所属,第二/三相线可信度依次递减
+            // 相线可信程度说明(6.8.14):高可信/中可信/低可信依次递减
             for (auto& n : out.tree) {
-                if (n.name.startsWith(QLatin1String("LinePhase0")))
-                    n.value += trl::L(" (第一相线·高可信)");
+                if (n.name.startsWith(QLatin1String("CandidateLinePhase0")))
+                    n.value += trl::L(" (高可信)");
                 else if (n.name.startsWith(QLatin1String("CandidateLinePhase1")))
-                    n.value += trl::L(" (第二相线)");
+                    n.value += trl::L(" (中可信)");
                 else if (n.name.startsWith(QLatin1String("CandidateLinePhase2")))
-                    n.value += trl::L(" (第三相线)");
+                    n.value += trl::L(" (低可信)");
             }
             annotate_unit(out.tree, "ProxyCommRate", QStringLiteral("%"));
             annotate_unit(out.tree, "ProxyDownCommRate", QStringLiteral("%"));
