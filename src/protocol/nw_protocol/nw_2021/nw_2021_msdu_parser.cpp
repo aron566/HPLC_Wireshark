@@ -905,9 +905,9 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 for (int i = 0; i < bm.size(); ++i) {
                     MsduFieldNode bl;
                     bl.name = QStringLiteral("DiscoverySTABitMap[%1] [8b]").arg(i);
-                    // 每个字节都显示(不省略空字节):有置位列出 TEI,空字节显示 0x00
+                    // 每个字节都显示(不省略空字节):有置位列出 TEI,空字节显示 NULL(只显示有值的)
                     bl.value = per_byte[i].isEmpty()
-                        ? QStringLiteral("0x%1").arg((quint8)bm[i], 2, 16, QChar('0'))
+                        ? QStringLiteral("NULL")
                         : per_byte[i].join(QStringLiteral(", "));
                     if (bm_base >= 0) { bl.rel_start = mme_rel_base + (bm_base + i); bl.rel_len = 1; }
                     bmg.children.append(bl);
