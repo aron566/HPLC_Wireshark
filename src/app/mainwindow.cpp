@@ -5,6 +5,7 @@
 #include "packetlistmodel.h"
 #include "hexview.h"
 #include "protocoltree.h"
+#include "protocolfactory.h"
 #include "commconfigdialog.h"
 #include "QSimpleUpdater.h"
 #include "appconfig.h"
@@ -193,6 +194,7 @@ void MainWindow::build_ui() {
 
     m_tree_protocol = new ProtocolTree(m_splitter_bottom);
     m_tree_protocol->setMinimumWidth(220);
+    m_tree_protocol->set_variant(protocol_from_key(appcfg::protocol()));
 
     auto* hex_pane   = new QWidget(m_splitter_bottom);
     auto* hex_layout = new QVBoxLayout(hex_pane);
@@ -562,6 +564,7 @@ void MainWindow::rebuild_dispatcher() {
     connect(m_dispatch, &FrameDispatcher::parsed,
             this,       &MainWindow::on_parsed,
             Qt::QueuedConnection);
+    m_tree_protocol->set_variant(protocol_from_key(appcfg::protocol()));  // 字段树切协议
     m_status_left->setText(trl::L("协议已立即生效(Ctrl+E 开始捕获)"));
 }
 

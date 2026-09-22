@@ -10,6 +10,7 @@ HEADERS += \
     $$PWD/gw_2022_parser.h \
     $$PWD/gw_2022_msdu_parser.h \
     $$PWD/gw_2022_pb_table.h \
+    $$PWD/gw_2022_tree.h \
     $$PWD/beacon/gw_2022_beacon_parser.h \
     $$PWD/sof/gw_2022_sof_parser.h \
     $$PWD/ack/gw_2022_ack_parser.h \
@@ -18,6 +19,7 @@ HEADERS += \
 SOURCES += \
     $$PWD/gw_2022_parser.cpp \
     $$PWD/gw_2022_msdu_parser.cpp \
+    $$PWD/gw_2022_tree.cpp \
     $$PWD/beacon/gw_2022_beacon_parser.cpp \
     $$PWD/sof/gw_2022_sof_parser.cpp \
     $$PWD/ack/gw_2022_ack_parser.cpp \
