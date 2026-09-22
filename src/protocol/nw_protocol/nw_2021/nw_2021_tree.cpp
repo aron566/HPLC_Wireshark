@@ -155,6 +155,13 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                         }
                     }
                 }
+                // 保留字节(块体后、CRC24 前 1B,表7)
+                {
+                    const int rsv_off = blk_off + e.mpdu.pb_size - 4;
+                    const quint8 rsv = (rsv_off >= 0 && rsv_off < raw_sz) ? d[rsv_off] : 0;
+                    tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv, 2, 16, QChar('0')),
+                        rsv_off, 0, 8);
+                }
                 // PB CRC24(块尾 3B,前 1B 是保留)
                 bool have = (blk_off + e.mpdu.pb_size) <= raw_sz;
                 quint32 crc = 0;
