@@ -26,13 +26,11 @@ enum MMeType : quint16 {
     MME_DISCOVERNODELIST = 0x0055,
     MME_DELAYLEAVEIND = 0x005D,
     MME_SUCCESSRATEREPORT = 0x005E,
+    MME_NETWORKCONFLICTREPORT = 0x005F,
     MME_ZEROCROSSNTBCOLLECTIND = 0x0062,
     MME_ZEROCROSSNTBREPORT = 0x0063,
     MME_NETDIAGNOSE = 0x0064,
     MME_RFCHANNELCONFLICTREPORT = 0x0070,
-    MME_STATIONTEILISTREQUEST = 0x0083,
-    MME_STATIONTEILISTRESPONSE = 0x0084,
-    MME_CONVERGENCEDATAREPORT = 0x00A0,
 };
 
 inline QString mme_type_name(quint16 t) {
@@ -49,13 +47,11 @@ inline QString mme_type_name(quint16 t) {
         case 0x0055: return QStringLiteral("MMeDiscoverNodeList");
         case 0x005D: return QStringLiteral("MMeDelayLeaveInd");
         case 0x005E: return QStringLiteral("MMeSuccessRateReport");
+        case 0x005F: return QStringLiteral("MMeNetworkConflictReport");
         case 0x0062: return QStringLiteral("MMeZeroCrossNTBCollectInd");
         case 0x0063: return QStringLiteral("MMeZeroCrossNTBReport");
         case 0x0064: return QStringLiteral("MMeNetDiagnose");
         case 0x0070: return QStringLiteral("MMeRFChannelConflictReport");
-        case 0x0083: return QStringLiteral("MMeStationTEIListRequest");
-        case 0x0084: return QStringLiteral("MMeStationTEIListResponse");
-        case 0x00A0: return QStringLiteral("MMeConvergenceDataReport");
         default: return QStringLiteral("MMe 0x%1").arg(t, 4, 16, QChar('0'));
     }
 }
@@ -306,39 +302,13 @@ static const FieldSpec kMMeRFChannelConflictReportSpec[] = {
 };
 static const int kMMeRFChannelConflictReportSpecN = int(sizeof(kMMeRFChannelConflictReportSpec)/sizeof(kMMeRFChannelConflictReportSpec[0]));
 
-static const FieldSpec kMMeStationTEIListRequestSpec[] = {
-    { "RequestSeq", 0, 0, 8, Fmt::DEC },
-    { "InitiatorMAC", 1, 0, 48, Fmt::MAC },
-    { "StationNum", 7, 0, 8, Fmt::DEC },
+// 网络冲突上报(表 204):冲突网络 CCO MAC 6B + 邻居个数 1B + 邻居 SNID 位图 2B
+static const FieldSpec kMMeNetworkConflictReportSpec[] = {
+    { "CCOMACAddr", 0, 0, 48, Fmt::MAC },
+    { "NeighbourNetWorkCount", 6, 0, 8, Fmt::DEC },
+    { "NeighbourNIDBitMap", 7, 0, 16, Fmt::HEX4 },
 };
-static const int kMMeStationTEIListRequestSpecN = int(sizeof(kMMeStationTEIListRequestSpec)/sizeof(kMMeStationTEIListRequestSpec[0]));
-
-static const FieldSpec kMMeStationTEIListResponseSpec[] = {
-    { "RequestSeq", 0, 0, 8, Fmt::DEC },
-    { "InitiatorMAC", 1, 0, 48, Fmt::MAC },
-    { "StationNum", 7, 0, 8, Fmt::DEC },
-};
-static const int kMMeStationTEIListResponseSpecN = int(sizeof(kMMeStationTEIListResponseSpec)/sizeof(kMMeStationTEIListResponseSpec[0]));
-
-// TEI 列表条目(8B):MAC 48b + TEI 16b(高 4 位保留)
-static const FieldSpec kMMeStationTEIListEntrySpec[] = {
-    { "MacAddress", 0, 0, 48, Fmt::MAC },
-    { "TEI", 6, 0, 16, Fmt::DEC },
-};
-static const int kMMeStationTEIListEntrySpecN = int(sizeof(kMMeStationTEIListEntrySpec)/sizeof(kMMeStationTEIListEntrySpec[0]));
-
-static const FieldSpec kMMeConvergenceDataReportSpec[] = {
-    { "STATEI", 0, 0, 12, Fmt::DEC },
-    { "RSV", 0, 12, 4, Fmt::HEX4 },
-    { "PackIndex", 2, 0, 8, Fmt::DEC },
-    { "PackCount", 3, 0, 8, Fmt::DEC },
-    { "SourceAddr", 4, 0, 48, Fmt::MAC },
-    { "DestinationAddr", 10, 0, 48, Fmt::MAC },
-    { "RSV0", 16, 0, 8, Fmt::HEX4 },
-    { "BusCode", 17, 0, 8, Fmt::DEC },
-    { "ForwardDataLen", 18, 0, 16, Fmt::DEC },
-};
-static const int kMMeConvergenceDataReportSpecN = int(sizeof(kMMeConvergenceDataReportSpec)/sizeof(kMMeConvergenceDataReportSpec[0]));
+static const int kMMeNetworkConflictReportSpecN = int(sizeof(kMMeNetworkConflictReportSpec)/sizeof(kMMeNetworkConflictReportSpec[0]));
 
 
 
@@ -878,62 +848,28 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case MME_RFCHANNELCONFLICTREPORT: {
             add_fields(out.tree, mme, 6, kMMeRFChannelConflictReportSpec, kMMeRFChannelConflictReportSpecN);
+            // 邻居网络条目(表 213,交错):每条 2B = 信道号 1B + option 2bit + 保留 6bit
             const quint8 n = (quint8)get_bits(mme, 12, 0, 8);
-            if (mme.size() >= 13 + 2 * n) {
-                for (int i = 0; i < n; ++i) {
-                    MsduFieldNode& e = group(out.tree, QStringLiteral("Neighbour[%1]").arg(i));
-                    e.rel_start = 13 + i; e.rel_len = 1;
-                    MsduFieldNode ch;
-                    ch.name = QStringLiteral("Channel");
-                    ch.value = QString::number((quint8)get_bits(mme, 13 + i, 0, 8));
-                    ch.rel_start = 13 + i; ch.rel_len = 1;
-                    e.children.append(ch);
-                    MsduFieldNode op;
-                    op.name = QStringLiteral("Option");
-                    op.value = QString::number((quint8)get_bits(mme, 13 + n + i, 0, 8));
-                    op.rel_start = 13 + n + i; op.rel_len = 1;
-                    e.children.append(op);
-                }
+            for (int i = 0; i < n && 13 + 2 * i + 1 < mme.size(); ++i) {
+                MsduFieldNode& e = group(out.tree, QStringLiteral("Neighbour[%1]").arg(i));
+                e.rel_start = 13 + 2 * i; e.rel_len = 2;
+                MsduFieldNode ch;
+                ch.name = QStringLiteral("Channel [8b]");
+                ch.value = QString::number((quint8)get_bits(mme, 13 + 2 * i, 0, 8));
+                ch.rel_start = 13 + 2 * i; ch.rel_len = 1;
+                e.children.append(ch);
+                MsduFieldNode op;
+                op.name = QStringLiteral("Option [2b]");
+                op.value = QString::number((quint8)get_bits(mme, 13 + 2 * i + 1, 0, 2));
+                op.rel_start = 13 + 2 * i + 1; op.rel_len = 1;
+                e.children.append(op);
             }
             break;
         }
-        case MME_STATIONTEILISTREQUEST: {
-            add_fields(out.tree, mme, 6, kMMeStationTEIListRequestSpec, kMMeStationTEIListRequestSpecN);
-            const quint8 station_num = (quint8)get_bits(mme, 13, 0, 8);  // StationNum = 消息体 byte 7
-            int off = 14;  // mme byte 14 = MMeHeadSize 6 + 8
-            for (int i = 0; i < station_num && off + 6 <= mme.size(); ++i) {
-                MsduFieldNode& n = group(out.tree, QStringLiteral("StationMAC[%1]").arg(i),
-                    mac_str(get_bits(mme, off, 0, 48)));
-                n.rel_start = off; n.rel_len = 6;
-                off += 6;
-            }
+        case MME_NETWORKCONFLICTREPORT:
+            add_fields(out.tree, mme, 6, kMMeNetworkConflictReportSpec, kMMeNetworkConflictReportSpecN);
             break;
-        }
-        case MME_STATIONTEILISTRESPONSE: {
-            add_fields(out.tree, mme, 6, kMMeStationTEIListResponseSpec, kMMeStationTEIListResponseSpecN);
-            const quint8 station_num = (quint8)get_bits(mme, 13, 0, 8);
-            int off = 14;  // mme byte 14 = MMeHeadSize 6 + 8
-            for (int i = 0; i < station_num && off + 8 <= mme.size(); ++i) {
-                MsduFieldNode& n = group(out.tree, QStringLiteral("StationTEI[%1]").arg(i));
-                n.rel_start = off; n.rel_len = 8;
-                add_fields(n.children, mme, off, kMMeStationTEIListEntrySpec, kMMeStationTEIListEntrySpecN);
-                off += 8;
-            }
-            break;
-        }
-        case MME_CONVERGENCEDATAREPORT: {
-            add_fields(out.tree, mme, 6, kMMeConvergenceDataReportSpec, kMMeConvergenceDataReportSpecN);
-            // ForwardData(mme byte 26 起 = 消息体 byte 20,ForwardDataLen 字节)
-            const quint16 fwd_len = (quint16)get_bits(mme, 24, 0, 16);
-            if (mme.size() > 26 && fwd_len > 0) {
-                int avail = (int)fwd_len;
-                if (avail > mme.size() - 26) avail = mme.size() - 26;
-                MsduFieldNode& f = group(out.tree, QStringLiteral("ForwardData [%1 B]").arg(avail),
-                    QString::fromLatin1(mme.mid(26, avail).toHex(' ').toUpper()));
-                f.rel_start = 26; f.rel_len = avail;
-            }
-            break;
-        }                        default: break;
+                        default: break;
                     }
                 } else {
                     out.summary = QStringLiteral("MMe (truncated)");
