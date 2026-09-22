@@ -1,6 +1,25 @@
 /// @file nw_2021_tree.cpp
 /// @brief 南网 NW_2021 协议字段树构建器实现
 #include "nw_2021_tree.h"
+#include "i18n.h"
+
+namespace {
+
+// 南网字段值中文释义(与国网 gw_2022_tree 同风格:中文原文 + trl 英文翻译)
+struct I18nReg {
+    I18nReg() {
+        trl::register_en("保留", "reserved");
+        trl::register_en("载波接入网络传输", "HPLC access network");
+        trl::register_en("本标准版本号", "this standard version");
+        trl::register_en("未知相线", "unknown phase");
+        trl::register_en("A相线", "phase A");
+        trl::register_en("B相线", "phase B");
+        trl::register_en("C相线", "phase C");
+    }
+};
+const I18nReg g_i18n_reg_nw_tree;
+
+}  // namespace
 
 void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
     // ── MPDU Base(16B 帧控制,表10) ──
@@ -10,17 +29,18 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         0, 0, 3);
     {
         // 接入指示(表12):0=保留 1=MPDU 在宽带载波通信接入网络中传输
-        QString conind = (e.mpdu.net_type == 1) ? QStringLiteral("1 (HPLC Network)")
-                       : QStringLiteral("0 (Reserved)");
+        QString conind = (e.mpdu.net_type == 1)
+            ? QStringLiteral("1 (%1)").arg(trl::L("载波接入网络传输"))
+            : QStringLiteral("0 (%1)").arg(trl::L("保留"));
         tree_add_bit_field(mpdu_base, "ConInd", conind, 0, 3, 1);
     }
     tree_add_bit_field(mpdu_base, "SNID", QStringLiteral("0x%1")
         .arg(e.mpdu.net_id, 1, 16, QChar('0')), 0, 4, 4);
     {
         // 标准版本号(表13):0=保留 1=本标准版本号
-        QString ver = (e.mpdu.version == 1) ? QStringLiteral("1 (Standard)")
-                     : (e.mpdu.version == 0) ? QStringLiteral("0 (Reserved)")
-                     : QStringLiteral("%1 (Reserved)").arg(e.mpdu.version);
+        QString ver = (e.mpdu.version == 1)
+            ? QStringLiteral("1 (%1)").arg(trl::L("本标准版本号"))
+            : QStringLiteral("%1 (%2)").arg(e.mpdu.version).arg(trl::L("保留"));
         tree_add_bit_field(mpdu_base, "Version", ver, 12, 4, 4);
     }
     tree_add_bit_field(mpdu_base, "FCH CRC24", e.mpdu.fch_crc_ok ? "OK" : "FAIL", 13, 0, 24);
@@ -47,13 +67,14 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             // 相线(表15):0=未知 1=A 2=B 3=C
             QString line;
             switch (e.mpdu.beacon_line) {
-                case 0: line = QStringLiteral("0 (Unknown)"); break;
-                case 1: line = QStringLiteral("1 (Phase A)"); break;
-                case 2: line = QStringLiteral("2 (Phase B)"); break;
-                case 3: line = QStringLiteral("3 (Phase C)"); break;
+                case 0: line = trl::L("未知相线"); break;
+                case 1: line = trl::L("A相线"); break;
+                case 2: line = trl::L("B相线"); break;
+                case 3: line = trl::L("C相线"); break;
                 default: line = QString::number(e.mpdu.beacon_line); break;
             }
-            tree_add_bit_field(bcn, "Line", line, 12, 2, 2);
+            tree_add_bit_field(bcn, "Line",
+                QStringLiteral("%1 (%2)").arg(e.mpdu.beacon_line).arg(line), 12, 2, 2);
         }
         if (e.mpdu.pb_size > 0)
             tree_add_item(bcn, "PB Size", QString::number(e.mpdu.pb_size));
