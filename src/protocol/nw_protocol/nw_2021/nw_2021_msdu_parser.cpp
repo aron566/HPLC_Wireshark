@@ -81,6 +81,49 @@ static const char* kCommRateCalcZh[] = { "未完成", "已完成" };
 /// 上行路由类型(表:0 错误 1 同级 2 上级 3 代理主路径 4 上上级)
 static const char* kRouteTypeZh[] = {
     "错误路由类型", "同级路由类型", "上级路由类型", "代理主路径路由类型", "上上级路由类型" };
+/// 设备类型(表45:0x01 抄控器 ... 0x07 三相表通信模块,0x00/0x08+ 保留)
+static const char* kDeviceTypeZh[] = {
+    nullptr, "抄控器", "集中器通信模块", "单相电表通信模块", "中继器",
+    "II型采集器", "I型采集器", "三相表通信模块" };
+/// MAC 地址类型(表46:0 电能表地址 1 模块本身MAC 2 采集器地址)
+static const char* kMACAddrTypeZh[] = { "电能表地址", "模块本身MAC地址", "采集器地址" };
+/// 代理类型(表50/63:0x1 保留 0x2 动态代理)
+static const char* kProxyTypeZh[] = { nullptr, nullptr, "动态代理" };
+/// 支持频段标识(表51:0x0 频段0和1 0x1 频段0/1/2)
+static const char* kBandSupportZh[] = { "频段0和频段1", "频段0/1/2" };
+/// 系统启动原因(表48:0x0 正常重启)
+static const char* kBootReasonZh[] = { "正常重启" };
+/// 关联确认结果(表53:0x07 保留)
+static const char* kAssocCnfResultZh[] = {
+    "关联请求成功", "站点不在白名单中", nullptr, "加入站点个数超过上限",
+    "没有设置白名单列表", "代理站点个数超过上限", "子站点个数超过上限",
+    nullptr, "重复的MAC地址", "超过拓扑层级", "站点再次关联请求入网成功",
+    "新站点试图以自己的子站点为代理入网", "组网拓扑中存在环路", "CCO端未知原因出错" };
+/// 关联指示结果(表58:0x07 没有回复,0x0A 再次入网)
+static const char* kAssocIndResultZh[] = {
+    "关联请求成功", "站点不在白名单中", nullptr, "加入站点个数超过上限",
+    "没有设置白名单列表", "代理站点个数超过上限", "子站点个数超过上限",
+    "没有回复", "重复的MAC地址", "超过拓扑层级", "曾经入网的站点再次入网",
+    "新站点试图以自己的子站点为代理入网", "组网拓扑中存在环路", "CCO端未知原因出错" };
+/// 最后一个分包标识(表54/59:0 不是 1 是)
+static const char* kLastPacketFlagZh[] = { "不是最后一个分包", "是最后一个分包" };
+/// 代理变更原因(表64:0x1 周期 0x2 快速)
+static const char* kProxyChangeReasonZh[] = { nullptr, "周期代理变更", "快速代理变更" };
+/// 代理变更结果(表67/70:0x0 变更成功)
+static const char* kProxyChangeResultZh[] = { "变更成功" };
+/// 关联汇总结果(6.4.4.1:固定值 0 允许加入网络)
+static const char* kAssocGatherResultZh[] = { "允许加入网络" };
+/// 离线原因(表72:0x0 未入网却发报文 0x2 拓扑超限 0x4 立即离线)
+static const char* kLeaveReasonZh[] = {
+    "站点未入网却收到其报文", nullptr, "拓扑层级超过上限", nullptr, "立即离线" };
+/// 延迟离线原因(表74:0x3 不在最新白名单)
+static const char* kDelayLeaveReasonZh[] = { nullptr, nullptr, nullptr, "站点不在最新白名单中" };
+/// 过零NTB采集站点类型(表85:0 单站点 1 全网站点)
+static const char* kNTBCollectModeZh[] = { "单站点", "全网站点" };
+/// 过零NTB采集周期(表86:0 半个电力线周期 1 一个电力线周期)
+static const char* kNTBCollectPeriodZh[] = { "半个电力线周期", "一个电力线周期" };
+/// 芯片厂商ID(表90:0x0000 保留 0x0001 HS ... 0x0008 SC)
+static const char* kChipIDZh[] = { "保留", "HS", "ES", "TC", "LH", "HT", "RS", "SW", "SC" };
 
 /// 文件级中→英翻译注册(匿名命名空间一次性)
 struct MMeI18nReg {
@@ -102,6 +145,49 @@ struct MMeI18nReg {
         trl::register_en(" (高可信)", " (high confidence)");
         trl::register_en(" (中可信)", " (medium confidence)");
         trl::register_en(" (低可信)", " (low confidence)");
+        trl::register_en("保留", "Reserved");
+        trl::register_en("抄控器", "Central Controller");
+        trl::register_en("集中器通信模块", "Concentrator Comm Module");
+        trl::register_en("单相电表通信模块", "Meter Comm Module");
+        trl::register_en("中继器", "Repeater");
+        trl::register_en("II型采集器", "TypeII Data Collector");
+        trl::register_en("I型采集器", "TypeI Data Collector");
+        trl::register_en("三相表通信模块", "3-Phase Meter Comm Module");
+        trl::register_en("电能表地址", "Meter MAC Address");
+        trl::register_en("模块本身MAC地址", "Module MAC Address");
+        trl::register_en("采集器地址", "Collector MAC Address");
+        trl::register_en("动态代理", "Dynamic Proxy");
+        trl::register_en("频段0和频段1", "Band0 & Band1");
+        trl::register_en("频段0/1/2", "Band0/1/2");
+        trl::register_en("正常重启", "Normal Boot");
+        trl::register_en("关联请求成功", "Association Success");
+        trl::register_en("站点不在白名单中", "STA Not in Whitelist");
+        trl::register_en("加入站点个数超过上限", "STA Count Exceeds Limit");
+        trl::register_en("没有设置白名单列表", "No Whitelist Configured");
+        trl::register_en("代理站点个数超过上限", "PCO Count Exceeds Limit");
+        trl::register_en("子站点个数超过上限", "Child STA Count Exceeds Limit");
+        trl::register_en("没有回复", "No Reply");
+        trl::register_en("重复的MAC地址", "Duplicate MAC Address");
+        trl::register_en("超过拓扑层级", "Topology Level Exceeded");
+        trl::register_en("站点再次关联请求入网成功", "STA Re-association Success");
+        trl::register_en("曾经入网的站点再次入网", "Former STA Rejoined");
+        trl::register_en("新站点试图以自己的子站点为代理入网", "STA Uses Own Child as Proxy");
+        trl::register_en("组网拓扑中存在环路", "Loop in Network Topology");
+        trl::register_en("CCO端未知原因出错", "CCO Unknown Error");
+        trl::register_en("不是最后一个分包", "Not Last Fragment");
+        trl::register_en("是最后一个分包", "Last Fragment");
+        trl::register_en("周期代理变更", "Periodic Proxy Change");
+        trl::register_en("快速代理变更", "Fast Proxy Change");
+        trl::register_en("变更成功", "Change Success");
+        trl::register_en("允许加入网络", "Allow Join");
+        trl::register_en("站点未入网却收到其报文", "STA Not Joined but Packet Received");
+        trl::register_en("拓扑层级超过上限", "Topology Level Exceeds Limit");
+        trl::register_en("立即离线", "Leave Immediately");
+        trl::register_en("站点不在最新白名单中", "STA Not in Latest Whitelist");
+        trl::register_en("单站点", "Single STA");
+        trl::register_en("全网站点", "All STA");
+        trl::register_en("半个电力线周期", "Half Power Line Cycle");
+        trl::register_en("一个电力线周期", "One Power Line Cycle");
     }
 } mme_i18n_reg;
 
@@ -128,7 +214,7 @@ static const FieldSpec kMMeAssocReqSpec[] = {
     { "DeviceType", 19, 0, 8, Fmt::DEC },
     { "MMeAssocReqRSV5", 20, 0, 8, Fmt::HEX4 },
     { "MMeAssocReqRSV6", 21, 0, 8, Fmt::HEX4 },
-    { "MACAddrType", 22, 0, 8, Fmt::HEX12 },
+    { "MACAddrType", 22, 0, 8, Fmt::DEC },
     { "ModuleType", 23, 0, 2, Fmt::DEC },
     { "Link", 23, 2, 5, Fmt::DEC },
     { "RSV2", 23, 7, 1, Fmt::HEX4 },
@@ -748,17 +834,29 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                     switch (mm_type) {
         case MME_ASSOCREQ: {
             add_fields(out.tree, mme, 6, kMMeAssocReqSpec, kMMeAssocReqSpecN, mme_rel_base);
+            translate_enum_i18n(out.tree, "LinePhase0", kLinePhaseZh, 4);
+            translate_enum_i18n(out.tree, "CandidateLinePhase1", kLinePhaseZh, 4);
+            translate_enum_i18n(out.tree, "CandidateLinePhase2", kLinePhaseZh, 4);
+            translate_enum_i18n(out.tree, "DeviceType", kDeviceTypeZh, 8);
+            translate_enum_i18n(out.tree, "MACAddrType", kMACAddrTypeZh, 3);
+            translate_enum_i18n(out.tree, "ProxyType", kProxyTypeZh, 3);
+            translate_enum_i18n(out.tree, "BandSupport", kBandSupportZh, 2);
             if (mme.size() >= 52) {
                 MsduFieldNode& info = group(out.tree, QStringLiteral("ManufacturerInfo [144b]"),
                     QString::fromLatin1(mme.mid(34, 18).toHex(' ').toUpper()));
                 info.rel_start = mme_rel_base + (34); info.rel_len = 18;
             }
-            if (mme.size() >= 62)
+            if (mme.size() >= 62) {
                 add_fields(out.tree, mme, 52, kAssocReqSTAVerSpec, kAssocReqSTAVerSpecN, mme_rel_base);
+                translate_enum_i18n(out.tree, "BootReason", kBootReasonZh, 1);
+            }
             break;
         }
         case MME_ASSOCCNF: {
             add_fields(out.tree, mme, 6, kMMeAssocCnfSpec, kMMeAssocCnfSpecN, mme_rel_base);
+            translate_enum_i18n(out.tree, "AssocResult", kAssocCnfResultZh, 14);
+            translate_enum_i18n(out.tree, "LastPacketFlag", kLastPacketFlagZh, 2);
+            annotate_unit(out.tree, "STAReAssocTime", QStringLiteral("ms"));
             const int rb = 42;
             if (mme.size() >= rb + 8) {
                 add_fields(out.tree, mme, rb, kRouteInfoHeadSpec, kRouteInfoHeadSpecN, mme_rel_base);
@@ -788,9 +886,20 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             }
             break;
         }
-        case MME_CHANGEPROXYREQ: add_fields(out.tree, mme, 6, kMMeChangeProxyReqSpec, kMMeChangeProxyReqSpecN, mme_rel_base); break;
+        case MME_CHANGEPROXYREQ: {
+            add_fields(out.tree, mme, 6, kMMeChangeProxyReqSpec, kMMeChangeProxyReqSpecN, mme_rel_base);
+            translate_enum_i18n(out.tree, "ProxyType", kProxyTypeZh, 3);
+            translate_enum_i18n(out.tree, "Reason", kProxyChangeReasonZh, 3);
+            translate_enum_i18n(out.tree, "LinePhase0", kLinePhaseZh, 4);
+            translate_enum_i18n(out.tree, "CandidateLinePhase1", kLinePhaseZh, 4);
+            translate_enum_i18n(out.tree, "CandidateLinePhase2", kLinePhaseZh, 4);
+            break;
+        }
         case MME_ASSOCIND: {
             add_fields(out.tree, mme, 6, kMMeAssocIndSpec, kMMeAssocIndSpecN, mme_rel_base);
+            translate_enum_i18n(out.tree, "AssocResult", kAssocIndResultZh, 14);
+            translate_enum_i18n(out.tree, "LastPacketFlag", kLastPacketFlagZh, 2);
+            annotate_unit(out.tree, "STAReAssocTime", QStringLiteral("ms"));
             const int rb = 70;
             if (mme.size() >= rb + 8) {
                 add_fields(out.tree, mme, rb, kRouteInfoHeadSpec, kRouteInfoHeadSpecN, mme_rel_base);
@@ -822,6 +931,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case MME_CHANGEPROXYCNF: {
             add_fields(out.tree, mme, 6, kMMeChangeProxyCnfSpec, kMMeChangeProxyCnfSpecN, mme_rel_base);
+            translate_enum_i18n(out.tree, "Result", kProxyChangeResultZh, 1);
             const quint16 child_sum = (quint16)get_bits(mme, 16, 0, 16);
             int off = 38;
             for (int i = 0; i < child_sum && off + 2 <= mme.size(); ++i) {
@@ -834,6 +944,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case MME_ASSOCGATHERIND: {
             add_fields(out.tree, mme, 6, kMMeAssocGatherIndSpec, kMMeAssocGatherIndSpecN, mme_rel_base);
+            translate_enum_i18n(out.tree, "AssocResult", kAssocGatherResultZh, 1);
             const quint8 sta_num = (quint8)get_bits(mme, 17, 0, 8);
             int off = 34;  // 消息体 byte 28(MMeHeadSize 6 + 28),RSV0(15B) 之后
             for (int i = 0; i < sta_num && off + 8 <= mme.size(); ++i) {
@@ -846,6 +957,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case MME_CHANGEPROXYBITMAPCNF: {
             add_fields(out.tree, mme, 6, kMMeChangeProxyBitMapCnfSpec, kMMeChangeProxyBitMapCnfSpecN, mme_rel_base);
+            translate_enum_i18n(out.tree, "Result", kProxyChangeResultZh, 1);
             // 子站点位图(byte 9-138,130 字节):空字节不显示,非空字节按 bitmap[索引][8b] 显示
             if (mme.size() >= 145) {
                 auto& bmg = group(out.tree, QStringLiteral("ChildSTA BitMap [130B]"));
@@ -868,7 +980,11 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             }
             break;
         }
-        case MME_LEAVEIND: add_fields(out.tree, mme, 6, kMMeLeaveIndSpec, kMMeLeaveIndSpecN, mme_rel_base); break;
+        case MME_LEAVEIND: {
+            add_fields(out.tree, mme, 6, kMMeLeaveIndSpec, kMMeLeaveIndSpecN, mme_rel_base);
+            translate_enum_i18n(out.tree, "Reason", kLeaveReasonZh, 5);
+            break;
+        }
         case MME_HEARTBEATCHECK: {
             add_fields(out.tree, mme, 6, kMMeHeartBeatCheckSpec, kMMeHeartBeatCheckSpecN, mme_rel_base);
             // 可发现站点 TEI 位图(byte 8-137,130B):空字节不显示,非空字节按 bitmap[索引][8b] 显示
@@ -998,6 +1114,8 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case MME_DELAYLEAVEIND: {
             add_fields(out.tree, mme, 6, kMMeDelayLeaveIndSpec, kMMeDelayLeaveIndSpecN, mme_rel_base);
+            translate_enum_i18n(out.tree, "Reason", kDelayLeaveReasonZh, 4);
+            annotate_unit(out.tree, "LeaveDelayTime", QStringLiteral("s"));
             const quint16 sta_num = (quint16)get_bits(mme, 8, 0, 16);
             int off = 22;  // 消息体 byte 16(MMeHeadSize 6 + 16),RSV0(10B) 之后
             for (int i = 0; i < sta_num && off + 6 <= mme.size(); ++i) {
@@ -1016,14 +1134,22 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 MsduFieldNode& n = group(out.tree, QStringLiteral("CommRate[%1]").arg(i));
                 n.rel_start = mme_rel_base + (off); n.rel_len = 4;
                 add_fields(n.children, mme, off, kCommRateInfoSpec, kCommRateInfoSpecN, mme_rel_base);
+                annotate_unit(n.children, "DownCommRate", QStringLiteral("%"));
+                annotate_unit(n.children, "UpCommRate", QStringLiteral("%"));
                 off += 4;
             }
             break;
         }
-        case MME_ZEROCROSSNTBCOLLECTIND: add_fields(out.tree, mme, 6, kMMeZeroCrossNTBCollectIndSpec, kMMeZeroCrossNTBCollectIndSpecN, mme_rel_base); break;
+        case MME_ZEROCROSSNTBCOLLECTIND: {
+            add_fields(out.tree, mme, 6, kMMeZeroCrossNTBCollectIndSpec, kMMeZeroCrossNTBCollectIndSpecN, mme_rel_base);
+            translate_enum_i18n(out.tree, "NTBCollectionMode", kNTBCollectModeZh, 2);
+            translate_enum_i18n(out.tree, "NTBCollectionPeriod", kNTBCollectPeriodZh, 2);
+            break;
+        }
         case MME_ZEROCROSSNTBREPORT: add_fields(out.tree, mme, 6, kMMeZeroCrossNTBReportSpec, kMMeZeroCrossNTBReportSpecN, mme_rel_base); break;
         case MME_NETDIAGNOSE: {
             add_fields(out.tree, mme, 6, kMMeNetDiagnoseSpec, kMMeNetDiagnoseSpecN, mme_rel_base);
+            translate_enum_i18n(out.tree, "ChipID", kChipIDZh, 9);
             // DiagInfo 变长诊断数据(mme byte 8 起 = 消息体 byte 2)
             if (mme.size() > 8) {
                 MsduFieldNode& d = group(out.tree, QStringLiteral("DiagInfo [%1 B]").arg(mme.size() - 8),
