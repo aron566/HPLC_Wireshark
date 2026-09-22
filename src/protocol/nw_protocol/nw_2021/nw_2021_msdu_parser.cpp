@@ -848,6 +848,8 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             if (mme.size() >= 145) {
                 auto& bmg = group(out.tree, QStringLiteral("ChildSTA BitMap [130B]"));
                 const int bm_base = 15;  // mme[15] = MMe头6B + 固定头9B(Result4+STATEI2+ProxyTEI2+NetSN1)
+                // 组节点覆盖整个 bitmap 区域,点击高亮全部所属字节
+                bmg.rel_start = mme_rel_base + bm_base; bmg.rel_len = 130;
                 for (int i = 0; i < 130; ++i) {
                     const quint8 byte = (quint8)mme[bm_base + i];
                     if (byte == 0) continue;   // 空字节不显示
@@ -921,6 +923,8 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             // 逐字节显示(空字节不显示,非空字节按 bitmap[索引][8b] 显示,对应 hex 高亮)
             auto& bmg = group(out.tree,
                 QStringLiteral("DiscoverySTAList BitMap [%1b]").arg(bm.size()));
+            // 组节点覆盖整个 bitmap 区域,点击高亮全部所属字节
+            if (bm_base >= 0) { bmg.rel_start = mme_rel_base + bm_base; bmg.rel_len = bm.size(); }
             for (int i = 0; i < bm.size(); ++i) {
                 if (per_byte[i].isEmpty()) continue;   // 空字节不显示
                 MsduFieldNode bl;
