@@ -79,8 +79,14 @@ void tree_apply_msdu_range(QTreeWidgetItem* it, const MsduRawMap& m,
         vl.append(QVariant::fromValue(seg));
     }
     it->setData(0, kRoleRanges, vl);
-    if (rel_start >= 0 && rel_len > 0 && rel_start + rel_len <= msdu_body.size())
-        it->setData(0, kRoleBytes, msdu_body.mid(rel_start, rel_len));
+    if (rel_start >= 0 && rel_len > 0) {
+        if (rel_start + rel_len > msdu_body.size()) {
+            qCritical("tree_apply_msdu_range OUT OF RANGE: rel_start=%d rel_len=%d msdu_body.size=%lld",
+                      rel_start, rel_len, (long long)msdu_body.size());
+        } else {
+            it->setData(0, kRoleBytes, msdu_body.mid(rel_start, rel_len));
+        }
+    }
 }
 
 void tree_render_msdu(QTreeWidgetItem* parent, const QVector<MsduFieldNode>& nodes,

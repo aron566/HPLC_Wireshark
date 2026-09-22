@@ -1417,10 +1417,15 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 int la_show = (la == total && total > 0) ? la - 1 : la;  // 与 Python 一致
                 QByteArray tab = b.mid(10);
                 int cur = 0;
-                auto read12 = [&tab, &cur]() -> quint16 {
-                    if (cur >= tab.size() || tab.size() < 2) return 0;
+                // 12bit 差分 NTB 按"条目序号"奇偶交替解码:偶序号吃 1B(低 8bit +
+                // 下一字节低 4bit),奇序号吃 2B(高 4bit + 下一字节)。分支依据必须是
+                // 条目序号奇偶,而非当前字节位置 cur 的奇偶(LineA/B/C 连续解码,
+                // 跨行起始奇偶按上一行累计计数翻转,与 Python 完全一致);否则
+                // 消费字节数错位会越过 tab 末尾触发 qbytearray.h:594 断言。
+                auto read12 = [&tab, &cur](bool even) -> quint16 {
+                    if (cur + 1 >= tab.size()) return 0;  // 越界保护:需 cur、cur+1 两字节
                     quint16 v;
-                    if ((cur & 1) == 0) {
+                    if (even) {
                         v = (quint16)(quint8)tab[cur]
                           | (quint16)(((quint8)tab[cur + 1] & 0x0F) << 8);
                         cur += 1;
@@ -1432,21 +1437,21 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                     return v;
                 };
                 auto diff_group = [&](QVector<MsduFieldNode>& out, const char* nm,
-                                      int cnt, const QByteArray& src, int rel_off) {
+                                      int cnt, bool start_even) {
                     if (cnt <= 0) return;
                     auto& g = group(out, QStringLiteral("%1 Diff NTB List [%2]")
                                              .arg(QLatin1String(nm)).arg(cnt));
                     for (int i = 0; i < cnt; ++i) {
                         MsduFieldNode d;
                         d.name  = QStringLiteral("DiffNTB[%1]").arg(i);
-                        d.value = QString::number(read12());
+                        const bool even = start_even ? (i % 2 == 0) : (i % 2 == 1);
+                        d.value = QString::number(read12(even));
                         g.children.append(d);
                     }
-                    Q_UNUSED(src); Q_UNUSED(rel_off);
                 };
-                diff_group(root.children, "LineA", la_show, tab, 10);
-                diff_group(root.children, "LineB", lb, tab, 10);
-                diff_group(root.children, "LineC", lc, tab, 10);
+                diff_group(root.children, "LineA", la_show, /*start_even=*/true);
+                diff_group(root.children, "LineB", lb, /*start_even=*/(la % 2) == 0);
+                diff_group(root.children, "LineC", lc, /*start_even=*/((la + lb) % 2) == 0);
                 break;
             }
             default: {
