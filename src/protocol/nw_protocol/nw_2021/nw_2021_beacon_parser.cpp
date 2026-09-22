@@ -347,6 +347,13 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
             }
             case 0x0B: {  // 万年历同步条目(表40)
                 add_fields(grp.children, it, 0, kCalendarSyncSpec, kCalendarSyncSpecN, abs0);
+                for (auto& ch : grp.children) {
+                    if (ch.name.startsWith(QStringLiteral("CCOCalendarTime"))) {
+                        ch.value += trl::L(" s (自 2000-01-01 00:00:00 起)");
+                    } else if (ch.name.startsWith(QStringLiteral("CCOCalendarNTB"))) {
+                        ch.value += trl::L(" (40ns/tick)");
+                    }
+                }
                 break;
             }
             default: {  // 频段探测(0x0A)/厂家自定义/保留:内容 hex
@@ -433,6 +440,8 @@ struct I18nReg {
         trl::register_en("未知", "Unknown");
         trl::register_en("使用信标评估信道", "Beacon used for channel estimation");
         trl::register_en("不使用信标评估信道", "Beacon not used for channel estimation");
+        trl::register_en(" s (自 2000-01-01 00:00:00 起)", " s (since 2000-01-01 00:00:00)");
+        trl::register_en(" (40ns/tick)", " (40ns/tick)");
     }
 };
 const I18nReg g_i18n_reg_nw_beacon;
