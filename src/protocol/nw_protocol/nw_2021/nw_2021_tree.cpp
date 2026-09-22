@@ -8,7 +8,12 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
     tree_add_bit_field(mpdu_base, "Frame Type",
         QStringLiteral("%1 (%2)").arg(e.mpdu.frame_type_name()).arg(e.mpdu.frame_type),
         0, 0, 3);
-    tree_add_bit_field(mpdu_base, "ConInd", QString::number(e.mpdu.net_type), 0, 3, 1);
+    {
+        // 接入指示(表12):0=保留 1=MPDU 在宽带载波通信接入网络中传输
+        QString conind = (e.mpdu.net_type == 1) ? QStringLiteral("1 (HPLC Network)")
+                       : QStringLiteral("0 (Reserved)");
+        tree_add_bit_field(mpdu_base, "ConInd", conind, 0, 3, 1);
+    }
     tree_add_bit_field(mpdu_base, "SNID", QStringLiteral("0x%1")
         .arg(e.mpdu.net_id, 1, 16, QChar('0')), 0, 4, 4);
     {
@@ -31,10 +36,24 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             // 无线:PBLen(11,0,4)
             tree_add_bit_field(bcn, "PBLen", QString::number(e.mpdu.tmi), 11, 0, 4);
         } else {
-            // 载波:TMI(10,4,4) SymbolNum(11,0,9) Line(12,2,2)
+            // 载波:TMI(10,4,4) SymbolNum(11,0,9) 保留(12,1,1) 相线(12,2,2)
             tree_add_bit_field(bcn, "TMI", QString::number(e.mpdu.tmi), 10, 4, 4);
             tree_add_bit_field(bcn, "Symbol Num", QString::number(e.mpdu.symbol_num), 11, 0, 9);
-            tree_add_bit_field(bcn, "Line", QString::number(e.mpdu.beacon_line), 12, 2, 2);
+            {
+                const quint8 b12 = (e.raw_bytes.size() > 12) ? (quint8)e.raw_bytes[12] : 0;
+                const quint8 rsv = (b12 >> 1) & 0x01;
+                tree_add_bit_field(bcn, "RSV", QString::number(rsv), 12, 1, 1);
+            }
+            // 相线(表15):0=未知 1=A 2=B 3=C
+            QString line;
+            switch (e.mpdu.beacon_line) {
+                case 0: line = QStringLiteral("0 (Unknown)"); break;
+                case 1: line = QStringLiteral("1 (Phase A)"); break;
+                case 2: line = QStringLiteral("2 (Phase B)"); break;
+                case 3: line = QStringLiteral("3 (Phase C)"); break;
+                default: line = QString::number(e.mpdu.beacon_line); break;
+            }
+            tree_add_bit_field(bcn, "Line", line, 12, 2, 2);
         }
         if (e.mpdu.pb_size > 0)
             tree_add_item(bcn, "PB Size", QString::number(e.mpdu.pb_size));
