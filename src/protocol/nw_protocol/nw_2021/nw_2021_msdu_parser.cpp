@@ -118,10 +118,8 @@ static const char* kLeaveReasonZh[] = {
     "站点未入网却收到其报文", nullptr, "拓扑层级超过上限", nullptr, "立即离线" };
 /// 延迟离线原因(表74:0x3 不在最新白名单)
 static const char* kDelayLeaveReasonZh[] = { nullptr, nullptr, nullptr, "站点不在最新白名单中" };
-/// 过零NTB采集站点类型(表85:0 单站点 1 全网站点)
-static const char* kNTBCollectModeZh[] = { "单站点", "全网站点" };
-/// 过零NTB采集周期(表86:0 半个电力线周期 1 一个电力线周期)
-static const char* kNTBCollectPeriodZh[] = { "半个电力线周期", "一个电力线周期" };
+/// 相位特征采集方式(表59:0 保留 1 下降沿采集 2 上升沿采集)
+static const char* kCollectModeZh[] = { "保留", "下降沿采集", "上升沿采集" };
 /// 芯片厂商ID(表90:0x0000 保留 0x0001 HS ... 0x0008 SC)
 static const char* kChipIDZh[] = { "保留", "HS", "ES", "TC", "LH", "HT", "RS", "SW", "SC" };
 /// 帧类型域(表4:0 确认/否认 1 数据转发 2 命令 3 主动上报 4 抄控器 5 广播 6 数据订阅 14 厂家调试)
@@ -198,10 +196,8 @@ struct MMeI18nReg {
         trl::register_en("拓扑层级超过上限", "Topology Level Exceeds Limit");
         trl::register_en("立即离线", "Leave Immediately");
         trl::register_en("站点不在最新白名单中", "STA Not in Latest Whitelist");
-        trl::register_en("单站点", "Single STA");
-        trl::register_en("全网站点", "All STA");
-        trl::register_en("半个电力线周期", "Half Power Line Cycle");
-        trl::register_en("一个电力线周期", "One Power Line Cycle");
+        trl::register_en("下降沿采集", "Falling Edge");
+        trl::register_en("上升沿采集", "Rising Edge");
         trl::register_en("通道控制信息", "Channel Control Info");
         trl::register_en("业务报文头", "Business Header");
         trl::register_en("APP层数据", "APP Layer Data");
@@ -467,19 +463,27 @@ static const FieldSpec kMMeSuccessRateReportSpec[] = {
 };
 static const int kMMeSuccessRateReportSpecN = int(sizeof(kMMeSuccessRateReportSpec)/sizeof(kMMeSuccessRateReportSpec[0]));
 
+// 相位特征采集指示(表58):采集数量 + 采集序列号 + 保留2B
 static const FieldSpec kMMeZeroCrossNTBCollectIndSpec[] = {
-    { "STATEI", 0, 0, 16, Fmt::DEC },
-    { "NTBCollectionMode", 2, 0, 8, Fmt::DEC },
-    { "NTBCollectionPeriod", 3, 0, 8, Fmt::DEC },
-    { "NTBCollectionQuantity", 4, 0, 8, Fmt::DEC },
+    { "CollectQuantity", 0, 0, 8,  Fmt::DEC },
+    { "CollectSeqNum",   1, 0, 8,  Fmt::DEC },
+    { "RSV0",            2, 0, 16, Fmt::HEX4 },
 };
 static const int kMMeZeroCrossNTBCollectIndSpecN = int(sizeof(kMMeZeroCrossNTBCollectIndSpec)/sizeof(kMMeZeroCrossNTBCollectIndSpec[0]));
 
+// 相位特征告知报文(表59):TEI + 采集方式 + 采集序列号 + 告知总数量 +
+// 基准NTB + 相线1/2/3差值数量;差值列表(16bit/项)在 case 里动态解析
 static const FieldSpec kMMeZeroCrossNTBReportSpec[] = {
-    { "STATEI", 0, 0, 16, Fmt::DEC },
-    { "TotalCount", 2, 0, 8, Fmt::DEC },
-    { "RSV0", 3, 0, 8, Fmt::HEX4 },
-    { "NTBBase", 4, 0, 32, Fmt::DEC },
+    { "TEI",           0, 0, 12, Fmt::DEC },
+    { "CollectMode",   1, 4, 2,  Fmt::DEC },
+    { "RSV0",          1, 6, 2,  Fmt::HEX4 },
+    { "CollectSeqNum", 2, 0, 8,  Fmt::DEC },
+    { "TotalCount",    3, 0, 8,  Fmt::DEC },
+    { "NTBBase",       4, 0, 32, Fmt::DEC },
+    { "RSV1",          8, 0, 8,  Fmt::HEX4 },
+    { "LineACount",    9, 0, 8,  Fmt::DEC },
+    { "LineBCount",    10, 0, 8, Fmt::DEC },
+    { "LineCCount",    11, 0, 8, Fmt::DEC },
 };
 static const int kMMeZeroCrossNTBReportSpecN = int(sizeof(kMMeZeroCrossNTBReportSpec)/sizeof(kMMeZeroCrossNTBReportSpec[0]));
 
@@ -1108,11 +1112,40 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case MME_ZEROCROSSNTBCOLLECTIND: {
             add_fields(out.tree, mme, 6, kMMeZeroCrossNTBCollectIndSpec, kMMeZeroCrossNTBCollectIndSpecN, mme_rel_base);
-            translate_enum_i18n(out.tree, "NTBCollectionMode", kNTBCollectModeZh, 2);
-            translate_enum_i18n(out.tree, "NTBCollectionPeriod", kNTBCollectPeriodZh, 2);
             break;
         }
-        case MME_ZEROCROSSNTBREPORT: add_fields(out.tree, mme, 6, kMMeZeroCrossNTBReportSpec, kMMeZeroCrossNTBReportSpecN, mme_rel_base); break;
+        case MME_ZEROCROSSNTBREPORT: {
+            add_fields(out.tree, mme, 6, kMMeZeroCrossNTBReportSpec, kMMeZeroCrossNTBReportSpecN, mme_rel_base);
+            translate_enum_i18n(out.tree, "CollectMode", kCollectModeZh, 3);
+            // 相线1/2/3过零NTB差值列表(表59:每差值2B 16bit无符号,按相线1→3顺序)
+            if (mme.size() >= 18) {
+                const int n1 = (int)get_bits(mme, 15, 0, 8);
+                const int n2 = (int)get_bits(mme, 16, 0, 8);
+                const int n3 = (int)get_bits(mme, 17, 0, 8);
+                int off = 18;   // mme[18] = 消息体 byte 12(相线1 差值1)
+                auto add_line = [&](const char* nm, int cnt) {
+                    if (cnt <= 0) return;
+                    const int start_off = off;
+                    auto& g = group(out.tree, QStringLiteral("%1 Diff NTB List [%2]")
+                                             .arg(QLatin1String(nm)).arg(cnt));
+                    for (int i = 0; i < cnt && off + 2 <= mme.size(); ++i) {
+                        const quint16 v = (quint16)get_bits(mme, off, 0, 16);
+                        MsduFieldNode d;
+                        d.name = QStringLiteral("DiffNTB[%1]").arg(i);
+                        d.value = QString::number(v);
+                        d.rel_start = mme_rel_base + off; d.rel_len = 2;
+                        g.children.append(d);
+                        off += 2;
+                    }
+                    g.rel_start = mme_rel_base + start_off;
+                    g.rel_len = off - start_off;
+                };
+                add_line("LineA", n1);
+                add_line("LineB", n2);
+                add_line("LineC", n3);
+            }
+            break;
+        }
         case MME_NETDIAGNOSE: {
             add_fields(out.tree, mme, 6, kMMeNetDiagnoseSpec, kMMeNetDiagnoseSpecN, mme_rel_base);
             translate_enum_i18n(out.tree, "ChipID", kChipIDZh, 9);
