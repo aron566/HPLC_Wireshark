@@ -6,6 +6,7 @@
 #include "nw_2021_parser.h"
 #include "nw_2021_pb_table.h"
 #include "nw_2021_msdu_parser.h"
+#include "nw_2021_beacon_parser.h"
 #include "common/fieldtools.h"
 #include "crc.h"
 #include "bcd.h"
@@ -198,6 +199,9 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.beacon_line = (quint8)get_bits(p, 12, 2, 2);
             r.mpdu.pb_size   = (quint16)nw_2021_pb_size(r.mpdu.tmi, 0);
         }
+        // 信标帧载荷区(固定头 + 管理信息 + BPCS CRC32 + 保留字节 + PB CRC24)
+        if (r.mpdu.pb_size > 0)
+            r.beacon = NW_2021_BeaconParser::parse_beacon(r.payload_for_log, r.mpdu.pb_size);
     } else if (r.mpdu.frame_type == 2) {
         // ACK(南网 MPDU_ACK_FCH 坐标,ExtType 0-3/10-12)
         r.mpdu.ack_ext_type = (quint8)get_bits(p, 12, 0, 4);

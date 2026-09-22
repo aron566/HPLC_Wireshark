@@ -119,18 +119,23 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             for (int bi = 0; bi < pb_num; ++bi) {
                 const int blk_off = 16 + bi * e.mpdu.pb_size;
                 const bool multi = pb_num > 1;
-                // PB Header(4B:SeqNum 16b + AggregateFlag 1b + RSV 15b)
-                quint16 seq = 0;
-                quint8  aggr = 0;
-                if (blk_off + 2 < raw_sz) {
-                    seq  = (quint16)(d[blk_off] | (d[blk_off + 1] << 8));
-                    aggr = (quint8)(d[blk_off + 2] & 0x01);
+                // PB Header(4B:序列号 16b + 保留 16b,表23)
+                {
+                    quint16 seq = 0;
+                    quint16 rsv = 0;
+                    if (blk_off + 4 <= raw_sz) {
+                        seq = (quint16)(d[blk_off] | (d[blk_off + 1] << 8));
+                        rsv = (quint16)(d[blk_off + 2] | (d[blk_off + 3] << 8));
+                    }
+                    auto* pbh = tree_add_item(sof,
+                        multi ? QStringLiteral("PB Header (%1/%2)").arg(bi).arg(pb_num)
+                              : QStringLiteral("PB Header"),
+                        QStringLiteral("4 B"),
+                        blk_off, header_len);
+                    tree_add_bit_field(pbh, "SeqNum", QString::number(seq), blk_off, 0, 16);
+                    tree_add_bit_field(pbh, "RSV", QStringLiteral("0x%1").arg(rsv, 4, 16, QChar('0')),
+                        blk_off + 2, 0, 16);
                 }
-                tree_add_item(sof,
-                    multi ? QStringLiteral("PB Header (%1/%2)").arg(bi).arg(pb_num)
-                          : QStringLiteral("PB Header"),
-                    QStringLiteral("seq=%1 agg=%2").arg(seq).arg(aggr),
-                    blk_off, header_len);
                 // PB Body
                 if (body_len > 0 && blk_off + header_len < raw_sz) {
                     auto* pb = tree_add_item(sof,
