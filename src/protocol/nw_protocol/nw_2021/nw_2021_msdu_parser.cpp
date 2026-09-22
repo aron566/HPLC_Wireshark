@@ -222,7 +222,8 @@ struct MMeI18nReg {
         trl::register_en("测试帧", "Test Frame");
         trl::register_en("电表事件主动上报", "Meter Event Report");
         trl::register_en("停上电事件上报", "Power On/Off Event Report");
-        trl::register_en("设备/模块事件上报", "Device/Module Event Report");
+        trl::register_en("设备事件主动上报", "Device Event Report");
+        trl::register_en("通信模块事件上报", "Comm Module Event Report");
         trl::register_en("抄控器-CCO协议", "Reader-CCO Protocol");
         trl::register_en("数据透传串口转发", "Data Forward via UART");
     }
@@ -560,7 +561,7 @@ static QString app_type_name(quint8 packet_type) {
 
 
 // ── 业务标识(表9)值解释:依赖帧类型,返回空串表示保留/无释义 ──
-static QString business_id_name(quint8 packet_type, quint8 business_id) {
+static QString business_id_name(quint8 port_num, quint8 packet_type, quint8 business_id) {
     switch (packet_type) {
     case 0x0:  // 确认/否认
         if (business_id == 0x00) return trl::L("确认");
@@ -589,7 +590,7 @@ static QString business_id_name(quint8 packet_type, quint8 business_id) {
     case 0x3:  // 主动上报
         if (business_id == 0x00) return trl::L("电表事件主动上报");
         if (business_id == 0x01) return trl::L("停上电事件上报");
-        if (business_id == 0x02) return trl::L("设备/模块事件上报");
+        if (business_id == 0x02) return trl::L(port_num == 0x13 ? "通信模块事件上报" : "设备事件主动上报");
         break;
     case 0x4:  // 抄控器协议
         if (business_id == 0x00) return trl::L("抄控器-CCO协议");
@@ -619,11 +620,12 @@ static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base) {
     MsduFieldNode& bh = group(out.tree, QStringLiteral("业务报文头 [8B]"));
     bh.rel_start = rel_base + 4; bh.rel_len = 8;
     add_fields(bh.children, app, 4, kBusinessHeaderSpec, kBusinessHeaderSpecN, rel_base);
+    const quint8 port_num    = (quint8)get_bits(app, 0, 0, 8);
     const quint8 packet_type = (quint8)get_bits(app, 4, 0, 4);
     const quint8 business_id = (quint8)get_bits(app, 6, 0, 8);
     // 帧类型域 + 业务标识值解释(表4/表9)
     translate_enum_i18n(bh.children, "PacketType", kPacketTypeZh, 15);
-    const QString bid_name = business_id_name(packet_type, business_id);
+    const QString bid_name = business_id_name(port_num, packet_type, business_id);
     if (!bid_name.isEmpty()) {
         for (auto& n : bh.children) {
             if (n.name.startsWith(QLatin1String("BusinessID")))
