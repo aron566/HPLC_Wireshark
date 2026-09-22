@@ -844,10 +844,23 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case MME_CHANGEPROXYBITMAPCNF: {
             add_fields(out.tree, mme, 6, kMMeChangeProxyBitMapCnfSpec, kMMeChangeProxyBitMapCnfSpecN, mme_rel_base);
+            // 子站点位图(byte 9-138,130 字节):空字节不显示,非空字节按 bitmap[索引][8b] 显示
             if (mme.size() >= 145) {
-                MsduFieldNode& bm = group(out.tree, QStringLiteral("ChildSTA BitMap [130B]"),
-                    QString::fromLatin1(mme.mid(15, 130).toHex(' ').toUpper()));
-                bm.rel_start = mme_rel_base + (15); bm.rel_len = 130;
+                auto& bmg = group(out.tree, QStringLiteral("ChildSTA BitMap [130B]"));
+                const int bm_base = 15;  // mme[15] = MMe头6B + 固定头9B(Result4+STATEI2+ProxyTEI2+NetSN1)
+                for (int i = 0; i < 130; ++i) {
+                    const quint8 byte = (quint8)mme[bm_base + i];
+                    if (byte == 0) continue;   // 空字节不显示
+                    QStringList teis;
+                    for (int j = 0; j < 8; ++j) {
+                        if (byte & (1u << j)) teis << QStringLiteral("TEI%1").arg(8 * i + j);
+                    }
+                    MsduFieldNode bl;
+                    bl.name = QStringLiteral("bitmap[%1][8b]").arg(i);   // 当前字节在 bitmap 中的索引
+                    bl.value = teis.join(QStringLiteral(", "));
+                    bl.rel_start = mme_rel_base + (bm_base + i); bl.rel_len = 1;
+                    bmg.children.append(bl);
+                }
             }
             break;
         }
@@ -905,16 +918,14 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 }
                 if (!per_byte[i].isEmpty()) bm_any = true;
             }
-            // 逐字节显示(每个字节一条,对应 hex 高亮):有置位列出 TEI,空字节显示 NULL
+            // 逐字节显示(空字节不显示,非空字节按 bitmap[索引][8b] 显示,对应 hex 高亮)
             auto& bmg = group(out.tree,
                 QStringLiteral("DiscoverySTAList BitMap [%1b]").arg(bm.size()));
             for (int i = 0; i < bm.size(); ++i) {
+                if (per_byte[i].isEmpty()) continue;   // 空字节不显示
                 MsduFieldNode bl;
-                bl.name = QStringLiteral("DiscoverySTABitMap[%1] [8b]").arg(i);
-                // 有置位列出 TEI,空字节显示 NULL(只显示有值的)
-                bl.value = per_byte[i].isEmpty()
-                    ? QStringLiteral("NULL")
-                    : per_byte[i].join(QStringLiteral(", "));
+                bl.name = QStringLiteral("bitmap[%1][8b]").arg(i);   // 当前字节在 bitmap 中的索引
+                bl.value = per_byte[i].join(QStringLiteral(", "));
                 if (bm_base >= 0) { bl.rel_start = mme_rel_base + (bm_base + i); bl.rel_len = 1; }
                 bmg.children.append(bl);
             }
