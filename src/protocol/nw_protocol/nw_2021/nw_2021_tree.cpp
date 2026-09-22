@@ -98,13 +98,13 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         tree_add_bit_field(sof, "Link ID", QString::number(e.mpdu.link_id), 4, 0, 8);
         if (e.meta.is_rf) {
             // 无线:FrameLen(5,0,12) PBLen(6,4,4)
-            tree_add_bit_field(sof, "Frame Length", QString::number(e.mpdu.frame_len), 5, 0, 12);
+            tree_add_bit_field(sof, "Frame Length", QStringLiteral("%1 (x10us)").arg(e.mpdu.frame_len), 5, 0, 12);
             tree_add_bit_field(sof, "PBLen", QString::number(e.mpdu.tmi), 6, 4, 4);
         } else {
             // 载波:PBNum(7,0,4) TMI(7,4,4) FrameLen(8,0,12) TMI_EXT(12,0,4)
             tree_add_bit_field(sof, "PB Num", QString::number(e.mpdu.pb_num), 7, 0, 4);
             tree_add_bit_field(sof, "TMI", QString::number(e.mpdu.tmi), 7, 4, 4);
-            tree_add_bit_field(sof, "Frame Length", QString::number(e.mpdu.frame_len), 8, 0, 12);
+            tree_add_bit_field(sof, "Frame Length", QStringLiteral("%1 (x10us)").arg(e.mpdu.frame_len), 8, 0, 12);
             tree_add_bit_field(sof, "TMI_EXT", QString::number(e.mpdu.tmi_ext), 12, 0, 4);
         }
         tree_add_item(sof, "PB Size", QString::number(e.mpdu.pb_size));
