@@ -99,7 +99,7 @@ struct MMeI18nReg {
         trl::register_en("上级路由类型", "Upper-level Backup Route");
         trl::register_en("代理主路径路由类型", "Proxy Main Path Route");
         trl::register_en("上上级路由类型", "Upper-of-upper Backup Route");
-        trl::register_en(" (第一相线·最可能)", " (1st line, most likely)");
+        trl::register_en(" (第一相线·高可信)", " (1st line, high confidence)");
         trl::register_en(" (第二相线)", " (2nd line)");
         trl::register_en(" (第三相线)", " (3rd line)");
     }
@@ -877,7 +877,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             // 相线可信程度说明(6.8.14):第一相线最可能所属,第二/三相线可信度依次递减
             for (auto& n : out.tree) {
                 if (n.name.startsWith(QLatin1String("LinePhase0")))
-                    n.value += trl::L(" (第一相线·最可能)");
+                    n.value += trl::L(" (第一相线·高可信)");
                 else if (n.name.startsWith(QLatin1String("CandidateLinePhase1")))
                     n.value += trl::L(" (第二相线)");
                 else if (n.name.startsWith(QLatin1String("CandidateLinePhase2")))
