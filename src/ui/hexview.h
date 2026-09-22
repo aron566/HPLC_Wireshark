@@ -7,6 +7,8 @@
 
 #include <QPlainTextEdit>
 #include <QByteArray>
+#include <QList>
+#include <QPair>
 
 class QContextMenuEvent;
 
@@ -18,14 +20,22 @@ public:
     /// @brief 设置待显示的原始字节并重新渲染
     void set_data(const QByteArray& bytes);
 
-    /// @brief 高亮 [start, start+len) 字节(hex 列)。
-    ///        传 (-1, 0) 清除高亮。
+    /// @brief 高亮 [start, start+len) 字节(hex 列)。传 (-1, 0) 清除高亮。
     void highlight_range(int start, int len);
+
+    /// @brief 高亮多个不连续片段(跨块字段)。空列表=清除高亮。
+    void highlight_ranges(const QList<QPair<int, int>>& ranges);
+
+    /// @brief 设置字段的复制字节(重组内容);复制时优先用此,空则用高亮 raw 字节。
+    void set_copy_bytes(const QByteArray& bytes);
 
     void clear();
 
-    /// @brief 当前高亮区间的原始字节(无高亮返回空)
+    /// @brief 当前高亮区间拼接出的 raw 字节(无高亮返回空)
     QByteArray highlighted_bytes() const;
+
+    /// @brief 实际复制内容:优先字段重组字节,否则高亮 raw 字节
+    QByteArray copy_bytes() const;
 
 protected:
     void contextMenuEvent(QContextMenuEvent* event) override;
@@ -40,8 +50,8 @@ private:
     void rebuild_highlight();
 
     QByteArray m_bytes;
-    int        m_hl_start;
-    int        m_hl_len;
+    QList<QPair<int, int>> m_hl_ranges;  ///< 高亮片段列表(跨块多段)
+    QByteArray m_copy_bytes;             ///< 复制字节(字段重组内容)
 
     void render_hex();
 };

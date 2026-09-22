@@ -15,6 +15,7 @@
 #include <QAction>
 #include <QClipboard>
 #include <QApplication>
+#include <QColor>
 
 // 行布局(见 render_hex):
 //   偏移列 "0000  " = 6 字符
@@ -22,8 +23,7 @@
 //   hex 与 ASCII 之间 1 空格;ASCII 16 字符;行尾 '\n'
 static const int LINE_STRIDE = 6 + 16 * 3 + 1 + 1 + 16 + 1;  // = 73
 
-HexView::HexView(QWidget* parent) : QPlainTextEdit(parent),
-    m_hl_start(-1), m_hl_len(0) {
+HexView::HexView(QWidget* parent) : QPlainTextEdit(parent) {
     setReadOnly(true);
     setFont(QFont("Consolas", 9));
     setLineWrapMode(QPlainTextEdit::NoWrap);
@@ -35,28 +35,39 @@ HexView::HexView(QWidget* parent) : QPlainTextEdit(parent),
 
 void HexView::set_data(const QByteArray& bytes) {
     m_bytes = bytes;
+    m_hl_ranges.clear();
+    m_copy_bytes.clear();
     render_hex();
     rebuild_highlight();
 }
 
 void HexView::clear() {
     m_bytes.clear();
-    m_hl_start = -1;
-    m_hl_len = 0;
+    m_hl_ranges.clear();
+    m_copy_bytes.clear();
     QPlainTextEdit::clear();
     setExtraSelections({});
 }
 
 QByteArray HexView::highlighted_bytes() const {
-    if (m_hl_start < 0 || m_hl_len <= 0 || m_hl_start >= m_bytes.size())
-        return {};
-    int end = qMin(m_hl_start + m_hl_len, m_bytes.size());
-    return m_bytes.mid(m_hl_start, end - m_hl_start);
+    QByteArray out;
+    for (const auto& r : m_hl_ranges) {
+        if (r.first < 0 || r.second <= 0 || r.first >= m_bytes.size())
+            continue;
+        int end = qMin(r.first + r.second, m_bytes.size());
+        out += m_bytes.mid(r.first, end - r.first);
+    }
+    return out;
+}
+
+QByteArray HexView::copy_bytes() const {
+    if (!m_copy_bytes.isEmpty()) return m_copy_bytes;
+    return highlighted_bytes();
 }
 
 void HexView::contextMenuEvent(QContextMenuEvent* event) {
     QMenu menu(this);
-    QByteArray sel = highlighted_bytes();
+    QByteArray sel = copy_bytes();
     if (sel.isEmpty()) {
         auto* act = menu.addAction(trl::L("无高亮字节可复制(先点击协议字段)"));
         act->setEnabled(false);
@@ -79,9 +90,20 @@ void HexView::contextMenuEvent(QContextMenuEvent* event) {
 }
 
 void HexView::highlight_range(int start, int len) {
-    m_hl_start = start;
-    m_hl_len = len;
+    if (start < 0 || len <= 0) {
+        highlight_ranges({});
+        return;
+    }
+    highlight_ranges({{start, len}});
+}
+
+void HexView::highlight_ranges(const QList<QPair<int, int>>& ranges) {
+    m_hl_ranges = ranges;
     rebuild_highlight();
+}
+
+void HexView::set_copy_bytes(const QByteArray& bytes) {
+    m_copy_bytes = bytes;
 }
 
 int HexView::char_offset_of_byte(int byte_index) const {
@@ -93,39 +115,38 @@ int HexView::char_offset_of_byte(int byte_index) const {
 }
 
 void HexView::rebuild_highlight() {
-    if (m_bytes.isEmpty() || m_hl_start < 0 || m_hl_len <= 0) {
+    if (m_bytes.isEmpty() || m_hl_ranges.isEmpty()) {
         setExtraSelections({});
         return;
     }
-    int end = m_hl_start + m_hl_len;
-    if (m_hl_start >= m_bytes.size()) {
-        setExtraSelections({});
-        return;
-    }
-    if (end > m_bytes.size()) end = m_bytes.size();
 
     QList<QTextEdit::ExtraSelection> sels;
-    sels.reserve(end - m_hl_start);
+    int first_row = -1;
 
-    // 每个字节高亮其 2 个 hex 字符;同字节簇背景相同,视觉上连成段
-    for (int b = m_hl_start; b < end; ++b) {
-        QTextCursor cur(document());
-        int pos = char_offset_of_byte(b);
-        cur.setPosition(pos);
-        cur.setPosition(pos + 2, QTextCursor::KeepAnchor);
+    // 每个片段逐字节高亮其 2 个 hex 字符;同字节簇背景相同,视觉上连成段
+    for (const auto& r : m_hl_ranges) {
+        if (r.first < 0 || r.second <= 0 || r.first >= m_bytes.size())
+            continue;
+        int end = qMin(r.first + r.second, m_bytes.size());
+        for (int b = r.first; b < end; ++b) {
+            QTextCursor cur(document());
+            int pos = char_offset_of_byte(b);
+            cur.setPosition(pos);
+            cur.setPosition(pos + 2, QTextCursor::KeepAnchor);
 
-        QTextEdit::ExtraSelection sel;
-        sel.cursor = cur;
-        sel.format.setBackground(QColor(255, 224, 32, 110));  // 半透明黄
-        sels.append(sel);
+            QTextEdit::ExtraSelection sel;
+            sel.cursor = cur;
+            sel.format.setBackground(QColor(255, 224, 32, 110));  // 半透明黄
+            sels.append(sel);
+            if (first_row < 0) first_row = b / 16;
+        }
     }
     setExtraSelections(sels);
 
     // 仅当高亮首行不在当前可视区时才滚动定位;视口内点击不跳动
     QScrollBar* vsb = verticalScrollBar();
-    if (vsb) {
+    if (vsb && first_row >= 0) {
         const int row_h = fontMetrics().lineSpacing();
-        const int first_row = m_hl_start / 16;
         const int vh = viewport()->height();
         const int top_row    = (vh > 0 && row_h > 0) ? vsb->value() / row_h : 0;
         const int rows_vis   = (vh > 0 && row_h > 0) ? vh / row_h : 1;

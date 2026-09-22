@@ -50,7 +50,7 @@ private slots:
     void on_status_message(const QString& s);
     void on_error(const QString& e);
     void on_row_activated(const PacketEntry& e);
-    void on_range_selected(int start, int len);
+    void on_ranges_selected(const QList<QPair<int, int>>& ranges, const QByteArray& copy_bytes);
     void on_flush_buffer();
     void refresh_status_bar();
     void on_check_finished(const QString& url);   // 检查更新结束(QSimpleUpdater)

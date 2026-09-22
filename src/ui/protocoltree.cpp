@@ -19,10 +19,23 @@ ProtocolTree::ProtocolTree(QWidget* parent) : QTreeWidget(parent) {
     // 改用 itemClicked 保证每点都刷新高亮);键盘方向键仍走 selectionChanged。
     auto apply_selection = [this](QTreeWidgetItem* it) {
         if (!it) return;
-        int start = it->data(0, Qt::UserRole).toInt();
-        int len   = it->data(1, Qt::UserRole).toInt();
+        int start = it->data(0, kRoleStart).toInt();
+        int len   = it->data(0, kRoleLen).toInt();
         m_selected_range = {start, len};
-        emit range_selected(start, len);   // 无字节映射的行发 (-1,0) → 清除高亮
+        // 多片段高亮(跨块字段) + 复制字节(字段重组内容)
+        QList<QPair<int, int>> ranges;
+        const QVariantList vl = it->data(0, kRoleRanges).toList();
+        for (const QVariant& v : vl) {
+            const QVariantList p = v.toList();
+            if (p.size() >= 2)
+                ranges.append({p[0].toInt(), p[1].toInt()});
+        }
+        // 旧节点/普通节点(仅 kRoleStart/kRoleLen)无多片段 → 用主区间补单片段
+        if (ranges.isEmpty() && start >= 0 && len > 0)
+            ranges.append({start, len});
+        const QByteArray copy = it->data(0, kRoleBytes).toByteArray();
+        emit range_selected(start, len);     // 向后兼容:无字节映射的行发 (-1,0)
+        emit ranges_selected(ranges, copy);  // 多片段 + 复制字节
     };
     connect(this, &QTreeWidget::itemClicked, this,
             [apply_selection](QTreeWidgetItem* it, int) { apply_selection(it); });

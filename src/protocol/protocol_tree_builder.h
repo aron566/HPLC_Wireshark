@@ -34,13 +34,35 @@ struct MsduRawMap {
     int body;        ///< 每块数据字节数(国网 pb_size-4 / 南网 pb_size-8)
 };
 
+// QTreeWidgetItem 的 UserRole 数据角色(树渲染工具统一约定):
+//   0: 主高亮区间起点 start(单块/向后兼容;跨块取首片段起点,-1=无映射)
+//   1: 主高亮区间长度 len
+//   2: 多高亮片段列表 QVariantList(每元素 QList<int>{start,len};跨块时多个)
+//   3: 复制字节 QByteArray(字段重组字节;跨块时与 raw 片段不同,复制用)
+enum TreeDataRole : int {
+    kRoleStart  = Qt::UserRole + 0,   ///< 主区间起点
+    kRoleLen    = Qt::UserRole + 1,   ///< 主区间长度
+    kRoleRanges = Qt::UserRole + 2,   ///< 多高亮片段 QVariantList
+    kRoleBytes  = Qt::UserRole + 3,   ///< 复制字节 QByteArray
+};
+
 /// 递归渲染解析器生成的 MSDU 字段树(协议无关;body/header_len 由调用方按协议填充)
+/// msdu_body 为重组后的完整 MSDU 字节(供跨块字段复制其重组内容)
 void tree_render_msdu(QTreeWidgetItem* parent, const QVector<MsduFieldNode>& nodes,
-                      const MsduRawMap& m);
+                      const MsduRawMap& m, const QByteArray& msdu_body);
 
 /// 把相对重组 buffer 的 [rel_start,rel_start+rel_len) 映射到 raw 偏移;
-/// 跨块且字段越块边界(或越界)返回 -1(无法高亮)。供 MSDU 分组节点设高亮范围。
+/// 跨块且字段越块边界(或越界)返回 -1(无法单段高亮)。供 MSDU 分组节点设高亮范围。
 int tree_msdu_raw_of(const MsduRawMap& m, int rel_start, int rel_len);
+
+/// 把相对重组 buffer 的 [rel_start,rel_start+rel_len) 映射为 raw 里的高亮片段列表;
+/// 跨块时返回多个片段(每个块内连续);空列表=无法映射。供字段多段高亮/复制定位。
+QList<QPair<int, int>> tree_msdu_raw_ranges(const MsduRawMap& m,
+                                            int rel_start, int rel_len);
+
+/// 给分组节点(如 "MSDU (Reassembled)")设置多片段高亮 + 复制字节(协议无关)
+void tree_apply_msdu_range(QTreeWidgetItem* it, const MsduRawMap& m,
+                           int rel_start, int rel_len, const QByteArray& msdu_body);
 
 // ── 字段树构建器抽象接口 ────────────────────────────────
 

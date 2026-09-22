@@ -352,8 +352,8 @@ void MainWindow::wire_signals() {
             });
 
     connect(m_model, &PacketListModel::packet_activated, this, &MainWindow::on_row_activated);
-    connect(m_tree_protocol, &ProtocolTree::range_selected,
-            this,           &MainWindow::on_range_selected);
+    connect(m_tree_protocol, &ProtocolTree::ranges_selected,
+            this,           &MainWindow::on_ranges_selected);
 
     // 滚轮/拖拽滚动离开底部 → 暂停自动跟随;手动滚回底部 → 恢复跟随最新帧
     connect(m_table_packets->verticalScrollBar(), &QScrollBar::valueChanged,
@@ -673,8 +673,10 @@ void MainWindow::on_row_activated(const PacketEntry& e) {
     }
 }
 
-void MainWindow::on_range_selected(int start, int len) {
-    m_hex_view->highlight_range(start, len);
+void MainWindow::on_ranges_selected(const QList<QPair<int, int>>& ranges,
+                                    const QByteArray& copy_bytes) {
+    m_hex_view->highlight_ranges(ranges);
+    m_hex_view->set_copy_bytes(copy_bytes);
 }
 
 void MainWindow::check_for_updates(bool silent) {

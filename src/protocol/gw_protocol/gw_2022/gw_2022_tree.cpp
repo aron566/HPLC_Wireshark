@@ -56,7 +56,7 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             rm.fch_size = 16;
             rm.header_len = 1;
             rm.body = 0;
-            tree_render_msdu(load, e.beacon.tree, rm);
+            tree_render_msdu(load, e.beacon.tree, rm, e.raw_bytes.mid(16));
         }
         break;
     }
@@ -161,13 +161,9 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             rm.fch_size = 16;
             rm.header_len = 1;
             rm.body = e.mpdu.pb_size - 4;
-            int msdu_start = tree_msdu_raw_of(rm, 0, e.msdu.total_len);
-            if (msdu_start >= 0 && e.msdu.total_len > 0) {
-                msdu->setData(0, Qt::UserRole, msdu_start);
-                msdu->setData(1, Qt::UserRole, e.msdu.total_len);
-            }
+            tree_apply_msdu_range(msdu, rm, 0, e.msdu.total_len, e.msdu_body);
             tree_add_item(msdu, "Length", QString::number(e.msdu_body.size()));
-            tree_render_msdu(msdu, e.msdu.tree, rm);
+            tree_render_msdu(msdu, e.msdu.tree, rm, e.msdu_body);
         } else if (!e.msdu_body.isEmpty()) {
             auto* msdu = tree_add_item(root, "MSDU (Reassembled)",
                 QStringLiteral("%1 B").arg(e.msdu_body.size()));

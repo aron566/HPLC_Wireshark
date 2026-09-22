@@ -24,6 +24,8 @@ public:
 
 signals:
     void range_selected(int start, int len);
+    /// 多片段高亮(跨块字段多个 raw 片段) + 复制字节(字段重组内容)
+    void ranges_selected(const QList<QPair<int, int>>& ranges, const QByteArray& copy_bytes);
 
 private:
     QPair<int, int> m_selected_range;

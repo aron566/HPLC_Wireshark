@@ -129,7 +129,18 @@ int main(int argc, char* argv[]) {
     }
     std::printf("picked hex chars: '%s' (expect 'd5a1cd')\n", qPrintable(picked));
     bool hl_pos_ok = (nsel == 3 && picked == "d5a1cd");
-    bool hl_ok = hl_pos_ok;
+
+    // 多区间高亮(跨块字段)+ 复制字节:highlight_ranges 两段 + set_copy_bytes
+    hex.highlight_ranges({{1, 3}, {8, 2}});
+    app.processEvents();
+    int nsel2 = hex.extraSelections().size();
+    hex.set_copy_bytes(QByteArray::fromHex("0102030405"));
+    QByteArray cpy = hex.copy_bytes();
+    std::printf("HexView highlight_ranges(2段) -> %d selections (expect 5), copy=%dB (expect 5)\n",
+                nsel2, (int)cpy.size());
+    bool hl_multi_ok = (nsel2 == 5 && cpy.size() == 5);
+
+    bool hl_ok = hl_pos_ok && hl_multi_ok;
 
     int top = tree.topLevelItemCount();
     int all = 0;
