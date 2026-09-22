@@ -124,6 +124,12 @@ static const char* kNTBCollectModeZh[] = { "单站点", "全网站点" };
 static const char* kNTBCollectPeriodZh[] = { "半个电力线周期", "一个电力线周期" };
 /// 芯片厂商ID(表90:0x0000 保留 0x0001 HS ... 0x0008 SC)
 static const char* kChipIDZh[] = { "保留", "HS", "ES", "TC", "LH", "HT", "RS", "SW", "SC" };
+/// 帧类型域(表4:0 确认/否认 1 数据转发 2 命令 3 主动上报 4 抄控器 5 广播 6 数据订阅 14 厂家调试)
+static const char* kPacketTypeZh[] = {
+    "确认/否认", "数据转发帧", "命令帧", "主动上报帧",
+    "抄控器相关协议", "广播命令帧", "数据订阅路由帧",
+    nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+    "厂家调试" };
 
 /// 文件级中→英翻译注册(匿名命名空间一次性)
 struct MMeI18nReg {
@@ -191,6 +197,34 @@ struct MMeI18nReg {
         trl::register_en("通道控制信息", "Channel Control Info");
         trl::register_en("业务报文头", "Business Header");
         trl::register_en("APP层数据", "APP Layer Data");
+        trl::register_en("确认/否认", "ACK/NACK");
+        trl::register_en("数据转发帧", "Data Forward Frame");
+        trl::register_en("命令帧", "Command Frame");
+        trl::register_en("主动上报帧", "Event Report Frame");
+        trl::register_en("抄控器相关协议", "Reader Protocol");
+        trl::register_en("广播命令帧", "Broadcast Command Frame");
+        trl::register_en("数据订阅路由帧", "Data Subscription Route Frame");
+        trl::register_en("厂家调试", "Vendor Debug");
+        trl::register_en("确认", "ACK");
+        trl::register_en("否认", "NACK");
+        trl::register_en("数据透传至设备", "Data Forward to Device");
+        trl::register_en("数据透传至模块", "Data Forward to Module");
+        trl::register_en("查询终端搜索结果", "Query Meter Search Result");
+        trl::register_en("下发搜索终端列表", "Distribute Meter Search List");
+        trl::register_en("文件传输", "File Transmission");
+        trl::register_en("允许/禁止从节点事件", "Enable/Disable Node Event");
+        trl::register_en("从节点重启", "Reboot Node");
+        trl::register_en("从节点信息查询", "Query Node Info");
+        trl::register_en("下发通信地址映射表列表", "Distribute Address Map");
+        trl::register_en("查询从节点运行状态信息", "Query Node Running Status");
+        trl::register_en("查询从节点信道信息", "Query Node Channel Info");
+        trl::register_en("台区户变关系/相位识别", "Station/Phase Identification");
+        trl::register_en("测试帧", "Test Frame");
+        trl::register_en("电表事件主动上报", "Meter Event Report");
+        trl::register_en("停上电事件上报", "Power On/Off Event Report");
+        trl::register_en("设备/模块事件上报", "Device/Module Event Report");
+        trl::register_en("抄控器-CCO协议", "Reader-CCO Protocol");
+        trl::register_en("数据透传串口转发", "Data Forward via UART");
     }
 } mme_i18n_reg;
 
@@ -524,6 +558,57 @@ static QString app_type_name(quint8 packet_type) {
     }
 }
 
+
+// ── 业务标识(表9)值解释:依赖帧类型,返回空串表示保留/无释义 ──
+static QString business_id_name(quint8 packet_type, quint8 business_id) {
+    switch (packet_type) {
+    case 0x0:  // 确认/否认
+        if (business_id == 0x00) return trl::L("确认");
+        if (business_id == 0x01) return trl::L("否认");
+        break;
+    case 0x1:  // 数据转发
+        if (business_id == 0x00) return trl::L("数据透传至设备");
+        if (business_id == 0x01) return trl::L("数据透传至模块");
+        break;
+    case 0x2:  // 命令
+        switch (business_id) {
+        case 0x00: return trl::L("查询终端搜索结果");
+        case 0x01: return trl::L("下发搜索终端列表");
+        case 0x02: return trl::L("文件传输");
+        case 0x03: return trl::L("允许/禁止从节点事件");
+        case 0x04: return trl::L("从节点重启");
+        case 0x05: return trl::L("从节点信息查询");
+        case 0x06: return trl::L("下发通信地址映射表列表");
+        case 0x07: return trl::L("查询从节点运行状态信息");
+        case 0x08: return trl::L("查询从节点信道信息");
+        case 0x10: return trl::L("台区户变关系/相位识别");
+        case 0xF0: return trl::L("测试帧");
+        default: break;
+        }
+        break;
+    case 0x3:  // 主动上报
+        if (business_id == 0x00) return trl::L("电表事件主动上报");
+        if (business_id == 0x01) return trl::L("停上电事件上报");
+        if (business_id == 0x02) return trl::L("设备/模块事件上报");
+        break;
+    case 0x4:  // 抄控器协议
+        if (business_id == 0x00) return trl::L("抄控器-CCO协议");
+        if (business_id == 0x01) return trl::L("数据透传串口转发");
+        break;
+    case 0x5:  // 广播命令
+        switch (business_id) {
+        case 0x04: return trl::L("从节点重启");
+        case 0x05: return trl::L("从节点信息查询");
+        case 0x07: return trl::L("查询从节点运行状态信息");
+        case 0x08: return trl::L("查询从节点信道信息");
+        default: break;
+        }
+        break;
+    default: break;
+    }
+    return QString();
+}
+
 static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base) {
     if (app.size() < 12) { out.summary = QStringLiteral("APP (truncated)"); return; }
     // 通道控制信息(表1,4B):报文端口号 + 报文标识符 + 保留
@@ -536,6 +621,16 @@ static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base) {
     add_fields(bh.children, app, 4, kBusinessHeaderSpec, kBusinessHeaderSpecN, rel_base);
     const quint8 packet_type = (quint8)get_bits(app, 4, 0, 4);
     const quint8 business_id = (quint8)get_bits(app, 6, 0, 8);
+    // 帧类型域 + 业务标识值解释(表4/表9)
+    translate_enum_i18n(bh.children, "PacketType", kPacketTypeZh, 15);
+    const QString bid_name = business_id_name(packet_type, business_id);
+    if (!bid_name.isEmpty()) {
+        for (auto& n : bh.children) {
+            if (n.name.startsWith(QLatin1String("BusinessID")))
+                n.value = QStringLiteral("0x%1 - %2")
+                              .arg(business_id, 2, 16, QChar('0')).arg(bid_name);
+        }
+    }
     out.summary = QStringLiteral("APP %1 (BID=0x%2)").arg(app_type_name(packet_type))
                       .arg(business_id, 2, 16, QChar('0'));
     // 业务数据单元(业务报文头之后,含业务扩展域)统一以"APP层数据"字段展示
