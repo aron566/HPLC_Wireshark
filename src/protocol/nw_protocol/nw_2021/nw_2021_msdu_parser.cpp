@@ -9,6 +9,7 @@
 #include "nw_2021_msdu_parser.h"
 #include "common/fieldtools.h"
 #include "common/fieldspec.h"
+#include "common/crc.h"
 
 namespace {
 
@@ -637,6 +638,24 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         out.msdu_type   = (quint16)get_bits(p, 1, 0, 8);
         const quint16 msdu_len = (quint16)get_bits(p, 2, 0, 16);
         out.total_len = 4 + msdu_len + 4;
+        // MSDU 帧尾 4B CRC32:位置 MSDU 载荷(单跳头 4B 之后 msdu_len 字节)之后;
+        // 计算覆盖 MSDU 载荷(不含单跳头)
+        const int crc_off = 4 + msdu_len;
+        if (msdu_len > 0 && crc_off + 4 <= body.size()) {
+            quint32 stored = (quint8)body[crc_off]
+                | ((quint32)(quint8)body[crc_off + 1] << 8)
+                | ((quint32)(quint8)body[crc_off + 2] << 16)
+                | ((quint32)(quint8)body[crc_off + 3] << 24);
+            quint32 calc = crc32_le(p + 4, msdu_len + 4);
+            MsduFieldNode crc;
+            crc.name = QStringLiteral("MSDU CRC32");
+            crc.value = QStringLiteral("0x%1 %2")
+                .arg(stored, 8, 16, QChar('0'))
+                .arg(stored == calc ? QStringLiteral("OK") : QStringLiteral("FAIL"));
+            crc.rel_start = crc_off;
+            crc.rel_len   = 4;
+            out.tree.append(crc);
+        }
         out.present = true;
         return out;
     }
@@ -886,6 +905,27 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             out.msdu_type = (quint16)get_bits(q, 1, 0, 8);
             parse_app(out, msdu_body.mid(2));   // 短帧头 APP 数据(帧头 2B 之后)
         }
+    }
+    // ---- MSDU 帧尾 4B CRC32 ----
+    // 位置:MSDU 载荷(MAC 帧头 mac_hdr_len 之后 msdu_len 字节)之后紧接 4B;
+    // 计算覆盖 MSDU 载荷(不含 MAC 帧头),poly=0xEDB88320
+    const int crc_off = mac_hdr_len + msdu_len;
+    if (msdu_len > 0 && crc_off + 4 <= body.size()) {
+        quint32 stored = (quint8)body[crc_off]
+            | ((quint32)(quint8)body[crc_off + 1] << 8)
+            | ((quint32)(quint8)body[crc_off + 2] << 16)
+            | ((quint32)(quint8)body[crc_off + 3] << 24);
+        quint32 calc = crc32_le(
+            reinterpret_cast<const quint8*>(msdu_body.constData()),
+            msdu_len + 4);
+        MsduFieldNode crc;
+        crc.name = QStringLiteral("MSDU CRC32");
+        crc.value = QStringLiteral("0x%1 %2")
+            .arg(stored, 8, 16, QChar('0'))
+            .arg(stored == calc ? QStringLiteral("OK") : QStringLiteral("FAIL"));
+        crc.rel_start = crc_off;
+        crc.rel_len   = 4;
+        out.tree.append(crc);
     }
     out.present = true;
     return out;

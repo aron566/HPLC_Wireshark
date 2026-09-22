@@ -30,8 +30,8 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
     {
         // 接入指示(表12):0=保留 1=MPDU 在宽带载波通信接入网络中传输
         QString conind = (e.mpdu.net_type == 1)
-            ? QStringLiteral("1 (%1)").arg(trl::L("载波接入网络传输"))
-            : QStringLiteral("0 (%1)").arg(trl::L("保留"));
+            ? QStringLiteral("1 - %1").arg(trl::L("载波接入网络传输"))
+            : QStringLiteral("0 - %1").arg(trl::L("保留"));
         tree_add_bit_field(mpdu_base, "ConInd", conind, 0, 3, 1);
     }
     tree_add_bit_field(mpdu_base, "SNID", QStringLiteral("0x%1")
@@ -39,8 +39,8 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
     {
         // 标准版本号(表13):0=保留 1=本标准版本号
         QString ver = (e.mpdu.version == 1)
-            ? QStringLiteral("1 (%1)").arg(trl::L("本标准版本号"))
-            : QStringLiteral("%1 (%2)").arg(e.mpdu.version).arg(trl::L("保留"));
+            ? QStringLiteral("1 - %1").arg(trl::L("本标准版本号"))
+            : QStringLiteral("%1 - %2").arg(e.mpdu.version).arg(trl::L("保留"));
         tree_add_bit_field(mpdu_base, "Version", ver, 12, 4, 4);
     }
     tree_add_bit_field(mpdu_base, "FCH CRC24", e.mpdu.fch_crc_ok ? "OK" : "FAIL", 13, 0, 24);
@@ -74,7 +74,7 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 default: line = QString::number(e.mpdu.beacon_line); break;
             }
             tree_add_bit_field(bcn, "Line",
-                QStringLiteral("%1 (%2)").arg(e.mpdu.beacon_line).arg(line), 12, 2, 2);
+                QStringLiteral("%1 - %2").arg(e.mpdu.beacon_line).arg(line), 12, 2, 2);
         }
         if (e.mpdu.pb_size > 0)
             tree_add_item(bcn, "PB Size", QString::number(e.mpdu.pb_size));
