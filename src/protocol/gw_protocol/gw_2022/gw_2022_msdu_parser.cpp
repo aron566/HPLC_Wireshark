@@ -327,6 +327,10 @@ static const int kAssocReqTailSpecN =
 
 // 变长尾随字节区(AssocReq 24..42 ManufacturerInfo 18B;64..88 ManagementID 24B)
 static QString bytes_hex(const QByteArray& d, int from, int len) {
+    // 越界保护:数据不足时返回空,避免 mid 越界断言
+    if (from < 0) { len += from; from = 0; }
+    if (from >= d.size() || len <= 0) return QString();
+    if (from + len > d.size()) len = d.size() - from;
     QByteArray s = d.mid(from, len).toHex(' ');
     return QString::fromLatin1(s).toUpper();
 }
@@ -661,6 +665,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
         });
         quint8 msdu_type = (quint8)get_bits(p, 1, 0, 8);
         int   msdu_len   = (int)get_bits(p, 2, 0, 11);
+        if (msdu_len > body.size() - 4) msdu_len = body.size() - 4;  // 防声明长度越界
         QByteArray msdu_body = body.mid(4, msdu_len);
         if (msdu_type == 0) {
             out.summary = QStringLiteral("Find List Message");
@@ -693,6 +698,18 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
         out.msdu_dst_mac = get_bits(p, 22, 0, 48);
     }
 
+    // MSDU 数据区从 head_size 起;头不完整(mac_flag 但 body<28)时无法解析,直接放弃
+    if (body.size() < head_size) {
+        out.present = false;
+        return out;
+    }
+    if (msdu_len > body.size() - head_size) {
+        // 声明长度超出实际帧长:异常帧,标记但跳过深解析(避免 MMe/APP 子字段越界)
+        out.present = true;
+        out.summary = QStringLiteral("MSDU truncated (len %1 > avail %2)")
+                          .arg(msdu_len).arg(body.size() - head_size);
+        return out;
+    }
     QByteArray msdu_body = body.mid(head_size, msdu_len);
     out.present = true;
 
