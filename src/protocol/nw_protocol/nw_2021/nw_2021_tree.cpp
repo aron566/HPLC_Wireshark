@@ -283,11 +283,18 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         tree_add_bit_field(coord, "NeighbourNIDBitMap", QStringLiteral("0x%1")
             .arg(e.mpdu.coord_neighbour_nid, 4, 16, QChar('0')), 1, 0, 16);
         tree_add_bit_field(coord, "Channel", QString::number(e.mpdu.coord_rf_channel), 3, 0, 8);
+        tree_add_bit_field(coord, "RSV1", QStringLiteral("0x%1")
+            .arg(e.mpdu.coord_rsv1, 3, 16, QChar('0')), 4, 0, 10);
         tree_add_bit_field(coord, "TimeDuration", QStringLiteral("%1 (x40ms)").arg(e.mpdu.coord_duration), 5, 2, 14);
+        tree_add_bit_field(coord, "RSV2", QString::number(e.mpdu.coord_rsv2), 7, 0, 1);
         tree_add_bit_field(coord, "BandSlotEndFlag", QString::number(e.mpdu.coord_band_end_flag), 7, 1, 1);
         tree_add_bit_field(coord, "Option", QString::number(e.mpdu.coord_option), 7, 2, 2);
+        tree_add_bit_field(coord, "RSV3", QStringLiteral("0x%1")
+            .arg(e.mpdu.coord_rsv3, 1, 16, QChar('0')), 7, 4, 4);
         tree_add_bit_field(coord, "BandSlotEndOffset", QStringLiteral("%1 (x4ms)").arg(e.mpdu.coord_band_end_offset), 8, 0, 16);
         tree_add_bit_field(coord, "BandSlotStartOffset", QStringLiteral("%1 (x4ms)").arg(e.mpdu.coord_band_start_offset), 10, 0, 16);
+        tree_add_bit_field(coord, "RSV0", QStringLiteral("0x%1")
+            .arg(e.mpdu.coord_rsv0, 1, 16, QChar('0')), 12, 0, 4);
         break;
     }
     }

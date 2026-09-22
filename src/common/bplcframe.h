@@ -105,6 +105,9 @@ struct MpduInfo {
     quint32 coord_neighbour_nid; ///< 邻居网络号 24-bit
     quint8  coord_rf_channel; ///< 无线信道号 8-bit(表26 本网络无线信道编号)
     quint8  coord_rsv0;       ///< 保留 4-bit(表26 字节12 bit0-3)
+    quint16 coord_rsv1;       ///< 保留 10-bit(表26 字节4-5)
+    quint8  coord_rsv2;       ///< 保留 1-bit(表26 字节7 bit0)
+    quint8  coord_rsv3;       ///< 保留 4-bit(表26 字节7 bit4-7)
     // 南网 NW_2021 COORD 额外字段(国网填 0)
     quint8  coord_band_end_flag;    ///< 频段时隙结束标志 1-bit(南网)
     quint8  coord_option;           ///< Option 2-bit(南网)
@@ -138,6 +141,7 @@ struct MpduInfo {
           beacon_item_num(0),
           coord_duration(0), coord_shift(0), coord_neighbour_nid(0),
           coord_rf_channel(0), coord_rsv0(0),
+          coord_rsv1(0), coord_rsv2(0), coord_rsv3(0),
           coord_band_end_flag(0), coord_option(0),
           coord_band_end_offset(0), coord_band_start_offset(0),
           ack_ext_type(0), ack_rx_res(0), ack_rx_status(0), ack_rx_pb_num(0),

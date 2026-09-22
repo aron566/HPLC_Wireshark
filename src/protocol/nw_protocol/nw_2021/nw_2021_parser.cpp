@@ -249,6 +249,10 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
         r.mpdu.coord_option            = (quint8) get_bits(p, 7, 2, 2);
         r.mpdu.coord_band_end_offset   = (quint16)get_bits(p, 8, 0, 16);  // ×4ms
         r.mpdu.coord_band_start_offset = (quint16)get_bits(p, 10, 0, 16); // ×4ms
+        r.mpdu.coord_rsv1             = (quint16)get_bits(p, 4, 0, 10);   // 保留(4-5,10b)
+        r.mpdu.coord_rsv2             = (quint8) get_bits(p, 7, 0, 1);    // 保留(7 bit0,1b)
+        r.mpdu.coord_rsv3             = (quint8) get_bits(p, 7, 4, 4);    // 保留(7 bit4-7,4b)
+        r.mpdu.coord_rsv0             = (quint8) get_bits(p, 12, 0, 4);   // 保留(12 bit0-3,4b)
     }
 
     r.accept = true;
