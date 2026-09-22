@@ -188,6 +188,9 @@ struct MMeI18nReg {
         trl::register_en("全网站点", "All STA");
         trl::register_en("半个电力线周期", "Half Power Line Cycle");
         trl::register_en("一个电力线周期", "One Power Line Cycle");
+        trl::register_en("通道控制信息", "Channel Control Info");
+        trl::register_en("业务报文头", "Business Header");
+        trl::register_en("APP层数据", "APP Layer Data");
     }
 } mme_i18n_reg;
 
@@ -470,231 +473,41 @@ static const FieldSpec kRouteInfoHeadSpec[] = {
 static const int kRouteInfoHeadSpecN = int(sizeof(kRouteInfoHeadSpec)/sizeof(kRouteInfoHeadSpec[0]));
 
 // ── 南网 APP 应用层头(APP_BASE, 12B) ──────────────────
-static const FieldSpec kAppHeadSpec[] = {
+// 通道控制信息(表1:报文端口号 1B + 报文标识符 2B + 保留 1B)
+static const FieldSpec kChannelCtrlInfoSpec[] = {
     { "PortNum",       0, 0, 8,  Fmt::HEX4 },
     { "PacketID",      1, 0, 16, Fmt::HEX4 },
     { "RSVBits0",      3, 0, 8,  Fmt::HEX4 },
-    { "PacketType",    4, 0, 4,  Fmt::DEC },
-    { "RSVBits1",      4, 4, 8,  Fmt::HEX4 },
-    { "ExtBusinessFlag", 5, 4, 1, Fmt::BOOL_Y },
-    { "RespondFlag",     5, 5, 1, Fmt::BOOL_Y },
-    { "StartFlag",       5, 6, 1, Fmt::BOOL_Y },
-    { "TransDirectionFlag", 5, 7, 1, Fmt::BOOL_Y },
-    { "BusinessID",    6, 0, 8,  Fmt::HEX4 },
-    { "AppVersion",    7, 0, 8,  Fmt::DEC },
-    { "PacketSN",      8, 0, 16, Fmt::DEC },
-    { "PacketLen",     10, 0, 16, Fmt::DEC },
 };
-static const int kAppHeadSpecN = int(sizeof(kAppHeadSpec)/sizeof(kAppHeadSpec[0]));
+static const int kChannelCtrlInfoSpecN = int(sizeof(kChannelCtrlInfoSpec)/sizeof(kChannelCtrlInfoSpec[0]));
 
-static const FieldSpec kAPP_NACKSpec[] = {
-    { "Reason", 0, 0, 8, Fmt::DEC },
+// 业务报文头(表2:控制域 2B + 业务标识 1B + 应用版本号 1B + 帧序号 2B + 帧长 2B)
+static const FieldSpec kBusinessHeaderSpec[] = {
+    { "PacketType",    0, 0, 4,  Fmt::DEC },
+    { "RSVBits1",      0, 4, 8,  Fmt::HEX4 },
+    { "ExtBusinessFlag", 1, 4, 1, Fmt::BOOL_Y },
+    { "RespondFlag",     1, 5, 1, Fmt::BOOL_Y },
+    { "StartFlag",       1, 6, 1, Fmt::BOOL_Y },
+    { "TransDirectionFlag", 1, 7, 1, Fmt::BOOL_Y },
+    { "BusinessID",    2, 0, 8,  Fmt::HEX4 },
+    { "AppVersion",    3, 0, 8,  Fmt::DEC },
+    { "PacketSN",      4, 0, 16, Fmt::DEC },
+    { "PacketLen",     6, 0, 16, Fmt::DEC },
 };
-static const int kAPP_NACKSpecN = int(sizeof(kAPP_NACKSpec)/sizeof(kAPP_NACKSpec[0]));
+static const int kBusinessHeaderSpecN = int(sizeof(kBusinessHeaderSpec)/sizeof(kBusinessHeaderSpec[0]));
 
-static const FieldSpec kAPP_DataTransThroughDownStreamSpec[] = {
-    { "SourceAddr", 0, 0, 48, Fmt::MAC },
-    { "DestinationAddr", 6, 0, 48, Fmt::MAC },
-    { "Timeout", 12, 0, 8, Fmt::DEC },
-    { "RSV0", 13, 0, 8, Fmt::HEX4 },
-    { "ForwardDataLen", 14, 0, 16, Fmt::DEC },
-};
-static const int kAPP_DataTransThroughDownStreamSpecN = int(sizeof(kAPP_DataTransThroughDownStreamSpec)/sizeof(kAPP_DataTransThroughDownStreamSpec[0]));
 
-static const FieldSpec kAPP_DataTransThroughModuleDownStreamSpec[] = {
-    { "SourceAddr", 0, 0, 48, Fmt::MAC },
-    { "DestinationAddr", 6, 0, 48, Fmt::MAC },
-    { "RSV0", 12, 0, 8, Fmt::HEX4 },
-    { "BusCode", 13, 0, 8, Fmt::DEC },
-    { "ForwardDataLen", 14, 0, 16, Fmt::DEC },
-};
-static const int kAPP_DataTransThroughModuleDownStreamSpecN = int(sizeof(kAPP_DataTransThroughModuleDownStreamSpec)/sizeof(kAPP_DataTransThroughModuleDownStreamSpec[0]));
-
-static const FieldSpec kAPP_DataTransThroughUpStreamSpec[] = {
-    { "SourceAddr", 0, 0, 48, Fmt::MAC },
-    { "DestinationAddr", 6, 0, 48, Fmt::MAC },
-    { "RSV0", 12, 0, 16, Fmt::HEX4 },
-    { "ForwardDataLen", 14, 0, 16, Fmt::DEC },
-};
-static const int kAPP_DataTransThroughUpStreamSpecN = int(sizeof(kAPP_DataTransThroughUpStreamSpec)/sizeof(kAPP_DataTransThroughUpStreamSpec[0]));
-
-static const FieldSpec kAPP_DataTransThroughModuleUpStreamSpec[] = {
-    { "SourceAddr", 0, 0, 48, Fmt::MAC },
-    { "DestinationAddr", 6, 0, 48, Fmt::MAC },
-    { "RSV0", 12, 0, 8, Fmt::HEX4 },
-    { "BusCode", 13, 0, 8, Fmt::DEC },
-    { "ForwardDataLen", 14, 0, 16, Fmt::DEC },
-};
-static const int kAPP_DataTransThroughModuleUpStreamSpecN = int(sizeof(kAPP_DataTransThroughModuleUpStreamSpec)/sizeof(kAPP_DataTransThroughModuleUpStreamSpec[0]));
-
-static const FieldSpec kAPP_CheckMeterSearchResultUpStreamSpec[] = {
-    { "MeterNum", 0, 0, 8, Fmt::DEC },
-    { "RSV0", 1, 0, 24, Fmt::HEX4 },
-};
-static const int kAPP_CheckMeterSearchResultUpStreamSpecN = int(sizeof(kAPP_CheckMeterSearchResultUpStreamSpec)/sizeof(kAPP_CheckMeterSearchResultUpStreamSpec[0]));
-
-static const FieldSpec kAPP_DistributeMeterSearchResultDownStreamSpec[] = {
-    { "MeterNum", 0, 0, 8, Fmt::DEC },
-    { "RSV0", 1, 0, 24, Fmt::HEX4 },
-};
-static const int kAPP_DistributeMeterSearchResultDownStreamSpecN = int(sizeof(kAPP_DistributeMeterSearchResultDownStreamSpec)/sizeof(kAPP_DistributeMeterSearchResultDownStreamSpec[0]));
-
-static const FieldSpec kAPP_FileTransmissionSpec[] = {
-    { "FileTransInfoID", 0, 0, 8, Fmt::DEC },
-    { "RSV0", 1, 0, 24, Fmt::HEX4 },
-};
-static const int kAPP_FileTransmissionSpecN = int(sizeof(kAPP_FileTransmissionSpec)/sizeof(kAPP_FileTransmissionSpec[0]));
-
-static const FieldSpec kAPP_EventReportSwitchDownStreamSpec[] = {
-    { "EventSwitch", 0, 0, 8, Fmt::DEC },
-    { "RSV0", 1, 0, 24, Fmt::HEX4 },
-};
-static const int kAPP_EventReportSwitchDownStreamSpecN = int(sizeof(kAPP_EventReportSwitchDownStreamSpec)/sizeof(kAPP_EventReportSwitchDownStreamSpec[0]));
-
-static const FieldSpec kAPP_RebootSTADownStreamSpec[] = {
-    { "RebootDelayTime", 0, 0, 8, Fmt::DEC },
-    { "RSV0", 1, 0, 24, Fmt::HEX4 },
-};
-static const int kAPP_RebootSTADownStreamSpecN = int(sizeof(kAPP_RebootSTADownStreamSpec)/sizeof(kAPP_RebootSTADownStreamSpec[0]));
-
-static const FieldSpec kAPP_QuerySTAInfoDownStreamSpec[] = {
-    { "InfoItemNum", 0, 0, 8, Fmt::DEC },
-};
-static const int kAPP_QuerySTAInfoDownStreamSpecN = int(sizeof(kAPP_QuerySTAInfoDownStreamSpec)/sizeof(kAPP_QuerySTAInfoDownStreamSpec[0]));
-
-static const FieldSpec kAPP_QuerySTAInfoUpStreamSpec[] = {
-    { "InfoItemNum", 0, 0, 8, Fmt::DEC },
-};
-static const int kAPP_QuerySTAInfoUpStreamSpecN = int(sizeof(kAPP_QuerySTAInfoUpStreamSpec)/sizeof(kAPP_QuerySTAInfoUpStreamSpec[0]));
-
-static const FieldSpec kAPP_DistributeAddressMapDownStreamSpec[] = {
-    { "MapNum", 0, 0, 8, Fmt::DEC },
-    { "RSV0", 1, 0, 24, Fmt::HEX4 },
-};
-static const int kAPP_DistributeAddressMapDownStreamSpecN = int(sizeof(kAPP_DistributeAddressMapDownStreamSpec)/sizeof(kAPP_DistributeAddressMapDownStreamSpec[0]));
-
-static const FieldSpec kAPP_StationAndPhaseIdentifySpec[] = {
-    { "PktHeadLen", 0, 0, 6, Fmt::DEC },
-    { "CollectPhase", 0, 6, 2, Fmt::DEC },
-    { "RSV0", 1, 0, 24, Fmt::HEX4 },
-    { "MACAddr", 4, 0, 48, Fmt::MAC },
-    { "FeatureType", 10, 0, 8, Fmt::DEC },
-    { "CollectionType", 11, 0, 8, Fmt::DEC },
-};
-static const int kAPP_StationAndPhaseIdentifySpecN = int(sizeof(kAPP_StationAndPhaseIdentifySpec)/sizeof(kAPP_StationAndPhaseIdentifySpec[0]));
-
-static const FieldSpec kAPP_TestPacketDownStreamSpec[] = {
-    { "TestID", 0, 0, 8, Fmt::DEC },
-    { "RSV0", 1, 0, 8, Fmt::HEX4 },
-    { "DataLen", 2, 0, 16, Fmt::DEC },
-    { "TargetBand", 4, 0, 8, Fmt::DEC },
-};
-static const int kAPP_TestPacketDownStreamSpecN = int(sizeof(kAPP_TestPacketDownStreamSpec)/sizeof(kAPP_TestPacketDownStreamSpec[0]));
-
-static const FieldSpec kAPP_PowerEventReportUpStreamSpec[] = {
-    { "HeadLen", 0, 0, 6, Fmt::DEC },
-    { "FunCode", 0, 6, 6, Fmt::DEC },
-    { "DataLen", 1, 4, 12, Fmt::DEC },
-    { "MeterAddress", 6, 0, 48, Fmt::MAC },
-};
-static const int kAPP_PowerEventReportUpStreamSpecN = int(sizeof(kAPP_PowerEventReportUpStreamSpec)/sizeof(kAPP_PowerEventReportUpStreamSpec[0]));
-
-static const FieldSpec kAPP_ReaderFrameCCOSpec[] = {
-    { "ProtoType", 0, 0, 8, Fmt::DEC },
-    { "Seq", 1, 0, 8, Fmt::DEC },
-    { "DataLen", 2, 0, 16, Fmt::DEC },
-};
-static const int kAPP_ReaderFrameCCOSpecN = int(sizeof(kAPP_ReaderFrameCCOSpec)/sizeof(kAPP_ReaderFrameCCOSpec[0]));
-
-static const FieldSpec kAPP_FactorFrameSpec[] = {
-    { "MeterAddress", 0, 0, 48, Fmt::MAC },
-};
-static const int kAPP_FactorFrameSpecN = int(sizeof(kAPP_FactorFrameSpec)/sizeof(kAPP_FactorFrameSpec[0]));
-
-static const FieldSpec kAPP_ReaderFrameUartSpec[] = {
-    { "ProtoType", 0, 0, 8, Fmt::DEC },
-    { "StartFlag", 1, 0, 8, Fmt::DEC },
-    { "UartRate", 2, 0, 32, Fmt::DEC },
-    { "Seq", 6, 0, 8, Fmt::DEC },
-    { "DataLen", 10, 0, 16, Fmt::DEC },
-};
-static const int kAPP_ReaderFrameUartSpecN = int(sizeof(kAPP_ReaderFrameUartSpec)/sizeof(kAPP_ReaderFrameUartSpec[0]));
-
-static const FieldSpec kAPP_EventReportUpStreamSpec[] = {
-    { "MeterAddress", 0, 0, 48, Fmt::MAC },
-};
-static const int kAPP_EventReportUpStreamSpecN = int(sizeof(kAPP_EventReportUpStreamSpec)/sizeof(kAPP_EventReportUpStreamSpec[0]));
-
-static const FieldSpec kAPP_PLC20TestSpec[] = {
-    { "Version_20Test", 0, 0, 8, Fmt::DEC },
-    { "Len_20Test", 1, 0, 8, Fmt::DEC },
-};
-static const int kAPP_PLC20TestSpecN = int(sizeof(kAPP_PLC20TestSpec)/sizeof(kAPP_PLC20TestSpec[0]));
 
 // 追加变长 hex 载荷节点(offset 起;max_len<0 到末尾,否则按 max_len 截断)
 static void append_payload_hex(MsduInfo& out, const QByteArray& app, int offset,
-                               int max_len, const QString& label) {
+                               int max_len, const QString& label, int rel_base = 0) {
     if (app.size() <= offset) return;
     int avail = app.size() - offset;
     if (max_len >= 0 && avail > max_len) avail = max_len;
     if (avail <= 0) return;
     MsduFieldNode& n = group(out.tree, QStringLiteral("%1 [%2 B]").arg(label).arg(avail),
         QString::fromLatin1(app.mid(offset, avail).toHex(' ').toUpper()));
-    n.rel_start = offset; n.rel_len = avail;
-}
-
-// ── 南网 APP 报文分发(PacketType→BusinessID→TransDirectionFlag) ──
-static void parse_app_payload(MsduInfo& out, const QByteArray& app,
-                              quint8 packet_type, quint8 business_id, quint8 trans_dir) {
-    switch (packet_type) {
-    case 0x0:  // ACK/NACK
-        if (business_id == 0x01) add_fields(out.tree, app, 12, kAPP_NACKSpec, kAPP_NACKSpecN);
-        break;
-    case 0x1:  // Data Forward
-        if      (business_id == 0x00 && trans_dir == 0) {
-            add_fields(out.tree, app, 12, kAPP_DataTransThroughDownStreamSpec, kAPP_DataTransThroughDownStreamSpecN);
-            append_payload_hex(out, app, 28, (int)get_bits(app, 26, 0, 16), QStringLiteral("ForwardData"));
-        }
-        else if (business_id == 0x00 && trans_dir == 1) {
-            add_fields(out.tree, app, 12, kAPP_DataTransThroughUpStreamSpec, kAPP_DataTransThroughUpStreamSpecN);
-            append_payload_hex(out, app, 28, (int)get_bits(app, 26, 0, 16), QStringLiteral("ForwardData"));
-        }
-        else if (business_id == 0x01 && trans_dir == 0) {
-            add_fields(out.tree, app, 12, kAPP_DataTransThroughModuleDownStreamSpec, kAPP_DataTransThroughModuleDownStreamSpecN);
-            append_payload_hex(out, app, 29, (int)get_bits(app, 26, 0, 16), QStringLiteral("ForwardData"));
-        }
-        else if (business_id == 0x01 && trans_dir == 1) {
-            add_fields(out.tree, app, 12, kAPP_DataTransThroughModuleUpStreamSpec, kAPP_DataTransThroughModuleUpStreamSpecN);
-            append_payload_hex(out, app, 28, (int)get_bits(app, 26, 0, 16), QStringLiteral("ForwardData"));
-        }
-        break;
-    case 0x2:  // Command
-        switch (business_id) {
-        case 0x00: if (trans_dir == 1) { add_fields(out.tree, app, 12, kAPP_CheckMeterSearchResultUpStreamSpec, kAPP_CheckMeterSearchResultUpStreamSpecN); append_payload_hex(out, app, 16, -1, QStringLiteral("DATAField")); } break;
-        case 0x01: if (trans_dir == 0) { add_fields(out.tree, app, 12, kAPP_DistributeMeterSearchResultDownStreamSpec, kAPP_DistributeMeterSearchResultDownStreamSpecN); append_payload_hex(out, app, 16, -1, QStringLiteral("DATAField")); } break;
-        case 0x02: { add_fields(out.tree, app, 12, kAPP_FileTransmissionSpec, kAPP_FileTransmissionSpecN); append_payload_hex(out, app, 16, -1, QStringLiteral("FileData")); } break;
-        case 0x03: if (trans_dir == 0) add_fields(out.tree, app, 12, kAPP_EventReportSwitchDownStreamSpec, kAPP_EventReportSwitchDownStreamSpecN); break;
-        case 0x04: if (trans_dir == 0) add_fields(out.tree, app, 12, kAPP_RebootSTADownStreamSpec, kAPP_RebootSTADownStreamSpecN); break;
-        case 0x06: if (trans_dir == 0) { add_fields(out.tree, app, 12, kAPP_DistributeAddressMapDownStreamSpec, kAPP_DistributeAddressMapDownStreamSpecN); append_payload_hex(out, app, 16, -1, QStringLiteral("MapData")); } break;
-        case 0x10: { add_fields(out.tree, app, 12, kAPP_StationAndPhaseIdentifySpec, kAPP_StationAndPhaseIdentifySpecN); append_payload_hex(out, app, 24, -1, QStringLiteral("IdentifyData")); } break;
-        case 0xF0: if (trans_dir == 0) { add_fields(out.tree, app, 12, kAPP_TestPacketDownStreamSpec, kAPP_TestPacketDownStreamSpecN); append_payload_hex(out, app, 16, -1, QStringLiteral("DATAbody")); } break;
-        default: break;
-        }
-        break;
-    case 0x3:  // Event Report
-        if      (business_id == 0x00 && trans_dir == 1) { add_fields(out.tree, app, 12, kAPP_EventReportUpStreamSpec, kAPP_EventReportUpStreamSpecN); append_payload_hex(out, app, 18, -1, QStringLiteral("EventData")); }
-        else if (business_id == 0x01)                   { add_fields(out.tree, app, 12, kAPP_PowerEventReportUpStreamSpec, kAPP_PowerEventReportUpStreamSpecN); append_payload_hex(out, app, 24, -1, QStringLiteral("EventData")); }
-        break;
-    case 0x4:  // Reader Frame
-        if      (business_id == 0x00) { add_fields(out.tree, app, 12, kAPP_ReaderFrameCCOSpec, kAPP_ReaderFrameCCOSpecN); append_payload_hex(out, app, 16, (int)get_bits(app, 14, 0, 16), QStringLiteral("ReaderData")); }
-        else if (business_id == 0x01) { add_fields(out.tree, app, 12, kAPP_ReaderFrameUartSpec, kAPP_ReaderFrameUartSpecN); append_payload_hex(out, app, 24, -1, QStringLiteral("ReaderData")); }
-        break;
-    case 0xF:  // Factory Frame
-        add_fields(out.tree, app, 12, kAPP_FactorFrameSpec, kAPP_FactorFrameSpecN);
-        append_payload_hex(out, app, 18, -1, QStringLiteral("FactorData"));
-        break;
-    default: break;
-    }
+    n.rel_start = rel_base + offset; n.rel_len = avail;
 }
 
 // ── 南网 APP 应用层解析入口 ────────────────────────────
@@ -711,15 +524,22 @@ static QString app_type_name(quint8 packet_type) {
     }
 }
 
-static void parse_app(MsduInfo& out, const QByteArray& app) {
+static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base) {
     if (app.size() < 12) { out.summary = QStringLiteral("APP (truncated)"); return; }
-    add_fields(out.tree, app, 0, kAppHeadSpec, kAppHeadSpecN);
+    // 通道控制信息(表1,4B):报文端口号 + 报文标识符 + 保留
+    MsduFieldNode& cci = group(out.tree, QStringLiteral("通道控制信息 [4B]"));
+    cci.rel_start = rel_base; cci.rel_len = 4;
+    add_fields(cci.children, app, 0, kChannelCtrlInfoSpec, kChannelCtrlInfoSpecN, rel_base);
+    // 业务报文头(表2,8B):控制域 + 业务标识 + 应用版本号 + 帧序号 + 帧长
+    MsduFieldNode& bh = group(out.tree, QStringLiteral("业务报文头 [8B]"));
+    bh.rel_start = rel_base + 4; bh.rel_len = 8;
+    add_fields(bh.children, app, 4, kBusinessHeaderSpec, kBusinessHeaderSpecN, rel_base);
     const quint8 packet_type = (quint8)get_bits(app, 4, 0, 4);
     const quint8 business_id = (quint8)get_bits(app, 6, 0, 8);
-    const quint8 trans_dir   = (quint8)get_bits(app, 5, 7, 1);
     out.summary = QStringLiteral("APP %1 (BID=0x%2)").arg(app_type_name(packet_type))
                       .arg(business_id, 2, 16, QChar('0'));
-    parse_app_payload(out, app, packet_type, business_id, trans_dir);
+    // 业务数据单元(业务报文头之后,含业务扩展域)统一以"APP层数据"字段展示
+    append_payload_hex(out, app, 12, -1, QStringLiteral("APP层数据"), rel_base);
 }
 
 
@@ -1187,7 +1007,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                     out.summary = QStringLiteral("MMe (truncated)");
                 }
             } else {
-                parse_app(out, msdu_body.mid(18));   // 长帧头 APP 数据(帧头 18B 之后)
+                parse_app(out, msdu_body.mid(18), mac_hdr_len + 18);   // 长帧头 APP 数据(帧头 18B 之后)
             }
         }
     } else {
@@ -1196,7 +1016,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             const quint8* q = reinterpret_cast<const quint8*>(msdu_body.constData());
             out.vlan_tag  = (quint32)get_bits(q, 0, 0, 8);
             out.msdu_type = (quint16)get_bits(q, 1, 0, 8);
-            parse_app(out, msdu_body.mid(2));   // 短帧头 APP 数据(帧头 2B 之后)
+            parse_app(out, msdu_body.mid(2), mac_hdr_len + 2);   // 短帧头 APP 数据(帧头 2B 之后)
         }
     }
     // ---- MSDU 帧尾 4B CRC32 ----
