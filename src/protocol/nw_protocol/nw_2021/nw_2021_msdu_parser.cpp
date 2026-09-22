@@ -130,6 +130,14 @@ static const char* kPacketTypeZh[] = {
     "抄控器相关协议", "广播命令帧", "数据订阅路由帧",
     nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
     "厂家调试" };
+/// 业务扩展域标识位(表5:0 无扩展域 1 有扩展域)
+static const char* kExtBusinessFlagZh[] = { "无业务扩展域", "有业务扩展域" };
+/// 响应标识位(表6:0 不需要应答 1 需要应答)
+static const char* kRespondFlagZh[] = { "不需要应答", "需要应答" };
+/// 启动标志位(表7:0 从动站 1 启动站)
+static const char* kStartFlagZh[] = { "从动站", "启动站" };
+/// 传输方向位(表8:0 下行方向 1 上行方向)
+static const char* kTransDirectionFlagZh[] = { "下行方向", "上行方向" };
 
 /// 文件级中→英翻译注册(匿名命名空间一次性)
 struct MMeI18nReg {
@@ -226,6 +234,17 @@ struct MMeI18nReg {
         trl::register_en("通信模块事件上报", "Comm Module Event Report");
         trl::register_en("抄控器-CCO协议", "Reader-CCO Protocol");
         trl::register_en("数据透传串口转发", "Data Forward via UART");
+        trl::register_en("无业务扩展域", "No Extended Field");
+        trl::register_en("有业务扩展域", "Has Extended Field");
+        trl::register_en("不需要应答", "No Response Required");
+        trl::register_en("需要应答", "Response Required");
+        trl::register_en("从动站", "From Slave STA");
+        trl::register_en("启动站", "From Initiating STA");
+        trl::register_en("下行方向", "Downlink Direction");
+        trl::register_en("上行方向", "Uplink Direction");
+        trl::register_en("业务报文", "Service Packet");
+        trl::register_en("管理报文", "Management Packet");
+        trl::register_en("CCO-STA 应用层报文", "CCO-STA APP Packet");
     }
 } mme_i18n_reg;
 
@@ -520,10 +539,10 @@ static const int kChannelCtrlInfoSpecN = int(sizeof(kChannelCtrlInfoSpec)/sizeof
 static const FieldSpec kBusinessHeaderSpec[] = {
     { "PacketType",    0, 0, 4,  Fmt::DEC },
     { "RSVBits1",      0, 4, 8,  Fmt::HEX4 },
-    { "ExtBusinessFlag", 1, 4, 1, Fmt::BOOL_Y },
-    { "RespondFlag",     1, 5, 1, Fmt::BOOL_Y },
-    { "StartFlag",       1, 6, 1, Fmt::BOOL_Y },
-    { "TransDirectionFlag", 1, 7, 1, Fmt::BOOL_Y },
+    { "ExtBusinessFlag", 1, 4, 1, Fmt::DEC },
+    { "RespondFlag",     1, 5, 1, Fmt::DEC },
+    { "StartFlag",       1, 6, 1, Fmt::DEC },
+    { "TransDirectionFlag", 1, 7, 1, Fmt::DEC },
     { "BusinessID",    2, 0, 8,  Fmt::HEX4 },
     { "AppVersion",    3, 0, 8,  Fmt::DEC },
     { "PacketSN",      4, 0, 16, Fmt::DEC },
@@ -559,6 +578,21 @@ static QString app_type_name(quint8 packet_type) {
     }
 }
 
+
+// ── 报文端口号(6.1):0x11 业务报文 0x13 管理报文 ──
+static QString port_num_name(quint8 port) {
+    switch (port) {
+    case 0x11: return trl::L("业务报文");
+    case 0x13: return trl::L("管理报文");
+    default:   return QString();
+    }
+}
+
+// ── 报文标识符(6.2):应用层报文固定 0x0101 ──
+static QString packet_id_name(quint16 id) {
+    if (id == 0x0101) return trl::L("CCO-STA 应用层报文");
+    return QString();
+}
 
 // ── 业务标识(表9)值解释:依赖帧类型,返回空串表示保留/无释义 ──
 static QString business_id_name(quint8 port_num, quint8 packet_type, quint8 business_id) {
@@ -620,11 +654,26 @@ static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base) {
     MsduFieldNode& bh = group(out.tree, QStringLiteral("业务报文头 [8B]"));
     bh.rel_start = rel_base + 4; bh.rel_len = 8;
     add_fields(bh.children, app, 4, kBusinessHeaderSpec, kBusinessHeaderSpecN, rel_base);
-    const quint8 port_num    = (quint8)get_bits(app, 0, 0, 8);
-    const quint8 packet_type = (quint8)get_bits(app, 4, 0, 4);
-    const quint8 business_id = (quint8)get_bits(app, 6, 0, 8);
-    // 帧类型域 + 业务标识值解释(表4/表9)
+    const quint8  port_num    = (quint8)get_bits(app, 0, 0, 8);
+    const quint16 packet_id   = (quint16)get_bits(app, 1, 0, 16);
+    const quint8  packet_type = (quint8)get_bits(app, 4, 0, 4);
+    const quint8  business_id = (quint8)get_bits(app, 6, 0, 8);
+    // 报文端口号 + 报文标识符值解释(6.1/6.2)
+    const QString port_name = port_num_name(port_num);
+    const QString pid_name  = packet_id_name(packet_id);
+    for (auto& n : cci.children) {
+        if (n.name.startsWith(QLatin1String("PortNum")) && !port_name.isEmpty())
+            n.value = QStringLiteral("0x%1 - %2").arg(port_num, 2, 16, QChar('0')).arg(port_name);
+        else if (n.name.startsWith(QLatin1String("PacketID")) && !pid_name.isEmpty())
+            n.value = QStringLiteral("0x%1 - %2").arg(packet_id, 4, 16, QChar('0')).arg(pid_name);
+    }
+    // 帧类型域 + 控制域标志位 + 业务标识值解释(表4/5/6/7/8/9)
     translate_enum_i18n(bh.children, "PacketType", kPacketTypeZh, 15);
+    translate_enum_i18n(bh.children, "ExtBusinessFlag", kExtBusinessFlagZh, 2);
+    translate_enum_i18n(bh.children, "RespondFlag", kRespondFlagZh, 2);
+    translate_enum_i18n(bh.children, "StartFlag", kStartFlagZh, 2);
+    translate_enum_i18n(bh.children, "TransDirectionFlag", kTransDirectionFlagZh, 2);
+    annotate_unit(bh.children, "PacketLen", QStringLiteral(" B"));
     const QString bid_name = business_id_name(port_num, packet_type, business_id);
     if (!bid_name.isEmpty()) {
         for (auto& n : bh.children) {
