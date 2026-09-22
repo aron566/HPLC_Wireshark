@@ -10,6 +10,7 @@
 #include "common/fieldtools.h"
 #include "common/fieldspec.h"
 #include "common/crc.h"
+#include "i18n.h"
 
 namespace {
 
@@ -56,6 +57,50 @@ inline QString mme_type_name(quint16 t) {
         default: return QStringLiteral("MMe 0x%1").arg(t, 4, 16, QChar('0'));
     }
 }
+
+// ── 枚举值解释(中文 key,经 trl 注册英文;与国网 apply_dicts 对齐) ──
+
+/// 枚举字典翻译:name 命中则 value 改为 "值 - 释义"
+static void translate_enum_i18n(QVector<MsduFieldNode>& nodes, const char* field,
+                                const char* const* zh_dict, int dict_size) {
+    for (auto& n : nodes) {
+        if (!n.name.startsWith(QLatin1String(field))) continue;
+        bool ok = false;
+        const int v = n.value.toInt(&ok);
+        if (ok && v >= 0 && v < dict_size && zh_dict[v])
+            n.value = QStringLiteral("%1 - %2").arg(v).arg(trl::L(zh_dict[v]));
+    }
+}
+
+/// 相线(表15:0 未知 1 A 2 B 3 C)
+static const char* kLinePhaseZh[] = { "未知", "A相线", "B相线", "C相线" };
+/// 角色(0 未知 1 站点 2 代理站点 4 中央协调器,索引 3 保留无释义)
+static const char* kRoleZh[] = { "未知", "站点", "代理站点", nullptr, "中央协调器" };
+/// 通信成功率计算完成标志(0 未完成 1 已完成)
+static const char* kCommRateCalcZh[] = { "未完成", "已完成" };
+/// 上行路由类型(表:0 错误 1 同级 2 上级 3 代理主路径 4 上上级)
+static const char* kRouteTypeZh[] = {
+    "错误路由类型", "同级路由类型", "上级路由类型", "代理主路径路由类型", "上上级路由类型" };
+
+/// 文件级中→英翻译注册(匿名命名空间一次性)
+struct MMeI18nReg {
+    MMeI18nReg() {
+        trl::register_en("未知", "Unknown");
+        trl::register_en("A相线", "LineA");
+        trl::register_en("B相线", "LineB");
+        trl::register_en("C相线", "LineC");
+        trl::register_en("站点", "STA");
+        trl::register_en("代理站点", "PCO");
+        trl::register_en("中央协调器", "CCO");
+        trl::register_en("未完成", "Not Finished");
+        trl::register_en("已完成", "Finished");
+        trl::register_en("错误路由类型", "Incorrect Route");
+        trl::register_en("同级路由类型", "Same-level Backup Route");
+        trl::register_en("上级路由类型", "Upper-level Backup Route");
+        trl::register_en("代理主路径路由类型", "Proxy Main Path Route");
+        trl::register_en("上上级路由类型", "Upper-of-upper Backup Route");
+    }
+} mme_i18n_reg;
 
 static const FieldSpec kMMeAssocReqSpec[] = {
     { "STAMACAddr", 0, 0, 48, Fmt::MAC },
@@ -612,6 +657,7 @@ static const FieldSpec kSTAInfoSpec[] = {
 static const int kSTAInfoSpecN = int(sizeof(kSTAInfoSpec)/sizeof(kSTAInfoSpec[0]));
 static const FieldSpec kUpRouteInfoSpec[] = {
     { "NextHopTEI", 0, 0, 12, Fmt::DEC },
+    { "RSV", 1, 4, 4, Fmt::HEX4 },
     { "RouteType", 2, 0, 8, Fmt::DEC },
 };
 static const int kUpRouteInfoSpecN = int(sizeof(kUpRouteInfoSpec)/sizeof(kUpRouteInfoSpec[0]));
@@ -805,25 +851,92 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         case MME_HEARTBEATCHECK: add_fields(out.tree, mme, 6, kMMeHeartBeatCheckSpec, kMMeHeartBeatCheckSpecN); break;
         case MME_DISCOVERNODELIST: {
             add_fields(out.tree, mme, 6, kMMeDiscoverNodeListSpec, kMMeDiscoverNodeListSpecN);
-            const quint16 route_num = (quint16)get_bits(mme, 34, 0, 16);
-            const quint16 node_num  = (quint16)get_bits(mme, 30, 0, 16);
-            int off = 48;
+            // 值解释(对齐国网:Role/LinePhase/CommRateCalculateFinish 双语,成功率带 %)
+            translate_enum_i18n(out.tree, "Role", kRoleZh, 5);
+            translate_enum_i18n(out.tree, "LinePhase0", kLinePhaseZh, 4);
+            translate_enum_i18n(out.tree, "CandidateLinePhase1", kLinePhaseZh, 4);
+            translate_enum_i18n(out.tree, "CandidateLinePhase2", kLinePhaseZh, 4);
+            translate_enum_i18n(out.tree, "CommRateCalculateFinish", kCommRateCalcZh, 2);
+            annotate_unit(out.tree, "ProxyCommRate", QStringLiteral("%"));
+            annotate_unit(out.tree, "ProxyDownCommRate", QStringLiteral("%"));
+            annotate_unit(out.tree, "MinCommRate", QStringLiteral("%"));
+            annotate_unit(out.tree, "RoutePeriodLeftTime", QStringLiteral("s"));
+            const quint16 route_num = (quint16)get_bits(mme, 34, 0, 16);  // UpRouteEntryNum
+            const quint16 node_num  = (quint16)get_bits(mme, 30, 0, 16);  // DiscoverNodeNum
+            int off = 48;  // 固定头 42B(MMeHead 6 + 消息体 42)
+            // 上行路由条目(3B/条:NextHopTEI 12b + RSV 4b + RouteType 8b)
             for (int i = 0; i < route_num && off + 3 <= mme.size(); ++i) {
                 MsduFieldNode& n = group(out.tree, QStringLiteral("UpRoute[%1]").arg(i));
                 n.rel_start = off; n.rel_len = 3;
                 add_fields(n.children, mme, off, kUpRouteInfoSpec, kUpRouteInfoSpecN);
+                translate_enum_i18n(n.children, "RouteType", kRouteTypeZh, 5);
                 off += 3;
             }
-            if (mme.size() >= off + 128) {
-                MsduFieldNode& bm = group(out.tree, QStringLiteral("DiscoverySTAListBitMap [128B]"),
-                    QString::fromLatin1(mme.mid(off, 128).toHex(' ').toUpper()));
-                bm.rel_start = off; bm.rel_len = 128;
+            // 发现站点列表位图(128B 按位解析,bit 位置 = TEI)
+            QByteArray bm;
+            int bm_base = -1;
+            if (off + 128 <= mme.size()) {
+                bm_base = off;
+                bm = mme.mid(off, 128);
                 off += 128;
-                if (mme.size() >= off + node_num) {
-                    for (int i = 0; i < node_num; ++i) {
-                        MsduFieldNode& n = group(out.tree, QStringLiteral("ReceivedCount[%1]").arg(i),
-                            QString::number((quint8)get_bits(mme, off + i, 0, 8)));
-                        n.rel_start = off + i; n.rel_len = 1;
+            }
+            bool bm_any = false;
+            int nset = 0;
+            QVector<QStringList> per_byte(bm.size());
+            for (int i = 0; i < bm.size(); ++i) {
+                const quint8 byte = (quint8)bm[i];
+                for (int j = 0; j < 8; ++j) {
+                    if (!(byte & (1u << j))) continue;
+                    per_byte[i] << QStringLiteral("TEI%1").arg(8 * i + j);
+                    ++nset;
+                }
+                if (!per_byte[i].isEmpty()) bm_any = true;
+            }
+            if (!bm_any) {
+                MsduFieldNode bl;
+                bl.name = QStringLiteral("DiscoverySTAList BitMap [%1b]").arg(bm.size());
+                bl.value = QStringLiteral("NULL");
+                if (bm_base >= 0) { bl.rel_start = bm_base; bl.rel_len = bm.size(); }
+                out.tree.append(bl);
+            } else {
+                auto& bmg = group(out.tree,
+                    QStringLiteral("DiscoverySTAList BitMap [%1b]").arg(bm.size()));
+                for (int i = 0; i < bm.size(); ++i) {
+                    if (per_byte[i].isEmpty()) continue;
+                    MsduFieldNode bl;
+                    bl.name = QStringLiteral("DiscoverySTABitMap[%1] [8b]").arg(i);
+                    bl.value = per_byte[i].join(QStringLiteral(", "));
+                    if (bm_base >= 0) { bl.rel_start = bm_base + i; bl.rel_len = 1; }
+                    bmg.children.append(bl);
+                }
+            }
+            // 收到发现列表信息(置位 TEI 各一条,1B 计数)
+            QByteArray cnts;
+            int cnts_base = -1;
+            if (node_num > 0 && off + node_num <= mme.size()) {
+                cnts_base = off;
+                cnts = mme.mid(off, node_num);
+            }
+            if (bm_any && nset > 0) {
+                auto& rgi = group(out.tree,
+                    QStringLiteral("ReceivedDiscoveryInfo [%1]").arg(nset));
+                int order = 0;
+                for (int i = 0; i < bm.size(); ++i) {
+                    const quint8 byte = (quint8)bm[i];
+                    for (int j = 0; j < 8; ++j) {
+                        if (!(byte & (1u << j))) continue;
+                        const int tei = 8 * i + j;
+                        MsduFieldNode rc;
+                        rc.name = QStringLiteral("ReceivedDiscoverCount[%1]").arg(order);
+                        if (order < cnts.size()) {
+                            rc.value = QStringLiteral("%1 - TEI%2")
+                                           .arg((quint8)cnts[order]).arg(tei);
+                            if (cnts_base >= 0) { rc.rel_start = cnts_base + order; rc.rel_len = 1; }
+                        } else {
+                            rc.value = QStringLiteral("? - TEI%1").arg(tei);
+                        }
+                        rgi.children.append(rc);
+                        ++order;
                     }
                 }
             }
