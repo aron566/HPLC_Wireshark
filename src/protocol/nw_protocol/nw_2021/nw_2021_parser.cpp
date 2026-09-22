@@ -170,15 +170,27 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
             r.accept = false;
             return r;
         }
-        // PB 块重组(南网:块体 = PBSize-8(PB头4B+保留1B+CRC3B),单帧内按块序拼接)
+        // PB 块重组 + CRC24 校验(南网:块 = PB头4B + 块体(pb_size-8) + 保留1B + CRC24 3B)
         if (r.mpdu.pb_size > 8 && r.mpdu.pb_num > 0) {
             const int body_len = r.mpdu.pb_size - 8;
             QByteArray msdu_body;
+            bool all_pb_ok = true;
             for (int i = 0; i < r.mpdu.pb_num; ++i) {
                 const int block_start = 16 + i * r.mpdu.pb_size;
                 if (block_start + r.mpdu.pb_size > r.payload_for_log.size()) break;
+                // PB CRC24:覆盖 PB 头 + 块体 + 保留字节(块内前 pb_size-3 字节,表7)
+                const quint8* blk = reinterpret_cast<const quint8*>(
+                    r.payload_for_log.constData()) + block_start;
+                const quint32 calc = crc24_lsb(blk, r.mpdu.pb_size);
+                const quint32 rx = (quint32)blk[r.mpdu.pb_size - 3]
+                                 | ((quint32)blk[r.mpdu.pb_size - 2] << 8)
+                                 | ((quint32)blk[r.mpdu.pb_size - 1] << 16);
+                const bool ok = (calc == rx);
+                all_pb_ok = all_pb_ok && ok;
+                r.mpdu.pb_crc_oks.append(ok);
                 msdu_body += r.payload_for_log.mid(block_start + 4, body_len);
             }
+            r.mpdu.pb_crc_ok = all_pb_ok;
             if (!msdu_body.isEmpty()) {
                 r.msdu_body = msdu_body;
                 r.msdu = NW_2021_MsduParser::parse(msdu_body);
