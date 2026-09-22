@@ -893,25 +893,18 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 }
                 if (!per_byte[i].isEmpty()) bm_any = true;
             }
-            if (!bm_any) {
+            // 逐字节显示(每个字节一条,对应 hex 高亮):有置位列出 TEI,空字节显示 NULL
+            auto& bmg = group(out.tree,
+                QStringLiteral("DiscoverySTAList BitMap [%1b]").arg(bm.size()));
+            for (int i = 0; i < bm.size(); ++i) {
                 MsduFieldNode bl;
-                bl.name = QStringLiteral("DiscoverySTAList BitMap [%1b]").arg(bm.size());
-                bl.value = QStringLiteral("NULL");
-                if (bm_base >= 0) { bl.rel_start = mme_rel_base + (bm_base); bl.rel_len = bm.size(); }
-                out.tree.append(bl);
-            } else {
-                auto& bmg = group(out.tree,
-                    QStringLiteral("DiscoverySTAList BitMap [%1b]").arg(bm.size()));
-                for (int i = 0; i < bm.size(); ++i) {
-                    MsduFieldNode bl;
-                    bl.name = QStringLiteral("DiscoverySTABitMap[%1] [8b]").arg(i);
-                    // 每个字节都显示(不省略空字节):有置位列出 TEI,空字节显示 NULL(只显示有值的)
-                    bl.value = per_byte[i].isEmpty()
-                        ? QStringLiteral("NULL")
-                        : per_byte[i].join(QStringLiteral(", "));
-                    if (bm_base >= 0) { bl.rel_start = mme_rel_base + (bm_base + i); bl.rel_len = 1; }
-                    bmg.children.append(bl);
-                }
+                bl.name = QStringLiteral("DiscoverySTABitMap[%1] [8b]").arg(i);
+                // 有置位列出 TEI,空字节显示 NULL(只显示有值的)
+                bl.value = per_byte[i].isEmpty()
+                    ? QStringLiteral("NULL")
+                    : per_byte[i].join(QStringLiteral(", "));
+                if (bm_base >= 0) { bl.rel_start = mme_rel_base + (bm_base + i); bl.rel_len = 1; }
+                bmg.children.append(bl);
             }
             // 收到发现列表信息(置位 TEI 各一条,1B 计数)
             QByteArray cnts;
