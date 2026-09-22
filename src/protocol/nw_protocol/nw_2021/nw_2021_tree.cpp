@@ -15,6 +15,15 @@ struct I18nReg {
         trl::register_en("A相线", "phase A");
         trl::register_en("B相线", "phase B");
         trl::register_en("C相线", "phase C");
+        trl::register_en("选择确认帧", "selective ACK frame");
+        trl::register_en("网络搜索帧(抄控器)", "network search frame (meter reader)");
+        trl::register_en("同步帧(抄控器)", "sync frame (meter reader)");
+        trl::register_en("无线切频", "wireless channel switch");
+        trl::register_en("SOF帧全部接收成功", "SOF frame fully received OK");
+        trl::register_en("物理块存在CRC校验失败", "some PB CRC failed");
+        trl::register_en("校验成功", "CRC ok");
+        trl::register_en("全部校验失败", "all CRC failed");
+        trl::register_en("含解析错误", "incl. parse errors");
     }
 };
 const I18nReg g_i18n_reg_nw_tree;
@@ -209,14 +218,44 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
     }
     case NW_2021_FrameType::ACK: {
         auto* ack = tree_add_item(root, "ACK", "");
-        tree_add_bit_field(ack, "ExtType", QString::number(e.mpdu.ack_ext_type), 12, 0, 4);
+        {
+            const quint8 et = e.mpdu.ack_ext_type;
+            QString ev;
+            switch (et) {
+            case 0: ev = trl::L("0 - 选择确认帧"); break;
+            case 1: ev = trl::L("1 - 网络搜索帧(抄控器)"); break;
+            case 2: ev = trl::L("2 - 同步帧(抄控器)"); break;
+            case 3: ev = trl::L("3 - 无线切频"); break;
+            default: ev = QStringLiteral("%1 - %2").arg(et).arg(trl::L("保留")); break;
+            }
+            tree_add_bit_field(ack, "ExtType", ev, 12, 0, 4);
+        }
         switch (static_cast<NW_2021_AckExtType>(e.mpdu.ack_ext_type)) {
-        case NW_2021_AckExtType::Normal:
-            tree_add_bit_field(ack, "RxRes", QString::number(e.mpdu.ack_rx_res), 1, 0, 4);
-            tree_add_bit_field(ack, "RxStatus", QString::number(e.mpdu.ack_rx_status), 1, 4, 4);
+        case NW_2021_AckExtType::Normal: {
+            const quint8 r = e.mpdu.ack_rx_res;
+            QString rv;
+            if (r == 0) rv = trl::L("0 - SOF帧全部接收成功");
+            else if (r == 1) rv = trl::L("1 - 物理块存在CRC校验失败");
+            else rv = QStringLiteral("%1 - %2").arg(r).arg(trl::L("保留"));
+            tree_add_bit_field(ack, "RxRes", rv, 1, 0, 4);
+            {
+                const quint8 st = e.mpdu.ack_rx_status;
+                QStringList oks;
+                for (int i = 0; i < 4; ++i)
+                    if (st & (1u << i)) oks << QStringLiteral("PB%1").arg(i);
+                tree_add_bit_field(ack, "RxStatus",
+                    QStringLiteral("0x%1 (%2)")
+                        .arg(st, 1, 16, QChar('0'))
+                        .arg(oks.isEmpty() ? trl::L("全部校验失败")
+                                           : oks.join(QLatin1String(", ")) + trl::L(" 校验成功")),
+                    1, 4, 4);
+            }
             tree_add_bit_field(ack, "Destination TEI", QString::number(e.mpdu.dst_tei), 2, 0, 12);
-            tree_add_bit_field(ack, "RxPBNum", QString::number(e.mpdu.ack_rx_pb_num), 3, 4, 4);
+            tree_add_bit_field(ack, "RxPBNum",
+                QStringLiteral("%1 (%2)").arg(e.mpdu.ack_rx_pb_num).arg(trl::L("含解析错误")),
+                3, 4, 4);
             break;
+        }
         case NW_2021_AckExtType::Search:
             tree_add_bit_field(ack, "DstAddr", QStringLiteral("0x%1")
                 .arg(e.mpdu.ack_dst_addr, 12, 16, QChar('0')), 1, 0, 48);
