@@ -367,6 +367,25 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
             }
             }
         }
+
+        // 管理条目之后的填充区(条目消费终点 pos 到 BPCS 前):正常全 0x00,
+        // 非零时展示前 8B 便于发现未识别条目/异常。
+        if (pos < mgmt_end) {
+            const int pad_len = mgmt_end - pos;
+            bool all_zero = true;
+            for (int k = pos; k < mgmt_end && all_zero; ++k)
+                all_zero = (gb[k] == 0);
+            MsduFieldNode pad;
+            pad.name = QStringLiteral("PB Padding");
+            pad.value = all_zero
+                ? QStringLiteral("%1 B (0x00 fill)").arg(pad_len)
+                : trl::L("%1 B (含非 0x00: %2 ...)")
+                      .arg(pad_len)
+                      .arg(QString::fromLatin1(gb.mid(pos, qMin(pad_len, 8)).toHex(' ')));
+            pad.rel_start = pos;
+            pad.rel_len   = pad_len;
+            root.children.append(pad);
+        }
     }
 
     // BPCS(帧载荷校验序列,32-bit)
@@ -442,6 +461,7 @@ struct I18nReg {
         trl::register_en("不使用信标评估信道", "Beacon not used for channel estimation");
         trl::register_en(" s (自 2000-01-01 00:00:00 起)", " s (since 2000-01-01 00:00:00)");
         trl::register_en(" (40ns/tick)", " (40ns/tick)");
+        trl::register_en("%1 B (含非 0x00: %2 ...)", "%1 B (non-zero bytes: %2 ...)");
     }
 };
 const I18nReg g_i18n_reg_nw_beacon;
