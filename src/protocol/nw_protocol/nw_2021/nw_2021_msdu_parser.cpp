@@ -197,6 +197,7 @@ static const FieldSpec kMMeChangeProxyReqSpec[] = {
     { "RSV0", 19, 5, 3, Fmt::HEX4 },
     { "EndSequence", 20, 0, 32, Fmt::DEC },
     { "NetSN", 24, 0, 8, Fmt::DEC },
+    { "RSV1", 25, 0, 120, Fmt::HEX4 },
 };
 static const int kMMeChangeProxyReqSpecN = int(sizeof(kMMeChangeProxyReqSpec)/sizeof(kMMeChangeProxyReqSpec[0]));
 
@@ -252,6 +253,7 @@ static const FieldSpec kMMeAssocGatherIndSpec[] = {
     { "NewSTANumber", 11, 0, 8, Fmt::DEC },
     { "CarrierFreq", 12, 0, 2, Fmt::DEC },
     { "RSV2", 12, 2, 6, Fmt::HEX4 },
+    { "RSV3", 13, 0, 120, Fmt::HEX4 },
 };
 static const int kMMeAssocGatherIndSpecN = int(sizeof(kMMeAssocGatherIndSpec)/sizeof(kMMeAssocGatherIndSpec[0]));
 
@@ -867,7 +869,35 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             break;
         }
         case MME_LEAVEIND: add_fields(out.tree, mme, 6, kMMeLeaveIndSpec, kMMeLeaveIndSpecN, mme_rel_base); break;
-        case MME_HEARTBEATCHECK: add_fields(out.tree, mme, 6, kMMeHeartBeatCheckSpec, kMMeHeartBeatCheckSpecN, mme_rel_base); break;
+        case MME_HEARTBEATCHECK: {
+            add_fields(out.tree, mme, 6, kMMeHeartBeatCheckSpec, kMMeHeartBeatCheckSpecN, mme_rel_base);
+            // 可发现站点 TEI 位图(byte 8-137,130B):空字节不显示,非空字节按 bitmap[索引][8b] 显示
+            if (mme.size() >= 145) {
+                auto& bmg = group(out.tree, QStringLiteral("DiscoverableSTA BitMap [130B]"));
+                const int bm_base = 14;  // mme[14] = MMe头6B + 固定头8B(OSTEI2+DCTEI2+DCount4)
+                bmg.rel_start = mme_rel_base + bm_base; bmg.rel_len = 130;
+                for (int i = 0; i < 130; ++i) {
+                    const quint8 byte = (quint8)mme[bm_base + i];
+                    if (byte == 0) continue;   // 空字节不显示
+                    QStringList teis;
+                    for (int j = 0; j < 8; ++j) {
+                        if (byte & (1u << j)) teis << QStringLiteral("TEI%1").arg(8 * i + j);
+                    }
+                    MsduFieldNode bl;
+                    bl.name = QStringLiteral("bitmap[%1][8b]").arg(i);
+                    bl.value = teis.join(QStringLiteral(", "));
+                    bl.rel_start = mme_rel_base + (bm_base + i); bl.rel_len = 1;
+                    bmg.children.append(bl);
+                }
+                // 保留(byte 138,1B)
+                MsduFieldNode rsv;
+                rsv.name = QStringLiteral("RSV [8b]");
+                rsv.value = QStringLiteral("0x%1").arg((quint8)mme[bm_base + 130], 2, 16, QChar('0'));
+                rsv.rel_start = mme_rel_base + (bm_base + 130); rsv.rel_len = 1;
+                out.tree.append(rsv);
+            }
+            break;
+        }
         case MME_DISCOVERNODELIST: {
             add_fields(out.tree, mme, 6, kMMeDiscoverNodeListSpec, kMMeDiscoverNodeListSpecN, mme_rel_base);
             // 值解释(对齐国网:Role/LinePhase/CommRateCalculateFinish 双语,成功率带 %)
