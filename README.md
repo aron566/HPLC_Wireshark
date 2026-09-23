@@ -32,6 +32,19 @@ BPLC/HRF(HPLC) 协议 STA 报文监控上位机(Windows,Qt 6 / C++17)。
   (动态文本立即生效,窗口框架重启后完全生效)
 - **界面主题**:深色(QDarkStyleSheet,默认)/ 浅色,`设置` 对话框即切即生效;
   主题资源在 `src/app/qdarkstyle/`(MIT,见其 LICENSE.rst)
+- **双协议解析**:国网 GW_2022 与南网 NW_2021 双协议栈,`设置`/`开始` 对话框
+  下拉切换,`config.ini` 的 `[general] protocol` 持久化;字段树、枚举、数值
+  解释随协议整体切换
+- **TOPO 拓扑窗口**:独立窗口(工具栏 `拓扑` 按钮),按 NID 动态绘制 CCO/STA
+  树形拓扑,四态图标(CCO 路由器/STA 在线/入网中/离线),节点三行标签(标题/
+  MAC/接入方式 载波·RF),拖拽平移/滚轮缩放,悬浮显示上下行通讯成功率;
+  右侧路由变更记录表 + TEI→MAC 映射表,约 200ms 节流刷新
+- **CSV 导出 / 拖放导入**:报文列表导出 CSV(本地编码,Excel 直接打开);
+  拖放 `.bin`/裸 hex 文件到窗口直接导入回放
+- **两行时间差**:帧列表选中两行,状态栏中间显示两帧时间差(NTB 优先,
+  偏差大时降级本地时间)
+- **行颜色分系**:管理消息(MMe)暖色、应用数据(APP)冷色、COORD 紫色;
+  红色仅保留异常报文(ACK 校验失败 / APP NACK)
 
 ## 显示过滤器
 
@@ -89,7 +102,7 @@ mingw32-make -j4
    多 PB 报文每块 Header/Body/CRC24 均逐块可点
 4. **检查更新**:菜单 `帮助 → 检查更新`,更新清单地址见
    `config.ini` 的 `general/update_url`(默认指向 GitHub
-   `aron566/HPLC_Wireshark` 仓库 `main` 分支的 `update.json`,当前版本 1.0.15)
+   `aron566/HPLC_Wireshark` 仓库 `main` 分支的 `update.json`,当前版本 1.1.0)
 5. **配置文件 `config.ini`**(exe 同目录,首次启动自动生成带注释模板):
    更新检查地址、语言、串口参数、过滤条件等均可在其中修改(也可在
    `开始` 对话框修改串口/语言/主题——自动写回)。删除该文件后下次启动
@@ -239,12 +252,12 @@ data = [dlen 2B LE][ts 4B LE][phr_mcs 1B][option 1B][channel 1B][isRF 1B][MPDU..
 python scripts/make_icon.py
 
 # 2.一键打包:全量构建 → windeployqt → NSIS 生成安装包
-bash scripts/package.sh 1.0.15
-#   产物:dist/BPLC_STA_Monitor_Setup_v1.0.15.exe
+bash scripts/package.sh 1.1.0
+#   产物:dist/BPLC_STA_Monitor_Setup_v1.1.0.exe
 
 # 3.安装包验证(静默安装/升级,免 UAC)
-dist/BPLC_STA_Monitor_Setup_v1.0.15.exe /S                 # 静默安装到默认目录
-dist/BPLC_STA_Monitor_Setup_v1.0.15.exe /S /D=C:\my\dir    # 静默装到指定目录
+dist/BPLC_STA_Monitor_Setup_v1.1.0.exe /S                 # 静默安装到默认目录
+dist/BPLC_STA_Monitor_Setup_v1.1.0.exe /S /D=C:\my\dir    # 静默装到指定目录
 "%LOCALAPPDATA%\Programs\BPLC_STA_Monitor\uninstall.exe" /S  # 静默卸载
 ```
 
@@ -256,7 +269,7 @@ dist/BPLC_STA_Monitor_Setup_v1.0.15.exe /S /D=C:\my\dir    # 静默装到指定�
 1. **版本号**:改 `src/app/mainwindow.cpp` 顶部 `kAppVersion` 与
    `BPLC_STA_Monitor.pro` 的 `VERSION`(两者保持一致)
 2. `bash scripts/package.sh <新版本>` 得到安装包
-3. **推代码 + 建 release**:在 GitHub 仓库建 tag/release(如 `v1.0.15`),
+3. **推代码 + 建 release**:在 GitHub 仓库建 tag/release(如 `v1.1.0`),
    上传安装包为 release asset
 4. **改 `update.json`**(仓库根,提交推送):
    `latest-version` 抬高新版本号,`download-url` 指向 release asset 地址
@@ -272,7 +285,7 @@ dist/BPLC_STA_Monitor_Setup_v1.0.15.exe /S /D=C:\my\dir    # 静默装到指定�
 {
   "updates": {
     "windows": {
-      "latest-version": "1.0.15",
+      "latest-version": "1.1.0",
       "download-url": "https://example.com/BPLC_STA_Monitor.exe",
       "changelog": "修复 xxx",
       "mandatory-update": false

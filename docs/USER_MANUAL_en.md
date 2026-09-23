@@ -1,6 +1,6 @@
 # BPLC STA Monitor User Manual
 
-Applies to: `v1.0.21`  
+Applies to: `v1.1.0`  
 Platform: Windows
 
 ## 1. Overview
@@ -14,6 +14,10 @@ BPLC STA Monitor is a Windows desktop application for monitoring BPLC/HRF (HPLC)
 - Link decoded protocol fields to highlighted bytes in the hexadecimal view.
 - Export captured data to replayable `.bin` files or raw hex text.
 - Count frame types, dropped frames, and reassembled MSDUs.
+- Decode both the State Grid GW_2022 and Southern Grid NW_2021 protocols, switchable at runtime.
+- A standalone TOPO topology window: per-NID CCO/STA topology, route-change log, and TEI-to-MAC mapping.
+- Drag-and-drop import of `.bin` or raw hex files.
+- Export CSV tables (locale-aware encoding, opens directly in Excel).
 
 ## 2. Installation and Startup
 
@@ -22,7 +26,7 @@ BPLC STA Monitor is a Windows desktop application for monitoring BPLC/HRF (HPLC)
 The installer is under `dist/` and has a name similar to:
 
 ```text
-BPLC_STA_Monitor_Setup_v1.0.15.exe
+BPLC_STA_Monitor_Setup_v1.1.0.exe
 ```
 
 Installer behavior:
@@ -94,9 +98,10 @@ BPLC_STA_Monitor.exe
 | Clear | Clears the frame list, statistics, protocol tree, and byte view |
 | Export | Exports all frames as `.bin` or raw hex text |
 | Settings | Opens the communication, language, and theme settings dialog |
+| Topology | Opens the TOPO topology window (per-NID topology, route-change log) |
 | Display filter | Applies a filter expression to the frame list |
 
-Note: in the current `v1.0.15` source state, the toolbar `Settings` button is not connected to the settings dialog. Language, theme, and serial parameters can still be changed in the `Start` dialog or by editing `config.ini`.
+Note: in the current `v1.1.0` source state, the toolbar `Settings` button is not connected to the settings dialog. Language, theme, and serial parameters can still be changed in the `Start` dialog or by editing `config.ini`.
 
 ### 4.2 Frame List
 
@@ -117,15 +122,17 @@ Note: in the current `v1.0.15` source state, the toolbar `Settings` button is no
 | `Length` | Stored raw byte length |
 | `Info` | NetID, TEI, TMI, PBNum, MSDU size, or rejection reason |
 
-Row colors:
+Row colors are grouped by message category to separate management messages from application data:
 
-- BEACON: blue
-- SOF: green
-- ACK: yellow
-- COORD: red
-- DROP/error: gray
+- Management messages (MMe): warm hues (yellow, orange, brown, etc., by message type)
+- Application data (APP): cool hues (cyan, blue, violet, etc., by BID)
+- COORD coordination frames: violet
+- DROP/error frames: gray
+- Red is reserved for abnormal frames only: ACK verification failure and APP negative acknowledgment (NACK)
 
 The list follows the newest frame by default. Scrolling upward suspends automatic following; scrolling back to the bottom resumes it.
+
+Selecting two rows (hold Ctrl or Shift) shows the time difference between the two frames in the center of the status bar (frame-internal NTB difference preferred, falling back to local time when the deviation is too large).
 
 ### 4.3 Protocol Tree
 
@@ -168,6 +175,19 @@ The left side shows current status, source, replay progress, or errors. The righ
 - `MSDU`
 
 `MSDU` counts reassembled MSDUs. `Total` is the sum of statistics categories and is not necessarily equal to the number of rows in the frame list.
+
+### 4.6 TOPO Topology Window
+
+Click the toolbar `Topology` button to open a standalone window that visualizes the network structure:
+
+- Switch networks via the NID drop-down; the CCO and each STA are drawn as a tree topology.
+- Node icons distinguish four states: CCO router, STA online, STA joining, STA offline.
+- Three-line node label: node title (CCO/STA-N), MAC address, and access method (carrier PLC / wireless RF).
+- Mouse-drag to pan and the mouse wheel to zoom.
+- Hover over a node to see its TEI, MAC, parent TEI, status, uplink/downlink success rate, and access method.
+- The right-hand `Route Changes` table records association request/confirm, proxy-change, and offline-indication events in chronological order (time, type, NID, description) and supports keyword filtering. Scrolling matches the main window: it follows the newest row only while at the bottom and keeps position when scrolling up.
+- The right-hand `TEI-to-MAC` table lists the TEI and MAC mapping of each node.
+- Topology data refreshes with incoming frames (throttled to ~200 ms to avoid lag during high-rate replay).
 
 ## 5. Frame Operations
 
@@ -259,6 +279,7 @@ Click `Export` and choose:
 
 - Replay file `*.bin`
 - Raw hex text `*.txt`
+- CSV table `*.csv` (locale-aware encoding, opens directly in Excel)
 
 Export includes all frames in the current session, regardless of the active display filter. The default file name is:
 
@@ -304,6 +325,7 @@ lang=auto
 update_url=https://raw.githubusercontent.com/aron566/HPLC_Wireshark/main/update.json
 filter=
 theme=auto
+protocol=gw_2022
 
 [reader]
 mode=0
@@ -316,6 +338,7 @@ time_tag=false
 | Setting | Values |
 |---------|--------|
 | `lang` | `auto`, `zh`, `en` |
+| `protocol` | `gw_2022` State Grid, `nw_2021` Southern Grid |
 | `theme` | `auto`, `dark`, `light` |
 | `filter` | Frame-list display filter |
 | `update_url` | `update.json` manifest URL |
@@ -343,8 +366,8 @@ Manifest format:
 {
   "updates": {
     "windows": {
-      "latest-version": "1.0.15",
-      "download-url": "https://example.com/BPLC_STA_Monitor_Setup_v1.0.15.exe",
+      "latest-version": "1.1.0",
+      "download-url": "https://example.com/BPLC_STA_Monitor_Setup_v1.1.0.exe",
       "changelog": "Release notes",
       "mandatory-update": false
     }
@@ -468,6 +491,7 @@ The Pause menu item and toolbar button are not fully synchronized in the current
 
 ## 13. Current Limitations
 
+- The NW_2021 (Southern Grid) parser is implemented against the draft standard and has not yet been regression-tested with real field sample frames.
 - Detailed protocol trees focus on BEACON, SOF, ACK, and COORD. SEARCH and SWITCH can appear in the list but do not have equally complete payload decoders.
 - Filter expressions do not support parentheses.
 - Export always writes all frames, not only the filtered view.
@@ -502,12 +526,12 @@ release/BPLC_STA_Monitor.exe
 Package:
 
 ```bash
-bash scripts/package.sh 1.0.15
+bash scripts/package.sh 1.1.0
 ```
 
 Output:
 
 ```text
-dist/BPLC_STA_Monitor_Setup_v1.0.15.exe
+dist/BPLC_STA_Monitor_Setup_v1.1.0.exe
 ```
 

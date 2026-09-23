@@ -1,6 +1,6 @@
 # BPLC STA Monitor 使用说明书
 
-适用版本：`v1.0.21`  
+适用版本：`v1.1.0`  
 适用平台：Windows
 
 ## 1. 工具简介
@@ -14,6 +14,10 @@ BPLC STA Monitor 是 BPLC/HRF（HPLC）协议 STA 报文监控上位机。它用
 - 将协议字段与十六进制原始字节联动高亮，便于定位字段来源。
 - 将捕获结果导出为可再次回放的 `.bin` 文件或裸 hex 文本。
 - 统计帧类型、丢帧数量和已重组 MSDU 数量。
+- 支持国网 GW_2022 与南网 NW_2021 双协议解析，运行时可随时切换协议。
+- 独立 TOPO 拓扑窗口：按 NID 绘制 CCO/STA 拓扑、路由变更记录、TEI→MAC 映射表。
+- 支持拖放导入 `.bin` 或裸 hex 文件。
+- 支持导出 CSV 表格（含本地编码，Excel 可直接打开）。
 
 ## 2. 安装与启动
 
@@ -22,7 +26,7 @@ BPLC STA Monitor 是 BPLC/HRF（HPLC）协议 STA 报文监控上位机。它用
 安装包位于 `dist/`，文件名类似：
 
 ```text
-BPLC_STA_Monitor_Setup_v1.0.15.exe
+BPLC_STA_Monitor_Setup_v1.1.0.exe
 ```
 
 安装特点：
@@ -96,9 +100,10 @@ BPLC_STA_Monitor.exe
 | 清空 | 清空帧列表、统计、协议树和字节视图 |
 | 导出 | 将全部帧导出为 `.bin` 或裸 hex 文本 |
 | 设置 | 打开通讯口/语言/主题设置对话框 |
+| 拓扑 | 打开 TOPO 拓扑窗口（按 NID 绘制拓扑、查看路由变更记录） |
 | 显示过滤器 | 输入表达式并按“应用”或回车筛选帧列表 |
 
-注意：在 `v1.0.15` 源码当前状态下，工具栏“设置”按钮没有连接到配置对话框。语言、主题和串口参数仍可在“开始”对话框中修改，也可直接编辑 `config.ini`。
+注意：在 `v1.1.0` 源码当前状态下，工具栏“设置”按钮没有连接到配置对话框。语言、主题和串口参数仍可在“开始”对话框中修改，也可直接编辑 `config.ini`。
 
 ### 4.2 帧列表
 
@@ -121,15 +126,17 @@ BPLC_STA_Monitor.exe
 | `Length` | 当前记录保存的原始字节长度 |
 | `Info` | NetID、TEI、TMI、PBNum、MSDU 长度或丢帧原因 |
 
-帧颜色：
+帧颜色按报文类别分色，便于区分管理消息与应用数据：
 
-- BEACON：蓝色
-- SOF：绿色
-- ACK：黄色
-- COORD：红色
+- 管理消息（MMe）：暖色系（黄、橙、棕等，按消息类型区分）
+- 应用数据（APP）：冷色系（青、蓝、紫等，按 BID 区分）
+- COORD 协调帧：紫色
 - DROP/错误帧：灰色
+- 红色仅用于异常报文：ACK 校验失败、APP 否定确认（NACK）
 
 列表默认自动跟随最新帧。用户向上滚动后会暂停自动跟随；滚动回底部后恢复。
+
+选中两行（按住 Ctrl 或 Shift）时，状态栏中间显示两帧之间的时间差（优先使用帧内 NTB 差值，偏差过大时降级为本地时间差）。
 
 ### 4.3 协议树
 
@@ -176,6 +183,19 @@ BPLC_STA_Monitor.exe
 - `MSDU`
 
 其中 `MSDU` 表示已完成重组的 MSDU 计数，`Total` 是各类统计值之和，不等同于帧列表行数。
+
+### 4.6 TOPO 拓扑窗口
+
+点击工具栏"拓扑"按钮打开独立拓扑窗口，用于可视化组网结构：
+
+- 按 NID 下拉切换网络，动态绘制 CCO 与各 STA 的树形拓扑。
+- 节点图标区分四类：CCO 路由器、STA 在线、STA 入网中、STA 离线。
+- 节点标签三行：节点标题（CCO/STA-N）、MAC 地址、接入方式（载波 PLC / 无线 RF）。
+- 支持鼠标拖拽平移、滚轮缩放。
+- 悬停节点显示提示：TEI、MAC、父 TEI、状态、上行/下行通讯成功率、接入方式。
+- 右侧"路由变更记录"表：按时间正序记录关联请求/关联确认/代理变更/离线指示事件，含时间点、类型、NID、变更说明，支持关键字过滤；滚动逻辑与主界面一致（在底部时跟随最新，向上翻阅时保持位置）。
+- 右侧"TEI→MAC"映射表：列出各节点的 TEI 与 MAC 对应关系。
+- 拓扑数据随报文实时刷新（约 200ms 节流，避免高速灌帧时卡顿）。
 
 ## 5. 帧操作
 
@@ -263,10 +283,11 @@ hplc & beacon
 
 ## 7. 导出
 
-点击“导出”，然后选择：
+点击"导出"，然后选择：
 
 - 回放文件 `*.bin`
 - 裸 hex 文本 `*.txt`
+- CSV 表格 `*.csv`（含本地编码，Excel 可直接打开）
 
 导出范围是当前会话中的全部帧，不受当前显示过滤器影响。文件默认名称格式为：
 
@@ -312,6 +333,7 @@ lang=auto
 update_url=https://raw.githubusercontent.com/aron566/HPLC_Wireshark/main/update.json
 filter=
 theme=auto
+protocol=gw_2022
 
 [reader]
 mode=0
@@ -324,6 +346,7 @@ time_tag=false
 | 配置项 | 取值 |
 |--------|------|
 | `lang` | `auto`、`zh`、`en` |
+| `protocol` | `gw_2022` 国网、`nw_2021` 南网 |
 | `theme` | `auto`、`dark`、`light` |
 | `filter` | 帧列表显示过滤器 |
 | `update_url` | `update.json` 更新清单地址 |
@@ -351,8 +374,8 @@ time_tag=false
 {
   "updates": {
     "windows": {
-      "latest-version": "1.0.15",
-      "download-url": "https://example.com/BPLC_STA_Monitor_Setup_v1.0.15.exe",
+      "latest-version": "1.1.0",
+      "download-url": "https://example.com/BPLC_STA_Monitor_Setup_v1.1.0.exe",
       "changelog": "Release notes",
       "mandatory-update": false
     }
@@ -476,6 +499,7 @@ time_tag=false
 
 ## 13. 当前版本限制
 
+- 南网 NW_2021 协议解析基于标准报批稿实现，暂无真实现场样本帧回归验证。
 - 详细协议树重点支持 BEACON、SOF、ACK、COORD；SEARCH、SWITCH 可出现在列表中，但没有同等完整的专用载荷解析。
 - 过滤器不支持括号。
 - 导出始终导出全部帧，不导出“仅当前过滤结果”。
@@ -510,12 +534,12 @@ release/BPLC_STA_Monitor.exe
 打包：
 
 ```bash
-bash scripts/package.sh 1.0.15
+bash scripts/package.sh 1.1.0
 ```
 
 产物：
 
 ```text
-dist/BPLC_STA_Monitor_Setup_v1.0.15.exe
+dist/BPLC_STA_Monitor_Setup_v1.1.0.exe
 ```
 
