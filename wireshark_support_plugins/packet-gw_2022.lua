@@ -1,6 +1,6 @@
 --[[
-    packet-hplc_rf.lua
-    双模通信(高速载波+无线) 数据链路层协议 dissector
+    packet-gw_2022.lua
+    国网 GW_2022 双模通信(高速载波+无线) 数据链路层协议 dissector
     依据: 《双模通信互联互通技术规范 第4-2部分：数据链路层通信协议》2021-03-26
 
     ★ 字节序约定 (关键):
@@ -18,7 +18,7 @@
       - ICV / BPCS / FCCS CRC 校验                     [完整:原始值+计算值+校验通过标志]
 
     使用:
-      tshark -r capture.pcap -X lua_script:packet-hplc_rf.lua -V
+      tshark -r capture.pcap -X lua_script:packet-gw_2022.lua -V
 ]]
 
 -- Wireshark Lua 位运算: 标准版有 bit 库, 但为兼容所有环境(含定制版无 bit 库),
@@ -143,7 +143,7 @@ local function T(zh, en)
     return zh
 end
 
-local hplc = Proto("hplc_rf", T("双模通信 数据链路层协议", "Dual-Mode Communication Data Link Layer Protocol"))
+local gw = Proto("gw_2022", T("国网GW_2022 双模通信数据链路层协议", "GW_2022 Dual-Mode Data Link Layer Protocol"))
 
 -- =========================================================================
 -- TEI ↔ MAC 映射表 (按 NID 分组)
@@ -309,407 +309,414 @@ local leave_reason_vals = {
 local f = {}
 
 -- MPDU 帧控制 (表13)
-f.fc_dt = ProtoField.uint8 ("hplc_rf.fc.dt", T("定界符类型", "Delimiter Type"), base.DEC, dt_vals, 0x07)
-f.fc_net_type = ProtoField.uint8 ("hplc_rf.fc.net_type", T("网络类型", "Network Type"),   base.DEC, network_type_vals, 0xF8)
-f.fc_nid = ProtoField.uint24 ("hplc_rf.fc.nid", T("网络标识(NID)", "Network ID (NID)"), base.HEX)
-f.fc_vf = ProtoField.bytes ("hplc_rf.fc.vf", T("可变区域", "Variant Field"), base.NONE)
-f.fc_std_ver = ProtoField.uint8 ("hplc_rf.fc.std_ver", T("标准版本号", "Standard Version"), base.DEC, std_ver_vals, 0xF0)
-f.fc_fccs = ProtoField.uint24 ("hplc_rf.fc.fccs", T("帧控制校验序列(FCCS,CRC24)", "Frame Control Check Sequence (FCCS, CRC24)"), base.HEX)
-f.fc_fccs_calc = ProtoField.uint24 ("hplc_rf.fc.fccs_calc", T("FCCS 计算值", "FCCS Calculated"), base.HEX)
-f.fc_fccs_ok = ProtoField.bool ("hplc_rf.fc.fccs_ok", T("FCCS 校验通过", "FCCS Check Passed"), 8, nil, 0x01)
+f.fc_dt = ProtoField.uint8 ("gw_2022.fc.dt", T("定界符类型", "Delimiter Type"), base.DEC, dt_vals, 0x07)
+f.fc_net_type = ProtoField.uint8 ("gw_2022.fc.net_type", T("网络类型", "Network Type"),   base.DEC, network_type_vals, 0xF8)
+f.fc_nid = ProtoField.uint24 ("gw_2022.fc.nid", T("网络标识(NID)", "Network ID (NID)"), base.HEX)
+f.fc_vf = ProtoField.bytes ("gw_2022.fc.vf", T("可变区域", "Variant Field"), base.NONE)
+f.fc_std_ver = ProtoField.uint8 ("gw_2022.fc.std_ver", T("标准版本号", "Standard Version"), base.DEC, std_ver_vals, 0xF0)
+f.fc_fccs = ProtoField.uint24 ("gw_2022.fc.fccs", T("帧控制校验序列(FCCS,CRC24)", "Frame Control Check Sequence (FCCS, CRC24)"), base.HEX)
+f.fc_fccs_calc = ProtoField.uint24 ("gw_2022.fc.fccs_calc", T("FCCS 计算值", "FCCS Calculated"), base.HEX)
+f.fc_fccs_ok = ProtoField.bool ("gw_2022.fc.fccs_ok", T("FCCS 校验通过", "FCCS Check Passed"), 8, nil, 0x01)
 
 -- 物理块头 (表37)
-f.pb_seq = ProtoField.uint8 ("hplc_rf.pb.seq", T("序列号", "Sequence Number"), base.DEC, nil, 0x3F)
-f.pb_sof = ProtoField.bool ("hplc_rf.pb.sof", T("帧起始标志", "Start of Frame Flag"), 8, nil, 0x40)
-f.pb_eof = ProtoField.bool ("hplc_rf.pb.eof", T("帧结束标志", "End of Frame Flag"), 8, nil, 0x80)
-f.pb_pbcs = ProtoField.uint24 ("hplc_rf.pb.pbcs", T("物理块检查序列(PBCS,CRC24)", "PB Check Sequence (PBCS, CRC24)"), base.HEX)
-f.pb_size = ProtoField.uint16 ("hplc_rf.pb.size", T("物理块大小(字节)", "PB Size (bytes)"), base.DEC)
-f.pb_crc_ok = ProtoField.bool ("hplc_rf.pb.crc_ok", T("CRC24校验通过", "CRC24 Check Passed"), 8, nil, 0x01)
-f.pb_crc_calc = ProtoField.uint24 ("hplc_rf.pb.crc_calc", T("CRC24计算值", "CRC24 Calculated"), base.HEX)
-f.pb_body = ProtoField.bytes ("hplc_rf.pb.body", T("物理块体(PB Body)", "PB Body"), base.NONE)
-f.pb_padding = ProtoField.bytes ("hplc_rf.pb.padding", T("填充(Padding)", "Padding"), base.NONE)
+f.pb_seq = ProtoField.uint8 ("gw_2022.pb.seq", T("序列号", "Sequence Number"), base.DEC, nil, 0x3F)
+f.pb_sof = ProtoField.bool ("gw_2022.pb.sof", T("帧起始标志", "Start of Frame Flag"), 8, nil, 0x40)
+f.pb_eof = ProtoField.bool ("gw_2022.pb.eof", T("帧结束标志", "End of Frame Flag"), 8, nil, 0x80)
+f.pb_pbcs = ProtoField.uint24 ("gw_2022.pb.pbcs", T("物理块检查序列(PBCS,CRC24)", "PB Check Sequence (PBCS, CRC24)"), base.HEX)
+f.pb_size = ProtoField.uint16 ("gw_2022.pb.size", T("物理块大小(字节)", "PB Size (bytes)"), base.DEC)
+f.pb_crc_ok = ProtoField.bool ("gw_2022.pb.crc_ok", T("CRC24校验通过", "CRC24 Check Passed"), 8, nil, 0x01)
+f.pb_crc_calc = ProtoField.uint24 ("gw_2022.pb.crc_calc", T("CRC24计算值", "CRC24 Calculated"), base.HEX)
+f.pb_body = ProtoField.bytes ("gw_2022.pb.body", T("物理块体(PB Body)", "PB Body"), base.NONE)
+f.pb_padding = ProtoField.bytes ("gw_2022.pb.padding", T("填充(Padding)", "Padding"), base.NONE)
 
 -- 信标帧可变区域 (表17 载波)
-f.beacon_bts = ProtoField.uint32 ("hplc_rf.beacon.bts", T("信标时间戳(BTS,原始NTB)", "Beacon Timestamp (BTS, raw NTB)"), base.DEC)
-f.beacon_bts_sec = ProtoField.double ("hplc_rf.beacon.bts_sec", T("信标时间戳(秒)", "Beacon Timestamp (seconds)"), base.DEC)
-f.beacon_src_tei = ProtoField.uint16 ("hplc_rf.beacon.src_tei", T("源TEI", "Source TEI"), base.DEC)
-f.beacon_div_mode = ProtoField.uint8 ("hplc_rf.beacon.div_mode", T("分集拷贝基本模式", "Diversity Copy Basic Mode"), base.DEC, nil, 0xF0)
-f.beacon_symbol_cnt = ProtoField.uint16 ("hplc_rf.beacon.symbol_cnt", T("符号数", "Symbol Count"), base.DEC)
-f.beacon_phase = ProtoField.uint8 ("hplc_rf.beacon.phase", T("相线", "Line"), base.DEC, phase_vals, 0x06)
+f.beacon_bts = ProtoField.uint32 ("gw_2022.beacon.bts", T("信标时间戳(BTS,原始NTB)", "Beacon Timestamp (BTS, raw NTB)"), base.DEC)
+f.beacon_bts_sec = ProtoField.double ("gw_2022.beacon.bts_sec", T("信标时间戳(秒)", "Beacon Timestamp (seconds)"), base.DEC)
+f.beacon_src_tei = ProtoField.uint16 ("gw_2022.beacon.src_tei", T("源TEI", "Source TEI"), base.DEC)
+f.beacon_div_mode = ProtoField.uint8 ("gw_2022.beacon.div_mode", T("分集拷贝基本模式", "Diversity Copy Basic Mode"), base.DEC, nil, 0xF0)
+f.beacon_symbol_cnt = ProtoField.uint16 ("gw_2022.beacon.symbol_cnt", T("符号数", "Symbol Count"), base.DEC)
+f.beacon_phase = ProtoField.uint8 ("gw_2022.beacon.phase", T("相线", "Line"), base.DEC, phase_vals, 0x06)
 
 -- 信标帧载荷 (表38/56)
-f.beacon_type = ProtoField.uint8 ("hplc_rf.beacon.type", T("信标类型", "Beacon Type"), base.DEC, beacon_type_vals, 0x07)
-f.beacon_net_cplt = ProtoField.bool ("hplc_rf.beacon.net_cplt", T("组网标志位", "Networking Flag"), 8, nil, 0x08)
-f.beacon_simple = ProtoField.bool ("hplc_rf.beacon.simple", T("精简信标标志", "Lite Beacon Flag"), 8, nil, 0x10)
-f.beacon_start_assoc = ProtoField.bool ("hplc_rf.beacon.start_assoc", T("开始关联标志", "Start Association Flag"), 8, nil, 0x40)
-f.beacon_use_flag = ProtoField.bool ("hplc_rf.beacon.use_flag", T("信标使用标志", "Beacon Use Flag"), 8, nil, 0x80)
-f.beacon_net_seq = ProtoField.uint8 ("hplc_rf.beacon.net_seq", T("组网序列号", "Networking Sequence Number"), base.DEC)
-f.beacon_cco_mac = ProtoField.ether ("hplc_rf.beacon.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
-f.beacon_bpc = ProtoField.uint32 ("hplc_rf.beacon.bpc", T("信标周期计数(BPC)", "Beacon Period Count (BPC)"), base.DEC)
-f.beacon_rf_ch = ProtoField.uint8 ("hplc_rf.beacon.rf_ch", T("本网络无线信道编号", "RF Channel Number"), base.DEC)
-f.beacon_entry_cnt = ProtoField.uint8 ("hplc_rf.beacon.entry_cnt", T("信标条目数", "Beacon Item Count"), base.DEC)
-f.beacon_bpcs = ProtoField.uint32 ("hplc_rf.beacon.bpcs", T("帧载荷校验序列(BPCS,CRC32)", "Beacon Payload Check Sequence (BPCS, CRC32)"), base.HEX)
-f.beacon_bpcs_calc = ProtoField.uint32 ("hplc_rf.beacon.bpcs_calc", T("BPCS 计算值", "BPCS Calculated"), base.HEX)
-f.beacon_bpcs_ok = ProtoField.bool ("hplc_rf.beacon.bpcs_ok", T("BPCS 校验通过", "BPCS Check Passed"), 8, nil, 0x01)
+f.beacon_type = ProtoField.uint8 ("gw_2022.beacon.type", T("信标类型", "Beacon Type"), base.DEC, beacon_type_vals, 0x07)
+f.beacon_net_cplt = ProtoField.bool ("gw_2022.beacon.net_cplt", T("组网标志位", "Networking Flag"), 8, nil, 0x08)
+f.beacon_simple = ProtoField.bool ("gw_2022.beacon.simple", T("精简信标标志", "Lite Beacon Flag"), 8, nil, 0x10)
+f.beacon_start_assoc = ProtoField.bool ("gw_2022.beacon.start_assoc", T("开始关联标志", "Start Association Flag"), 8, nil, 0x40)
+f.beacon_use_flag = ProtoField.bool ("gw_2022.beacon.use_flag", T("信标使用标志", "Beacon Use Flag"), 8, nil, 0x80)
+f.beacon_net_seq = ProtoField.uint8 ("gw_2022.beacon.net_seq", T("组网序列号", "Networking Sequence Number"), base.DEC)
+f.beacon_cco_mac = ProtoField.ether ("gw_2022.beacon.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
+f.beacon_bpc = ProtoField.uint32 ("gw_2022.beacon.bpc", T("信标周期计数(BPC)", "Beacon Period Count (BPC)"), base.DEC)
+f.beacon_rf_ch = ProtoField.uint8 ("gw_2022.beacon.rf_ch", T("本网络无线信道编号", "RF Channel Number"), base.DEC)
+f.beacon_entry_cnt = ProtoField.uint8 ("gw_2022.beacon.entry_cnt", T("信标条目数", "Beacon Item Count"), base.DEC)
+f.beacon_bpcs = ProtoField.uint32 ("gw_2022.beacon.bpcs", T("帧载荷校验序列(BPCS,CRC32)", "Beacon Payload Check Sequence (BPCS, CRC32)"), base.HEX)
+f.beacon_bpcs_calc = ProtoField.uint32 ("gw_2022.beacon.bpcs_calc", T("BPCS 计算值", "BPCS Calculated"), base.HEX)
+f.beacon_bpcs_ok = ProtoField.bool ("gw_2022.beacon.bpcs_ok", T("BPCS 校验通过", "BPCS Check Passed"), 8, nil, 0x01)
 
 -- 信标管理信息条目 (表46-57)
-f.beacon_ent_type = ProtoField.uint8 ("hplc_rf.beacon.ent.type", T("信标条目头", "Beacon Item Head"), base.HEX, beacon_entry_type_vals)
-f.beacon_ent_len = ProtoField.uint16 ("hplc_rf.beacon.ent.len", T("信标条目长度", "Beacon Item Length"), base.DEC)
-f.beacon_ent_data = ProtoField.bytes ("hplc_rf.beacon.ent.data", T("信标条目内容", "Beacon Item Content"), base.NONE)
+f.beacon_ent_type = ProtoField.uint8 ("gw_2022.beacon.ent.type", T("信标条目头", "Beacon Item Head"), base.HEX, beacon_entry_type_vals)
+f.beacon_ent_len = ProtoField.uint16 ("gw_2022.beacon.ent.len", T("信标条目长度", "Beacon Item Length"), base.DEC)
+f.beacon_ent_data = ProtoField.bytes ("gw_2022.beacon.ent.data", T("信标条目内容", "Beacon Item Content"), base.NONE)
 
 -- 站点能力条目 (表47)
-f.ent_tei = ProtoField.uint16 ("hplc_rf.beacon.cap.tei", T("TEI", "TEI"), base.DEC)
-f.ent_proxy_tei = ProtoField.uint16 ("hplc_rf.beacon.cap.proxy_tei", T("代理站点TEI", "Proxy TEI"), base.DEC)
-f.ent_path_rate = ProtoField.uint8 ("hplc_rf.beacon.cap.path_rate", T("路径最低通信成功率(%)", "Path Min Comm Rate (%)"), base.DEC)
-f.ent_sta_mac = ProtoField.ether ("hplc_rf.beacon.cap.sta_mac", T("发送信标站点MAC", "Beacon TX STA MAC"), base.NONE)
-f.ent_role = ProtoField.uint8 ("hplc_rf.beacon.cap.role", T("角色", "Role"), base.DEC, role_vals, 0x0F)
-f.ent_level = ProtoField.uint8 ("hplc_rf.beacon.cap.level", T("层级数", "Level"), base.DEC, nil, 0xF0)
-f.ent_proxy_qual = ProtoField.uint8 ("hplc_rf.beacon.cap.proxy_qual", T("代理站点信道质量(dB)", "Proxy Channel Quality (dB)"), base.DEC)
-f.ent_phase = ProtoField.uint8 ("hplc_rf.beacon.cap.phase", T("相线", "Line"), base.DEC, phase_vals, 0x03)
-f.ent_rf_hop = ProtoField.uint8 ("hplc_rf.beacon.cap.rf_hop", T("链路上RF跳数", "RF Hops on Path"), base.DEC, nil, 0x3C)
+f.ent_tei = ProtoField.uint16 ("gw_2022.beacon.cap.tei", T("TEI", "TEI"), base.DEC)
+f.ent_proxy_tei = ProtoField.uint16 ("gw_2022.beacon.cap.proxy_tei", T("代理站点TEI", "Proxy TEI"), base.DEC)
+f.ent_path_rate = ProtoField.uint8 ("gw_2022.beacon.cap.path_rate", T("路径最低通信成功率(%)", "Path Min Comm Rate (%)"), base.DEC)
+f.ent_sta_mac = ProtoField.ether ("gw_2022.beacon.cap.sta_mac", T("发送信标站点MAC", "Beacon TX STA MAC"), base.NONE)
+f.ent_role = ProtoField.uint8 ("gw_2022.beacon.cap.role", T("角色", "Role"), base.DEC, role_vals, 0x0F)
+f.ent_level = ProtoField.uint8 ("gw_2022.beacon.cap.level", T("层级数", "Level"), base.DEC, nil, 0xF0)
+f.ent_proxy_qual = ProtoField.uint8 ("gw_2022.beacon.cap.proxy_qual", T("代理站点信道质量(dB)", "Proxy Channel Quality (dB)"), base.DEC)
+f.ent_phase = ProtoField.uint8 ("gw_2022.beacon.cap.phase", T("相线", "Line"), base.DEC, phase_vals, 0x03)
+f.ent_rf_hop = ProtoField.uint8 ("gw_2022.beacon.cap.rf_hop", T("链路上RF跳数", "RF Hops on Path"), base.DEC, nil, 0x3C)
 
 -- 路由参数条目 (表48)
-f.ent_route_period = ProtoField.uint16 ("hplc_rf.beacon.rp.route_period", T("路由周期(秒)", "Route Period (s)"), base.DEC)
-f.ent_route_remain = ProtoField.uint16 ("hplc_rf.beacon.rp.route_remain", T("路由评估剩余时间(秒)", "Route Estimate Remaining (s)"), base.DEC)
-f.ent_proxy_dl_period = ProtoField.uint16 ("hplc_rf.beacon.rp.proxy_dl_period", T("代理站点发现列表周期(秒)", "Proxy Discovery List Period (s)"), base.DEC)
-f.ent_disc_dl_period = ProtoField.uint16 ("hplc_rf.beacon.rp.disc_dl_period", T("发现站点发现列表周期(秒)", "STA Discovery List Period (s)"), base.DEC)
+f.ent_route_period = ProtoField.uint16 ("gw_2022.beacon.rp.route_period", T("路由周期(秒)", "Route Period (s)"), base.DEC)
+f.ent_route_remain = ProtoField.uint16 ("gw_2022.beacon.rp.route_remain", T("路由评估剩余时间(秒)", "Route Estimate Remaining (s)"), base.DEC)
+f.ent_proxy_dl_period = ProtoField.uint16 ("gw_2022.beacon.rp.proxy_dl_period", T("代理站点发现列表周期(秒)", "Proxy Discovery List Period (s)"), base.DEC)
+f.ent_disc_dl_period = ProtoField.uint16 ("gw_2022.beacon.rp.disc_dl_period", T("发现站点发现列表周期(秒)", "STA Discovery List Period (s)"), base.DEC)
 
 -- 频段变更条目 (表49)
-f.ent_target_band = ProtoField.uint8 ("hplc_rf.beacon.bc.target_band", T("目标频段", "Target Band"), base.HEX)
-f.ent_band_remain = ProtoField.uint32 ("hplc_rf.beacon.bc.band_remain", T("频段切换剩余时间(ms)", "Band Switch Remaining (ms)"), base.DEC)
+f.ent_target_band = ProtoField.uint8 ("gw_2022.beacon.bc.target_band", T("目标频段", "Target Band"), base.HEX)
+f.ent_band_remain = ProtoField.uint32 ("gw_2022.beacon.bc.band_remain", T("频段切换剩余时间(ms)", "Band Switch Remaining (ms)"), base.DEC)
 
 -- 时隙分配条目 (表50)
-f.ent_nc_beacon_cnt = ProtoField.uint8 ("hplc_rf.beacon.slot.nc_beacon_cnt", T("非中央信标时隙总数", "Non-CCO Beacon Slot Count"), base.DEC)
-f.ent_c_beacon_cnt = ProtoField.uint8 ("hplc_rf.beacon.slot.c_beacon_cnt", T("中央信标时隙总数", "CCO Beacon Slot Count"), base.DEC, nil, 0x0F)
-f.ent_csma_phase_cnt = ProtoField.uint8 ("hplc_rf.beacon.slot.csma_phase_cnt", T("CSMA时隙支持相线个数", "CSMA Slot Line Count"), base.DEC, nil, 0x30)
-f.ent_proxy_beacon_cnt = ProtoField.uint8 ("hplc_rf.beacon.slot.proxy_beacon_cnt", T("代理信标时隙总数", "Proxy Beacon Slot Count"), base.DEC)
-f.ent_beacon_slot_len = ProtoField.uint8 ("hplc_rf.beacon.slot.beacon_slot_len", T("信标时隙长度(ms)", "Beacon Slot Length (ms)"), base.DEC)
-f.ent_csma_slice_len = ProtoField.uint8 ("hplc_rf.beacon.slot.csma_slice_len", T("CSMA时隙分片长度(10ms)", "CSMA Slot Slice Length (10ms)"), base.DEC)
-f.ent_bcsma_phase_cnt = ProtoField.uint8 ("hplc_rf.beacon.slot.bcsma_phase_cnt", T("绑定CSMA时隙相线个数", "Binding CSMA Slot Line Count"), base.DEC)
-f.ent_bcsma_lid = ProtoField.uint8 ("hplc_rf.beacon.slot.bcsma_lid", T("绑定CSMA时隙链路标识符", "Binding CSMA Slot LID"), base.DEC)
-f.ent_tdma_slot_len = ProtoField.uint8 ("hplc_rf.beacon.slot.tdma_slot_len", T("TDMA时隙长度(ms)", "TDMA Slot Length (ms)"), base.DEC)
-f.ent_tdma_lid = ProtoField.uint8 ("hplc_rf.beacon.slot.tdma_lid", T("TDMA时隙链路标识符", "TDMA Slot LID"), base.DEC)
-f.ent_bp_start_ntb = ProtoField.uint32 ("hplc_rf.beacon.slot.bp_start_ntb", T("信标周期起始网络基准时", "Beacon Period Start NTB"), base.DEC)
-f.ent_bp_len = ProtoField.uint32 ("hplc_rf.beacon.slot.bp_len", T("信标周期长度(ms)", "Beacon Period Length (ms)"), base.DEC)
-f.ent_rf_beacon_len = ProtoField.uint16 ("hplc_rf.beacon.slot.rf_beacon_len", T("RF信标时隙长度(ms)", "RF Beacon Slot Length (ms)"), base.DEC)
+f.ent_nc_beacon_cnt = ProtoField.uint8 ("gw_2022.beacon.slot.nc_beacon_cnt", T("非中央信标时隙总数", "Non-CCO Beacon Slot Count"), base.DEC)
+f.ent_c_beacon_cnt = ProtoField.uint8 ("gw_2022.beacon.slot.c_beacon_cnt", T("中央信标时隙总数", "CCO Beacon Slot Count"), base.DEC, nil, 0x0F)
+f.ent_csma_phase_cnt = ProtoField.uint8 ("gw_2022.beacon.slot.csma_phase_cnt", T("CSMA时隙支持相线个数", "CSMA Slot Line Count"), base.DEC, nil, 0x30)
+f.ent_proxy_beacon_cnt = ProtoField.uint8 ("gw_2022.beacon.slot.proxy_beacon_cnt", T("代理信标时隙总数", "Proxy Beacon Slot Count"), base.DEC)
+f.ent_beacon_slot_len = ProtoField.uint8 ("gw_2022.beacon.slot.beacon_slot_len", T("信标时隙长度(ms)", "Beacon Slot Length (ms)"), base.DEC)
+f.ent_csma_slice_len = ProtoField.uint8 ("gw_2022.beacon.slot.csma_slice_len", T("CSMA时隙分片长度(10ms)", "CSMA Slot Slice Length (10ms)"), base.DEC)
+f.ent_bcsma_phase_cnt = ProtoField.uint8 ("gw_2022.beacon.slot.bcsma_phase_cnt", T("绑定CSMA时隙相线个数", "Binding CSMA Slot Line Count"), base.DEC)
+f.ent_bcsma_lid = ProtoField.uint8 ("gw_2022.beacon.slot.bcsma_lid", T("绑定CSMA时隙链路标识符", "Binding CSMA Slot LID"), base.DEC)
+f.ent_tdma_slot_len = ProtoField.uint8 ("gw_2022.beacon.slot.tdma_slot_len", T("TDMA时隙长度(ms)", "TDMA Slot Length (ms)"), base.DEC)
+f.ent_tdma_lid = ProtoField.uint8 ("gw_2022.beacon.slot.tdma_lid", T("TDMA时隙链路标识符", "TDMA Slot LID"), base.DEC)
+f.ent_bp_start_ntb = ProtoField.uint32 ("gw_2022.beacon.slot.bp_start_ntb", T("信标周期起始网络基准时", "Beacon Period Start NTB"), base.DEC)
+f.ent_bp_len = ProtoField.uint32 ("gw_2022.beacon.slot.bp_len", T("信标周期长度(ms)", "Beacon Period Length (ms)"), base.DEC)
+f.ent_rf_beacon_len = ProtoField.uint16 ("gw_2022.beacon.slot.rf_beacon_len", T("RF信标时隙长度(ms)", "RF Beacon Slot Length (ms)"), base.DEC)
 
 -- 非中央信标信息 (表51)
-f.ent_ncb_tei = ProtoField.uint16 ("hplc_rf.beacon.ncb.tei", T("TEI", "TEI"), base.DEC)
-f.ent_ncb_type = ProtoField.uint8 ("hplc_rf.beacon.ncb.type", T("信标类型", "Beacon Type"), base.DEC, {[0]=T("发现信标", "Discovery Beacon"),[1]=T("代理信标", "Proxy Beacon")}, 0x10)
-f.ent_ncb_rf_flag = ProtoField.uint8 ("hplc_rf.beacon.ncb.rf_flag", T("无线信标标志", "RF Beacon Flag"), base.DEC, nil, 0xE0)
+f.ent_ncb_tei = ProtoField.uint16 ("gw_2022.beacon.ncb.tei", T("TEI", "TEI"), base.DEC)
+f.ent_ncb_type = ProtoField.uint8 ("gw_2022.beacon.ncb.type", T("信标类型", "Beacon Type"), base.DEC, {[0]=T("发现信标", "Discovery Beacon"),[1]=T("代理信标", "Proxy Beacon")}, 0x10)
+f.ent_ncb_rf_flag = ProtoField.uint8 ("gw_2022.beacon.ncb.rf_flag", T("无线信标标志", "RF Beacon Flag"), base.DEC, nil, 0xE0)
 
 -- CSMA时隙信息 (表52)
-f.ent_csma_len = ProtoField.uint24 ("hplc_rf.beacon.csma.len", T("CSMA时隙长度(ms)", "CSMA Slot Length (ms)"), base.DEC)
-f.ent_csma_phase = ProtoField.uint8 ("hplc_rf.beacon.csma.phase", T("CSMA时隙相线", "CSMA Slot Line"), base.DEC, phase_vals, 0x03)
+f.ent_csma_len = ProtoField.uint24 ("gw_2022.beacon.csma.len", T("CSMA时隙长度(ms)", "CSMA Slot Length (ms)"), base.DEC)
+f.ent_csma_phase = ProtoField.uint8 ("gw_2022.beacon.csma.phase", T("CSMA时隙相线", "CSMA Slot Line"), base.DEC, phase_vals, 0x03)
 
 -- 绑定CSMA时隙信息 (表53)
-f.ent_bcsma_len = ProtoField.uint24 ("hplc_rf.beacon.bcsma.len", T("绑定CSMA时隙长度(ms)", "Binding CSMA Slot Length (ms)"), base.DEC)
-f.ent_bcsma_phase = ProtoField.uint8 ("hplc_rf.beacon.bcsma.phase", T("绑定CSMA时隙相线", "Binding CSMA Slot Line"), base.DEC, phase_vals, 0x03)
+f.ent_bcsma_len = ProtoField.uint24 ("gw_2022.beacon.bcsma.len", T("绑定CSMA时隙长度(ms)", "Binding CSMA Slot Length (ms)"), base.DEC)
+f.ent_bcsma_phase = ProtoField.uint8 ("gw_2022.beacon.bcsma.phase", T("绑定CSMA时隙相线", "Binding CSMA Slot Line"), base.DEC, phase_vals, 0x03)
 
 -- 无线路由参数条目 (表54)
-f.ent_rf_dl_period = ProtoField.uint8 ("hplc_rf.beacon.rfp.dl_period", T("无线发现列表周期(秒)", "RF Discovery List Period (s)"), base.DEC)
-f.ent_rf_age_cnt = ProtoField.uint8 ("hplc_rf.beacon.rfp.age_cnt", T("无线接收率老化周期个数", "RF Rate Age Period Count"), base.DEC)
+f.ent_rf_dl_period = ProtoField.uint8 ("gw_2022.beacon.rfp.dl_period", T("无线发现列表周期(秒)", "RF Discovery List Period (s)"), base.DEC)
+f.ent_rf_age_cnt = ProtoField.uint8 ("gw_2022.beacon.rfp.age_cnt", T("无线接收率老化周期个数", "RF Rate Age Period Count"), base.DEC)
 
 -- 无线信道变更条目 (表55)
-f.ent_target_ch = ProtoField.uint8 ("hplc_rf.beacon.rcc.target_ch", T("目标信道", "Target Channel"), base.DEC)
-f.ent_ch_remain = ProtoField.uint32 ("hplc_rf.beacon.rcc.ch_remain", T("信道切换剩余时间(ms)", "Channel Switch Remaining (ms)"), base.DEC)
+f.ent_target_ch = ProtoField.uint8 ("gw_2022.beacon.rcc.target_ch", T("目标信道", "Target Channel"), base.DEC)
+f.ent_ch_remain = ProtoField.uint32 ("gw_2022.beacon.rcc.ch_remain", T("信道切换剩余时间(ms)", "Channel Switch Remaining (ms)"), base.DEC)
 
 -- 精简信标站点信息及时隙条目 (表57)
-f.ent_sb_csma_start = ProtoField.uint32 ("hplc_rf.beacon.sb.csma_start", T("CSMA时隙开始时间(NTB)", "CSMA Slot Start Time (NTB)"), base.DEC)
-f.ent_sb_csma_len = ProtoField.uint16 ("hplc_rf.beacon.sb.csma_len", T("CSMA时隙长度(ms)", "CSMA Slot Length (ms)"), base.DEC)
+f.ent_sb_csma_start = ProtoField.uint32 ("gw_2022.beacon.sb.csma_start", T("CSMA时隙开始时间(NTB)", "CSMA Slot Start Time (NTB)"), base.DEC)
+f.ent_sb_csma_len = ProtoField.uint16 ("gw_2022.beacon.sb.csma_len", T("CSMA时隙长度(ms)", "CSMA Slot Length (ms)"), base.DEC)
 
 -- SOF 帧可变区域 (表19 载波 / 表30 无线)
-f.sof_src_tei = ProtoField.uint16 ("hplc_rf.sof.src_tei", T("源TEI", "Source TEI"), base.DEC)
-f.sof_dst_tei = ProtoField.uint16 ("hplc_rf.sof.dst_tei", T("目的TEI", "Destination TEI"), base.DEC)
-f.sof_lid = ProtoField.uint8 ("hplc_rf.sof.lid", T("链路标识符(LID)", "Link Identifier (LID)"), base.DEC)
-f.sof_frame_len = ProtoField.uint16 ("hplc_rf.sof.frame_len", T("帧长(×10us)", "Frame Length (×10us)"), base.DEC)
-f.sof_pb_count = ProtoField.uint8 ("hplc_rf.sof.pb_count", T("物理块个数", "PB Count"), base.DEC, nil, 0xF0)
-f.sof_symbol_cnt = ProtoField.uint16 ("hplc_rf.sof.symbol_cnt", T("符号数", "Symbol Count"), base.DEC)
-f.sof_bcast = ProtoField.bool ("hplc_rf.sof.bcast", T("广播标志", "Broadcast Flag"), 8, nil, 0x02)
-f.sof_retrans = ProtoField.bool ("hplc_rf.sof.retrans", T("重传标志", "Retransmit Flag"), 8, nil, 0x04)
-f.sof_encrypt = ProtoField.bool ("hplc_rf.sof.encrypt", T("加密标志(预留)", "Encryption Flag (reserved)"), 8, nil, 0x08)
-f.sof_div_mode = ProtoField.uint8 ("hplc_rf.sof.div_mode", T("分集拷贝基本模式", "Diversity Copy Basic Mode"), base.DEC, nil, 0xF0)
-f.sof_div_ext = ProtoField.uint8 ("hplc_rf.sof.div_ext", T("分集拷贝扩展模式", "Diversity Copy Extended Mode"), base.DEC, nil, 0x0F)
-f.sof_pb_size = ProtoField.uint8 ("hplc_rf.sof.pb_size", T("载荷PB块大小(无线)", "Payload PB Size (RF)"), base.DEC, nil, 0xF0)
-f.sof_mcs = ProtoField.uint8 ("hplc_rf.sof.mcs", T("MCS(无线)", "MCS (RF)"), base.DEC, nil, 0x0F)
+f.sof_src_tei = ProtoField.uint16 ("gw_2022.sof.src_tei", T("源TEI", "Source TEI"), base.DEC)
+f.sof_dst_tei = ProtoField.uint16 ("gw_2022.sof.dst_tei", T("目的TEI", "Destination TEI"), base.DEC)
+f.sof_lid = ProtoField.uint8 ("gw_2022.sof.lid", T("链路标识符(LID)", "Link Identifier (LID)"), base.DEC)
+f.sof_frame_len = ProtoField.uint16 ("gw_2022.sof.frame_len", T("帧长(×10us)", "Frame Length (×10us)"), base.DEC)
+f.sof_pb_count = ProtoField.uint8 ("gw_2022.sof.pb_count", T("物理块个数", "PB Count"), base.DEC, nil, 0xF0)
+f.sof_symbol_cnt = ProtoField.uint16 ("gw_2022.sof.symbol_cnt", T("符号数", "Symbol Count"), base.DEC)
+f.sof_bcast = ProtoField.bool ("gw_2022.sof.bcast", T("广播标志", "Broadcast Flag"), 8, nil, 0x02)
+f.sof_retrans = ProtoField.bool ("gw_2022.sof.retrans", T("重传标志", "Retransmit Flag"), 8, nil, 0x04)
+f.sof_encrypt = ProtoField.bool ("gw_2022.sof.encrypt", T("加密标志(预留)", "Encryption Flag (reserved)"), 8, nil, 0x08)
+f.sof_div_mode = ProtoField.uint8 ("gw_2022.sof.div_mode", T("分集拷贝基本模式", "Diversity Copy Basic Mode"), base.DEC, nil, 0xF0)
+f.sof_div_ext = ProtoField.uint8 ("gw_2022.sof.div_ext", T("分集拷贝扩展模式", "Diversity Copy Extended Mode"), base.DEC, nil, 0x0F)
+f.sof_pb_size = ProtoField.uint8 ("gw_2022.sof.pb_size", T("载荷PB块大小(无线)", "Payload PB Size (RF)"), base.DEC, nil, 0xF0)
+f.sof_mcs = ProtoField.uint8 ("gw_2022.sof.mcs", T("MCS(无线)", "MCS (RF)"), base.DEC, nil, 0x0F)
 
 -- SACK 帧可变区域 (表23/34)
-f.sack_recv_result = ProtoField.uint8 ("hplc_rf.sack.recv_result", T("接收结果", "Receive Result"), base.DEC, nil, 0x0F)
-f.sack_recv_status = ProtoField.uint8 ("hplc_rf.sack.recv_status", T("接收状态", "Receive Status"), base.HEX, nil, 0xF0)
-f.sack_src_tei = ProtoField.uint16 ("hplc_rf.sack.src_tei", T("源TEI", "Source TEI"), base.DEC)
-f.sack_dst_tei = ProtoField.uint16 ("hplc_rf.sack.dst_tei", T("目的TEI", "Destination TEI"), base.DEC)
-f.sack_pb_count = ProtoField.uint8 ("hplc_rf.sack.pb_count", T("接收物理块个数", "Received PB Count"), base.DEC, nil, 0x07)
-f.sack_chan_qual = ProtoField.uint8 ("hplc_rf.sack.chan_qual", T("信道质量(SNR,dB)", "Channel Quality (SNR, dB)"), base.DEC)
-f.sack_site_load = ProtoField.uint8 ("hplc_rf.sack.site_load", T("站点负载(缓存报文数)", "STA Load (buffered packets)"), base.DEC)
-f.sack_ext_type = ProtoField.uint8 ("hplc_rf.sack.ext_type", T("扩展帧类型", "Extended Frame Type"), base.DEC, nil, 0x0F)
+f.sack_recv_result = ProtoField.uint8 ("gw_2022.sack.recv_result", T("接收结果", "Receive Result"), base.DEC, nil, 0x0F)
+f.sack_recv_status = ProtoField.uint8 ("gw_2022.sack.recv_status", T("接收状态", "Receive Status"), base.HEX, nil, 0xF0)
+f.sack_src_tei = ProtoField.uint16 ("gw_2022.sack.src_tei", T("源TEI", "Source TEI"), base.DEC)
+f.sack_dst_tei = ProtoField.uint16 ("gw_2022.sack.dst_tei", T("目的TEI", "Destination TEI"), base.DEC)
+f.sack_pb_count = ProtoField.uint8 ("gw_2022.sack.pb_count", T("接收物理块个数", "Received PB Count"), base.DEC, nil, 0x07)
+f.sack_chan_qual = ProtoField.uint8 ("gw_2022.sack.chan_qual", T("信道质量(SNR,dB)", "Channel Quality (SNR, dB)"), base.DEC)
+f.sack_site_load = ProtoField.uint8 ("gw_2022.sack.site_load", T("站点负载(缓存报文数)", "STA Load (buffered packets)"), base.DEC)
+f.sack_ext_type = ProtoField.uint8 ("gw_2022.sack.ext_type", T("扩展帧类型", "Extended Frame Type"), base.DEC, nil, 0x0F)
 
 -- 网间协调帧可变区域 (表26)
-f.coord_duration = ProtoField.uint16 ("hplc_rf.coord.duration", T("持续时间(1ms)", "Duration (1ms)"), base.DEC)
-f.coord_bw_offset = ProtoField.uint16 ("hplc_rf.coord.bw_offset", T("带宽开始偏移(1ms)", "Bandwidth Start Offset (1ms)"), base.DEC)
-f.coord_nbr_nid = ProtoField.uint24 ("hplc_rf.coord.nbr_nid", T("接收到的邻居网络号", "Received Neighbor Network ID"), base.HEX)
-f.coord_rf_ch = ProtoField.uint8 ("hplc_rf.coord.rf_ch", T("本网络无线信道编号", "RF Channel Number"), base.DEC)
+f.coord_duration = ProtoField.uint16 ("gw_2022.coord.duration", T("持续时间(1ms)", "Duration (1ms)"), base.DEC)
+f.coord_bw_offset = ProtoField.uint16 ("gw_2022.coord.bw_offset", T("带宽开始偏移(1ms)", "Bandwidth Start Offset (1ms)"), base.DEC)
+f.coord_nbr_nid = ProtoField.uint24 ("gw_2022.coord.nbr_nid", T("接收到的邻居网络号", "Received Neighbor Network ID"), base.HEX)
+f.coord_rf_ch = ProtoField.uint8 ("gw_2022.coord.rf_ch", T("本网络无线信道编号", "RF Channel Number"), base.DEC)
 
 -- 标准 MAC 帧头 (表4)
-f.mac_version = ProtoField.uint8 ("hplc_rf.mac.version", T("版本", "Version"), base.DEC, nil, 0x0F)
-f.mac_ostei = ProtoField.uint16 ("hplc_rf.mac.ostei", T("原始源TEI", "Original Source TEI"), base.DEC)
-f.mac_odtei = ProtoField.uint16 ("hplc_rf.mac.odtei", T("原始目的TEI", "Original Destination TEI"), base.DEC)
-f.mac_send_type = ProtoField.uint8 ("hplc_rf.mac.send_type", T("发送类型", "Send Type"), base.DEC, send_type_vals, 0xF0)
-f.mac_retry_limit = ProtoField.uint8 ("hplc_rf.mac.retry_limit", T("发送次数限值", "Retry Limit"), base.DEC, nil, 0x1F)
-f.mac_rsv0 = ProtoField.uint8 ("hplc_rf.mac.rsv0", T("保留", "Reserved"), base.HEX, nil, 0xE0)
-f.mac_msdu_seq = ProtoField.uint16 ("hplc_rf.mac.msdu_seq", T("MSDU序列号", "MSDU Sequence Number"), base.DEC)
-f.mac_msdu_type = ProtoField.uint8 ("hplc_rf.mac.msdu_type", T("MSDU类型", "MSDU Type"), base.DEC, msdu_type_vals)
-f.mac_msdu_len = ProtoField.uint16 ("hplc_rf.mac.msdu_len", T("MSDU长度", "MSDU Length"), base.DEC)
-f.mac_restart_cnt = ProtoField.uint8 ("hplc_rf.mac.restart_cnt", T("重启次数", "Restart Count"), base.DEC, nil, 0x78)
-f.mac_proxy_main = ProtoField.bool ("hplc_rf.mac.proxy_main", T("代理主路径标识", "Proxy Main Path Flag"), 8, nil, 0x80)
-f.mac_route_total = ProtoField.uint8 ("hplc_rf.mac.route_total", T("路由总跳数", "Total Hops"), base.DEC, nil, 0x0F)
-f.mac_route_left = ProtoField.uint8 ("hplc_rf.mac.route_left", T("路由剩余跳数", "Remaining Hops"), base.DEC, nil, 0xF0)
-f.mac_bcast_dir = ProtoField.uint8 ("hplc_rf.mac.bcast_dir", T("广播方向", "Broadcast Direction"), base.DEC, broadcast_dir_vals, 0x03)
-f.mac_path_repair = ProtoField.bool ("hplc_rf.mac.path_repair", T("路径修复标志", "Path Repair Flag"), 8, nil, 0x04)
-f.mac_addr_flag = ProtoField.bool ("hplc_rf.mac.addr_flag", T("MAC地址标志", "MAC Address Flag"), 8, nil, 0x08)
-f.mac_rsv1 = ProtoField.uint8 ("hplc_rf.mac.rsv1", T("保留", "Reserved"), base.HEX, nil, 0xF0)
-f.mac_rsv2 = ProtoField.uint8 ("hplc_rf.mac.rsv2", T("保留", "Reserved"), base.HEX)
-f.mac_net_seq = ProtoField.uint8 ("hplc_rf.mac.net_seq", T("组网序列号", "Networking Sequence Number"), base.DEC)
-f.mac_rsv3 = ProtoField.uint8 ("hplc_rf.mac.rsv3", T("保留", "Reserved"), base.HEX)
-f.mac_rsv4 = ProtoField.uint8 ("hplc_rf.mac.rsv4", T("保留", "Reserved"), base.HEX)
-f.mac_osmac = ProtoField.ether ("hplc_rf.mac.osmac", T("原始源MAC地址", "Original Source MAC"))
-f.mac_odmac = ProtoField.ether ("hplc_rf.mac.odmac", T("原始目的MAC地址", "Original Destination MAC"))
-f.mac_icv = ProtoField.uint32 ("hplc_rf.mac.icv", T("完整性校验值(ICV,CRC32)", "Integrity Check Value (ICV, CRC32)"), base.HEX)
-f.mac_icv_calc = ProtoField.uint32 ("hplc_rf.mac.icv_calc", T("ICV 计算值", "ICV Calculated"), base.HEX)
-f.mac_icv_ok = ProtoField.bool ("hplc_rf.mac.icv_ok", T("ICV 校验通过", "ICV Check Passed"), 8, nil, 0x01)
+f.mac_version = ProtoField.uint8 ("gw_2022.mac.version", T("版本", "Version"), base.DEC, nil, 0x0F)
+f.mac_ostei = ProtoField.uint16 ("gw_2022.mac.ostei", T("原始源TEI", "Original Source TEI"), base.DEC)
+f.mac_odtei = ProtoField.uint16 ("gw_2022.mac.odtei", T("原始目的TEI", "Original Destination TEI"), base.DEC)
+f.mac_send_type = ProtoField.uint8 ("gw_2022.mac.send_type", T("发送类型", "Send Type"), base.DEC, send_type_vals, 0xF0)
+f.mac_retry_limit = ProtoField.uint8 ("gw_2022.mac.retry_limit", T("发送次数限值", "Retry Limit"), base.DEC, nil, 0x1F)
+f.mac_rsv0 = ProtoField.uint8 ("gw_2022.mac.rsv0", T("保留", "Reserved"), base.HEX, nil, 0xE0)
+f.mac_msdu_seq = ProtoField.uint16 ("gw_2022.mac.msdu_seq", T("MSDU序列号", "MSDU Sequence Number"), base.DEC)
+f.mac_msdu_type = ProtoField.uint8 ("gw_2022.mac.msdu_type", T("MSDU类型", "MSDU Type"), base.DEC, msdu_type_vals)
+f.mac_msdu_len = ProtoField.uint16 ("gw_2022.mac.msdu_len", T("MSDU长度", "MSDU Length"), base.DEC)
+f.mac_restart_cnt = ProtoField.uint8 ("gw_2022.mac.restart_cnt", T("重启次数", "Restart Count"), base.DEC, nil, 0x78)
+f.mac_proxy_main = ProtoField.bool ("gw_2022.mac.proxy_main", T("代理主路径标识", "Proxy Main Path Flag"), 8, nil, 0x80)
+f.mac_route_total = ProtoField.uint8 ("gw_2022.mac.route_total", T("路由总跳数", "Total Hops"), base.DEC, nil, 0x0F)
+f.mac_route_left = ProtoField.uint8 ("gw_2022.mac.route_left", T("路由剩余跳数", "Remaining Hops"), base.DEC, nil, 0xF0)
+f.mac_bcast_dir = ProtoField.uint8 ("gw_2022.mac.bcast_dir", T("广播方向", "Broadcast Direction"), base.DEC, broadcast_dir_vals, 0x03)
+f.mac_path_repair = ProtoField.bool ("gw_2022.mac.path_repair", T("路径修复标志", "Path Repair Flag"), 8, nil, 0x04)
+f.mac_addr_flag = ProtoField.bool ("gw_2022.mac.addr_flag", T("MAC地址标志", "MAC Address Flag"), 8, nil, 0x08)
+f.mac_rsv1 = ProtoField.uint8 ("gw_2022.mac.rsv1", T("保留", "Reserved"), base.HEX, nil, 0xF0)
+f.mac_rsv2 = ProtoField.uint8 ("gw_2022.mac.rsv2", T("保留", "Reserved"), base.HEX)
+f.mac_net_seq = ProtoField.uint8 ("gw_2022.mac.net_seq", T("组网序列号", "Networking Sequence Number"), base.DEC)
+f.mac_rsv3 = ProtoField.uint8 ("gw_2022.mac.rsv3", T("保留", "Reserved"), base.HEX)
+f.mac_rsv4 = ProtoField.uint8 ("gw_2022.mac.rsv4", T("保留", "Reserved"), base.HEX)
+f.mac_osmac = ProtoField.ether ("gw_2022.mac.osmac", T("原始源MAC地址", "Original Source MAC"))
+f.mac_odmac = ProtoField.ether ("gw_2022.mac.odmac", T("原始目的MAC地址", "Original Destination MAC"))
+f.mac_icv = ProtoField.uint32 ("gw_2022.mac.icv", T("完整性校验值(ICV,CRC32)", "Integrity Check Value (ICV, CRC32)"), base.HEX)
+f.mac_icv_calc = ProtoField.uint32 ("gw_2022.mac.icv_calc", T("ICV 计算值", "ICV Calculated"), base.HEX)
+f.mac_icv_ok = ProtoField.bool ("gw_2022.mac.icv_ok", T("ICV 校验通过", "ICV Check Passed"), 8, nil, 0x01)
+
+
+-- 媒介头 (串口混合采集 USER4/USER5 格式: [phr_mcs][option][channel][isRF], 之后纯 MPDU)
+f.media_phr_mcs = ProtoField.uint8 ("gw_2022.media.phr_mcs", T("PHR MCS", "PHR MCS"), base.HEX)
+f.media_option = ProtoField.uint8 ("gw_2022.media.option", T("option", "option"), base.HEX)
+f.media_channel = ProtoField.uint8 ("gw_2022.media.channel", T("信道", "Channel"), base.DEC)
+f.media_is_rf = ProtoField.uint8 ("gw_2022.media.is_rf", T("媒介(0=载波,非0=无线)", "Media (0=PLC, non-0=RF)"), base.DEC, {[0]=T("载波 HPLC", "PLC"), [1]=T("无线 RF", "RF")})
 
 -- 原始目标地址列 (自定义列引用, 显示 ODTEI + MAC 映射)
-f.col_orig_dst = ProtoField.string ("hplc_rf.col_orig_dst", T("原始目标地址", "Original Destination Address"))
+f.col_orig_dst = ProtoField.string ("gw_2022.col_orig_dst", T("原始目标地址", "Original Destination Address"))
 
 -- 通用保留字段 (各帧共用)
-f.rsvd = ProtoField.uint8 ("hplc_rf.rsvd", T("保留", "Reserved"), base.HEX)
+f.rsvd = ProtoField.uint8 ("gw_2022.rsvd", T("保留", "Reserved"), base.HEX)
 -- 信标帧可变区域保留位 (字节11 bit3-7)
-f.beacon_vf_rsv = ProtoField.uint8 ("hplc_rf.beacon.vf.rsv", T("保留", "Reserved"), base.HEX, nil, 0xF8)
+f.beacon_vf_rsv = ProtoField.uint8 ("gw_2022.beacon.vf.rsv", T("保留", "Reserved"), base.HEX, nil, 0xF8)
 -- SACK 帧保留 (字节8 bit3-7 和 字节11)
-f.sack_rsv = ProtoField.uint8 ("hplc_rf.sack.rsv", T("保留", "Reserved"), base.HEX)
+f.sack_rsv = ProtoField.uint8 ("gw_2022.sack.rsv", T("保留", "Reserved"), base.HEX)
 -- 协调帧保留 (字节12 bit0-3)
-f.coord_rsv = ProtoField.uint8 ("hplc_rf.coord.rsv", T("保留", "Reserved"), base.HEX, nil, 0x0F)
+f.coord_rsv = ProtoField.uint8 ("gw_2022.coord.rsv", T("保留", "Reserved"), base.HEX, nil, 0x0F)
 
 -- 单跳 MAC 帧头 (表11)
-f.sh_version = ProtoField.uint8 ("hplc_rf.sh.version", T("版本", "Version"), base.DEC, nil, 0x0F)
-f.sh_msgtype = ProtoField.uint8 ("hplc_rf.sh.msg_type", T("消息类型", "Message Type"), base.DEC, msg_type_vals)
-f.sh_msdulen = ProtoField.uint16 ("hplc_rf.sh.msdu_len", T("MSDU长度", "MSDU Length"), base.DEC)
+f.sh_version = ProtoField.uint8 ("gw_2022.sh.version", T("版本", "Version"), base.DEC, nil, 0x0F)
+f.sh_msgtype = ProtoField.uint8 ("gw_2022.sh.msg_type", T("消息类型", "Message Type"), base.DEC, msg_type_vals)
+f.sh_msdulen = ProtoField.uint16 ("gw_2022.sh.msdu_len", T("MSDU长度", "MSDU Length"), base.DEC)
 
 -- 管理消息头 (表58)
-f.mgmt_mmtype = ProtoField.uint16 ("hplc_rf.mgmt.mmtype", T("管理消息类型(MMTYPE)", "Management Message Type (MMTYPE)"), base.HEX, mgmt_type_vals)
-f.mgmt_resv = ProtoField.uint16 ("hplc_rf.mgmt.reserved", T("保留", "Reserved"), base.HEX)
+f.mgmt_mmtype = ProtoField.uint16 ("gw_2022.mgmt.mmtype", T("管理消息类型(MMTYPE)", "Management Message Type (MMTYPE)"), base.HEX, mgmt_type_vals)
+f.mgmt_resv = ProtoField.uint16 ("gw_2022.mgmt.reserved", T("保留", "Reserved"), base.HEX)
 
 -- 关联请求 (表60-68)
-f.ar_sta_mac = ProtoField.ether ("hplc_rf.assoc_req.sta_mac", T("站点MAC地址", "STA MAC Address"))
-f.ar_proxy_tei = ProtoField.uint16 ("hplc_rf.assoc_req.proxy_tei", T("候选代理TEI", "Candidate Proxy TEI"), base.DEC)
-f.ar_link_type = ProtoField.uint8 ("hplc_rf.assoc_req.link_type", T("链路类型", "Link Type"), base.DEC, link_type_vals, 0x10)
-f.ar_phase = ProtoField.uint8 ("hplc_rf.assoc_req.phase", T("相线", "Line"), base.DEC, phase_vals, 0x03)
-f.ar_dev_type = ProtoField.uint8 ("hplc_rf.assoc_req.dev_type", T("设备类型", "Device Type"), base.DEC, device_type_vals)
-f.ar_mac_type = ProtoField.uint8 ("hplc_rf.assoc_req.mac_type", T("MAC地址类型", "MAC Address Type"), base.DEC, mac_addr_type_vals)
-f.ar_module = ProtoField.uint8 ("hplc_rf.assoc_req.module", T("模块类型", "Module Type"), base.DEC, module_type_vals, 0x03)
-f.ar_assoc_rand = ProtoField.uint32 ("hplc_rf.assoc_req.assoc_rand", T("站点关联随机数", "Association Random Number"), base.HEX)
-f.ar_vendor = ProtoField.bytes ("hplc_rf.assoc_req.vendor", T("厂家自定义信息", "Vendor Custom Info"), base.NONE)
-f.ar_boot_reason = ProtoField.uint8 ("hplc_rf.assoc_req.boot_reason", T("系统启动原因", "Boot Reason"), base.DEC, boot_reason_vals)
-f.ar_boot_ver = ProtoField.uint8 ("hplc_rf.assoc_req.boot_ver", T("BOOT版本号", "BOOT Version"), base.DEC)
-f.ar_soft_ver = ProtoField.uint16 ("hplc_rf.assoc_req.soft_ver", T("软件版本号(BCD)", "Software Version (BCD)"), base.HEX)
-f.ar_ver_time = ProtoField.uint16 ("hplc_rf.assoc_req.ver_time", T("版本时间(BIN)", "Version Time (BIN)"), base.HEX)
-f.ar_vendor_code = ProtoField.uint16 ("hplc_rf.assoc_req.vendor_code", T("厂商代码(ASCII)", "Vendor Code (ASCII)"), base.DEC)
-f.ar_chip_code = ProtoField.uint16 ("hplc_rf.assoc_req.chip_code", T("芯片代码(ASCII)", "Chip Code (ASCII)"), base.DEC)
-f.ar_hard_rst = ProtoField.uint16 ("hplc_rf.assoc_req.hard_rst", T("硬复位累积次数", "Hard Reset Count"), base.DEC)
-f.ar_soft_rst = ProtoField.uint16 ("hplc_rf.assoc_req.soft_rst", T("软复位累积次数", "Soft Reset Count"), base.DEC)
-f.ar_proxy_type = ProtoField.uint8 ("hplc_rf.assoc_req.proxy_type", T("代理类型", "Proxy Type"), base.DEC, proxy_type_vals)
-f.ar_e2e_seq = ProtoField.uint32 ("hplc_rf.assoc_req.e2e_seq", T("端到端序列号", "End-to-End Sequence Number"), base.DEC)
-f.ar_mgmt_id = ProtoField.bytes ("hplc_rf.assoc_req.mgmt_id", T("管理ID信息(24B)", "Management ID Info (24B)"), base.NONE)
+f.ar_sta_mac = ProtoField.ether ("gw_2022.assoc_req.sta_mac", T("站点MAC地址", "STA MAC Address"))
+f.ar_proxy_tei = ProtoField.uint16 ("gw_2022.assoc_req.proxy_tei", T("候选代理TEI", "Candidate Proxy TEI"), base.DEC)
+f.ar_link_type = ProtoField.uint8 ("gw_2022.assoc_req.link_type", T("链路类型", "Link Type"), base.DEC, link_type_vals, 0x10)
+f.ar_phase = ProtoField.uint8 ("gw_2022.assoc_req.phase", T("相线", "Line"), base.DEC, phase_vals, 0x03)
+f.ar_dev_type = ProtoField.uint8 ("gw_2022.assoc_req.dev_type", T("设备类型", "Device Type"), base.DEC, device_type_vals)
+f.ar_mac_type = ProtoField.uint8 ("gw_2022.assoc_req.mac_type", T("MAC地址类型", "MAC Address Type"), base.DEC, mac_addr_type_vals)
+f.ar_module = ProtoField.uint8 ("gw_2022.assoc_req.module", T("模块类型", "Module Type"), base.DEC, module_type_vals, 0x03)
+f.ar_assoc_rand = ProtoField.uint32 ("gw_2022.assoc_req.assoc_rand", T("站点关联随机数", "Association Random Number"), base.HEX)
+f.ar_vendor = ProtoField.bytes ("gw_2022.assoc_req.vendor", T("厂家自定义信息", "Vendor Custom Info"), base.NONE)
+f.ar_boot_reason = ProtoField.uint8 ("gw_2022.assoc_req.boot_reason", T("系统启动原因", "Boot Reason"), base.DEC, boot_reason_vals)
+f.ar_boot_ver = ProtoField.uint8 ("gw_2022.assoc_req.boot_ver", T("BOOT版本号", "BOOT Version"), base.DEC)
+f.ar_soft_ver = ProtoField.uint16 ("gw_2022.assoc_req.soft_ver", T("软件版本号(BCD)", "Software Version (BCD)"), base.HEX)
+f.ar_ver_time = ProtoField.uint16 ("gw_2022.assoc_req.ver_time", T("版本时间(BIN)", "Version Time (BIN)"), base.HEX)
+f.ar_vendor_code = ProtoField.uint16 ("gw_2022.assoc_req.vendor_code", T("厂商代码(ASCII)", "Vendor Code (ASCII)"), base.DEC)
+f.ar_chip_code = ProtoField.uint16 ("gw_2022.assoc_req.chip_code", T("芯片代码(ASCII)", "Chip Code (ASCII)"), base.DEC)
+f.ar_hard_rst = ProtoField.uint16 ("gw_2022.assoc_req.hard_rst", T("硬复位累积次数", "Hard Reset Count"), base.DEC)
+f.ar_soft_rst = ProtoField.uint16 ("gw_2022.assoc_req.soft_rst", T("软复位累积次数", "Soft Reset Count"), base.DEC)
+f.ar_proxy_type = ProtoField.uint8 ("gw_2022.assoc_req.proxy_type", T("代理类型", "Proxy Type"), base.DEC, proxy_type_vals)
+f.ar_e2e_seq = ProtoField.uint32 ("gw_2022.assoc_req.e2e_seq", T("端到端序列号", "End-to-End Sequence Number"), base.DEC)
+f.ar_mgmt_id = ProtoField.bytes ("gw_2022.assoc_req.mgmt_id", T("管理ID信息(24B)", "Management ID Info (24B)"), base.NONE)
 
 -- 关联确认 (表70-75)
-f.ac_sta_mac = ProtoField.ether ("hplc_rf.assoc_cnf.sta_mac", T("站点MAC地址", "STA MAC Address"))
-f.ac_cco_mac = ProtoField.ether ("hplc_rf.assoc_cnf.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
-f.ac_result = ProtoField.uint8 ("hplc_rf.assoc_cnf.result", T("结果", "Result"), base.HEX, assoc_result_vals)
-f.ac_sta_level = ProtoField.uint8 ("hplc_rf.assoc_cnf.sta_level", T("站点层级", "STA Level"), base.DEC)
-f.ac_sta_tei = ProtoField.uint16 ("hplc_rf.assoc_cnf.sta_tei", T("站点TEI", "STA TEI"), base.DEC)
-f.ac_link_type = ProtoField.uint8 ("hplc_rf.assoc_cnf.link_type", T("链路类型", "Link Type"), base.DEC, link_type_vals, 0x10)
-f.ac_carrier_band = ProtoField.uint8 ("hplc_rf.assoc_cnf.carrier_band", T("载波频段", "Carrier Band"), base.DEC, carrier_band_vals, 0x60)
-f.ac_proxy_tei = ProtoField.uint16 ("hplc_rf.assoc_cnf.proxy_tei", T("代理TEI", "Proxy TEI"), base.DEC)
-f.ac_total_pkgs = ProtoField.uint8 ("hplc_rf.assoc_cnf.total_pkgs", T("总分包数", "Total Packages"), base.DEC)
-f.ac_pkg_idx = ProtoField.uint8 ("hplc_rf.assoc_cnf.pkg_idx", T("分包序号", "Package Index"), base.DEC)
-f.ac_assoc_rand = ProtoField.uint32 ("hplc_rf.assoc_cnf.assoc_rand", T("站点关联随机数", "Association Random Number"), base.HEX)
-f.ac_reassoc_time = ProtoField.uint32 ("hplc_rf.assoc_cnf.reassoc_time", T("重新关联时间(ms)", "Re-association Time (ms)"), base.DEC)
-f.ac_e2e_seq = ProtoField.uint32 ("hplc_rf.assoc_cnf.e2e_seq", T("端到端序列号", "End-to-End Sequence Number"), base.DEC)
-f.ac_path_seq = ProtoField.uint32 ("hplc_rf.assoc_cnf.path_seq", T("路径序号", "Path Sequence Number"), base.DEC)
-f.ac_direct_sta = ProtoField.uint16 ("hplc_rf.assoc_cnf.direct_sta", T("直连站点数", "Direct STA Count"), base.DEC)
-f.ac_direct_proxy = ProtoField.uint16 ("hplc_rf.assoc_cnf.direct_proxy", T("直连代理数", "Direct Proxy Count"), base.DEC)
-f.ac_route_size = ProtoField.uint16 ("hplc_rf.assoc_cnf.route_size", T("路由表大小", "Route Table Size"), base.DEC)
+f.ac_sta_mac = ProtoField.ether ("gw_2022.assoc_cnf.sta_mac", T("站点MAC地址", "STA MAC Address"))
+f.ac_cco_mac = ProtoField.ether ("gw_2022.assoc_cnf.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
+f.ac_result = ProtoField.uint8 ("gw_2022.assoc_cnf.result", T("结果", "Result"), base.HEX, assoc_result_vals)
+f.ac_sta_level = ProtoField.uint8 ("gw_2022.assoc_cnf.sta_level", T("站点层级", "STA Level"), base.DEC)
+f.ac_sta_tei = ProtoField.uint16 ("gw_2022.assoc_cnf.sta_tei", T("站点TEI", "STA TEI"), base.DEC)
+f.ac_link_type = ProtoField.uint8 ("gw_2022.assoc_cnf.link_type", T("链路类型", "Link Type"), base.DEC, link_type_vals, 0x10)
+f.ac_carrier_band = ProtoField.uint8 ("gw_2022.assoc_cnf.carrier_band", T("载波频段", "Carrier Band"), base.DEC, carrier_band_vals, 0x60)
+f.ac_proxy_tei = ProtoField.uint16 ("gw_2022.assoc_cnf.proxy_tei", T("代理TEI", "Proxy TEI"), base.DEC)
+f.ac_total_pkgs = ProtoField.uint8 ("gw_2022.assoc_cnf.total_pkgs", T("总分包数", "Total Packages"), base.DEC)
+f.ac_pkg_idx = ProtoField.uint8 ("gw_2022.assoc_cnf.pkg_idx", T("分包序号", "Package Index"), base.DEC)
+f.ac_assoc_rand = ProtoField.uint32 ("gw_2022.assoc_cnf.assoc_rand", T("站点关联随机数", "Association Random Number"), base.HEX)
+f.ac_reassoc_time = ProtoField.uint32 ("gw_2022.assoc_cnf.reassoc_time", T("重新关联时间(ms)", "Re-association Time (ms)"), base.DEC)
+f.ac_e2e_seq = ProtoField.uint32 ("gw_2022.assoc_cnf.e2e_seq", T("端到端序列号", "End-to-End Sequence Number"), base.DEC)
+f.ac_path_seq = ProtoField.uint32 ("gw_2022.assoc_cnf.path_seq", T("路径序号", "Path Sequence Number"), base.DEC)
+f.ac_direct_sta = ProtoField.uint16 ("gw_2022.assoc_cnf.direct_sta", T("直连站点数", "Direct STA Count"), base.DEC)
+f.ac_direct_proxy = ProtoField.uint16 ("gw_2022.assoc_cnf.direct_proxy", T("直连代理数", "Direct Proxy Count"), base.DEC)
+f.ac_route_size = ProtoField.uint16 ("gw_2022.assoc_cnf.route_size", T("路由表大小", "Route Table Size"), base.DEC)
 
 -- 关联汇总指示 (表76-78)
-f.ag_result = ProtoField.uint8 ("hplc_rf.assoc_gather.result", T("结果", "Result"), base.DEC)
-f.ag_sta_level = ProtoField.uint8 ("hplc_rf.assoc_gather.sta_level", T("站点层级", "STA Level"), base.DEC)
-f.ag_cco_mac = ProtoField.ether ("hplc_rf.assoc_gather.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
-f.ag_proxy_tei = ProtoField.uint16 ("hplc_rf.assoc_gather.proxy_tei", T("代理TEI", "Proxy TEI"), base.DEC)
-f.ag_carrier_band = ProtoField.uint8 ("hplc_rf.assoc_gather.carrier_band", T("载波频段", "Carrier Band"), base.DEC, carrier_band_vals, 0x30)
-f.ag_gather_cnt = ProtoField.uint8 ("hplc_rf.assoc_gather.gather_cnt", T("汇总站点数", "Gathered STA Count"), base.DEC)
-f.ag_sta_mac = ProtoField.ether ("hplc_rf.assoc_gather.sta_mac", T("站点MAC地址", "STA MAC Address"))
-f.ag_sta_tei = ProtoField.uint16 ("hplc_rf.assoc_gather.sta_tei", T("站点TEI", "STA TEI"), base.DEC)
+f.ag_result = ProtoField.uint8 ("gw_2022.assoc_gather.result", T("结果", "Result"), base.DEC)
+f.ag_sta_level = ProtoField.uint8 ("gw_2022.assoc_gather.sta_level", T("站点层级", "STA Level"), base.DEC)
+f.ag_cco_mac = ProtoField.ether ("gw_2022.assoc_gather.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
+f.ag_proxy_tei = ProtoField.uint16 ("gw_2022.assoc_gather.proxy_tei", T("代理TEI", "Proxy TEI"), base.DEC)
+f.ag_carrier_band = ProtoField.uint8 ("gw_2022.assoc_gather.carrier_band", T("载波频段", "Carrier Band"), base.DEC, carrier_band_vals, 0x30)
+f.ag_gather_cnt = ProtoField.uint8 ("gw_2022.assoc_gather.gather_cnt", T("汇总站点数", "Gathered STA Count"), base.DEC)
+f.ag_sta_mac = ProtoField.ether ("gw_2022.assoc_gather.sta_mac", T("站点MAC地址", "STA MAC Address"))
+f.ag_sta_tei = ProtoField.uint16 ("gw_2022.assoc_gather.sta_tei", T("站点TEI", "STA TEI"), base.DEC)
 
 -- 代理变更请求 (表79-83)
-f.cpr_sta_tei = ProtoField.uint16 ("hplc_rf.cproxy_req.sta_tei", T("站点TEI", "STA TEI"), base.DEC)
-f.cpr_new_proxy = ProtoField.uint16 ("hplc_rf.cproxy_req.new_proxy", T("新代理TEI", "New Proxy TEI"), base.DEC)
-f.cpr_link_type = ProtoField.uint8 ("hplc_rf.cproxy_req.link_type", T("链路类型", "Link Type"), base.DEC, link_type_vals, 0x10)
-f.cpr_old_proxy = ProtoField.uint16 ("hplc_rf.cproxy_req.old_proxy", T("旧代理TEI", "Old Proxy TEI"), base.DEC)
-f.cpr_proxy_type = ProtoField.uint8 ("hplc_rf.cproxy_req.proxy_type", T("代理类型", "Proxy Type"), base.DEC)
-f.cpr_reason = ProtoField.uint8 ("hplc_rf.cproxy_req.reason", T("原因", "Reason"), base.DEC)
-f.cpr_e2e_seq = ProtoField.uint32 ("hplc_rf.cproxy_req.e2e_seq", T("端到端序列号", "End-to-End Sequence Number"), base.DEC)
-f.cpr_phase = ProtoField.uint8 ("hplc_rf.cproxy_req.phase", T("站点相线", "STA Line"), base.DEC, phase_vals, 0x03)
+f.cpr_sta_tei = ProtoField.uint16 ("gw_2022.cproxy_req.sta_tei", T("站点TEI", "STA TEI"), base.DEC)
+f.cpr_new_proxy = ProtoField.uint16 ("gw_2022.cproxy_req.new_proxy", T("新代理TEI", "New Proxy TEI"), base.DEC)
+f.cpr_link_type = ProtoField.uint8 ("gw_2022.cproxy_req.link_type", T("链路类型", "Link Type"), base.DEC, link_type_vals, 0x10)
+f.cpr_old_proxy = ProtoField.uint16 ("gw_2022.cproxy_req.old_proxy", T("旧代理TEI", "Old Proxy TEI"), base.DEC)
+f.cpr_proxy_type = ProtoField.uint8 ("gw_2022.cproxy_req.proxy_type", T("代理类型", "Proxy Type"), base.DEC)
+f.cpr_reason = ProtoField.uint8 ("gw_2022.cproxy_req.reason", T("原因", "Reason"), base.DEC)
+f.cpr_e2e_seq = ProtoField.uint32 ("gw_2022.cproxy_req.e2e_seq", T("端到端序列号", "End-to-End Sequence Number"), base.DEC)
+f.cpr_phase = ProtoField.uint8 ("gw_2022.cproxy_req.phase", T("站点相线", "STA Line"), base.DEC, phase_vals, 0x03)
 
 -- 代理变更确认 (表84-87)
-f.cpc_result = ProtoField.uint8 ("hplc_rf.cproxy_cnf.result", T("结果", "Result"), base.DEC)
-f.cpc_total_pkgs = ProtoField.uint8 ("hplc_rf.cproxy_cnf.total_pkgs", T("总分包数", "Total Packages"), base.DEC)
-f.cpc_pkg_idx = ProtoField.uint8 ("hplc_rf.cproxy_cnf.pkg_idx", T("分包序号", "Package Index"), base.DEC)
-f.cpc_sta_tei = ProtoField.uint16 ("hplc_rf.cproxy_cnf.sta_tei", T("站点TEI", "STA TEI"), base.DEC)
-f.cpc_link_type = ProtoField.uint8 ("hplc_rf.cproxy_cnf.link_type", T("链路类型", "Link Type"), base.DEC, link_type_vals, 0x10)
-f.cpc_proxy_tei = ProtoField.uint16 ("hplc_rf.cproxy_cnf.proxy_tei", T("代理TEI", "Proxy TEI"), base.DEC)
-f.cpc_e2e_seq = ProtoField.uint32 ("hplc_rf.cproxy_cnf.e2e_seq", T("端到端序列号", "End-to-End Sequence Number"), base.DEC)
-f.cpc_path_seq = ProtoField.uint32 ("hplc_rf.cproxy_cnf.path_seq", T("路径序号", "Path Sequence Number"), base.DEC)
-f.cpc_child_cnt = ProtoField.uint16 ("hplc_rf.cproxy_cnf.child_cnt", T("子站点数", "Child STA Count"), base.DEC)
-f.cpc_child_tei = ProtoField.uint16 ("hplc_rf.cproxy_cnf.child_tei", T("子站点TEI", "Child STA TEI"), base.DEC)
+f.cpc_result = ProtoField.uint8 ("gw_2022.cproxy_cnf.result", T("结果", "Result"), base.DEC)
+f.cpc_total_pkgs = ProtoField.uint8 ("gw_2022.cproxy_cnf.total_pkgs", T("总分包数", "Total Packages"), base.DEC)
+f.cpc_pkg_idx = ProtoField.uint8 ("gw_2022.cproxy_cnf.pkg_idx", T("分包序号", "Package Index"), base.DEC)
+f.cpc_sta_tei = ProtoField.uint16 ("gw_2022.cproxy_cnf.sta_tei", T("站点TEI", "STA TEI"), base.DEC)
+f.cpc_link_type = ProtoField.uint8 ("gw_2022.cproxy_cnf.link_type", T("链路类型", "Link Type"), base.DEC, link_type_vals, 0x10)
+f.cpc_proxy_tei = ProtoField.uint16 ("gw_2022.cproxy_cnf.proxy_tei", T("代理TEI", "Proxy TEI"), base.DEC)
+f.cpc_e2e_seq = ProtoField.uint32 ("gw_2022.cproxy_cnf.e2e_seq", T("端到端序列号", "End-to-End Sequence Number"), base.DEC)
+f.cpc_path_seq = ProtoField.uint32 ("gw_2022.cproxy_cnf.path_seq", T("路径序号", "Path Sequence Number"), base.DEC)
+f.cpc_child_cnt = ProtoField.uint16 ("gw_2022.cproxy_cnf.child_cnt", T("子站点数", "Child STA Count"), base.DEC)
+f.cpc_child_tei = ProtoField.uint16 ("gw_2022.cproxy_cnf.child_tei", T("子站点TEI", "Child STA TEI"), base.DEC)
 
 -- 代理变更确认位图版 (表88-90)
-f.cpb_result = ProtoField.uint8 ("hplc_rf.cproxy_bmp.result", T("结果", "Result"), base.DEC)
-f.cpb_bitmap_size = ProtoField.uint16 ("hplc_rf.cproxy_bmp.bitmap_size", T("位图大小(字节)", "Bitmap Size (bytes)"), base.DEC)
-f.cpb_sta_tei = ProtoField.uint16 ("hplc_rf.cproxy_bmp.sta_tei", T("站点TEI", "STA TEI"), base.DEC)
-f.cpb_link_type = ProtoField.uint8 ("hplc_rf.cproxy_bmp.link_type", T("链路类型", "Link Type"), base.DEC, link_type_vals, 0x10)
-f.cpb_proxy_tei = ProtoField.uint16 ("hplc_rf.cproxy_bmp.proxy_tei", T("代理TEI", "Proxy TEI"), base.DEC)
-f.cpb_e2e_seq = ProtoField.uint32 ("hplc_rf.cproxy_bmp.e2e_seq", T("端到端序列号", "End-to-End Sequence Number"), base.DEC)
-f.cpb_path_seq = ProtoField.uint32 ("hplc_rf.cproxy_bmp.path_seq", T("路径序号", "Path Sequence Number"), base.DEC)
-f.cpb_child_bmp = ProtoField.bytes ("hplc_rf.cproxy_bmp.child_bmp", T("子站点位图", "Child STA Bitmap"), base.NONE)
+f.cpb_result = ProtoField.uint8 ("gw_2022.cproxy_bmp.result", T("结果", "Result"), base.DEC)
+f.cpb_bitmap_size = ProtoField.uint16 ("gw_2022.cproxy_bmp.bitmap_size", T("位图大小(字节)", "Bitmap Size (bytes)"), base.DEC)
+f.cpb_sta_tei = ProtoField.uint16 ("gw_2022.cproxy_bmp.sta_tei", T("站点TEI", "STA TEI"), base.DEC)
+f.cpb_link_type = ProtoField.uint8 ("gw_2022.cproxy_bmp.link_type", T("链路类型", "Link Type"), base.DEC, link_type_vals, 0x10)
+f.cpb_proxy_tei = ProtoField.uint16 ("gw_2022.cproxy_bmp.proxy_tei", T("代理TEI", "Proxy TEI"), base.DEC)
+f.cpb_e2e_seq = ProtoField.uint32 ("gw_2022.cproxy_bmp.e2e_seq", T("端到端序列号", "End-to-End Sequence Number"), base.DEC)
+f.cpb_path_seq = ProtoField.uint32 ("gw_2022.cproxy_bmp.path_seq", T("路径序号", "Path Sequence Number"), base.DEC)
+f.cpb_child_bmp = ProtoField.bytes ("gw_2022.cproxy_bmp.child_bmp", T("子站点位图", "Child STA Bitmap"), base.NONE)
 
 -- 离线指示 (表91-93)
-f.li_reason = ProtoField.uint16 ("hplc_rf.leave.reason", T("原因", "Reason"), base.DEC, leave_reason_vals)
-f.li_sta_cnt = ProtoField.uint16 ("hplc_rf.leave.sta_cnt", T("站点总数", "STA Count"), base.DEC)
-f.li_delay = ProtoField.uint16 ("hplc_rf.leave.delay", T("延迟时间(秒)", "Delay Time (s)"), base.DEC)
-f.li_sta_mac = ProtoField.ether ("hplc_rf.leave.sta_mac", T("站点MAC地址", "STA MAC Address"))
+f.li_reason = ProtoField.uint16 ("gw_2022.leave.reason", T("原因", "Reason"), base.DEC, leave_reason_vals)
+f.li_sta_cnt = ProtoField.uint16 ("gw_2022.leave.sta_cnt", T("站点总数", "STA Count"), base.DEC)
+f.li_delay = ProtoField.uint16 ("gw_2022.leave.delay", T("延迟时间(秒)", "Delay Time (s)"), base.DEC)
+f.li_sta_mac = ProtoField.ether ("gw_2022.leave.sta_mac", T("站点MAC地址", "STA MAC Address"))
 
 -- 心跳检测 (表94)
-f.hb_ostei = ProtoField.uint16 ("hplc_rf.hb.ostei", T("原始源TEI", "Original Source TEI"), base.DEC)
-f.hb_max_disc_tei = ProtoField.uint16 ("hplc_rf.hb.max_disc_tei", T("发现站点数最大的站点TEI", "Max Discovery STA TEI"), base.DEC)
-f.hb_max_disc_cnt = ProtoField.uint16 ("hplc_rf.hb.max_disc_cnt", T("最大的发现站点数", "Max Discovery STA Count"), base.DEC)
-f.hb_bitmap_size = ProtoField.uint16 ("hplc_rf.hb.bitmap_size", T("位图大小(字节)", "Bitmap Size (bytes)"), base.DEC)
-f.hb_disc_bmp = ProtoField.bytes ("hplc_rf.hb.disc_bmp", T("发现站点位图", "Discovery STA Bitmap"), base.NONE)
+f.hb_ostei = ProtoField.uint16 ("gw_2022.hb.ostei", T("原始源TEI", "Original Source TEI"), base.DEC)
+f.hb_max_disc_tei = ProtoField.uint16 ("gw_2022.hb.max_disc_tei", T("发现站点数最大的站点TEI", "Max Discovery STA TEI"), base.DEC)
+f.hb_max_disc_cnt = ProtoField.uint16 ("gw_2022.hb.max_disc_cnt", T("最大的发现站点数", "Max Discovery STA Count"), base.DEC)
+f.hb_bitmap_size = ProtoField.uint16 ("gw_2022.hb.bitmap_size", T("位图大小(字节)", "Bitmap Size (bytes)"), base.DEC)
+f.hb_disc_bmp = ProtoField.bytes ("gw_2022.hb.disc_bmp", T("发现站点位图", "Discovery STA Bitmap"), base.NONE)
 
 -- 发现列表 (表95-99)
-f.dl_tei = ProtoField.uint16 ("hplc_rf.dl.tei", T("TEI", "TEI"), base.DEC)
-f.dl_proxy_tei = ProtoField.uint16 ("hplc_rf.dl.proxy_tei", T("代理TEI", "Proxy TEI"), base.DEC)
-f.dl_role = ProtoField.uint8 ("hplc_rf.dl.role", T("角色", "Role"), base.DEC, role_vals, 0x0F)
-f.dl_level = ProtoField.uint8 ("hplc_rf.dl.level", T("层级", "Level"), base.DEC, nil, 0xF0)
-f.dl_mac = ProtoField.ether ("hplc_rf.dl.mac", T("MAC地址", "MAC Address"))
-f.dl_cco_mac = ProtoField.ether ("hplc_rf.dl.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
-f.dl_phase = ProtoField.uint8 ("hplc_rf.dl.phase", T("相线", "Line"), base.DEC, nil, 0x3F)
-f.dl_proxy_qual = ProtoField.uint8 ("hplc_rf.dl.proxy_qual", T("代理站点信道质量(dB)", "Proxy Channel Quality (dB)"), base.DEC)
-f.dl_proxy_rate = ProtoField.uint8 ("hplc_rf.dl.proxy_rate", T("代理站点通信成功率(%)", "Proxy Comm Rate (%)"), base.DEC)
-f.dl_proxy_dl_rate = ProtoField.uint8 ("hplc_rf.dl.proxy_dl_rate", T("代理站点下行通信成功率(%)", "Proxy Downlink Comm Rate (%)"), base.DEC)
-f.dl_sta_cnt = ProtoField.uint16 ("hplc_rf.dl.sta_cnt", T("站点总数", "STA Count"), base.DEC)
-f.dl_send_cnt = ProtoField.uint8 ("hplc_rf.dl.send_cnt", T("发送发现列表报文个数", "Discovery List TX Count"), base.DEC)
-f.dl_up_route_cnt = ProtoField.uint8 ("hplc_rf.dl.up_route_cnt", T("上行路由条目总数", "Uplink Route Entry Count"), base.DEC)
-f.dl_route_remain = ProtoField.uint16 ("hplc_rf.dl.route_remain", T("路由周期到期剩余时间(秒)", "Route Period Remaining (s)"), base.DEC)
-f.dl_bitmap_size = ProtoField.uint16 ("hplc_rf.dl.bitmap_size", T("位图大小(字节)", "Bitmap Size (bytes)"), base.DEC)
-f.dl_min_rate = ProtoField.uint8 ("hplc_rf.dl.min_rate", T("最小通信成功率(%)", "Min Comm Rate (%)"), base.DEC)
-f.dl_next_hop_tei = ProtoField.uint16 ("hplc_rf.dl.next_hop_tei", T("下一跳站点TEI", "Next Hop STA TEI"), base.DEC)
-f.dl_route_type = ProtoField.uint8 ("hplc_rf.dl.route_type", T("路由类型", "Route Type"), base.DEC, route_type_vals, 0xF0)
-f.dl_disc_bmp = ProtoField.bytes ("hplc_rf.dl.disc_bmp", T("发现站点列表位图", "Discovery STA List Bitmap"), base.NONE)
-f.dl_rcv_cnt = ProtoField.uint8 ("hplc_rf.dl.rcv_cnt", T("接收发现列表数", "Received Discovery List Count"), base.DEC)
-f.dl_rcv_item = ProtoField.string ("hplc_rf.dl.rcv_item", T("接收发现列表数(按TEI)", "Received Discovery List Count (by TEI)"))
+f.dl_tei = ProtoField.uint16 ("gw_2022.dl.tei", T("TEI", "TEI"), base.DEC)
+f.dl_proxy_tei = ProtoField.uint16 ("gw_2022.dl.proxy_tei", T("代理TEI", "Proxy TEI"), base.DEC)
+f.dl_role = ProtoField.uint8 ("gw_2022.dl.role", T("角色", "Role"), base.DEC, role_vals, 0x0F)
+f.dl_level = ProtoField.uint8 ("gw_2022.dl.level", T("层级", "Level"), base.DEC, nil, 0xF0)
+f.dl_mac = ProtoField.ether ("gw_2022.dl.mac", T("MAC地址", "MAC Address"))
+f.dl_cco_mac = ProtoField.ether ("gw_2022.dl.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
+f.dl_phase = ProtoField.uint8 ("gw_2022.dl.phase", T("相线", "Line"), base.DEC, nil, 0x3F)
+f.dl_proxy_qual = ProtoField.uint8 ("gw_2022.dl.proxy_qual", T("代理站点信道质量(dB)", "Proxy Channel Quality (dB)"), base.DEC)
+f.dl_proxy_rate = ProtoField.uint8 ("gw_2022.dl.proxy_rate", T("代理站点通信成功率(%)", "Proxy Comm Rate (%)"), base.DEC)
+f.dl_proxy_dl_rate = ProtoField.uint8 ("gw_2022.dl.proxy_dl_rate", T("代理站点下行通信成功率(%)", "Proxy Downlink Comm Rate (%)"), base.DEC)
+f.dl_sta_cnt = ProtoField.uint16 ("gw_2022.dl.sta_cnt", T("站点总数", "STA Count"), base.DEC)
+f.dl_send_cnt = ProtoField.uint8 ("gw_2022.dl.send_cnt", T("发送发现列表报文个数", "Discovery List TX Count"), base.DEC)
+f.dl_up_route_cnt = ProtoField.uint8 ("gw_2022.dl.up_route_cnt", T("上行路由条目总数", "Uplink Route Entry Count"), base.DEC)
+f.dl_route_remain = ProtoField.uint16 ("gw_2022.dl.route_remain", T("路由周期到期剩余时间(秒)", "Route Period Remaining (s)"), base.DEC)
+f.dl_bitmap_size = ProtoField.uint16 ("gw_2022.dl.bitmap_size", T("位图大小(字节)", "Bitmap Size (bytes)"), base.DEC)
+f.dl_min_rate = ProtoField.uint8 ("gw_2022.dl.min_rate", T("最小通信成功率(%)", "Min Comm Rate (%)"), base.DEC)
+f.dl_next_hop_tei = ProtoField.uint16 ("gw_2022.dl.next_hop_tei", T("下一跳站点TEI", "Next Hop STA TEI"), base.DEC)
+f.dl_route_type = ProtoField.uint8 ("gw_2022.dl.route_type", T("路由类型", "Route Type"), base.DEC, route_type_vals, 0xF0)
+f.dl_disc_bmp = ProtoField.bytes ("gw_2022.dl.disc_bmp", T("发现站点列表位图", "Discovery STA List Bitmap"), base.NONE)
+f.dl_rcv_cnt = ProtoField.uint8 ("gw_2022.dl.rcv_cnt", T("接收发现列表数", "Received Discovery List Count"), base.DEC)
+f.dl_rcv_item = ProtoField.string ("gw_2022.dl.rcv_item", T("接收发现列表数(按TEI)", "Received Discovery List Count (by TEI)"))
 
 -- 通信成功率上报 (表100-101)
-f.sr_tei = ProtoField.uint16 ("hplc_rf.sr.tei", T("TEI", "TEI"), base.DEC)
-f.sr_sta_cnt = ProtoField.uint16 ("hplc_rf.sr.sta_cnt", T("站点总数", "STA Count"), base.DEC)
-f.sr_sta_tei = ProtoField.uint16 ("hplc_rf.sr.sta_tei", T("站点TEI", "STA TEI"), base.DEC)
-f.sr_down_rate = ProtoField.uint8 ("hplc_rf.sr.down_rate", T("下行通信成功率(%)", "Downlink Comm Rate (%)"), base.DEC)
-f.sr_up_rate = ProtoField.uint8 ("hplc_rf.sr.up_rate", T("上行通信成功率(%)", "Uplink Comm Rate (%)"), base.DEC)
+f.sr_tei = ProtoField.uint16 ("gw_2022.sr.tei", T("TEI", "TEI"), base.DEC)
+f.sr_sta_cnt = ProtoField.uint16 ("gw_2022.sr.sta_cnt", T("站点总数", "STA Count"), base.DEC)
+f.sr_sta_tei = ProtoField.uint16 ("gw_2022.sr.sta_tei", T("站点TEI", "STA TEI"), base.DEC)
+f.sr_down_rate = ProtoField.uint8 ("gw_2022.sr.down_rate", T("下行通信成功率(%)", "Downlink Comm Rate (%)"), base.DEC)
+f.sr_up_rate = ProtoField.uint8 ("gw_2022.sr.up_rate", T("上行通信成功率(%)", "Uplink Comm Rate (%)"), base.DEC)
 
 -- 网络冲突上报 (表102-103)
-f.ncr_cco_mac = ProtoField.ether ("hplc_rf.ncr.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
-f.ncr_nbr_cnt = ProtoField.uint8 ("hplc_rf.ncr.nbr_cnt", T("邻居网络个数", "Neighbor Network Count"), base.DEC)
-f.ncr_nid_width = ProtoField.uint8 ("hplc_rf.ncr.nid_width", T("网络号字节宽度", "Network ID Byte Width"), base.DEC)
-f.ncr_nbr_nid = ProtoField.uint24 ("hplc_rf.ncr.nbr_nid", T("邻居网络号", "Neighbor Network ID"), base.HEX)
+f.ncr_cco_mac = ProtoField.ether ("gw_2022.ncr.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
+f.ncr_nbr_cnt = ProtoField.uint8 ("gw_2022.ncr.nbr_cnt", T("邻居网络个数", "Neighbor Network Count"), base.DEC)
+f.ncr_nid_width = ProtoField.uint8 ("gw_2022.ncr.nid_width", T("网络号字节宽度", "Network ID Byte Width"), base.DEC)
+f.ncr_nbr_nid = ProtoField.uint24 ("gw_2022.ncr.nbr_nid", T("邻居网络号", "Neighbor Network ID"), base.HEX)
 
 -- 过零NTB采集指示 (表104-106)
-f.zc_tei = ProtoField.uint16 ("hplc_rf.zc.tei", T("TEI", "TEI"), base.DEC)
-f.zc_collect_site = ProtoField.uint8 ("hplc_rf.zc.collect_site", T("采集站点", "Collect Site"), base.DEC, collect_site_vals)
-f.zc_collect_period = ProtoField.uint8 ("hplc_rf.zc.collect_period", T("采集周期", "Collect Period"), base.DEC, collect_period_vals)
-f.zc_collect_cnt = ProtoField.uint8 ("hplc_rf.zc.collect_cnt", T("采集数量", "Collect Count"), base.DEC)
+f.zc_tei = ProtoField.uint16 ("gw_2022.zc.tei", T("TEI", "TEI"), base.DEC)
+f.zc_collect_site = ProtoField.uint8 ("gw_2022.zc.collect_site", T("采集站点", "Collect Site"), base.DEC, collect_site_vals)
+f.zc_collect_period = ProtoField.uint8 ("gw_2022.zc.collect_period", T("采集周期", "Collect Period"), base.DEC, collect_period_vals)
+f.zc_collect_cnt = ProtoField.uint8 ("gw_2022.zc.collect_cnt", T("采集数量", "Collect Count"), base.DEC)
 
 -- 过零NTB上报 (表107-108)
-f.zr_tei = ProtoField.uint16 ("hplc_rf.zr.tei", T("TEI", "TEI"), base.DEC)
-f.zr_total_cnt = ProtoField.uint8 ("hplc_rf.zr.total_cnt", T("告知总数量", "Report Total Count"), base.DEC)
-f.zr_ph1_cnt = ProtoField.uint8 ("hplc_rf.zr.ph1_cnt", T("相线1差值告知数量", "Line 1 Diff Report Count"), base.DEC)
-f.zr_ph2_cnt = ProtoField.uint8 ("hplc_rf.zr.ph2_cnt", T("相线2差值告知数量", "Line 2 Diff Report Count"), base.DEC)
-f.zr_ph3_cnt = ProtoField.uint8 ("hplc_rf.zr.ph3_cnt", T("相线3差值告知数量", "Line 3 Diff Report Count"), base.DEC)
-f.zr_base_ntb = ProtoField.uint32 ("hplc_rf.zr.base_ntb", T("基准NTB", "Base NTB"), base.DEC)
-f.zr_ph1_diff = ProtoField.uint16 ("hplc_rf.zr.ph1_diff", T("相线1过零NTB差值", "Line 1 Zero-Cross NTB Diff"), base.DEC)
-f.zr_ph2_diff = ProtoField.uint16 ("hplc_rf.zr.ph2_diff", T("相线2过零NTB差值", "Line 2 Zero-Cross NTB Diff"), base.DEC)
-f.zr_ph3_diff = ProtoField.uint16 ("hplc_rf.zr.ph3_diff", T("相线3过零NTB差值", "Line 3 Zero-Cross NTB Diff"), base.DEC)
+f.zr_tei = ProtoField.uint16 ("gw_2022.zr.tei", T("TEI", "TEI"), base.DEC)
+f.zr_total_cnt = ProtoField.uint8 ("gw_2022.zr.total_cnt", T("告知总数量", "Report Total Count"), base.DEC)
+f.zr_ph1_cnt = ProtoField.uint8 ("gw_2022.zr.ph1_cnt", T("相线1差值告知数量", "Line 1 Diff Report Count"), base.DEC)
+f.zr_ph2_cnt = ProtoField.uint8 ("gw_2022.zr.ph2_cnt", T("相线2差值告知数量", "Line 2 Diff Report Count"), base.DEC)
+f.zr_ph3_cnt = ProtoField.uint8 ("gw_2022.zr.ph3_cnt", T("相线3差值告知数量", "Line 3 Diff Report Count"), base.DEC)
+f.zr_base_ntb = ProtoField.uint32 ("gw_2022.zr.base_ntb", T("基准NTB", "Base NTB"), base.DEC)
+f.zr_ph1_diff = ProtoField.uint16 ("gw_2022.zr.ph1_diff", T("相线1过零NTB差值", "Line 1 Zero-Cross NTB Diff"), base.DEC)
+f.zr_ph2_diff = ProtoField.uint16 ("gw_2022.zr.ph2_diff", T("相线2过零NTB差值", "Line 2 Zero-Cross NTB Diff"), base.DEC)
+f.zr_ph3_diff = ProtoField.uint16 ("gw_2022.zr.ph3_diff", T("相线3过零NTB差值", "Line 3 Zero-Cross NTB Diff"), base.DEC)
 
 -- 网络诊断 (表109-110)
-f.diag_vendor_id = ProtoField.uint16 ("hplc_rf.diag.vendor_id", T("芯片厂商ID", "Chip Vendor ID"), base.HEX, chip_vendor_vals)
-f.diag_custom = ProtoField.bytes ("hplc_rf.diag.custom", T("厂家自定义", "Vendor Custom"), base.NONE)
+f.diag_vendor_id = ProtoField.uint16 ("gw_2022.diag.vendor_id", T("芯片厂商ID", "Chip Vendor ID"), base.HEX, chip_vendor_vals)
+f.diag_custom = ProtoField.bytes ("gw_2022.diag.custom", T("厂家自定义", "Vendor Custom"), base.NONE)
 
 -- 路由请求 (表111-113)
-f.rreq_version = ProtoField.uint8 ("hplc_rf.rreq.version", T("版本", "Version"), base.DEC)
-f.rreq_seq = ProtoField.uint32 ("hplc_rf.rreq.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
-f.rreq_path_pref = ProtoField.bool ("hplc_rf.rreq.path_pref", T("路径优选标志", "Path Preference Flag"), 8, nil, 0x10)
-f.rreq_payload_type = ProtoField.uint8 ("hplc_rf.rreq.payload_type", T("负载数据类型", "Payload Data Type"), base.DEC, payload_type_vals, 0x0F)
-f.rreq_payload_len = ProtoField.uint8 ("hplc_rf.rreq.payload_len", T("负载数据长度", "Payload Data Length"), base.DEC)
+f.rreq_version = ProtoField.uint8 ("gw_2022.rreq.version", T("版本", "Version"), base.DEC)
+f.rreq_seq = ProtoField.uint32 ("gw_2022.rreq.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
+f.rreq_path_pref = ProtoField.bool ("gw_2022.rreq.path_pref", T("路径优选标志", "Path Preference Flag"), 8, nil, 0x10)
+f.rreq_payload_type = ProtoField.uint8 ("gw_2022.rreq.payload_type", T("负载数据类型", "Payload Data Type"), base.DEC, payload_type_vals, 0x0F)
+f.rreq_payload_len = ProtoField.uint8 ("gw_2022.rreq.payload_len", T("负载数据长度", "Payload Data Length"), base.DEC)
 
 -- 路由回复 (表114-116)
-f.rrep_version = ProtoField.uint8 ("hplc_rf.rrep.version", T("版本", "Version"), base.DEC)
-f.rrep_seq = ProtoField.uint32 ("hplc_rf.rrep.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
-f.rrep_payload_type = ProtoField.uint8 ("hplc_rf.rrep.payload_type", T("负载数据类型", "Payload Data Type"), base.DEC, payload_type_vals, 0x0F)
-f.rrep_payload_len = ProtoField.uint8 ("hplc_rf.rrep.payload_len", T("负载数据长度", "Payload Data Length"), base.DEC)
+f.rrep_version = ProtoField.uint8 ("gw_2022.rrep.version", T("版本", "Version"), base.DEC)
+f.rrep_seq = ProtoField.uint32 ("gw_2022.rrep.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
+f.rrep_payload_type = ProtoField.uint8 ("gw_2022.rrep.payload_type", T("负载数据类型", "Payload Data Type"), base.DEC, payload_type_vals, 0x0F)
+f.rrep_payload_len = ProtoField.uint8 ("gw_2022.rrep.payload_len", T("负载数据长度", "Payload Data Length"), base.DEC)
 
 -- 路由错误 (表117)
-f.rerr_version = ProtoField.uint8 ("hplc_rf.rerr.version", T("版本", "Version"), base.DEC)
-f.rerr_seq = ProtoField.uint32 ("hplc_rf.rerr.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
-f.rerr_unreach_cnt = ProtoField.uint8 ("hplc_rf.rerr.unreach_cnt", T("不可达站点数量", "Unreachable STA Count"), base.DEC)
-f.rerr_unreach_tei = ProtoField.uint16 ("hplc_rf.rerr.unreach_tei", T("不可达站点TEI", "Unreachable STA TEI"), base.DEC)
+f.rerr_version = ProtoField.uint8 ("gw_2022.rerr.version", T("版本", "Version"), base.DEC)
+f.rerr_seq = ProtoField.uint32 ("gw_2022.rerr.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
+f.rerr_unreach_cnt = ProtoField.uint8 ("gw_2022.rerr.unreach_cnt", T("不可达站点数量", "Unreachable STA Count"), base.DEC)
+f.rerr_unreach_tei = ProtoField.uint16 ("gw_2022.rerr.unreach_tei", T("不可达站点TEI", "Unreachable STA TEI"), base.DEC)
 
 -- 路由应答 (表118)
-f.rack_version = ProtoField.uint8 ("hplc_rf.rack.version", T("版本", "Version"), base.DEC)
-f.rack_seq = ProtoField.uint32 ("hplc_rf.rack.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
+f.rack_version = ProtoField.uint8 ("gw_2022.rack.version", T("版本", "Version"), base.DEC)
+f.rack_seq = ProtoField.uint32 ("gw_2022.rack.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
 
 -- 链路确认请求 (表119)
-f.lcreq_version = ProtoField.uint8 ("hplc_rf.lcreq.version", T("版本", "Version"), base.DEC)
-f.lcreq_seq = ProtoField.uint32 ("hplc_rf.lcreq.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
-f.lcreq_sta_cnt = ProtoField.uint8 ("hplc_rf.lcreq.sta_cnt", T("确认站点数量", "Confirm STA Count"), base.DEC)
-f.lcreq_sta_tei = ProtoField.uint16 ("hplc_rf.lcreq.sta_tei", T("确认站点TEI", "Confirm STA TEI"), base.DEC)
+f.lcreq_version = ProtoField.uint8 ("gw_2022.lcreq.version", T("版本", "Version"), base.DEC)
+f.lcreq_seq = ProtoField.uint32 ("gw_2022.lcreq.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
+f.lcreq_sta_cnt = ProtoField.uint8 ("gw_2022.lcreq.sta_cnt", T("确认站点数量", "Confirm STA Count"), base.DEC)
+f.lcreq_sta_tei = ProtoField.uint16 ("gw_2022.lcreq.sta_tei", T("确认站点TEI", "Confirm STA TEI"), base.DEC)
 
 -- 链路确认回应 (表120)
-f.lcrsp_version = ProtoField.uint8 ("hplc_rf.lcrsp.version", T("版本", "Version"), base.DEC)
-f.lcrsp_level = ProtoField.uint8 ("hplc_rf.lcrsp.level", T("层级", "Level"), base.DEC)
-f.lcrsp_chan_qual = ProtoField.uint8 ("hplc_rf.lcrsp.chan_qual", T("信道质量", "Channel Quality"), base.DEC)
-f.lcrsp_path_pref = ProtoField.bool ("hplc_rf.lcrsp.path_pref", T("路径优选标志", "Path Preference Flag"), 8, nil, 0x01)
-f.lcrsp_seq = ProtoField.uint32 ("hplc_rf.lcrsp.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
+f.lcrsp_version = ProtoField.uint8 ("gw_2022.lcrsp.version", T("版本", "Version"), base.DEC)
+f.lcrsp_level = ProtoField.uint8 ("gw_2022.lcrsp.level", T("层级", "Level"), base.DEC)
+f.lcrsp_chan_qual = ProtoField.uint8 ("gw_2022.lcrsp.chan_qual", T("信道质量", "Channel Quality"), base.DEC)
+f.lcrsp_path_pref = ProtoField.bool ("gw_2022.lcrsp.path_pref", T("路径优选标志", "Path Preference Flag"), 8, nil, 0x01)
+f.lcrsp_seq = ProtoField.uint32 ("gw_2022.lcrsp.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
 
 -- 无线信道冲突上报 (表121-122)
-f.rfccr_cco_mac = ProtoField.ether ("hplc_rf.rfccr.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
-f.rfccr_nbr_cnt = ProtoField.uint8 ("hplc_rf.rfccr.nbr_cnt", T("邻居网络个数", "Neighbor Network Count"), base.DEC)
-f.rfccr_nbr_ch = ProtoField.uint8 ("hplc_rf.rfccr.nbr_ch", T("邻居网络无线信道号", "Neighbor Network RF Channel"), base.DEC)
+f.rfccr_cco_mac = ProtoField.ether ("gw_2022.rfccr.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
+f.rfccr_nbr_cnt = ProtoField.uint8 ("gw_2022.rfccr.nbr_cnt", T("邻居网络个数", "Neighbor Network Count"), base.DEC)
+f.rfccr_nbr_ch = ProtoField.uint8 ("gw_2022.rfccr.nbr_ch", T("邻居网络无线信道号", "Neighbor Network RF Channel"), base.DEC)
 
 -- 无线发现列表 (表123-137)
-f.rfdl_sta_mac = ProtoField.ether ("hplc_rf.rfdl.sta_mac", T("站点MAC地址", "STA MAC Address"))
-f.rfdl_seq = ProtoField.uint8 ("hplc_rf.rfdl.seq", T("统计序号", "Statistics Sequence Number"), base.DEC)
-f.rfdl_ie_type = ProtoField.uint8 ("hplc_rf.rfdl.ie.type", T("信息单元类型", "Information Element Type"), base.DEC, ie_type_vals, 0x7F)
-f.rfdl_ie_ltype = ProtoField.uint8 ("hplc_rf.rfdl.ie.ltype", T("长度类型", "Length Type"), base.DEC, len_type_vals, 0x80)
-f.rfdl_ie_len = ProtoField.uint16 ("hplc_rf.rfdl.ie.len", T("信息单元长度", "Information Element Length"), base.DEC)
-f.rfdl_ie_data = ProtoField.bytes ("hplc_rf.rfdl.ie.data", T("信息单元内容", "Information Element Content"), base.NONE)
+f.rfdl_sta_mac = ProtoField.ether ("gw_2022.rfdl.sta_mac", T("站点MAC地址", "STA MAC Address"))
+f.rfdl_seq = ProtoField.uint8 ("gw_2022.rfdl.seq", T("统计序号", "Statistics Sequence Number"), base.DEC)
+f.rfdl_ie_type = ProtoField.uint8 ("gw_2022.rfdl.ie.type", T("信息单元类型", "Information Element Type"), base.DEC, ie_type_vals, 0x7F)
+f.rfdl_ie_ltype = ProtoField.uint8 ("gw_2022.rfdl.ie.ltype", T("长度类型", "Length Type"), base.DEC, len_type_vals, 0x80)
+f.rfdl_ie_len = ProtoField.uint16 ("gw_2022.rfdl.ie.len", T("信息单元长度", "Information Element Length"), base.DEC)
+f.rfdl_ie_data = ProtoField.bytes ("gw_2022.rfdl.ie.data", T("信息单元内容", "Information Element Content"), base.NONE)
 
 -- 应用层报文 APP_BASE (msdu_type=48, 表 报文ID)
-f.app_port = ProtoField.uint8 ("hplc_rf.app.port", T("端口号", "Port Number"), base.HEX, app_port_vals)
-f.app_packet_id = ProtoField.uint16 ("hplc_rf.app.packet_id", T("报文ID", "Packet ID"), base.HEX, app_packet_id_vals)
-f.app_ctrl_word = ProtoField.uint8 ("hplc_rf.app.ctrl_word", T("报文控制字", "Packet Control Word"), base.HEX)
-f.app_payload = ProtoField.bytes ("hplc_rf.app.payload", T("应用层载荷(Payload)", "Application Payload"), base.NONE)
+f.app_port = ProtoField.uint8 ("gw_2022.app.port", T("端口号", "Port Number"), base.HEX, app_port_vals)
+f.app_packet_id = ProtoField.uint16 ("gw_2022.app.packet_id", T("报文ID", "Packet ID"), base.HEX, app_packet_id_vals)
+f.app_ctrl_word = ProtoField.uint8 ("gw_2022.app.ctrl_word", T("报文控制字", "Packet Control Word"), base.HEX)
+f.app_payload = ProtoField.bytes ("gw_2022.app.payload", T("应用层载荷(Payload)", "Application Payload"), base.NONE)
 
 -- 位图逐字节解析节点 (string, 承载 "值 (TEI列表)" 文本)
-f.bmp_byte = ProtoField.string ("hplc_rf.bmp.byte", T("位图字节", "Bitmap Byte"))
+f.bmp_byte = ProtoField.string ("gw_2022.bmp.byte", T("位图字节", "Bitmap Byte"))
 
-hplc.fields = {
+gw.fields = {
     f.fc_dt, f.fc_net_type, f.fc_nid, f.fc_vf, f.fc_std_ver, f.fc_fccs,
     f.fc_fccs_calc, f.fc_fccs_ok,
     f.pb_seq, f.pb_sof, f.pb_eof, f.pb_pbcs, f.pb_size, f.pb_crc_ok, f.pb_crc_calc,
@@ -744,6 +751,7 @@ hplc.fields = {
     f.mac_bcast_dir, f.mac_path_repair, f.mac_addr_flag, f.mac_rsv1, f.mac_rsv2, f.mac_net_seq,
     f.mac_rsv3, f.mac_rsv4, f.mac_osmac, f.mac_odmac, f.mac_icv,
     f.mac_icv_calc, f.mac_icv_ok,
+    f.media_phr_mcs, f.media_option, f.media_channel, f.media_is_rf,
     f.col_orig_dst,
     f.rsvd, f.beacon_vf_rsv, f.sack_rsv, f.coord_rsv,
     f.sh_version, f.sh_msgtype, f.sh_msdulen,
@@ -816,17 +824,84 @@ local function add_val(tree, field, tvb, off, len, value)
     return tree:add(field, tvb(off, len), value)
 end
 
--- 小端读整字节字段
+-- 小端读整字节字段 (逐字节累加: 兼容"块体逻辑视图", 跨块读取仍正确)
 local function add_le(tree, field, tvb, off, len)
-    return tree:add(field, tvb(off, len), tvb(off, len):le_uint())
+    local val = 0
+    for i = 0, len - 1 do
+        val = val + tvb(off + i, 1):uint() * 2 ^ (8 * i)
+    end
+    return tree:add(field, tvb(off, len), val)
 end
+-- 块体逻辑视图: 多物理块时把"重组坐标"(各块块体拼接)映射回原始帧坐标.
+-- 逐字节读取(1B Range)总是字节精确; (off,len) 跨块时高亮范围顺带覆盖块间字节(值不受影响).
+-- 不生成新数据源 → hex 窗口始终显示完整原始帧(PB头/块尾CRC 都在), 点击字段高亮原帧对应字节
+local function make_block_view(tvb, base, pbsz, n)
+    local body = pbsz - 4  -- GW_2022: PB头1B + 体 + CRC24 3B          -- 块体长
+    local inter = pbsz - body      -- 块间字节数
+    local total = n * body
+    local function map(off)
+        local i = math.floor(off / body)
+        return base + i * pbsz + (off - i * body)
+    end
+    local v = setmetatable({}, {
+        __call = function(_, off, len)
+            off = off or 0
+            len = len or (total - off)
+            if off < 0 or len <= 0 or off + len > total then
+                error("block view: Range is out of bounds")
+            end
+            local crossings = math.floor((off + len - 1) / body) - math.floor(off / body)
+            return tvb(map(off), len + crossings * inter)
+        end,
+    })
+    v.len = function() return total end
+    v.body = body    -- 供 add_span 判断跨块分段
+    return v
+end
+
+-- 逻辑视图的子视图 (坐标平移, 供管理消息体/APP 体; 替代 range:tvb() 子集)
+local function view_slice(v, delta)
+    local s = setmetatable({}, {
+        __call = function(_, off, len)
+            off = off or 0
+            if len == nil then len = v.len() - delta - off end
+            return v(off + delta, len)
+        end,
+    })
+    s.len = function() return v.len() - delta end
+    if type(v) == "table" then s.body = v.body end   -- 真实 tvb 无 body(无需分段)
+    return s
+end
+
+-- 跨块字段分段高亮: 范围跨物理块时按块拆成多个树项(同一字段), 每项只高亮该块内的
+-- 数据字节, 不覆盖块间 PB头/CRC; 未跨块/真实 tvb 时等价于普通 tree:add(field, v(off, len))
+local function add_span(tree, field, v, off, len)
+    if type(v) ~= "table" then
+        -- 真实 tvb(单块): 连续, 直接加
+        if len == nil then len = v:len() - off end
+        return tree:add(field, v(off, len))
+    end
+    local body = v.body
+    if len == nil then len = v.len() - off end
+    if not body or math.floor((off + len - 1) / body) == math.floor(off / body) then
+        return tree:add(field, v(off, len))
+    end
+    local last
+    for i = math.floor(off / body), math.floor((off + len - 1) / body) do
+        local seg_s = math.max(off, i * body)
+        local seg_e = math.min(off + len, (i + 1) * body)
+        last = tree:add(field, v(seg_s, seg_e - seg_s))
+    end
+    return last
+end
+
 
 -- 位图逐字节解析: bit 全局索引 = TEI (字节i的bit j → TEI = i*8+j)
 -- 每字节输出 "值 (TEI列表)", 如 "2 (TEI1)" / "0x83 (TEI0,TEI1,TEI7)"
 -- 顶层节点用 bytes 字段 field (显示原始 hex), 逐字节子节点用 string
 local function dissect_tei_bitmap(tvb, tree, off, size, field, label_zh, label_en)
     if size <= 0 or off + size > tvb:len() then return end
-    local bmp_tree = tree:add(field, tvb(off, size))
+    local bmp_tree = add_span(tree, field, tvb, off, size)
     for i = 0, size - 1 do
         local b = tvb(off + i, 1):uint()
         local teis = {}
@@ -1202,7 +1277,7 @@ local function dissect_assoc_req(tvb, tree, off)
     tree:add(f.ar_mac_type, tvb(off+18, 1))
     tree:add(f.ar_module, tvb(off+19, 1))
     add_le(tree, f.ar_assoc_rand, tvb, off+20, 4)
-    tree:add(f.ar_vendor, tvb(off+24, 18))
+    add_span(tree, f.ar_vendor, tvb, off+24, 18)
     -- 站点版本信息 (表66)
     local vp = off + 42
     tree:add(f.ar_boot_reason, tvb(vp, 1))
@@ -1215,7 +1290,7 @@ local function dissect_assoc_req(tvb, tree, off)
     add_le(tree, f.ar_soft_rst, tvb, off+54, 2)
     tree:add(f.ar_proxy_type, tvb(off+56, 1))
     add_le(tree, f.ar_e2e_seq, tvb, off+60, 4)
-    tree:add(f.ar_mgmt_id, tvb(off+64, 24))
+    add_span(tree, f.ar_mgmt_id, tvb, off+64, 24)
 end
 
 -- 关联确认 (表70)
@@ -1290,7 +1365,7 @@ local function dissect_cproxy_cnf(tvb, tree, off)
     add_val(tree, f.cpc_proxy_tei, tvb, off+6, 2, read_bits(tvb, (off+6)*8, 12))
     add_le(tree, f.cpc_e2e_seq, tvb, off+8, 4)
     add_le(tree, f.cpc_path_seq, tvb, off+12, 4)
-    local child_cnt = tvb(off+16, 2):le_uint()
+    local child_cnt = read_bits(tvb, (off+16) * 8, 16)
     tree:add(f.cpc_child_cnt, tvb(off+16, 2), child_cnt)
     -- 子站点条目: 每个 2 字节
     for i = 0, child_cnt - 1 do
@@ -1302,7 +1377,7 @@ end
 -- 代理变更确认位图版 (表88)
 local function dissect_cproxy_bmp(tvb, tree, off)
     tree:add(f.cpb_result, tvb(off, 1))
-    local bmp_size = tvb(off+2, 2):le_uint()
+    local bmp_size = read_bits(tvb, (off+2) * 8, 16)
     tree:add(f.cpb_bitmap_size, tvb(off+2, 2), bmp_size)
     add_val(tree, f.cpb_sta_tei, tvb, off+4, 2, read_bits(tvb, (off+4)*8, 12))
     tree:add(f.cpb_link_type, tvb(off+5, 1))
@@ -1315,7 +1390,7 @@ end
 -- 离线指示 (表91)
 local function dissect_leave(tvb, tree, off)
     add_le(tree, f.li_reason, tvb, off, 2)
-    local sta_cnt = tvb(off+2, 2):le_uint()
+    local sta_cnt = read_bits(tvb, (off+2) * 8, 16)
     tree:add(f.li_sta_cnt, tvb(off+2, 2), sta_cnt)
     add_le(tree, f.li_delay, tvb, off+4, 2)
     for i = 0, sta_cnt - 1 do
@@ -1328,7 +1403,7 @@ local function dissect_heartbeat(tvb, tree, off)
     add_val(tree, f.hb_ostei, tvb, off, 2, read_bits(tvb, off*8, 12))
     add_val(tree, f.hb_max_disc_tei, tvb, off+2, 2, read_bits(tvb, (off+2)*8, 12))
     add_le(tree, f.hb_max_disc_cnt, tvb, off+4, 2)
-    local bmp_size = tvb(off+6, 2):le_uint()
+    local bmp_size = read_bits(tvb, (off+6) * 8, 16)
     tree:add(f.hb_bitmap_size, tvb(off+6, 2), bmp_size)
     dissect_tei_bitmap(tvb, tree, off+8, bmp_size, f.hb_disc_bmp, T("发现站点位图", "Discovery STA Bitmap"), "Discovery STA Bitmap")
 end
@@ -1353,7 +1428,7 @@ local function dissect_disc_list(tvb, tree, off)
     local up_route_cnt = tvb(off+23, 1):uint()
     tree:add(f.dl_up_route_cnt, tvb(off+23, 1))
     add_le(tree, f.dl_route_remain, tvb, off+24, 2)
-    local bmp_size = tvb(off+26, 2):le_uint()
+    local bmp_size = read_bits(tvb, (off+26) * 8, 16)
     tree:add(f.dl_bitmap_size, tvb(off+26, 2), bmp_size)
     tree:add(f.dl_min_rate, tvb(off+28, 1))
     -- 上行路由条目信息: 每条 2 字节
@@ -1392,7 +1467,7 @@ end
 -- 通信成功率上报 (表100)
 local function dissect_succ_rate(tvb, tree, off)
     add_val(tree, f.sr_tei, tvb, off, 2, read_bits(tvb, off*8, 12))
-    local cnt = tvb(off+2, 2):le_uint()
+    local cnt = read_bits(tvb, (off+2) * 8, 16)
     tree:add(f.sr_sta_cnt, tvb(off+2, 2), cnt)
     for i = 0, cnt - 1 do
         local p = off + 4 + i * 4
@@ -1449,7 +1524,7 @@ end
 -- 网络诊断 (表109)
 local function dissect_diag(tvb, tree, off)
     add_le(tree, f.diag_vendor_id, tvb, off, 2)
-    tree:add(f.diag_custom, tvb(off+2))
+    add_span(tree, f.diag_custom, tvb, off+2, nil)
 end
 
 -- 路由请求 (表111)
@@ -1528,7 +1603,8 @@ local function dissect_rfdl(tvb, tree, off)
         tree:add(f.rfdl_ie_ltype, tvb(pos, 1))
         pos = pos + 1
         local len_bytes = (ltype ~= 0) and 2 or 1
-        local elen = tvb(pos, len_bytes):uint()
+        local elen = tvb(pos, 1):uint()
+        if len_bytes == 2 then elen = elen * 256 + tvb(pos + 1, 1):uint() end
         tree:add(f.rfdl_ie_len, tvb(pos, len_bytes))
         pos = pos + len_bytes
         tree:add(f.rfdl_ie_data, tvb(pos, elen))
@@ -1566,7 +1642,7 @@ end
 local function dissect_mgmt_hdr(tvb, tree, off)
     add_le(tree, f.mgmt_mmtype, tvb, off, 2)
     add_le(tree, f.mgmt_resv, tvb, off+2, 2)
-    return tvb(off, 2):le_uint()
+    return read_bits(tvb, off * 8, 16)
 end
 
 -- =========================================================================
@@ -1574,10 +1650,22 @@ end
 -- =========================================================================
 local encap_type_f = Field.new("frame.encap_type")
 
-function hplc.dissector(tvb, pinfo, tree)
-    -- 按捕获 DLT 区分媒介: USER0(encap45)=HPLC 载波, USER1(encap46)=RF 无线
+function gw.dissector(tvb, pinfo, tree)
+    -- 媒介判别: USER0(45)=载波 / USER1(46)=无线 / USER4(49)=串口混合采集(帧内媒介头)
     local ev = encap_type_f()
-    if ev and tostring(ev) == "46" then
+    local evs = ev and tostring(ev) or ""
+    local is_rf = (evs == "46")
+    if evs == "49" then
+        -- USER4 混合格式: [phr_mcs][option][channel][isRF] + MPDU (载波/无线可混在一个抓包里)
+        local mtree = tree:add(gw, tvb(0, 4), T("媒介头(串口采集)", "Media Header (serial capture)"))
+        mtree:add(f.media_phr_mcs, tvb(0, 1))
+        mtree:add(f.media_option, tvb(1, 1))
+        mtree:add(f.media_channel, tvb(2, 1))
+        mtree:add(f.media_is_rf, tvb(3, 1))
+        is_rf = tvb(3, 1):uint() ~= 0
+        tvb = tvb(4):tvb()
+    end
+    if is_rf then
         pinfo.cols.protocol = "RF"
     else
         pinfo.cols.protocol = "HPLC"
@@ -1635,10 +1723,10 @@ function hplc.dissector(tvb, pinfo, tree)
 
     pinfo.cols.info = string.format("DT=%s NID=0x%06x", dt_vals[dt] or T("Reserved", "Reserved").."("..dt..")", nid)
 
-    local root = tree:add(hplc, tvb())
+    local root = tree:add(gw, tvb())
 
     -- MPDU 帧控制 16B (5.1.2)
-    local fc_tree = root:add(hplc, tvb(0, 16), T("MPDU 帧控制 (FCH)", "MPDU Frame Control (FCH)"))
+    local fc_tree = root:add(gw, tvb(0, 16), T("MPDU 帧控制 (FCH)", "MPDU Frame Control (FCH)"))
     fc_tree:add(f.fc_dt, tvb(0, 1))
     fc_tree:add(f.fc_net_type, tvb(0, 1))
     fc_tree:add(f.fc_nid, tvb(1, 3), nid)
@@ -1665,12 +1753,22 @@ function hplc.dissector(tvb, pinfo, tree)
     -- 信标帧载荷 (dt=0)
     if dt == 0 and tvb:len() > 16 then
         -- 信标物理块无物理块头, 载荷直接跟在 FCH 后
-        -- 精简信标标志在载荷首字节 bit4
-        local simple = band(tvb(16, 1):uint(), 0x10) ~= 0
-        if simple then
-            dissect_simple_beacon_payload(tvb, root:add(hplc, tvb(16), T("精简信标帧载荷", "Lite Beacon Payload")), 16)
+        local tmi = read_bits(tvb, 9*8+4, 4)
+        local bpbsize = beacon_pb_size(tmi)
+        if bpbsize > 0 and 16 + bpbsize > tvb:len() then
+            -- 捕获截断: 帧长低于 TMI 对应物理块, 仅提示不展开(避免逐字段越界)
+            root:add_expert_info(PI_MALFORMED, PI_WARN,
+                string.format(T("帧长 %d B 低于 TMI=%d 对应信标物理块 %d B(可能截断)",
+                                "Frame %d B shorter than TMI=%d beacon PB %d B (truncated?)"),
+                              tvb:len(), tmi, bpbsize))
         else
-            dissect_beacon_payload(tvb, root:add(hplc, tvb(16), T("信标帧载荷", "Beacon Payload")), 16)
+            -- 精简信标标志在载荷首字节 bit4
+            local simple = band(tvb(16, 1):uint(), 0x10) ~= 0
+            if simple then
+                dissect_simple_beacon_payload(tvb, root:add(gw, tvb(16), T("精简信标帧载荷", "Lite Beacon Payload")), 16)
+            else
+                dissect_beacon_payload(tvb, root:add(gw, tvb(16), T("信标帧载荷", "Beacon Payload")), 16)
+            end
         end
     end
 
@@ -1683,12 +1781,16 @@ function hplc.dissector(tvb, pinfo, tree)
         local pbsz = sof_pb_size(tmi, tmi_ext)
 
         -- 逐 PB 块解析: 头(1B) + 体(pbsz-4) + CRC24(3B)
-        local mac_off = 17  -- 第一块体起始 = FCH16 + 头1
+        -- MAC 帧解析基准: 多块时 MSDU 跨物理块(中间夹块尾CRC24/下块头),
+        -- 用"块体逻辑视图"把重组坐标映射回原帧 — 不生成新数据源, hex 始终完整显示原始帧
+        local mac_tvb = tvb
+        local mac_off = 17  -- 单块路径: 第一块体起始 = FCH16 + 头1 (块体连续, 直接用原帧)
         if pbsz > 0 and pb_count >= 1 and pb_count <= 4 then
+            local blocks_done = 0
             for i = 0, pb_count - 1 do
                 local bstart = 16 + i * pbsz
                 if bstart + pbsz > tvb:len() then break end
-                local blk_tree = root:add(hplc, tvb(bstart, pbsz),
+                local blk_tree = root:add(gw, tvb(bstart, pbsz),
                     string.format(T("物理块 %d", "PB %d"), i))
                 blk_tree:add(f.pb_size, tvb(bstart, pbsz), pbsz)
                 blk_tree:add(f.pb_seq, tvb(bstart, 1))
@@ -1702,44 +1804,49 @@ function hplc.dissector(tvb, pinfo, tree)
                 blk_tree:add(f.pb_pbcs, tvb(bstart + pbsz - 3, 3), crc_rx)
                 blk_tree:add(f.pb_crc_calc, tvb(bstart + pbsz - 3, 3), crc_calc)
                 blk_tree:add(f.pb_crc_ok, tvb(bstart + pbsz - 3, 1), crc_calc == crc_rx)
+                blocks_done = blocks_done + 1
+            end
+            if blocks_done == pb_count and pb_count > 1 then
+                mac_tvb = make_block_view(tvb, 17, pbsz, pb_count)
+                mac_off = 0
             end
         else
             -- 无法查表时, 退化为旧行为: 仅读首块头
             local pb_off = 16
-            local pb_tree = root:add(hplc, tvb(pb_off, 1), T("物理块头", "PB Header"))
+            local pb_tree = root:add(gw, tvb(pb_off, 1), T("物理块头", "PB Header"))
             pb_tree:add(f.pb_seq, tvb(pb_off, 1))
             pb_tree:add(f.pb_sof, tvb(pb_off, 1))
             pb_tree:add(f.pb_eof, tvb(pb_off, 1))
         end
 
-        if mac_off < tvb:len() then
-            local version = read_bits(tvb, mac_off*8, 4)
-            local mac_tree = root:add(hplc, tvb(mac_off), T("MAC 帧", "MAC Frame"))
+        if mac_off < mac_tvb:len() then
+            local version = read_bits(mac_tvb, mac_off*8, 4)
+            local mac_tree = root:add(gw, mac_tvb(mac_off), T("MAC 帧", "MAC Frame"))
             local msdu_off
             if version == 0 then
-                local hdr_len = dissect_std_mac_hdr(tvb, mac_tree, mac_off)
+                local hdr_len = dissect_std_mac_hdr(mac_tvb, mac_tree, mac_off)
                 msdu_off = mac_off + hdr_len
             elseif version == 1 then
-                local hdr_len = dissect_sh_mac_hdr(tvb, mac_tree, mac_off)
+                local hdr_len = dissect_sh_mac_hdr(mac_tvb, mac_tree, mac_off)
                 msdu_off = mac_off + hdr_len
                 -- 单跳帧: 消息类型0 = 无线发现列表
-                local msg_type = tvb(mac_off+1, 1):uint()
+                local msg_type = mac_tvb(mac_off+1, 1):uint()
                 if msg_type == 0 then
-                    dissect_rfdl(tvb, mac_tree, msdu_off)
+                    dissect_rfdl(mac_tvb, mac_tree, msdu_off)
                 end
                 return tvb:len()
             else
                 msdu_off = mac_off + 16
             end
 
-            local msdu_type = tvb(mac_off+7, 1):uint()
-            local msdu_len = read_bits(tvb, mac_off*8+8*8, 11)
+            local msdu_type = mac_tvb(mac_off+7, 1):uint()
+            local msdu_len = read_bits(mac_tvb, mac_off*8+8*8, 11)
 
             -- 方向判断: OSTEI=1(源CCO) 且 ODTEI!=0xFFF → 下行; 否则上行
             -- 当前发出者 src_tei != OSTEI → 中继 Relay
-            if version == 0 and mac_off + 16 <= tvb:len() then
-                local ostei = read_bits(tvb, mac_off*8+4, 12)
-                local odtei = read_bits(tvb, mac_off*8+2*8, 12)
+            if version == 0 and mac_off + 16 <= mac_tvb:len() then
+                local ostei = read_bits(mac_tvb, mac_off*8+4, 12)
+                local odtei = read_bits(mac_tvb, mac_off*8+2*8, 12)
                 -- 原始目标地址列: ODTEI 格式化 + MAC 映射
                 local ods
                 if odtei == 0xFFF then
@@ -1751,7 +1858,7 @@ function hplc.dissector(tvb, pinfo, tree)
                 end
                 local odmac = lookup_tei_mac(nid, odtei)
                 if odmac then ods = ods .. " [" .. odmac .. "]" end
-                tree:add(f.col_orig_dst, tvb(mac_off+2, 2), ods)
+                tree:add(f.col_orig_dst, mac_tvb(mac_off+2, 2), ods)
                 local dir_mark = ""
                 if ostei == 1 and odtei ~= 0xFFF then
                     dir_mark = T(" ↓下行", " ↓Downlink")
@@ -1767,9 +1874,9 @@ function hplc.dissector(tvb, pinfo, tree)
             end
 
             -- 管理消息
-            if msdu_type == 0 and msdu_off + 4 <= tvb:len() then
-                local mgmt_tree = mac_tree:add(hplc, tvb(msdu_off), T("管理消息", "Management Message"))
-                local mmtype = dissect_mgmt_hdr(tvb, mgmt_tree, msdu_off)
+            if msdu_type == 0 and msdu_off + 4 <= mac_tvb:len() then
+                local mgmt_tree = mac_tree:add(gw, mac_tvb(msdu_off), T("管理消息", "Management Message"))
+                local mmtype = dissect_mgmt_hdr(mac_tvb, mgmt_tree, msdu_off)
                 -- info 列追加管理消息类型
                 local mt_name = mgmt_type_vals[mmtype] or ""
                 local cur_info = tostring(pinfo.cols.info)
@@ -1782,10 +1889,10 @@ function hplc.dissector(tvb, pinfo, tree)
                 local body_off = msdu_off + 4
                 local body_len = msdu_len - 4
                 if body_len > 0 then
-                    local avail = tvb:len() - body_off
+                    local avail = mac_tvb:len() - body_off
                     if avail > 0 then
-                        -- 用子 tvb 截断到实际可用长度, off 从 0 起
-                        local body_tvb = tvb(body_off, math.min(body_len, avail)):tvb()
+                        -- 子视图(坐标平移到消息体起点, off 从 0 起; 不生成新数据源)
+                        local body_tvb = view_slice(mac_tvb, body_off)
                         local ok, err = pcall(dissect_mgmt_body, body_tvb, mgmt_tree, 0, mmtype)
                         if not ok then
                             mgmt_tree:add_expert_info(PI_MALFORMED, PI_WARN,
@@ -1796,16 +1903,16 @@ function hplc.dissector(tvb, pinfo, tree)
             end
 
             -- 应用层报文 (msdu_type=48): APP_BASE = 端口号 + 报文ID + 控制字
-            if msdu_type == 48 and msdu_off + 4 <= tvb:len() then
-                local app_tree = mac_tree:add(hplc, tvb(msdu_off), T("应用层报文", "Application Layer Packet"))
-                app_tree:add(f.app_port, tvb(msdu_off, 1))
-                local packet_id = tvb(msdu_off + 1, 2):le_uint()
-                app_tree:add(f.app_packet_id, tvb(msdu_off + 1, 2), packet_id)
-                app_tree:add(f.app_ctrl_word, tvb(msdu_off + 3, 1))
+            if msdu_type == 48 and msdu_off + 4 <= mac_tvb:len() then
+                local app_tree = mac_tree:add(gw, mac_tvb(msdu_off), T("应用层报文", "Application Layer Packet"))
+                app_tree:add(f.app_port, mac_tvb(msdu_off, 1))
+                local packet_id = read_bits(mac_tvb, (msdu_off + 1) * 8, 16)
+                app_tree:add(f.app_packet_id, mac_tvb(msdu_off + 1, 2), packet_id)
+                app_tree:add(f.app_ctrl_word, mac_tvb(msdu_off + 3, 1))
                 -- 应用层载荷 = MSDU 去掉 4 字节 APP_BASE
                 local app_payload_len = msdu_len - 4
-                if app_payload_len > 0 and msdu_off + 4 + app_payload_len <= tvb:len() then
-                    app_tree:add(f.app_payload, tvb(msdu_off + 4, app_payload_len))
+                if app_payload_len > 0 and msdu_off + 4 + app_payload_len <= mac_tvb:len() then
+                    add_span(app_tree, f.app_payload, mac_tvb, msdu_off + 4, app_payload_len)
                 end
                 -- info 列追加报文 ID 说明
                 local pid_name = app_packet_id_vals[packet_id] or ""
@@ -1819,20 +1926,19 @@ function hplc.dissector(tvb, pinfo, tree)
 
             -- ICV CRC32 在 MSDU 末尾: 校验 MSDU(msdu_off..icv_off, 不含 MAC 帧头)
             local icv_off = msdu_off + msdu_len
-            if msdu_len > 0 and icv_off + 4 <= tvb:len() then
-                local icv_rx = tvb(icv_off, 4):le_uint()
-                local icv_calc = crc32_le(tvb, msdu_off, msdu_len + 4)
-                tree:add(f.mac_icv, tvb(icv_off, 4), icv_rx)
-                tree:add(f.mac_icv_calc, tvb(icv_off, 4), icv_calc)
-                tree:add(f.mac_icv_ok, tvb(icv_off, 1), icv_calc == icv_rx)
+            if msdu_len > 0 and icv_off + 4 <= mac_tvb:len() then
+                local icv_rx = read_bits(mac_tvb, icv_off * 8, 32)
+                local icv_calc = crc32_le(mac_tvb, msdu_off, msdu_len + 4)
+                tree:add(f.mac_icv, mac_tvb(icv_off, 4), icv_rx)
+                tree:add(f.mac_icv_calc, mac_tvb(icv_off, 4), icv_calc)
+                tree:add(f.mac_icv_ok, mac_tvb(icv_off, 1), icv_calc == icv_rx)
             end
 
-            -- padding: 最后一个 PB 块中, MAC 帧(头+MSDU+ICV)结束到块 CRC24 前的填充区
-            if pbsz > 0 and pb_count >= 1 and pb_count <= 4 then
+            -- padding: 重组流中 MAC 帧(头+MSDU+ICV)结束到末块块体终点的填充区
+            if mac_off == 0 then
                 local pad_start = msdu_off + msdu_len + 4  -- ICV 之后
-                local pad_end = 16 + pb_count * pbsz - 3   -- 末块 CRC24 起始
-                if pad_start < pad_end and pad_end <= tvb:len() then
-                    root:add(f.pb_padding, tvb(pad_start, pad_end - pad_start))
+                if pad_start < mac_tvb:len() then
+                    add_span(root, f.pb_padding, mac_tvb, pad_start, nil)
                 end
             end
         end
@@ -1842,9 +1948,11 @@ function hplc.dissector(tvb, pinfo, tree)
 end
 
 -- =========================================================================
--- 注册到 USER DLT (internal encap 45-60)
+-- 注册到 USER DLT: GW_2022 载波=USER0(45), 无线=USER1(46); 南网 NW_2021 用 USER2(47)/USER3(48), 见 packet-nw_2021.lua
 -- =========================================================================
 local wtap_encap = DissectorTable.get("wtap_encap")
-for i = 45, 60 do
-    wtap_encap:add(i, hplc)
+for i = 45, 46 do
+    wtap_encap:add(i, gw)
 end
+-- USER4(49): 串口混合采集格式(媒介头+MPDU, 载波/无线混采), 见 bplc_serial_extcap.py
+wtap_encap:add(49, gw)

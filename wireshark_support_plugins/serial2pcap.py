@@ -5,11 +5,16 @@
 用法:
   python serial2pcap.py COM8 460800 capture.pcap
   python serial2pcap.py COM8              # 默认 460800, 文件名自动带时间戳
+  python serial2pcap.py --nw COM8         # 南网 NW_2021 (USER2/3 = linktype 149/150)
+  python serial2pcap.py --gw COM8         # 国网 GW_2022 (USER0/1 = linktype 147/148, 默认)
 
 帧格式(与 bin 回放一致, 依据 serialreader.cpp):
   0x3C ... 0x3E 哨兵帧, 帧内 0x3C/0x3D/0x3E 转义为 0x3D + (0xFF^字节)
   反转义后: data_len(2B小端) + timestamp(4B小端NTB) + 媒介头4B + 纯MPDU
   实时串口帧: 无时间标签, arrival = 本地时刻
+
+协议识别: 未指定 --gw/--nw 时, 按前若干帧的结构(信标/SOF 预计帧长)投票,
+首个有判别信号的帧决定协议并写出 pcap 头(之前的帧暂存内存), 超过 50 帧无信号回退国网.
 
 时间轴:
   首帧 = 本地接收时刻.
@@ -25,22 +30,81 @@ NTB_TICK_NS = 40               # 25MHz, 1 tick = 40ns
 NTB_WRAP_TICKS = 1 << 32       # NTB 32bit 完整回绕周期 (tick)
 NTB_WRAP_NS = NTB_WRAP_TICKS * NTB_TICK_NS  # 171798691840ns ≈ 171.8s
 
+# ── 单帧协议判别 (与 bin2pcap.py 一致): 信标/SOF 的 预计帧长==实际帧长 ──
+def _gw_beacon_pb(tmi):
+    if tmi in (0, 1): return 520
+    if 2 <= tmi <= 6: return 136
+    if 7 <= tmi <= 10: return 520
+    if tmi in (11, 12): return 264
+    if tmi in (13, 14): return 72
+    return None
+
+def _gw_sof_pb(tmi, ext):
+    s = _gw_beacon_pb(tmi)
+    if s: return s
+    if 1 <= ext <= 6: return 520
+    if 10 <= ext <= 14: return 136
+    return None
+
+def _nw_plc_pb(tmi, ext):
+    if tmi in (0, 1): return 520
+    if 2 <= tmi <= 6: return 136
+    if 7 <= tmi <= 10: return 520
+    if tmi in (11, 12): return 264
+    if 1 <= ext <= 6: return 520
+    if 10 <= ext <= 14: return 136
+    return None
+
+def _nw_rf_pb(pblen):
+    return (16, 40, 72, 136, 264, 520)[pblen] if 0 <= pblen <= 5 else None
+
+def _match(mpdu, expect):
+    return expect is not None and len(mpdu) == 16 + expect
+
+def vote_protocol(mpdu):
+    """返回 'gw'/'nw'/None (无判别信号)."""
+    if len(mpdu) < 16:
+        return None
+    dt = mpdu[0] & 0x07
+    if dt == 0:  # 信标: GW TMI@字节9高4bit; NW 载波 TMI@字节10高4bit / 无线 PBLen@字节11低4bit
+        gw = _gw_beacon_pb(mpdu[9] >> 4)
+        nw = _nw_plc_pb(mpdu[10] >> 4, 0) or _nw_rf_pb(mpdu[11] & 0x0F)
+        g, w = _match(mpdu, gw), _match(mpdu, nw)
+        if g and not w: return 'gw'
+        if w and not g: return 'nw'
+    elif dt == 1 and len(mpdu) > 12:  # SOF
+        gsz = _gw_sof_pb(mpdu[11] >> 4, mpdu[12] & 0x0F)
+        g = _match(mpdu, (mpdu[9] >> 4) * gsz if gsz else None)
+        w1 = (mpdu[7] & 0x0F) == 1 and _match(mpdu, _nw_plc_pb(mpdu[7] >> 4, mpdu[12] & 0x0F))
+        w2 = _match(mpdu, _nw_rf_pb(mpdu[6] >> 4))
+        if g and not (w1 or w2): return 'gw'
+        if (w1 or w2) and not g: return 'nw'
+    return None
+
 def build_pcap_header(linktype=147):
     return struct.pack('<IHHiIII', 0xa1b2c3d4, 2, 4, 0, 0, 65535, linktype)
 
 def main():
-    port = sys.argv[1] if len(sys.argv) > 1 else 'COM8'
-    baud = int(sys.argv[2]) if len(sys.argv) > 2 else 460800
-    out_path = sys.argv[3] if len(sys.argv) > 3 else \
+    pos_args, proto = [], None
+    for a in sys.argv[1:]:
+        if a == '--nw': proto = 'nw'
+        elif a == '--gw': proto = 'gw'
+        else: pos_args.append(a)
+    port = pos_args[0] if len(pos_args) > 0 else 'COM8'
+    baud = int(pos_args[1]) if len(pos_args) > 1 else 460800
+    out_path = pos_args[2] if len(pos_args) > 2 else \
         f"capture_{time.strftime('%Y%m%d_%H%M%S')}.pcap"
 
     ser = serial.Serial(port, baud, timeout=0.5)
     print(f"打开 {port} @ {baud}, 输出 {out_path}")
     print("Ctrl+C 停止")
+    if proto is None:
+        print("协议自动识别中 (可用 --gw/--nw 强制指定)...")
 
     out = open(out_path, 'wb')
     header_written = False
-    linktype = 147  # 默认 HPLC, 首帧 isRF 后确定
+    pending = []   # 协议未定时暂存的帧记录 (abs_s, abs_us, mpdu)
+    proto_state = {'proto': proto}  # 识别后固定; None = 仍未定
 
     buf = bytearray()
     frames = 0
@@ -105,11 +169,27 @@ def main():
                 if not mpdu:
                     continue
 
-                # 首帧确定 linktype (isRF: 0=HPLC→147, 非0=RF→148), 之后写 pcap 头
+                # 首帧确定 linktype (媒介 + 协议) 后写 pcap 头
+                # GW_2022: 载波 147 (USER0) / 无线 148 (USER1); NW_2021: 载波 149 (USER2) / 无线 150 (USER3)
                 if not header_written:
-                    linktype = 148 if unesc[9] != 0 else 147
+                    is_rf = unesc[9] != 0
+                    if proto_state['proto'] is None:
+                        v = vote_protocol(mpdu)
+                        if v is None and len(pending) < 50:
+                            pending.append((None, None, bytes(mpdu)))  # 暂存, 等协议确定
+                            continue
+                        proto_state['proto'] = v or 'gw'
+                        print(f"协议识别: {proto_state['proto'].upper()}")
+                    if proto_state['proto'] == 'nw':
+                        linktype = 150 if is_rf else 149
+                    else:
+                        linktype = 148 if is_rf else 147
                     out.write(build_pcap_header(linktype))
                     header_written = True
+                    for _, _, pm in pending:  # 刷新暂存帧
+                        out.write(struct.pack('<IIII', 0, 0, len(pm), len(pm)))
+                        out.write(pm)
+                    pending.clear()
 
                 # 时间轴: 首帧=本地; 后续=上帧+NTB差×40ns; 断流超环绕周期则本地重置
                 cur_ntb = struct.unpack('<I', unesc[2:6])[0]
