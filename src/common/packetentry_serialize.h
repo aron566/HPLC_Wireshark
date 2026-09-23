@@ -219,6 +219,9 @@ inline void write_msdu_info(QDataStream& s, const MsduInfo& m) {
     write_u16(s, m.msdu_type);
     write_u8(s, m.restart_count);
     write_u8(s, m.broadcast_direction);
+    write_u8(s, m.business_id);
+    write_u8(s, m.app_packet_type);
+    write_u16(s, m.mme_type);
     write_i32(s, m.total_len);
     write_str(s, m.summary);
     write_u32(s, quint32(m.tree.size()));
@@ -241,6 +244,9 @@ inline void read_msdu_info(QDataStream& s, MsduInfo& m) {
     read_u16(s, m.msdu_type);
     read_u8(s, m.restart_count);
     read_u8(s, m.broadcast_direction);
+    read_u8(s, m.business_id);
+    read_u8(s, m.app_packet_type);
+    read_u16(s, m.mme_type);
     read_i32(s, m.total_len);
     read_str(s, m.summary);
     quint32 cnt = 0; read_u32(s, cnt);
