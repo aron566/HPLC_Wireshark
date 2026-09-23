@@ -9,6 +9,19 @@
 
 #include "bplcframe.h"
 
+/// @brief 南网 NW_2021 应用层帧类型域(业务报文头控制域 bit0-3,表4)
+enum class NW_2021_PacketType : quint8 {
+    AckNack       = 0x0,  ///< 确认/否认
+    DataForward   = 0x1,  ///< 数据转发帧
+    Command       = 0x2,  ///< 命令帧
+    EventReport   = 0x3,  ///< 主动上报帧
+    ReaderFrame   = 0x4,  ///< 抄控器相关协议
+    BroadcastCmd  = 0x5,  ///< 广播命令帧
+    DataSubscribe = 0x6,  ///< 数据订阅路由帧
+    Test          = 0xE,  ///< 厂家调试帧
+    FactoryFrame  = 0xF,  ///< 厂测帧
+};
+
 /// @brief 南网 MSDU 解析器(纯静态,无状态)
 class NW_2021_MsduParser {
 public:

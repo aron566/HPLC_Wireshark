@@ -571,16 +571,17 @@ static void append_payload_hex(MsduInfo& out, const QByteArray& app, int offset,
 }
 
 // ── 南网 APP 应用层解析入口 ────────────────────────────
-static QString app_type_name(quint8 packet_type) {
+static QString app_type_name(NW_2021_PacketType packet_type) {
     switch (packet_type) {
-    case 0x0: return QStringLiteral("ACK/NACK");
-    case 0x1: return QStringLiteral("DataForward");
-    case 0x2: return QStringLiteral("Command");
-    case 0x3: return QStringLiteral("EventReport");
-    case 0x4: return QStringLiteral("ReaderFrame");
-    case 0xE: return QStringLiteral("Test");
-    case 0xF: return QStringLiteral("FactoryFrame");
-    default:  return QStringLiteral("PacketType 0x%1").arg(packet_type, 1, 16);
+    case NW_2021_PacketType::AckNack:      return QStringLiteral("ACK/NACK");
+    case NW_2021_PacketType::DataForward:  return QStringLiteral("DataForward");
+    case NW_2021_PacketType::Command:      return QStringLiteral("Command");
+    case NW_2021_PacketType::EventReport:  return QStringLiteral("EventReport");
+    case NW_2021_PacketType::ReaderFrame:  return QStringLiteral("ReaderFrame");
+    case NW_2021_PacketType::Test:         return QStringLiteral("Test");
+    case NW_2021_PacketType::FactoryFrame: return QStringLiteral("FactoryFrame");
+    default:
+        return QStringLiteral("PacketType 0x%1").arg(static_cast<quint8>(packet_type), 1, 16);
     }
 }
 
@@ -601,17 +602,17 @@ static QString packet_id_name(quint16 id) {
 }
 
 // ── 业务标识(表9)值解释:依赖帧类型,返回空串表示保留/无释义 ──
-static QString business_id_name(quint8 port_num, quint8 packet_type, quint8 business_id) {
+static QString business_id_name(quint8 port_num, NW_2021_PacketType packet_type, quint8 business_id) {
     switch (packet_type) {
-    case 0x0:  // 确认/否认
+    case NW_2021_PacketType::AckNack:  // 确认/否认
         if (business_id == 0x00) return trl::L("确认");
         if (business_id == 0x01) return trl::L("否认");
         break;
-    case 0x1:  // 数据转发
+    case NW_2021_PacketType::DataForward:  // 数据转发
         if (business_id == 0x00) return trl::L("数据透传至设备");
         if (business_id == 0x01) return trl::L("数据透传至模块");
         break;
-    case 0x2:  // 命令
+    case NW_2021_PacketType::Command:  // 命令
         switch (business_id) {
         case 0x00: return trl::L("查询终端搜索结果");
         case 0x01: return trl::L("下发搜索终端列表");
@@ -627,16 +628,16 @@ static QString business_id_name(quint8 port_num, quint8 packet_type, quint8 busi
         default: break;
         }
         break;
-    case 0x3:  // 主动上报
+    case NW_2021_PacketType::EventReport:  // 主动上报
         if (business_id == 0x00) return trl::L("电表事件主动上报");
         if (business_id == 0x01) return trl::L("停上电事件上报");
         if (business_id == 0x02) return trl::L(port_num == 0x13 ? "通信模块事件上报" : "设备事件主动上报");
         break;
-    case 0x4:  // 抄控器协议
+    case NW_2021_PacketType::ReaderFrame:  // 抄控器协议
         if (business_id == 0x00) return trl::L("抄控器-CCO协议");
         if (business_id == 0x01) return trl::L("数据透传串口转发");
         break;
-    case 0x5:  // 广播命令
+    case NW_2021_PacketType::BroadcastCmd:  // 广播命令
         switch (business_id) {
         case 0x04: return trl::L("从节点重启");
         case 0x05: return trl::L("从节点信息查询");
@@ -662,7 +663,7 @@ static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base, quint1
     add_fields(bh.children, app, 4, kBusinessHeaderSpec, kBusinessHeaderSpecN, rel_base);
     const quint8  port_num    = (quint8)get_bits(app, 0, 0, 8);
     const quint16 packet_id   = (quint16)get_bits(app, 1, 0, 16);
-    const quint8  packet_type = (quint8)get_bits(app, 4, 0, 4);
+    const NW_2021_PacketType packet_type = static_cast<NW_2021_PacketType>(get_bits(app, 4, 0, 4));
     const quint8  business_id = (quint8)get_bits(app, 6, 0, 8);
     // 报文端口号 + 报文标识符值解释(6.1/6.2)
     const QString port_name = port_num_name(port_num);
