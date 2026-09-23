@@ -210,9 +210,8 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
             }
         }
     } else if (role == Qt::ForegroundRole) {
-        // MSDU Type 列:应用层报文着色(确认/否认特殊色 + 其他按 BID 散列)
-        if (idx.column() == COL_MSDU_TYPE && e.msdu.present
-            && e.msdu.business_id != 0xFF) {
+        // 应用层报文整行按 BID 着色(确认亮绿/否认红 + 其他 BID 散列);非应用层走帧类型颜色
+        if (e.msdu.present && e.msdu.business_id != 0xFF) {
             if (e.msdu.app_packet_type == kAppPacketAckNack) {
                 if (e.msdu.business_id == kBidConfirm) return QColor(46, 214, 106);   // 确认(ACK)亮绿
                 if (e.msdu.business_id == kBidDeny)    return QColor(224, 64, 64);    // 否认(NACK)红
