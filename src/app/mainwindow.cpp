@@ -47,6 +47,10 @@
 #include <QPushButton>
 #include <QDesktopServices>
 #include <QUrl>
+#include <QFileInfo>
+#include <QMimeData>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 
 #include <QIcon>
 
@@ -133,6 +137,9 @@ MainWindow::MainWindow(QWidget* parent)
     if (appcfg::auto_check()) {
         QTimer::singleShot(0, this, [this]() { check_for_updates(true); });
     }
+
+    // 支持拖放文件导入(按扩展名自动判定 .bin 回放 / .txt/.hex 裸 hex)
+    setAcceptDrops(true);
 }
 
 MainWindow::~MainWindow() = default;
@@ -744,14 +751,13 @@ bool MainWindow::confirm_protocol_rebuild() {
     return box.clickedButton() == btn_apply;
 }
 
-/// @brief 协议切换立即生效:停止当前采集/回放 → 清空 → 用新协议重建解析器
-void MainWindow::rebuild_dispatcher() {
-    if (m_reader) m_reader->stop();
-    on_clear();                       // 清空列表/协议树/hex/统计(旧 dispatcher 仍在)
+/// @brief 停止旧解析线程并重建 dispatcher(拖放导入/协议切换共用):
+///        丢弃积压帧、重置 MSDU 重组与统计,按 config.ini 协议实例化新解析器
+void MainWindow::reset_dispatcher() {
+    // 回放忙碌时不能同步 delete(析构里 wait 会卡 GUI 直至崩溃):
+    // shutdown 立即断开 worker 信号 + 退出解析线程(停止处理积压帧、
+    // 停止向 GUI 投递 parsed),再断外部连接并 deleteLater 异步销毁。
     if (m_dispatch) {
-        // 回放忙碌时不能同步 delete(析构里 wait 会卡 GUI 直至崩溃):
-        // shutdown 立即断开 worker 信号 + 退出解析线程(停止处理积压帧、
-        // 停止向 GUI 投递 parsed),再断外部连接并 deleteLater 异步销毁。
         m_dispatch->shutdown();
         m_dispatch->disconnect_source(m_reader);
         m_dispatch->disconnect(this);
@@ -763,8 +769,63 @@ void MainWindow::rebuild_dispatcher() {
     connect(m_dispatch, &FrameDispatcher::parsed,
             this,       &MainWindow::on_parsed,
             Qt::QueuedConnection);
+}
+
+/// @brief 协议切换立即生效:停止当前采集/回放 → 清空 → 用新协议重建解析器
+void MainWindow::rebuild_dispatcher() {
+    if (m_reader) m_reader->stop();
+    on_clear();                       // 清空列表/协议树/hex/统计(旧 dispatcher 仍在)
+    reset_dispatcher();
     m_tree_protocol->set_variant(protocol_from_key(appcfg::protocol()));  // 字段树切协议
     m_status_left->setText(trl::L("协议已立即生效(Ctrl+E 开始捕获)"));
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
+    if (event->mimeData()->hasUrls()) {
+        const QList<QUrl> urls = event->mimeData()->urls();
+        if (urls.size() == 1 && urls.first().isLocalFile()) {
+            const QString ext = QFileInfo(urls.first().toLocalFile()).suffix().toLower();
+            if (ext == QStringLiteral("bin") || ext == QStringLiteral("txt")
+                || ext == QStringLiteral("hex")) {
+                event->acceptProposedAction();
+                return;
+            }
+        }
+    }
+    event->ignore();
+}
+
+void MainWindow::dropEvent(QDropEvent* event) {
+    const QList<QUrl> urls = event->mimeData()->urls();
+    if (urls.isEmpty() || !urls.first().isLocalFile()) {
+        event->ignore();
+        return;
+    }
+    start_file_import(urls.first().toLocalFile());
+    event->acceptProposedAction();
+}
+
+void MainWindow::start_file_import(const QString& path) {
+    const QString ext = QFileInfo(path).suffix().toLower();
+    ReaderConfig cfg = load_config_from_settings();
+    if (ext == QStringLiteral("bin")) {
+        cfg.mode = ReaderMode::FilePlayback;
+    } else if (ext == QStringLiteral("txt") || ext == QStringLiteral("hex")) {
+        cfg.mode = ReaderMode::RawHex;
+    } else {
+        QMessageBox::warning(this, trl::L("导入"),
+                             trl::L("不支持的文件类型(支持 .bin / .txt / .hex): %1").arg(path));
+        return;
+    }
+    cfg.file_path = path;
+    save_config_to_settings(cfg);
+
+    if (!m_reader) return;
+    m_reader->stop();      // 停止旧采集/回放(abort 打断同步回放循环)
+    on_clear();            // 清空列表/协议树/hex/统计
+    reset_dispatcher();    // 重建解析器:丢弃旧回放积压帧 + 重置 MSDU 重组/统计
+    m_reader->start(cfg);
+    m_status_left->setText(QStringLiteral("Running: %1").arg(path));
 }
 
 void MainWindow::on_apply_filter() {

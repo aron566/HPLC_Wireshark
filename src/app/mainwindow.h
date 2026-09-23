@@ -26,6 +26,8 @@ class QSplitter;
 class QStatusBar;
 class QCheckBox;
 class QPushButton;
+class QDragEnterEvent;
+class QDropEvent;
 
 class PacketListModel;
 class HexView;
@@ -55,6 +57,10 @@ private slots:
     void refresh_status_bar();
     void on_check_finished(const QString& url);   // 检查更新结束(QSimpleUpdater)
 
+protected:
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
+
 private:
     void build_ui();
     void wire_signals();
@@ -62,7 +68,9 @@ private:
     void enqueue_entry(PacketEntry&& e);
     void check_for_updates(bool silent);   // 检查更新(silent=true:启动静默检查)
     void rebuild_dispatcher();             // 协议切换立即生效:停止+清空+重建解析器
+    void reset_dispatcher();               // 停止旧解析+重建 dispatcher(拖放导入/协议切换共用)
     bool confirm_protocol_rebuild();       // 协议变更提示,返回是否立即生效
+    void start_file_import(const QString& path);  // 拖放文件导入(按扩展名判定回放/裸hex)
 
     QToolBar*      m_toolbar;
     QToolButton*   m_btn_start;

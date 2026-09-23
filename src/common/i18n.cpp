@@ -63,6 +63,10 @@ const struct { const char* zh; const char* en; } en_dict[] = {
     { "总长度", "Total Length" },
     // ---- 过滤器 ----
     { "过滤器错误:%1", "Filter error: %1" },
+    // ---- 拖放导入 ----
+    { "导入", "Import" },
+    { "不支持的文件类型(支持 .bin / .txt / .hex): %1",
+      "Unsupported file type (.bin / .txt / .hex supported): %1" },
 };
 
 QHash<QString, QString>& dict() {
