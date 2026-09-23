@@ -9,6 +9,11 @@
 #include <QFutureWatcher>
 
 namespace {
+// 南网 NW_2021 应用层帧类型域(表4)确认/否认帧 + 业务标识(表9)确认/否认取值
+constexpr quint8 kAppPacketAckNack = 0x0;   ///< 帧类型域=确认/否认
+constexpr quint8 kBidConfirm       = 0x00;  ///< BID=确认(ACK)
+constexpr quint8 kBidDeny          = 0x01;  ///< BID=否认(NACK)
+
 /// @brief 48-bit MAC 帧内原始字节序 → "aa:bb:cc:dd:ee:ff"(与 fieldspec::mac_str 一致)
 QString format_mac(quint64 v) {
     QString s;
@@ -205,10 +210,15 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
             }
         }
     } else if (role == Qt::ForegroundRole) {
-        // MSDU Type 列:应用层报文按 BID 着色(不同 BID 不同颜色,快速区分业务)
+        // MSDU Type 列:应用层报文着色(确认/否认特殊色 + 其他按 BID 散列)
         if (idx.column() == COL_MSDU_TYPE && e.msdu.present
-            && e.msdu.business_id != 0xFF)
+            && e.msdu.business_id != 0xFF) {
+            if (e.msdu.app_packet_type == kAppPacketAckNack) {
+                if (e.msdu.business_id == kBidConfirm) return QColor(46, 214, 106);   // 确认(ACK)亮绿
+                if (e.msdu.business_id == kBidDeny)    return QColor(224, 64, 64);    // 否认(NACK)红
+            }
             return bid_color(e.msdu.business_id);
+        }
         return data_color(e);
     } else if (role == Qt::TextAlignmentRole) {
         if (idx.column() == COL_INDEX || idx.column() == COL_LENGTH)
@@ -224,7 +234,9 @@ QVariant PacketListModel::data_color(const PacketEntry& e) const {
     switch (e.mpdu.frame_type) {
         case 0: return QColor(86, 156, 214);
         case 1: return QColor(106, 153, 78);
-        case 2: return QColor(196, 181, 79);
+        case 2:  // ACK 选择确认帧:校验失败(≥1 PB CRC 未过)红色显著指示
+            if (e.mpdu.ack_rx_res == 1) return QColor(224, 64, 64);
+            return QColor(196, 181, 79);
         case 3: return QColor(206, 92,  92);
         default: return QColor(170, 170, 170);
     }

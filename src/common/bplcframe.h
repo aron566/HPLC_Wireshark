@@ -198,6 +198,7 @@ struct MsduInfo {
     quint8  restart_count;       ///< 重启次数 4-bit(南网 MAC 帧头)
     quint8  broadcast_direction; ///< 广播方向 4-bit(南网 MAC 帧头)
     quint8  business_id;         ///< 应用层 BID(业务标识;非应用层报文=0xFF,供 MSDU Type 列着色)
+    quint8  app_packet_type;     ///< 应用层帧类型域 4-bit(南网表4;非 NW 应用层=0xFF)
     int     total_len;       ///< MSDU 帧总长(头+数据+CRC,不含 PB 填充;-1=未知)
     QString summary;         ///< 概要,如 "MMeDiscoverNodeList" / "APP EventPacket"
     QVector<MsduFieldNode> tree;  ///< 字段树(协议树直接挂载显示)
@@ -207,7 +208,7 @@ struct MsduInfo {
                  msdu_src_tei(-1), msdu_dst_tei(-1), msdu_send_type(-1),
                  msdu_src_mac(0), msdu_dst_mac(0), sta_mac(0),
                  vlan_tag(0), msdu_type(0), restart_count(0),
-                 broadcast_direction(0), business_id(0xFF), total_len(-1) {}
+                 broadcast_direction(0), business_id(0xFF), app_packet_type(0xFF), total_len(-1) {}
 };
 
 /// @brief Wireshark 风格 PacketList 的一行条目

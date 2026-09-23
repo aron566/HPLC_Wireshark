@@ -711,6 +711,7 @@ static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base, quint1
                   .arg(business_id, 2, 16, QChar('0')).arg(bid_name);
     }
     out.business_id = business_id;
+    out.app_packet_type = static_cast<quint8>(packet_type);
     out.summary = QStringLiteral("APP %1 (BID=0x%2%3)").arg(app_type_name(packet_type))
                       .arg(business_id, 2, 16, QChar('0'))
                       .arg(bid_name.isEmpty() ? QString()
