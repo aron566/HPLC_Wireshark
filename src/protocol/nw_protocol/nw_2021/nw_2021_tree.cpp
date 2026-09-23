@@ -218,10 +218,10 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             const quint8 et = e.mpdu.ack_ext_type;
             QString ev;
             switch (et) {
-            case 0: ev = trl::L("0 - 选择确认帧"); break;
-            case 1: ev = trl::L("1 - 网络搜索帧(抄控器)"); break;
-            case 2: ev = trl::L("2 - 同步帧(抄控器)"); break;
-            case 3: ev = trl::L("3 - 无线切频"); break;
+            case 0: ev = QStringLiteral("0 - %1").arg(trl::L("选择确认帧")); break;
+            case 1: ev = QStringLiteral("1 - %1").arg(trl::L("网络搜索帧(抄控器)")); break;
+            case 2: ev = QStringLiteral("2 - %1").arg(trl::L("同步帧(抄控器)")); break;
+            case 3: ev = QStringLiteral("3 - %1").arg(trl::L("无线切频")); break;
             default: ev = QStringLiteral("%1 - %2").arg(et).arg(trl::L("保留")); break;
             }
             tree_add_bit_field(ack, "ExtType", ev, 12, 0, 4);
@@ -230,8 +230,8 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         case NW_2021_AckExtType::Normal: {
             const quint8 r = e.mpdu.ack_rx_res;
             QString rv;
-            if (r == 0) rv = trl::L("0 - SOF帧全部接收成功");
-            else if (r == 1) rv = trl::L("1 - 物理块存在CRC校验失败");
+            if (r == 0) rv = QStringLiteral("0 - %1").arg(trl::L("SOF帧全部接收成功"));
+            else if (r == 1) rv = QStringLiteral("1 - %1").arg(trl::L("物理块存在CRC校验失败"));
             else rv = QStringLiteral("%1 - %2").arg(r).arg(trl::L("保留"));
             tree_add_bit_field(ack, "RxRes", rv, 1, 0, 4);
             {
@@ -243,7 +243,7 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     QStringLiteral("0x%1 (%2)")
                         .arg(st, 1, 16, QChar('0'))
                         .arg(oks.isEmpty() ? trl::L("全部校验失败")
-                                           : oks.join(QLatin1String(", ")) + trl::L(" 校验成功")),
+                                           : oks.join(QLatin1String(", ")) + QStringLiteral(" %1").arg(trl::L("校验成功"))),
                     1, 4, 4);
             }
             tree_add_bit_field(ack, "Destination TEI", QString::number(e.mpdu.dst_tei), 2, 0, 12);

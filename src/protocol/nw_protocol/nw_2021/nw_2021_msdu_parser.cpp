@@ -198,9 +198,6 @@ struct MMeI18nReg {
         trl::register_en("站点不在最新白名单中", "STA Not in Latest Whitelist");
         trl::register_en("下降沿采集", "Falling Edge");
         trl::register_en("上升沿采集", "Rising Edge");
-        trl::register_en("通道控制信息", "Channel Control Info");
-        trl::register_en("业务报文头", "Business Header");
-        trl::register_en("APP层数据", "APP Layer Data");
         trl::register_en("确认/否认", "ACK/NACK");
         trl::register_en("数据转发帧", "Data Forward Frame");
         trl::register_en("命令帧", "Command Frame");
@@ -654,11 +651,11 @@ static QString business_id_name(quint8 port_num, NW_2021_PacketType packet_type,
 static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base, quint16 msdu_type) {
     if (app.size() < 12) { out.summary = QStringLiteral("APP (truncated)"); return; }
     // 通道控制信息(表1,4B):报文端口号 + 报文标识符 + 保留
-    MsduFieldNode& cci = group(out.tree, QStringLiteral("通道控制信息 [4B]"));
+    MsduFieldNode& cci = group(out.tree, QStringLiteral("Channel Control Info [4B]"));
     cci.rel_start = rel_base; cci.rel_len = 4;
     add_fields(cci.children, app, 0, kChannelCtrlInfoSpec, kChannelCtrlInfoSpecN, rel_base);
     // 业务报文头(表2,8B):控制域 + 业务标识 + 应用版本号 + 帧序号 + 帧长
-    MsduFieldNode& bh = group(out.tree, QStringLiteral("业务报文头 [8B]"));
+    MsduFieldNode& bh = group(out.tree, QStringLiteral("Business Header [8B]"));
     bh.rel_start = rel_base + 4; bh.rel_len = 8;
     add_fields(bh.children, app, 4, kBusinessHeaderSpec, kBusinessHeaderSpecN, rel_base);
     const quint8  port_num    = (quint8)get_bits(app, 0, 0, 8);
@@ -702,8 +699,8 @@ static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base, quint1
     }
     out.summary = QStringLiteral("APP %1 (BID=0x%2)").arg(app_type_name(packet_type))
                       .arg(business_id, 2, 16, QChar('0'));
-    // 业务数据单元(业务报文头之后,含业务扩展域)统一以"APP层数据"字段展示
-    append_payload_hex(out, app, 12, -1, QStringLiteral("APP层数据"), rel_base);
+    // 业务数据单元(业务报文头之后,含业务扩展域)统一以"APP Data"字段展示
+    append_payload_hex(out, app, 12, -1, QStringLiteral("APP Data"), rel_base);
 }
 
 
