@@ -71,7 +71,7 @@ MainWindow::MainWindow(QWidget* parent)
       m_splitter_main(nullptr), m_table_packets(nullptr),
       m_splitter_bottom(nullptr), m_tree_protocol(nullptr),
       m_hex_view(nullptr), m_lbl_hex_title(nullptr),
-      m_status_left(nullptr), m_status_right(nullptr),
+      m_status_left(nullptr), m_status_mid(nullptr), m_status_right(nullptr),
       m_reader(nullptr), m_dispatch(nullptr), m_model(nullptr),
       m_flush_timer(nullptr), m_status_timer(nullptr),
       m_paused(false), m_exporting(false),
@@ -175,7 +175,7 @@ void MainWindow::build_ui() {
     m_table_packets->setModel(m_model);
     m_table_packets->setAlternatingRowColors(true);
     m_table_packets->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_table_packets->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_table_packets->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_table_packets->setSortingEnabled(true);
     m_table_packets->setShowGrid(false);
     m_table_packets->verticalHeader()->setVisible(false);
@@ -261,9 +261,12 @@ void MainWindow::build_ui() {
     setCentralWidget(m_splitter_main);
 
     m_status_left = new QLabel(QStringLiteral("Ready"), this);
+    m_status_mid = new QLabel(this);   // 状态栏中间:选中两行时间差(不干涉左侧串口状态)
+    m_status_mid->setAlignment(Qt::AlignCenter);
     m_status_right = new QLabel(this);
     m_status_right->setAlignment(Qt::AlignRight);
     statusBar()->addWidget(m_status_left, 1);
+    statusBar()->addWidget(m_status_mid, 1);
     statusBar()->addPermanentWidget(m_status_right, 2);
 
     auto* menu_capture = menuBar()->addMenu(trl::L("捕获(&C)"));
@@ -358,6 +361,11 @@ void MainWindow::wire_signals() {
     connect(m_table_packets->selectionModel(), &QItemSelectionModel::currentRowChanged,
             this, [this](const QModelIndex& cur, const QModelIndex&) {
                 if (cur.isValid() && m_model) m_model->activate_row(cur.row());
+            });
+    // 选中两行 → 计算跨行时间差显示在状态栏中间(NTB 优先,与本地差>3s 降级本地时间)
+    connect(m_table_packets->selectionModel(), &QItemSelectionModel::selectionChanged,
+            this, [this](const QItemSelection&, const QItemSelection&) {
+                update_selection_delta();
             });
 
     connect(m_model, &PacketListModel::packet_activated, this, &MainWindow::on_row_activated);
@@ -996,6 +1004,37 @@ void MainWindow::refresh_status_bar() {
         .arg(v(Key::KEY_DROPPED))
         .arg(v(Key::KEY_MSDU_COMPLETE)));
 }
+
+void MainWindow::update_selection_delta() {
+    if (!m_status_mid || !m_model || !m_table_packets) return;
+    const QModelIndexList rows = m_table_packets->selectionModel()->selectedRows();
+    if (rows.size() != 2) { m_status_mid->clear(); return; }
+    int r0 = rows[0].row(), r1 = rows[1].row();
+    if (r0 > r1) { const int t = r0; r0 = r1; r1 = t; }
+    PacketEntry a, b;
+    if (!m_model->entry_at(r0, a) || !m_model->entry_at(r1, b)) { m_status_mid->clear(); return; }
+
+    // NTB 差(µs):帧内 NTB 为 40ns/tick → tick×40/1000 µs(qint32 差,回绕安全)
+    const qint64 ntb_delta_us =
+        (qint64)(qint32)(b.meta.timestamp - a.meta.timestamp) * 40 / 1000;
+    const qint64 ntb_delta_ms = ntb_delta_us / 1000;
+    const qint64 local_delta_ms = b.epoch_ms - a.epoch_ms;   // 本地接收时间差(ms)
+
+    // 优先 NTB;NTB 差与本地时间差偏差 ≥3s 时 NTB 不可信(回绕/跳变)→ 降级本地时间
+    const bool use_ntb = qAbs(local_delta_ms - ntb_delta_ms) < 3000;
+    const qint64 us = use_ntb ? ntb_delta_us : local_delta_ms * 1000;
+
+    // 格式化:µs / ms / s 自适应
+    QString v;
+    const bool neg = us < 0;
+    const qint64 au = neg ? -us : us;
+    if (au < 1000)          v = QStringLiteral("%1 µs").arg(au);
+    else if (au < 1000000)  v = QStringLiteral("%1 ms").arg(au / 1000.0, 0, 'f', 3);
+    else                    v = QStringLiteral("%1 s").arg(au / 1000000.0, 0, 'f', 6);
+    if (neg) v.prepend(QLatin1Char('-'));
+    const QString src = use_ntb ? QStringLiteral("NTB") : trl::L("本地时间");
+    m_status_mid->setText(QStringLiteral("ΔT: %1 (%2)").arg(v, src));
+}
 namespace {
 // 中→英注册(文件级,仅新增条目;菜单/状态等通用条目见 src/common/i18n.cpp 内置词典)
 struct I18nRegMainWindow {
@@ -1024,6 +1063,7 @@ struct I18nRegMainWindow {
                          "Protocol changed. Takes effect after restart, or click [Start] to apply immediately.");
         trl::register_en("重启后生效", "Apply after restart");
         trl::register_en("协议已立即生效(Ctrl+E 开始捕获)", "Protocol applied immediately (Ctrl+E to start capture)");
+        trl::register_en("本地时间", "Local time");
     }
 };
 const I18nRegMainWindow g_i18n_reg_mainwindow;

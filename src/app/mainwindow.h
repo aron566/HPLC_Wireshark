@@ -71,6 +71,7 @@ private:
     void reset_dispatcher();               // 停止旧解析+重建 dispatcher(拖放导入/协议切换共用)
     bool confirm_protocol_rebuild();       // 协议变更提示,返回是否立即生效
     void start_file_import(const QString& path);  // 拖放文件导入(按扩展名判定回放/裸hex)
+    void update_selection_delta();  // 选中两行算时间差(NTB 优先,与本地差>3s 时降级本地时间)
 
     QToolBar*      m_toolbar;
     QToolButton*   m_btn_start;
@@ -94,6 +95,7 @@ private:
     QByteArray     m_raw_bytes;       ///< 当前帧原始字节(右键复制用)
 
     QLabel*        m_status_left;
+    QLabel*        m_status_mid;    ///< 状态栏中间:选中两行时间差显示
     QLabel*        m_status_right;
 
     SerialReader*    m_reader;

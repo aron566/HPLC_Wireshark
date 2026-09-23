@@ -76,6 +76,10 @@ public:
     };
     ExportSnapshot make_export_snapshot() const;
 
+    /// @brief 按可见行号取条目拷贝(供 UI 跨行时间差计算等;内部触发盘块按需加载)
+    /// @return 行号越界返回 false,否则拷贝到 out 并返回 true
+    bool entry_at(int visible_row, PacketEntry& out) const;
+
 public slots:
     void append_packets(const QVector<PacketEntry>& entries);
     void append_packet(const PacketEntry& entry);

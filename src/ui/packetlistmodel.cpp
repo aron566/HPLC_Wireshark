@@ -450,6 +450,12 @@ void PacketListModel::activate_row(int visible_row) {
     emit packet_activated(locate(m_visible[visible_row]));
 }
 
+bool PacketListModel::entry_at(int visible_row, PacketEntry& out) const {
+    if (visible_row < 0 || visible_row >= m_visible.size()) return false;
+    out = locate(m_visible[visible_row]);   // 深拷贝,盘块被换出后仍安全
+    return true;
+}
+
 void PacketListModel::set_display_filter(const QString& expr) {
     if (m_filter == expr) return;
     m_filter = expr;
