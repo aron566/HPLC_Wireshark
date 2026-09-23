@@ -12,6 +12,7 @@
 #include "playbackwriter.h"
 #include "i18n.h"
 #include "packetentry_serialize.h"
+#include "fieldtools.h"
 
 #include <QtConcurrent>
 #include <QDataStream>
@@ -458,19 +459,207 @@ void export_block_file(const QString& path, Writer& w) {
     f.close();
 }
 
+/// 导出格式
+enum class ExportFormat { Bin, Text, Csv };
+
+// TEI→MAC 映射表(与 PacketListModel 内部一致)
+using TeiMacMap = QHash<quint32, QHash<quint16, quint64>>;
+
+static quint64 csv_lookup_mac(const TeiMacMap& macs, quint32 nid, quint16 tei) {
+    const auto it = macs.constFind(nid);
+    if (it == macs.constEnd()) return 0;
+    const auto jt = it->constFind(tei);
+    return (jt == it->constEnd()) ? 0 : jt.value();
+}
+
+/// CSV 单元格转义(含逗号/引号/换行时双引号包裹,内部引号翻倍)
+static QString csv_escape(const QString& s) {
+    if (!s.contains(',') && !s.contains('"') && !s.contains('\n') && !s.contains('\r'))
+        return s;
+    QString t = s;
+    t.replace('"', QStringLiteral("\"\""));
+    return QLatin1Char('"') + t + QLatin1Char('"');
+}
+
+/// 复现 PacketListModel::data() 的列渲染,生成一行 CSV 单元格(与表格列一致)
+static QStringList csv_row(const PacketEntry& e, const TeiMacMap& macs) {
+    QStringList c;
+    c << QString::number(e.index);
+    // Time
+    c << (e.meta.frame_time.isValid()
+              ? e.meta.frame_time.toString(QStringLiteral("HH:mm:ss.zzz"))
+              : QStringLiteral("%1 s").arg(e.epoch_ms / 1000.0, 0, 'f', 6));
+    // Delta
+    c << QStringLiteral("%1 s").arg(e.delta_us / 1e6, 0, 'f', 6);
+    // Orig Src
+    {
+        QString s;
+        if (e.accepted && e.msdu.present && !e.msdu.simple_head && e.msdu.msdu_src_tei > 0) {
+            const int tei = e.msdu.msdu_src_tei;
+            s = (tei == 1) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(tei);
+            quint64 mac = e.msdu.msdu_src_mac;
+            if (!mac) mac = csv_lookup_mac(macs, e.mpdu.net_id, quint16(tei));
+            if (mac) s += QStringLiteral(" [%1]").arg(mac_str(mac));
+        }
+        c << s;
+    }
+    // Source
+    {
+        QString s;
+        if (!e.accepted) {
+            s = QStringLiteral("DROP");
+        } else {
+            const quint16 tei = e.mpdu.src_tei;
+            if (e.mpdu.frame_type == 3 && tei == 0) {
+                s = QStringLiteral("CCO");
+                const quint64 mac = csv_lookup_mac(macs, e.mpdu.net_id, 1);
+                if (mac) s += QStringLiteral(" [%1]").arg(mac_str(mac));
+            } else if (tei != 0) {
+                s = (tei == 1) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(tei);
+                const quint64 mac = csv_lookup_mac(macs, e.mpdu.net_id, tei);
+                if (mac) s += QStringLiteral(" [%1]").arg(mac_str(mac));
+            } else if (e.msdu.sta_mac) {
+                s = QStringLiteral("STA-X [%1]").arg(mac_str(e.msdu.sta_mac));
+            } else {
+                s = e.meta.is_rf ? QStringLiteral("RF") : QStringLiteral("PLC");
+            }
+        }
+        c << s;
+    }
+    // Destination
+    {
+        QString s;
+        if (!e.accepted) {
+            s = e.reason;
+        } else if (e.mpdu.dst_tei == 0xFFF) {
+            s = QStringLiteral("BROADCAST");
+        } else {
+            const quint16 tei = e.mpdu.dst_tei;
+            if (tei != 0) {
+                s = (tei == 1) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(tei);
+                const quint64 mac = csv_lookup_mac(macs, e.mpdu.net_id, tei);
+                if (mac) s += QStringLiteral(" [%1]").arg(mac_str(mac));
+            } else {
+                s = QStringLiteral("*");
+            }
+        }
+        c << s;
+    }
+    // Orig Dst
+    {
+        QString s;
+        if (e.accepted && e.msdu.present && !e.msdu.simple_head && e.msdu.msdu_dst_tei > 0) {
+            const int tei = e.msdu.msdu_dst_tei;
+            s = (tei == 0xFFF) ? QStringLiteral("BCAST")
+              : (tei == 1) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(tei);
+            if (tei == 0xFFF) {
+                if (e.msdu.msdu_dst_mac) s += QStringLiteral(" [%1]").arg(mac_str(e.msdu.msdu_dst_mac));
+            } else {
+                quint64 mac = e.msdu.msdu_dst_mac;
+                if (!mac) mac = csv_lookup_mac(macs, e.mpdu.net_id, quint16(tei));
+                if (mac) s += QStringLiteral(" [%1]").arg(mac_str(mac));
+            }
+        }
+        c << s;
+    }
+    // Dir
+    {
+        QString dir;
+        if (!e.accepted || !e.msdu.present || e.msdu.simple_head) {
+            dir = QStringLiteral("*");
+        } else {
+            const bool relay = (e.mpdu.src_tei != 0)
+                            && (e.msdu.msdu_src_tei > 0)
+                            && (quint16(e.msdu.msdu_src_tei) != e.mpdu.src_tei);
+            if (e.msdu.msdu_dst_tei == 0xFFF)
+                dir = (e.msdu.msdu_send_type == 1 || e.msdu.msdu_send_type == 3)
+                          ? QStringLiteral("\u2192") : QStringLiteral("*");
+            else if (e.msdu.msdu_dst_tei == 1)
+                dir = QStringLiteral("\u2191");
+            else if (e.msdu.msdu_src_tei == 1)
+                dir = QStringLiteral("\u2193");
+            else
+                dir = QStringLiteral("*");
+            if (relay && dir != QStringLiteral("*")) dir += QStringLiteral("R");
+        }
+        c << dir;
+    }
+    // Protocol
+    c << (!e.accepted ? QStringLiteral("ERR")
+                      : e.meta.is_rf ? QStringLiteral("RF") : QStringLiteral("HPLC"));
+    // Frame Type
+    c << (!e.accepted ? QStringLiteral("-") : e.mpdu.frame_type_name());
+    // MSDU Type
+    c << ((e.accepted && e.msdu.present) ? e.msdu.summary : QString());
+    // MSDU Seq
+    c << ((e.accepted && e.msdu.present) ? QString::number(e.msdu.msdu_seq) : QString());
+    // Length
+    c << QString::number(e.raw_bytes.size());
+    // Info
+    {
+        QString s;
+        if (!e.accepted) {
+            s = e.reason;
+        } else {
+            const QString nid = QString::number(e.mpdu.net_id, 16).toUpper().rightJustified(6, QChar('0'));
+            if (e.mpdu.frame_type == 0)
+                s = QStringLiteral("NetID=0x%1 ts=%2").arg(nid).arg(e.meta.timestamp);
+            else if (e.mpdu.frame_type == 1)
+                s = QStringLiteral("NetID=0x%1 src=%2 dst=%3 TMI=%4 PBNum=%5%6")
+                        .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
+                        .arg(e.mpdu.tmi).arg(e.mpdu.pb_num)
+                        .arg(e.msdu_body.isEmpty() ? QString()
+                                                   : QStringLiteral(" MSDU[%1B]").arg(e.msdu_body.size()));
+            else
+                s = QStringLiteral("NetID=0x%1 src=%2 dst=%3")
+                        .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei);
+        }
+        c << s;
+    }
+    return c;
+}
+
 /// @brief 工作线程导出:遍历快照盘块 + 热区,流式写文件(不阻塞 GUI)
 void run_export(const PacketListModel::ExportSnapshot& snap,
-                const QString& path, bool as_text) {
+                const QString& path, ExportFormat fmt) {
     QFile out(path);
     if (!out.open(QIODevice::WriteOnly)) return;
-    if (as_text) {
+    if (fmt == ExportFormat::Text) {
         playback::RawHexWriter w(&out);
         for (const QString& bp : snap.block_paths) export_block_file(bp, w);
         for (const PacketEntry& e : snap.hot) w.add(e);
-    } else {
+    } else if (fmt == ExportFormat::Bin) {
         playback::PlaybackBinWriter w(&out);
         for (const QString& bp : snap.block_paths) export_block_file(bp, w);
         for (const PacketEntry& e : snap.hot) w.add(e);
+    } else {   // ExportFormat::Csv
+        QTextStream ts(&out);
+        ts << QStringLiteral("#,Time,Delta,Orig Src,Source,Destination,Orig Dst,Dir,"
+                             "Protocol,Frame Type,MSDU Type,MSDU Seq,Length,Info\n");
+        const auto emit_row = [&](const PacketEntry& e) {
+            const QStringList cells = csv_row(e, snap.tei_mac);
+            for (int i = 0; i < cells.size(); ++i) {
+                if (i) ts << ',';
+                ts << csv_escape(cells[i]);
+            }
+            ts << '\n';
+        };
+        for (const QString& bp : snap.block_paths) {
+            QFile f(bp);
+            if (!f.open(QIODevice::ReadOnly)) continue;
+            QDataStream s(&f);
+            while (!f.atEnd()) {
+                quint32 len = 0;
+                s >> len;
+                if (s.status() != QDataStream::Ok || len == 0) break;
+                QByteArray payload(int(len), Qt::Uninitialized);
+                if (s.readRawData(payload.data(), int(len)) != int(len)) break;
+                PacketEntry e;
+                if (pser::deserialize_entry(payload, e)) emit_row(e);
+            }
+            f.close();
+        }
+        for (const PacketEntry& e : snap.hot) emit_row(e);
     }
     out.close();
 }
@@ -481,24 +670,34 @@ void MainWindow::on_export() {
         m_status_left->setText(trl::L("无可导出的帧"));
         return;
     }
-    // 两种导出格式:①回放 bin(0x3C 封装帧流+BCD 时间标签)
+    // 三种导出格式:①回放 bin(0x3C 封装帧流+BCD 时间标签)
     // ②裸数据 hex 文本(每行一帧,无 0x3C/0x3E/0x3D 封装):
     //   [ts 4B LE][phr_mcs][option][channel][isRF][MPDU];回放(RawHex)
     //   按 ts 还原捕获时刻,缺失时回退本地时间
+    // ③CSV 表格(每行内容,便于 Excel 排查;仅导出,不支持导入)
     QString selected;
     const QString filter = trl::L("回放文件 (*.bin)") + QStringLiteral(";;") +
-                           trl::L("裸 hex 文本 (*.txt)");
+                           trl::L("裸 hex 文本 (*.txt)") + QStringLiteral(";;") +
+                           trl::L("CSV 表格 (*.csv)");
     QString f = QFileDialog::getSaveFileName(
         this, trl::L("导出为文件"),
         "BPLC_" + QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss") +
-            (selected.contains(QStringLiteral(".txt")) ? ".txt" : ".bin"),
+            (selected.contains(QStringLiteral(".txt")) ? ".txt"
+             : selected.contains(QStringLiteral(".csv")) ? ".csv" : ".bin"),
         filter, &selected);
     if (f.isEmpty()) return;
-    const bool as_text = selected.contains(QStringLiteral(".txt"));
-    if (as_text && !f.endsWith(QStringLiteral(".txt"), Qt::CaseInsensitive))
-        f += QStringLiteral(".txt");
-    if (!as_text && !f.endsWith(QStringLiteral(".bin"), Qt::CaseInsensitive))
+    ExportFormat fmt = ExportFormat::Bin;
+    if (selected.contains(QStringLiteral(".txt"))) {
+        fmt = ExportFormat::Text;
+        if (!f.endsWith(QStringLiteral(".txt"), Qt::CaseInsensitive))
+            f += QStringLiteral(".txt");
+    } else if (selected.contains(QStringLiteral(".csv"))) {
+        fmt = ExportFormat::Csv;
+        if (!f.endsWith(QStringLiteral(".csv"), Qt::CaseInsensitive))
+            f += QStringLiteral(".csv");
+    } else if (!f.endsWith(QStringLiteral(".bin"), Qt::CaseInsensitive)) {
         f += QStringLiteral(".bin");
+    }
     // 导出快照 + 工作线程流式导出(不阻塞界面)
     const PacketListModel::ExportSnapshot snap = m_model->make_export_snapshot();
     const qint64 total = m_model->total_count();
@@ -517,8 +716,8 @@ void MainWindow::on_export() {
             m_status_left->setText(trl::L("已导出 %1 帧 → %2").arg(total).arg(f));
         }
     });
-    watcher->setFuture(QtConcurrent::run([snap, f, as_text]() {
-        run_export(snap, f, as_text);
+    watcher->setFuture(QtConcurrent::run([snap, f, fmt]() {
+        run_export(snap, f, fmt);
     }));
 }
 
@@ -740,6 +939,7 @@ struct I18nRegMainWindow {
         trl::register_en("导出为文件", "Export to file");
         trl::register_en("裸 hex 文本 (*.txt)", "Raw hex text (*.txt)");
         trl::register_en("回放文件 (*.bin)", "Replay files (*.bin)");
+        trl::register_en("CSV 表格 (*.csv)", "CSV table (*.csv)");
         trl::register_en("[错误] ", "[Error] ");
         trl::register_en("  显示过滤器:", "  Display filter:");
         trl::register_en("字节视图(十六进制,左偏移 + 中间 hex + 右侧 ASCII + RAW DATA):",

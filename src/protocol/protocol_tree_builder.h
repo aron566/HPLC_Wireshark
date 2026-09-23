@@ -10,6 +10,7 @@
 #include "bplcframe.h"
 #include "common/protocolvariant.h"
 #include <QTreeWidget>
+#include <QColor>
 #include <memory>
 
 // ── 公共渲染工具(协议无关) ───────────────────────────────
@@ -63,6 +64,14 @@ QList<QPair<int, int>> tree_msdu_raw_ranges(const MsduRawMap& m,
 /// 给分组节点(如 "MSDU (Reassembled)")设置多片段高亮 + 复制字节(协议无关)
 void tree_apply_msdu_range(QTreeWidgetItem* it, const MsduRawMap& m,
                            int rel_start, int rel_len, const QByteArray& msdu_body);
+
+/// 类型字段着色:按字段名判断报文类型字段类别。
+/// 返回 0=管理消息类型(MMeType) 1=应用层报文类型(APP) 2=MSDU 类型;-1=非类型字段。
+int tree_type_field_category(const QString& name);
+
+/// 按类别+数值生成稳定颜色(色相环散列:同类别同数值同色,不同数值尽量不同色),
+/// 供类型字段前景着色,深浅主题下均可读。
+QColor tree_type_field_color(int category, quint64 value);
 
 // ── 字段树构建器抽象接口 ────────────────────────────────
 

@@ -71,6 +71,8 @@ public:
     struct ExportSnapshot {
         QVector<PacketEntry> hot;         ///< 热区条目拷贝(≤ kBlockSize)
         QStringList          block_paths; ///< 盘块文件路径(升序,对应块 0..N-1)
+        /// TEI→MAC 映射表快照(CSV 导出 Source/Dest 列显示 MAC 用;深拷贝)
+        QHash<quint32, QHash<quint16, quint64>> tei_mac;
     };
     ExportSnapshot make_export_snapshot() const;
 

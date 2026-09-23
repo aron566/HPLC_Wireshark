@@ -489,5 +489,6 @@ PacketListModel::ExportSnapshot PacketListModel::make_export_snapshot() const {
     s.block_paths.reserve(m_block_count);
     for (int i = 0; i < m_block_count; ++i)
         s.block_paths << block_path(i);
+    s.tei_mac = m_tei_mac;   // 深拷贝 TEI→MAC 映射表(CSV 导出显示 MAC 用)
     return s;
 }

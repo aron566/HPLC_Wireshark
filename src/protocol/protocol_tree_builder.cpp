@@ -89,6 +89,41 @@ void tree_apply_msdu_range(QTreeWidgetItem* it, const MsduRawMap& m,
     }
 }
 
+/// 从值文本开头提取数值("0x03 - ..."→3;"48 - ..."→48;"3"→3)
+static quint64 parse_leading_number(const QString& v) {
+    if (v.startsWith(QLatin1String("0x"), Qt::CaseInsensitive)) {
+        quint64 x = 0; bool any = false;
+        for (int i = 2; i < v.size(); ++i) {
+            const int d = v[i].digitValue();
+            if (d < 0) break;
+            x = x * 16 + quint64(d); any = true;
+        }
+        return any ? x : 0;
+    }
+    quint64 x = 0; bool any = false;
+    for (int i = 0; i < v.size() && v[i].isDigit(); ++i) {
+        x = x * 10 + quint64(v[i].digitValue()); any = true;
+    }
+    return any ? x : 0;
+}
+
+int tree_type_field_category(const QString& name) {
+    if (name.startsWith(QLatin1String("MMType")) || name.startsWith(QLatin1String("MMe Type")))
+        return 0;
+    if (name.startsWith(QLatin1String("BusinessID")) || name.startsWith(QLatin1String("PacketID"))
+        || name.startsWith(QLatin1String("PacketType")))
+        return 1;
+    if (name.startsWith(QLatin1String("MSDUType")) || name.startsWith(QLatin1String("MSDU Type")))
+        return 2;
+    return -1;
+}
+
+QColor tree_type_field_color(int category, quint64 value) {
+    // 类别不同相位区间错开;同类别同数值同色,不同数值尽量不同色
+    const int hue = int((value * 47 + quint64(category) * 137) % 360);
+    return QColor::fromHsv(hue, 200, 190);
+}
+
 void tree_render_msdu(QTreeWidgetItem* parent, const QVector<MsduFieldNode>& nodes,
                       const MsduRawMap& m, const QByteArray& msdu_body) {
     for (const auto& n : nodes) {
@@ -97,6 +132,13 @@ void tree_render_msdu(QTreeWidgetItem* parent, const QVector<MsduFieldNode>& nod
         it->setText(1, n.value);
         // 字段带相对 msdu_body 的字节区间,映射为 raw 高亮片段(单块 1 段 / 跨块多段)
         tree_apply_msdu_range(it, m, n.rel_start, n.rel_len, msdu_body);
+        // 报文类型字段按类别+数值着色(MMe/APP/MSDU 类型不同颜色,快速区分)
+        const int cat = tree_type_field_category(n.name);
+        if (cat >= 0) {
+            const QColor c = tree_type_field_color(cat, parse_leading_number(n.value));
+            it->setForeground(0, c);
+            it->setForeground(1, c);
+        }
         if (!n.children.isEmpty()) {
             tree_render_msdu(it, n.children, m, msdu_body);
             it->setExpanded(true);

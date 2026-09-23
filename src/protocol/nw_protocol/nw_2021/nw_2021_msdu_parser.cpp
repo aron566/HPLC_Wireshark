@@ -241,6 +241,8 @@ struct MMeI18nReg {
         trl::register_en("业务报文", "Service Packet");
         trl::register_en("管理报文", "Management Packet");
         trl::register_en("CCO-STA 应用层报文", "CCO-STA APP Packet");
+        trl::register_en("应用层报文", "Application Layer Packet");
+        trl::register_en("管理消息报文", "Management Message Packet");
     }
 } mme_i18n_reg;
 
@@ -648,7 +650,7 @@ static QString business_id_name(quint8 port_num, quint8 packet_type, quint8 busi
     return QString();
 }
 
-static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base) {
+static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base, quint16 msdu_type) {
     if (app.size() < 12) { out.summary = QStringLiteral("APP (truncated)"); return; }
     // 通道控制信息(表1,4B):报文端口号 + 报文标识符 + 保留
     MsduFieldNode& cci = group(out.tree, QStringLiteral("通道控制信息 [4B]"));
@@ -685,6 +687,17 @@ static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base) {
                 n.value = QStringLiteral("0x%1 - %2")
                               .arg(business_id, 2, 16, QChar('0')).arg(bid_name);
         }
+    }
+    // MSDU Type 字段附带 BID 值 + 释义(应用层报文:一眼看出业务标识)
+    for (auto& n : out.tree) {
+        if (!n.name.startsWith(QLatin1String("MSDU Type"))) continue;
+        n.value = bid_name.isEmpty()
+            ? QStringLiteral("0x%1 - %2 (BID=0x%3)")
+                  .arg(msdu_type, 4, 16, QChar('0')).arg(trl::L("应用层报文"))
+                  .arg(business_id, 2, 16, QChar('0'))
+            : QStringLiteral("0x%1 - %2 (BID=0x%3 %4)")
+                  .arg(msdu_type, 4, 16, QChar('0')).arg(trl::L("应用层报文"))
+                  .arg(business_id, 2, 16, QChar('0')).arg(bid_name);
     }
     out.summary = QStringLiteral("APP %1 (BID=0x%2)").arg(app_type_name(packet_type))
                       .arg(business_id, 2, 16, QChar('0'));
@@ -792,6 +805,19 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             out.msdu_src_mac = get_bits(q, 6, 0, 48);
             out.vlan_tag     = (quint32)get_bits(q, 12, 0, 32);
             out.msdu_type    = (quint16)get_bits(q, 16, 0, 16);
+            // MSDU 类型字段(表1:0x01 应用层报文 / 0x88E1 管理消息)
+            {
+                MsduFieldNode mt;
+                mt.name = QStringLiteral("MSDU Type [16b]");
+                const QString tn = (out.msdu_type == 0x88E1) ? trl::L("管理消息报文")
+                                 : (out.msdu_type == 0x01) ? trl::L("应用层报文")
+                                 : trl::L("保留");
+                mt.value = QStringLiteral("0x%1 - %2")
+                               .arg(out.msdu_type, 4, 16, QChar('0')).arg(tn);
+                mt.rel_start = mac_hdr_len + 16;   // MSDU 类型在 msdu_body[16..17]
+                mt.rel_len   = 2;
+                out.tree.append(mt);
+            }
             // VLAN 0x8100 = 长帧头管理消息(MMe);否则抄表业务(APP)
             if (out.vlan_tag == 0x8100) {
                 const QByteArray mme = msdu_body.mid(18);   // MMe 数据(帧头 18B 之后)
@@ -801,6 +827,16 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 if (mme.size() >= 6) {
                     const quint16 mm_type = (quint16)get_bits(mme, 1, 0, 16);
                     out.summary = mme_type_name(mm_type);
+                    // MMe 类型字段(管理消息类型 16b,值 + 类型名,供着色区分)
+                    {
+                        MsduFieldNode mt;
+                        mt.name = QStringLiteral("MMe Type [16b]");
+                        mt.value = QStringLiteral("0x%1 - %2")
+                                       .arg(mm_type, 4, 16, QChar('0')).arg(out.summary);
+                        mt.rel_start = mme_rel_base + 1;   // MMe 类型在 mme[1..2]
+                        mt.rel_len   = 2;
+                        out.tree.append(mt);
+                    }
                     switch (mm_type) {
         case MME_ASSOCREQ: {
             add_fields(out.tree, mme, 6, kMMeAssocReqSpec, kMMeAssocReqSpecN, mme_rel_base);
@@ -1186,16 +1222,26 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                     out.summary = QStringLiteral("MMe (truncated)");
                 }
             } else {
-                parse_app(out, msdu_body.mid(18), mac_hdr_len + 18);   // 长帧头 APP 数据(帧头 18B 之后)
+                parse_app(out, msdu_body.mid(18), mac_hdr_len + 18, out.msdu_type);   // 长帧头 APP 数据(帧头 18B 之后)
             }
         }
     } else {
-        // MSDU_SHORTHEAD(2B):VLAN 8b + MSDU 类型 8b
+        // MSDU_SHORTHEAD(2B):VLAN 8b + MSDU 类型 8b(短帧头只携带应用层报文)
         if (msdu_body.size() >= 2) {
             const quint8* q = reinterpret_cast<const quint8*>(msdu_body.constData());
             out.vlan_tag  = (quint32)get_bits(q, 0, 0, 8);
             out.msdu_type = (quint16)get_bits(q, 1, 0, 8);
-            parse_app(out, msdu_body.mid(2), mac_hdr_len + 2);   // 短帧头 APP 数据(帧头 2B 之后)
+            // MSDU 类型字段(表2:8b)
+            {
+                MsduFieldNode mt;
+                mt.name = QStringLiteral("MSDU Type [8b]");
+                mt.value = QStringLiteral("0x%1 - %2")
+                               .arg(out.msdu_type, 2, 16, QChar('0')).arg(trl::L("应用层报文"));
+                mt.rel_start = mac_hdr_len + 1;   // 短帧头 MSDU 类型在 msdu_body[1]
+                mt.rel_len   = 1;
+                out.tree.append(mt);
+            }
+            parse_app(out, msdu_body.mid(2), mac_hdr_len + 2, out.msdu_type);   // 短帧头 APP 数据(帧头 2B 之后)
         }
     }
     // ---- MSDU 帧尾 4B CRC32 ----
