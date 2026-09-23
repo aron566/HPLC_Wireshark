@@ -602,44 +602,57 @@ static QString packet_id_name(quint16 id) {
 static QString business_id_name(quint8 port_num, NW_2021_PacketType packet_type, quint8 business_id) {
     switch (packet_type) {
     case NW_2021_PacketType::AckNack:  // 确认/否认
-        if (business_id == 0x00) return trl::L("确认");
-        if (business_id == 0x01) return trl::L("否认");
+        switch (static_cast<NW_2021_AckNackBid>(business_id)) {
+        case NW_2021_AckNackBid::Confirm: return trl::L("确认");
+        case NW_2021_AckNackBid::Deny:    return trl::L("否认");
+        default: break;
+        }
         break;
     case NW_2021_PacketType::DataForward:  // 数据转发
-        if (business_id == 0x00) return trl::L("数据透传至设备");
-        if (business_id == 0x01) return trl::L("数据透传至模块");
+        switch (static_cast<NW_2021_DataForwardBid>(business_id)) {
+        case NW_2021_DataForwardBid::ToDevice: return trl::L("数据透传至设备");
+        case NW_2021_DataForwardBid::ToModule: return trl::L("数据透传至模块");
+        default: break;
+        }
         break;
     case NW_2021_PacketType::Command:  // 命令
-        switch (business_id) {
-        case 0x00: return trl::L("查询终端搜索结果");
-        case 0x01: return trl::L("下发搜索终端列表");
-        case 0x02: return trl::L("文件传输");
-        case 0x03: return trl::L("允许/禁止从节点事件");
-        case 0x04: return trl::L("从节点重启");
-        case 0x05: return trl::L("从节点信息查询");
-        case 0x06: return trl::L("下发通信地址映射表列表");
-        case 0x07: return trl::L("查询从节点运行状态信息");
-        case 0x08: return trl::L("查询从节点信道信息");
-        case 0x10: return trl::L("台区户变关系/相位识别");
-        case 0xF0: return trl::L("测试帧");
+        switch (static_cast<NW_2021_CommandBid>(business_id)) {
+        case NW_2021_CommandBid::QuerySearchResult:    return trl::L("查询终端搜索结果");
+        case NW_2021_CommandBid::IssueSearchList:      return trl::L("下发搜索终端列表");
+        case NW_2021_CommandBid::FileTransfer:         return trl::L("文件传输");
+        case NW_2021_CommandBid::EnableDisableNodeEv:  return trl::L("允许/禁止从节点事件");
+        case NW_2021_CommandBid::NodeRestart:          return trl::L("从节点重启");
+        case NW_2021_CommandBid::NodeInfoQuery:        return trl::L("从节点信息查询");
+        case NW_2021_CommandBid::IssueCommAddrMap:     return trl::L("下发通信地址映射表列表");
+        case NW_2021_CommandBid::QueryNodeRunStatus:   return trl::L("查询从节点运行状态信息");
+        case NW_2021_CommandBid::QueryNodeChannelInfo: return trl::L("查询从节点信道信息");
+        case NW_2021_CommandBid::PhaseIdent:           return trl::L("台区户变关系/相位识别");
+        case NW_2021_CommandBid::TestFrame:            return trl::L("测试帧");
         default: break;
         }
         break;
     case NW_2021_PacketType::EventReport:  // 主动上报
-        if (business_id == 0x00) return trl::L("电表事件主动上报");
-        if (business_id == 0x01) return trl::L("停上电事件上报");
-        if (business_id == 0x02) return trl::L(port_num == 0x13 ? "通信模块事件上报" : "设备事件主动上报");
+        switch (static_cast<NW_2021_EventReportBid>(business_id)) {
+        case NW_2021_EventReportBid::MeterEvent:  return trl::L("电表事件主动上报");
+        case NW_2021_EventReportBid::PowerOnOff:  return trl::L("停上电事件上报");
+        case NW_2021_EventReportBid::DeviceEvent:
+            return trl::L(port_num == 0x13 ? "通信模块事件上报" : "设备事件主动上报");
+        default: break;
+        }
         break;
     case NW_2021_PacketType::ReaderFrame:  // 抄控器协议
-        if (business_id == 0x00) return trl::L("抄控器-CCO协议");
-        if (business_id == 0x01) return trl::L("数据透传串口转发");
+        switch (static_cast<NW_2021_ReaderFrameBid>(business_id)) {
+        case NW_2021_ReaderFrameBid::CcoProtocol:   return trl::L("抄控器-CCO协议");
+        case NW_2021_ReaderFrameBid::SerialForward: return trl::L("数据透传串口转发");
+        default: break;
+        }
         break;
     case NW_2021_PacketType::BroadcastCmd:  // 广播命令
-        switch (business_id) {
-        case 0x04: return trl::L("从节点重启");
-        case 0x05: return trl::L("从节点信息查询");
-        case 0x07: return trl::L("查询从节点运行状态信息");
-        case 0x08: return trl::L("查询从节点信道信息");
+        switch (static_cast<NW_2021_BroadcastCmdBid>(business_id)) {
+        case NW_2021_BroadcastCmdBid::NodeRestart:          return trl::L("从节点重启");
+        case NW_2021_BroadcastCmdBid::NodeInfoQuery:        return trl::L("从节点信息查询");
+        case NW_2021_BroadcastCmdBid::QueryNodeRunStatus:   return trl::L("查询从节点运行状态信息");
+        case NW_2021_BroadcastCmdBid::QueryNodeChannelInfo: return trl::L("查询从节点信道信息");
         default: break;
         }
         break;
