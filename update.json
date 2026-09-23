@@ -1,9 +1,9 @@
 {
   "updates": {
     "windows": {
-      "latest-version": "1.0.21",
-      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.0.21/BPLC_STA_Monitor_Setup_v1.0.21.exe",
-      "changelog": "Delta 时间轴统一用帧内 NTB 差计算(实时串口与回放 bin 一致,消除两者 delta 偏差);<br/>本地接收时间仅用于断段判断(长时间断帧/断开串口/本地时间偏差大时标段)",
+      "latest-version": "1.1.0",
+      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.1.0/BPLC_STA_Monitor_Setup_v1.1.0.exe",
+      "changelog": "新增 TOPO 拓扑独立窗口:多 NID 动态绘制 CCO/STA 拓扑、路由变更记录、TEI→MAC 映射表;<br/>节点悬浮显示上下行通讯成功率与接入方式(RF/载波),支持平移缩放;<br/>Table View 红色仅保留异常报文,国网关联请求相线字段增加可信度解释;<br/>配套南网 NW_2021 Wireshark dissector",
       "mandatory-update": false
     }
   }
