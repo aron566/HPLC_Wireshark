@@ -6,6 +6,7 @@
 #include <QMainWindow>
 #include <QTimer>
 #include <QByteArray>
+#include <QHash>
 #include <QList>
 #include <QVector>
 #include <atomic>
@@ -13,6 +14,7 @@
 #include "framedispatcher.h"
 #include "iprotocolparser.h"
 #include "commconfigdialog.h"
+#include "topo_state.h"
 
 class QComboBox;
 class QToolBar;
@@ -32,6 +34,7 @@ class QDropEvent;
 class PacketListModel;
 class HexView;
 class ProtocolTree;
+class TopoWindow;
 struct PacketEntry;
 
 class MainWindow : public QMainWindow {
@@ -72,6 +75,7 @@ private:
     bool confirm_protocol_rebuild();       // 协议变更提示,返回是否立即生效
     void start_file_import(const QString& path);  // 拖放文件导入(按扩展名判定回放/裸hex)
     void update_selection_delta();  // 选中两行算时间差(NTB 优先,与本地差>3s 时降级本地时间)
+    void open_topo_window();        // 打开/聚焦拓扑独立窗口(多 NID 下拉切换)
 
     QToolBar*      m_toolbar;
     QToolButton*   m_btn_start;
@@ -80,6 +84,7 @@ private:
     QToolButton*   m_btn_clear;
     QToolButton*   m_btn_export;
     QToolButton*   m_btn_settings;
+    QToolButton*   m_btn_topo;
     QToolButton*   m_btn_update;   ///< 发现新版本时显示的"立即更新"按钮(菜单栏右上角,默认隐藏)
     QLineEdit*     m_edt_filter;
     QToolButton*   m_btn_apply_filter;
@@ -101,6 +106,8 @@ private:
     SerialReader*    m_reader;
     FrameDispatcher* m_dispatch;
     PacketListModel* m_model;
+    TopoWindow*    m_topo_window = nullptr;       ///< 拓扑独立窗口(懒创建)
+    QHash<quint32, TopoState> m_topo_states;      ///< NID → 拓扑状态(实时累积)
 
     QTimer*          m_flush_timer;
     QTimer*          m_status_timer;

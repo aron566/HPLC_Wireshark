@@ -228,7 +228,7 @@ static void apply_dicts(QVector<MsduFieldNode>& nodes) {
     translate_enum(nodes, "DeviceType", kDeviceType, 8);
     translate_enum(nodes, "MACAddrType", kMacAddrType, 2);
     translate_enum(nodes, "ModuleType", kModuleType, 3);
-    translate_enum(nodes, "LinePhase0", kLinePhase, 4);
+    translate_enum(nodes, "CandidateLinePhase0", kLinePhase, 4);
     translate_enum(nodes, "CandidateLinePhase1", kLinePhase, 4);
     translate_enum(nodes, "CandidateLinePhase2", kLinePhase, 4);
     translate_enum(nodes, "LinkType", kLinkType, 2);
@@ -263,7 +263,7 @@ static const FieldSpec kAssocReqSpec[] = {
     {"CandidateTEI4",   14, 0, 12, Fmt::DEC},
     {"LinkType4",       15, 4, 1,  Fmt::DEC},
     {"RSV4",            15, 5, 3,  Fmt::DEC},
-    {"LinePhase0",      16, 0, 2,  Fmt::DEC},
+    {"CandidateLinePhase0",      16, 0, 2,  Fmt::DEC},
     {"CandidateLinePhase1", 16, 2, 2, Fmt::DEC},
     {"CandidateLinePhase2", 16, 4, 2,  Fmt::DEC},
     {"RSV5",            16, 6, 2,  Fmt::DEC},
@@ -370,7 +370,7 @@ static const FieldSpec kChangeProxyReqSpec[] = {
     {"ProxyType",     14, 0, 8,  Fmt::DEC},
     {"Reason",        15, 0, 8,  Fmt::DEC},
     {"EndSequence",   16, 0, 32, Fmt::HEX8},
-    {"LinePhase0",    20, 0, 2,  Fmt::DEC},
+    {"CandidateLinePhase0",    20, 0, 2,  Fmt::DEC},
     {"CandidateLinePhase1", 20, 2, 2, Fmt::DEC},
     {"CandidateLinePhase2", 20, 4, 2, Fmt::DEC},
     {"RSV7",          20, 6, 2,  Fmt::DEC},
@@ -413,7 +413,7 @@ static const FieldSpec kDiscoverNodeListSpec[] = {
     {"Level",              3, 4, 4,  Fmt::DEC},
     {"MACAddr",            4, 0, 48, Fmt::MAC},
     {"CCOMACAddr",        10, 0, 48, Fmt::MAC},
-    {"LinePhase0",        16, 0, 2,  Fmt::DEC},
+    {"CandidateLinePhase0",        16, 0, 2,  Fmt::DEC},
     {"CandidateLinePhase1", 16, 2, 2, Fmt::DEC},
     {"CandidateLinePhase2", 16, 4, 2, Fmt::DEC},
     {"RSV0",              16, 6, 2,  Fmt::DEC},
@@ -729,6 +729,11 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 add_fields(root.children, b, 0, kAssocReqSpec, kAssocReqSpecN, head_size + 4);
                 // STAMACAddr(0,0,48):关联请求源 TEI 未知(0)时,供 Source 列显示 STA-X [MAC]
                 out.sta_mac = get_bits(b, 0, 0, 48);
+                // 拓扑事件:关联请求(STA 正在入网;TEI 未分配,用 tei=0 承载 MAC)
+                out.topo_event.kind = TopoEventKind::AssocReq;
+                out.topo_event.nodes.append({0, out.sta_mac});
+                out.topo_event.desc = trl::L("关联请求: STA %1 正在入网")
+                    .arg(mac_str(out.sta_mac));
                 MsduFieldNode mn;
                 mn.name  = QStringLiteral("ManufacturerInfo [144b]");
                 mn.value = bytes_hex(b, 24, 18);
@@ -756,6 +761,15 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 add_fields(root.children, b, 0, kAssocReqTailSpec, kAssocReqTailSpecN,
                            head_size + 4);
                 apply_dicts(root.children);
+                // 相线可信程度说明(参考南网6.8.14):第一/第二/第三相线依次高/中/低可信
+                for (auto& ch : root.children) {
+                    if (ch.name.startsWith(QStringLiteral("CandidateLinePhase0")))
+                        ch.value += trl::L(" (高可信)");
+                    else if (ch.name.startsWith(QStringLiteral("CandidateLinePhase1")))
+                        ch.value += trl::L(" (中可信)");
+                    else if (ch.name.startsWith(QStringLiteral("CandidateLinePhase2")))
+                        ch.value += trl::L(" (低可信)");
+                }
                 // 代理类型(表69):0=站点动态选择的代理,其它保留
                 for (auto& ch : root.children) {
                     if (ch.name.startsWith(QStringLiteral("ProxyType"))) {
@@ -776,6 +790,20 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
             case GW_2022_MMeType::MME_ASSOC_CNF: {
                 // MMeAssocCnf(关联确认):固定头到 b[40],RouteInfo 从 b[40] 起
                 add_fields(root.children, b, 0, kAssocCnfSpec, kAssocCnfSpecN, head_size + 4);
+                // 拓扑事件:关联确认(STA 入网 + 代理 + CCO MAC)
+                {
+                    const quint64 sta_mac = get_bits(b, 0, 0, 48);
+                    const quint64 cco_mac = get_bits(b, 6, 0, 48);
+                    const quint16 sta_tei = (quint16)get_bits(b, 14, 0, 12);
+                    const quint16 proxy_tei = (quint16)get_bits(b, 16, 0, 12);
+                    out.topo_event.kind = TopoEventKind::AssocCnf;
+                    if (cco_mac) out.topo_event.cco_mac = cco_mac;
+                    if (sta_tei && sta_mac) out.topo_event.nodes.append({sta_tei, sta_mac});
+                    if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
+                    out.topo_event.desc = trl::L("关联确认: STA TEI=%1 入网 代理=%2")
+                        .arg(sta_tei)
+                        .arg(proxy_tei ? QString::number(proxy_tei) : QStringLiteral("-"));
+                }
                 apply_dicts(root.children);
                 annotate_unit(root.children, "STAReAssocTime", QStringLiteral("ms"));
                 // 修正 AssocResult 可读文本
@@ -969,10 +997,19 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                     const quint16 sta_tei = (quint16)get_bits(b, 0, 0, 12);
                     const quint64 sta_mac = get_bits(b, 4, 0, 48);
                     const quint64 cco_mac = get_bits(b, 10, 0, 48);
+                    const quint16 proxy_tei = (quint16)get_bits(b, 1, 4, 12);
                     if (sta_tei != 0 && sta_mac)
                         out.tei_mac_pairs.append({sta_tei, sta_mac});
                     if (cco_mac)
                         out.tei_mac_pairs.append({1, cco_mac});
+                    // 拓扑事件:发现列表(节点 + 代理关系 + CCO MAC)
+                    out.topo_event.kind = TopoEventKind::DiscoverList;
+                    out.topo_event.cco_mac = cco_mac;
+                    if (sta_tei && sta_mac) out.topo_event.nodes.append({sta_tei, sta_mac});
+                    if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
+                    out.topo_event.desc = trl::L("发现列表: STA TEI=%1 代理=%2")
+                        .arg(sta_tei)
+                        .arg(proxy_tei ? QString::number(proxy_tei) : QStringLiteral("-"));
                 }
                 apply_dicts(root.children);
                 // 成功率字段带 %(与 Python log "ProxyCommRate: 85%" 一致)
@@ -1104,6 +1141,8 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 apply_dicts(root.children);
                 int sta_num = (int)get_bits(b, 2, 0, 16);
                 int off = 4;
+                // 拓扑事件:成功率上报(STA 与上级的上下行成功率)
+                out.topo_event.kind = TopoEventKind::SuccessRate;
                 if (sta_num > 0) {
                     auto& crg = group(root.children, QStringLiteral("CommRateInfoList [%1]").arg(sta_num));
                     for (int i = 0; i < sta_num && off + 4 <= b.size(); ++i) {
@@ -1111,6 +1150,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                         quint8  rsv = (quint8)get_bits(b, off + 1, 4, 4);
                         quint8  down = (quint8)b[off + 2];
                         quint8  up   = (quint8)b[off + 3];
+                        out.topo_event.comm_rates.append({tei, down, up});
                         int abs0 = head_size + 4 + off;   // 条目相对 body 起点
                         off += 4;
                         // 对齐 Python log 权威形态:
@@ -1149,6 +1189,16 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 // MMeChangeProxyCnf(代理变更确认):固定 20B + 子站点 2B×ChildSum
                 add_fields(root.children, b, 0, kChangeProxyCnfSpec,
                            kChangeProxyCnfSpecN, head_size + 4);
+                // 拓扑事件:代理变更确认(STA 换代理)
+                {
+                    const quint16 sta_tei = (quint16)get_bits(b, 4, 0, 12);
+                    const quint16 proxy_tei = (quint16)get_bits(b, 6, 0, 12);
+                    out.topo_event.kind = TopoEventKind::ChangeProxyCnf;
+                    if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
+                    out.topo_event.desc = trl::L("代理变更: STA TEI=%1 代理→%2")
+                        .arg(sta_tei)
+                        .arg(proxy_tei ? QString::number(proxy_tei) : QStringLiteral("-"));
+                }
                 apply_dicts(root.children);
                 for (auto& ch : root.children) {
                     if (!ch.name.startsWith(QStringLiteral("Result"))) continue;
@@ -1193,18 +1243,23 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 }
                 int n = (int)get_bits(b, 2, 0, 16);
                 int off = 16;
+                // 拓扑事件:离网指示(按 MAC 标记离网)
+                out.topo_event.kind = TopoEventKind::LeaveInd;
                 if (n > 0 && off + 6 <= b.size()) {
                     auto& lg = group(root.children,
                                      QStringLiteral("LeaveSTAMACList [%1]").arg(n));
                     for (int i = 0; i < n && off + 6 <= b.size(); ++i) {
+                        const quint64 lmac = (quint64)get_bits(b, off, 0, 48);
+                        out.topo_event.leaves.append(lmac);
                         MsduFieldNode mac;
                         mac.name  = QStringLiteral("LeaveSTAMAC [48b]");
-                        mac.value = mac_str((quint64)get_bits(b, off, 0, 48));
+                        mac.value = mac_str(lmac);
                         mac.rel_start = head_size + 4 + off;
                         mac.rel_len   = 6;
                         lg.children.append(mac);
                         off += 6;
                     }
+                    out.topo_event.desc = trl::L("离线指示: %1 个站点离线").arg(n);
                 }
                 break;
             }
@@ -1548,6 +1603,15 @@ struct I18nReg {
         trl::register_en("升级端口", "Upgrade port");
         trl::register_en("安全端口", "Security port");
         trl::register_en("(未实现子类型)", "(Not implemented subtype)");
+        trl::register_en(" (高可信)", " (high confidence)");
+        trl::register_en(" (中可信)", " (medium confidence)");
+        trl::register_en(" (低可信)", " (low confidence)");
+        // 拓扑事件变更说明(TOPO 路由变更表 desc)
+        trl::register_en("关联请求: STA %1 正在入网", "Assoc request: STA %1 joining");
+        trl::register_en("关联确认: STA TEI=%1 入网 代理=%2", "Assoc confirm: STA TEI=%1 joined, proxy=%2");
+        trl::register_en("发现列表: STA TEI=%1 代理=%2", "Discover list: STA TEI=%1 proxy=%2");
+        trl::register_en("代理变更: STA TEI=%1 代理→%2", "Proxy change: STA TEI=%1 proxy→%2");
+        trl::register_en("离线指示: %1 个站点离线", "Leave indication: %1 stations left");
     }
 };
 const I18nReg g_i18n_reg_msdu;

@@ -2,5 +2,9 @@
     <qresource prefix="/icons">
         <file alias="app.png">icons/app.png</file>
         <file alias="app.ico">icons/app.ico</file>
+        <file alias="cco-router.png">icons/cco-router.png</file>
+        <file alias="electric-meter_online.png">icons/electric-meter_online.png</file>
+        <file alias="electric-meter _offline.png">icons/electric-meter _offline.png</file>
+        <file alias="electric-meter _online_going.png">icons/electric-meter _online_going.png</file>
     </qresource>
 </RCC>

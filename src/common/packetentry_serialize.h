@@ -205,6 +205,45 @@ inline void read_field_node(QDataStream& s, MsduFieldNode& n) {
     }
 }
 
+inline void write_topo_event(QDataStream& s, const TopoEvent& t) {
+    write_u8(s, static_cast<quint8>(t.kind));
+    write_u32(s, t.nid);
+    s << t.cco_mac;
+    write_u32(s, quint32(t.nodes.size()));
+    for (const TeiMacPair& p : t.nodes) { write_u16(s, p.tei); s << p.mac; }
+    write_u32(s, quint32(t.routes.size()));
+    for (const auto& r : t.routes) { write_u16(s, r.first); write_u16(s, r.second); }
+    write_u32(s, quint32(t.leaves.size()));
+    for (quint64 mac : t.leaves) s << mac;
+    write_u32(s, quint32(t.comm_rates.size()));
+    for (const CommRateInfo& c : t.comm_rates) { write_u16(s, c.tei); write_u8(s, c.down); write_u8(s, c.up); }
+    write_str(s, t.desc);
+    write_i64(s, t.epoch_ms);
+}
+
+inline void read_topo_event(QDataStream& s, TopoEvent& t) {
+    quint8 k = 0; read_u8(s, k); t.kind = static_cast<TopoEventKind>(k);
+    read_u32(s, t.nid);
+    s >> t.cco_mac;
+    quint32 nc = 0; read_u32(s, nc);
+    t.nodes.clear(); t.nodes.reserve(int(nc));
+    for (quint32 i = 0; i < nc; ++i) { TeiMacPair p; read_u16(s, p.tei); s >> p.mac; t.nodes.append(p); }
+    quint32 rc = 0; read_u32(s, rc);
+    t.routes.clear(); t.routes.reserve(int(rc));
+    for (quint32 i = 0; i < rc; ++i) { quint16 a = 0, b = 0; read_u16(s, a); read_u16(s, b); t.routes.append({a, b}); }
+    quint32 lc = 0; read_u32(s, lc);
+    t.leaves.clear(); t.leaves.reserve(int(lc));
+    for (quint32 i = 0; i < lc; ++i) { quint64 mac = 0; s >> mac; t.leaves.append(mac); }
+    quint32 cc = 0; read_u32(s, cc);
+    t.comm_rates.clear(); t.comm_rates.reserve(int(cc));
+    for (quint32 i = 0; i < cc; ++i) {
+        CommRateInfo c; read_u16(s, c.tei); read_u8(s, c.down); read_u8(s, c.up);
+        t.comm_rates.append(c);
+    }
+    read_str(s, t.desc);
+    read_i64(s, t.epoch_ms);
+}
+
 inline void write_msdu_info(QDataStream& s, const MsduInfo& m) {
     write_bool(s, m.present);
     write_bool(s, m.simple_head);
@@ -228,6 +267,7 @@ inline void write_msdu_info(QDataStream& s, const MsduInfo& m) {
     for (const MsduFieldNode& n : m.tree) write_field_node(s, n);
     write_u32(s, quint32(m.tei_mac_pairs.size()));
     for (const TeiMacPair& p : m.tei_mac_pairs) { write_u16(s, p.tei); s << p.mac; }
+    write_topo_event(s, m.topo_event);
 }
 
 inline void read_msdu_info(QDataStream& s, MsduInfo& m) {
@@ -259,6 +299,7 @@ inline void read_msdu_info(QDataStream& s, MsduInfo& m) {
     for (quint32 i = 0; i < pc; ++i) {
         TeiMacPair p; read_u16(s, p.tei); s >> p.mac; m.tei_mac_pairs.append(p);
     }
+    read_topo_event(s, m.topo_event);
 }
 
 /// @brief 序列化一个 PacketEntry 到字节流(不含长度前缀)

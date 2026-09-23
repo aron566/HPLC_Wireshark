@@ -219,6 +219,12 @@ struct MMeI18nReg {
         trl::register_en("CCO-STA 应用层报文", "CCO-STA APP Packet");
         trl::register_en("应用层报文", "Application Layer Packet");
         trl::register_en("管理消息报文", "Management Message Packet");
+        // 拓扑事件变更说明(TOPO 路由变更表 desc)
+        trl::register_en("关联请求: STA %1 正在入网", "Assoc request: STA %1 joining");
+        trl::register_en("关联确认: STA TEI=%1 入网 代理=%2", "Assoc confirm: STA TEI=%1 joined, proxy=%2");
+        trl::register_en("发现列表: STA TEI=%1 代理=%2", "Discover list: STA TEI=%1 proxy=%2");
+        trl::register_en("代理变更: STA TEI=%1 代理→%2", "Proxy change: STA TEI=%1 proxy→%2");
+        trl::register_en("离线指示: STA TEI=%1 离线", "Leave indication: STA TEI=%1 left");
     }
 } mme_i18n_reg;
 
@@ -836,6 +842,14 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                     switch (static_cast<NW_2021_MMeType>(mm_type)) {
         case NW_2021_MMeType::MME_ASSOCREQ: {
             add_fields(out.tree, mme, 6, kMMeAssocReqSpec, kMMeAssocReqSpecN, mme_rel_base);
+            // 拓扑事件:关联请求(STA 正在入网;TEI 未分配,用 tei=0 承载 MAC)
+            {
+                const quint64 sta_mac = get_bits(mme, 6, 0, 48);
+                out.topo_event.kind = TopoEventKind::AssocReq;
+                out.topo_event.nodes.append({0, sta_mac});
+                out.topo_event.desc = trl::L("关联请求: STA %1 正在入网")
+                    .arg(mac_str(sta_mac));
+            }
             translate_enum_i18n(out.tree, "LinePhase0", kLinePhaseZh, 4);
             translate_enum_i18n(out.tree, "CandidateLinePhase1", kLinePhaseZh, 4);
             translate_enum_i18n(out.tree, "CandidateLinePhase2", kLinePhaseZh, 4);
@@ -856,6 +870,18 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case NW_2021_MMeType::MME_ASSOCCNF: {
             add_fields(out.tree, mme, 6, kMMeAssocCnfSpec, kMMeAssocCnfSpecN, mme_rel_base);
+            // 拓扑事件:关联确认(STA 入网 + 代理)
+            {
+                const quint64 sta_mac = get_bits(mme, 6, 0, 48);
+                const quint16 sta_tei = (quint16)get_bits(mme, 14, 0, 12);
+                const quint16 proxy_tei = (quint16)get_bits(mme, 16, 0, 16);
+                out.topo_event.kind = TopoEventKind::AssocCnf;
+                if (sta_tei && sta_mac) out.topo_event.nodes.append({sta_tei, sta_mac});
+                if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
+                out.topo_event.desc = trl::L("关联确认: STA TEI=%1 入网 代理=%2")
+                    .arg(sta_tei)
+                    .arg(proxy_tei ? QString::number(proxy_tei) : QStringLiteral("-"));
+            }
             translate_enum_i18n(out.tree, "AssocResult", kAssocCnfResultZh, 14);
             translate_enum_i18n(out.tree, "LastPacketFlag", kLastPacketFlagZh, 2);
             annotate_unit(out.tree, "STAReAssocTime", QStringLiteral("ms"));
@@ -933,6 +959,16 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case NW_2021_MMeType::MME_CHANGEPROXYCNF: {
             add_fields(out.tree, mme, 6, kMMeChangeProxyCnfSpec, kMMeChangeProxyCnfSpecN, mme_rel_base);
+            // 拓扑事件:代理变更确认(STA 换代理)
+            {
+                const quint16 sta_tei = (quint16)get_bits(mme, 12, 0, 16);
+                const quint16 proxy_tei = (quint16)get_bits(mme, 14, 0, 16);
+                out.topo_event.kind = TopoEventKind::ChangeProxyCnf;
+                if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
+                out.topo_event.desc = trl::L("代理变更: STA TEI=%1 代理→%2")
+                    .arg(sta_tei)
+                    .arg(proxy_tei ? QString::number(proxy_tei) : QStringLiteral("-"));
+            }
             translate_enum_i18n(out.tree, "Result", kProxyChangeResultZh, 1);
             const quint16 child_sum = (quint16)get_bits(mme, 16, 0, 16);
             int off = 38;
@@ -984,6 +1020,15 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case NW_2021_MMeType::MME_LEAVEIND: {
             add_fields(out.tree, mme, 6, kMMeLeaveIndSpec, kMMeLeaveIndSpecN, mme_rel_base);
+            // 拓扑事件:离网指示(单 STA,按 TEI+MAC)
+            {
+                const quint16 leave_tei = (quint16)get_bits(mme, 6, 0, 16);
+                const quint64 leave_mac = get_bits(mme, 10, 0, 48);
+                out.topo_event.kind = TopoEventKind::LeaveInd;
+                if (leave_tei && leave_mac) out.topo_event.nodes.append({leave_tei, leave_mac});
+                if (leave_mac) out.topo_event.leaves.append(leave_mac);
+                out.topo_event.desc = trl::L("离线指示: STA TEI=%1 离线").arg(leave_tei);
+            }
             translate_enum_i18n(out.tree, "Reason", kLeaveReasonZh, 5);
             break;
         }
@@ -1018,6 +1063,21 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case NW_2021_MMeType::MME_DISCOVERNODELIST: {
             add_fields(out.tree, mme, 6, kMMeDiscoverNodeListSpec, kMMeDiscoverNodeListSpecN, mme_rel_base);
+            // 拓扑事件:发现列表(STATEI/MAC/代理/层级) + TEI→MAC 学习对
+            {
+                const quint16 sta_tei = (quint16)get_bits(mme, 6, 0, 16);
+                const quint64 sta_mac = get_bits(mme, 10, 0, 48);
+                const quint16 proxy_tei = (quint16)get_bits(mme, 16, 0, 16);
+                if (sta_tei && sta_mac) {
+                    out.tei_mac_pairs.append({sta_tei, sta_mac});
+                    out.topo_event.nodes.append({sta_tei, sta_mac});
+                }
+                out.topo_event.kind = TopoEventKind::DiscoverList;
+                if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
+                out.topo_event.desc = trl::L("发现列表: STA TEI=%1 代理=%2")
+                    .arg(sta_tei)
+                    .arg(proxy_tei ? QString::number(proxy_tei) : QStringLiteral("-"));
+            }
             // 值解释(对齐国网:Role/LinePhase/CommRateCalculateFinish 双语,成功率带 %)
             translate_enum_i18n(out.tree, "Role", kRoleZh, 5);
             translate_enum_i18n(out.tree, "CandidateLinePhase0", kLinePhaseZh, 4);
@@ -1132,7 +1192,13 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             add_fields(out.tree, mme, 6, kMMeSuccessRateReportSpec, kMMeSuccessRateReportSpecN, mme_rel_base);
             const quint16 sta_num = (quint16)get_bits(mme, 8, 0, 16);
             int off = 10;
+            // 拓扑事件:成功率上报(STA 与上级的上下行成功率)
+            out.topo_event.kind = TopoEventKind::SuccessRate;
             for (int i = 0; i < sta_num && off + 4 <= mme.size(); ++i) {
+                const quint16 tei = (quint16)get_bits(mme, off, 0, 16);
+                const quint8 down = (quint8)get_bits(mme, off + 2, 0, 8);
+                const quint8 up   = (quint8)get_bits(mme, off + 3, 0, 8);
+                out.topo_event.comm_rates.append({tei, down, up});
                 MsduFieldNode& n = group(out.tree, QStringLiteral("CommRate[%1]").arg(i));
                 n.rel_start = mme_rel_base + (off); n.rel_len = 4;
                 add_fields(n.children, mme, off, kCommRateInfoSpec, kCommRateInfoSpecN, mme_rel_base);

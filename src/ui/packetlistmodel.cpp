@@ -25,15 +25,17 @@ QString format_mac(quint64 v) {
     return s;
 }
 
-/// @brief 管理消息 MMe 类型颜色:暖色系色相(0-179),与 APP 层冷色系(180-359)视觉区分
+/// @brief 管理消息 MMe 类型颜色:暖色系色相(20-179,避开 0-19 红色区),
+///        与 APP 层冷色系(180-359)视觉区分;红色仅保留给异常报文
 QColor mme_color(quint16 mme_type) {
-    const int hue = int((quint64(mme_type) * 37) % 180);
+    const int hue = 20 + int((quint64(mme_type) * 37) % 160);
     return QColor::fromHsv(hue, 190, 220);
 }
 
-/// @brief 应用层 BID 颜色:冷色系色相(180-359),与管理消息暖色系区分
+/// @brief 应用层 BID 颜色:冷色系色相(180-339,避开 340-359 粉红区),
+///        与管理消息暖色系区分;红色仅保留给异常报文
 QColor bid_color(quint8 bid) {
-    const int hue = 180 + int((quint64(bid) * 37) % 180);
+    const int hue = 180 + int((quint64(bid) * 37) % 160);
     return QColor::fromHsv(hue, 190, 220);
 }
 }  // namespace
@@ -245,7 +247,7 @@ QVariant PacketListModel::data_color(const PacketEntry& e) const {
         case 2:  // ACK 选择确认帧:校验失败(≥1 PB CRC 未过)红色显著指示
             if (e.mpdu.ack_rx_res == 1) return QColor(224, 64, 64);
             return QColor(196, 181, 79);
-        case 3: return QColor(206, 92,  92);
+        case 3: return QColor(140, 110, 190);   // COORD 协调帧:紫色(非异常,不用红)
         default: return QColor(170, 170, 170);
     }
 }

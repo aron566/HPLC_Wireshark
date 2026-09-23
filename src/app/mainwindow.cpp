@@ -13,6 +13,7 @@
 #include "i18n.h"
 #include "packetentry_serialize.h"
 #include "fieldtools.h"
+#include "topo_window.h"
 
 #include <QtConcurrent>
 #include <QDataStream>
@@ -67,7 +68,7 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent),
       m_toolbar(nullptr), m_btn_start(nullptr), m_btn_stop(nullptr),
       m_btn_pause(nullptr), m_btn_clear(nullptr), m_btn_export(nullptr),
-      m_btn_settings(nullptr), m_edt_filter(nullptr), m_btn_apply_filter(nullptr),
+      m_btn_settings(nullptr), m_btn_topo(nullptr), m_edt_filter(nullptr), m_btn_apply_filter(nullptr),
       m_splitter_main(nullptr), m_table_packets(nullptr),
       m_splitter_bottom(nullptr), m_tree_protocol(nullptr),
       m_hex_view(nullptr), m_lbl_hex_title(nullptr),
@@ -158,6 +159,7 @@ void MainWindow::build_ui() {
     m_toolbar->addSeparator();
     m_btn_export = new QToolButton(m_toolbar);  m_btn_export->setText(trl::L("导出"));     m_toolbar->addWidget(m_btn_export);
     m_btn_settings = new QToolButton(m_toolbar);m_btn_settings->setText(trl::L("设置"));    m_toolbar->addWidget(m_btn_settings);
+    m_btn_topo = new QToolButton(m_toolbar);    m_btn_topo->setText(trl::L("拓扑"));        m_toolbar->addWidget(m_btn_topo);
     m_toolbar->addSeparator();
     m_toolbar->addWidget(new QLabel(trl::L("  显示过滤器:"), m_toolbar));
     m_edt_filter = new QLineEdit(m_toolbar);
@@ -351,6 +353,7 @@ void MainWindow::wire_signals() {
     connect(m_btn_pause,       &QToolButton::toggled, this, &MainWindow::on_pause);
     connect(m_btn_clear,       &QToolButton::clicked, this, &MainWindow::on_clear);
     connect(m_btn_export,      &QToolButton::clicked, this, &MainWindow::on_export);
+    connect(m_btn_topo,        &QToolButton::clicked, this, &MainWindow::open_topo_window);
     connect(m_btn_apply_filter, &QToolButton::clicked, this, &MainWindow::on_apply_filter);
     connect(m_edt_filter,      &QLineEdit::returnPressed, this, &MainWindow::on_apply_filter);
 
@@ -883,6 +886,17 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
     e.beacon    = r.beacon;  // BEACON 载荷区字段树(BEACON 帧时非空)
     e.msdu_raw_base = r.msdu_raw_base;
     e.raw_bytes = r.payload_for_log;
+    // 拓扑:关键管理消息(关联确认/代理变更/发现列表/离网)喂给拓扑状态
+    if (e.msdu.topo_event.kind != TopoEventKind::Other) {
+        TopoEvent te = e.msdu.topo_event;
+        te.nid = e.mpdu.net_id;
+        te.epoch_ms = e.epoch_ms;
+        te.is_rf = e.meta.is_rf;   // 接入方式(载波/RF)
+        m_topo_states[e.mpdu.net_id].apply(te);
+        // 拓扑窗口节流刷新:仅置脏标志,由 TopoWindow 定时器批量刷新(防高频卡顿)
+        if (m_topo_window)
+            m_topo_window->mark_dirty();
+    }
     e.search_text = make_search_text(e);   // 缓存可搜索全文,过滤匹配复用
     return e;
 }
@@ -1035,6 +1049,17 @@ void MainWindow::update_selection_delta() {
     const QString src = use_ntb ? QStringLiteral("NTB") : trl::L("本地时间");
     m_status_mid->setText(QStringLiteral("ΔT: %1 (%2)").arg(v, src));
 }
+
+void MainWindow::open_topo_window() {
+    if (!m_topo_window) {
+        m_topo_window = new TopoWindow(this);
+        m_topo_window->set_state_map(&m_topo_states);
+    }
+    m_topo_window->refresh_nids();
+    m_topo_window->show();
+    m_topo_window->raise();
+    m_topo_window->activateWindow();
+}
 namespace {
 // 中→英注册(文件级,仅新增条目;菜单/状态等通用条目见 src/common/i18n.cpp 内置词典)
 struct I18nRegMainWindow {
@@ -1064,6 +1089,7 @@ struct I18nRegMainWindow {
         trl::register_en("重启后生效", "Apply after restart");
         trl::register_en("协议已立即生效(Ctrl+E 开始捕获)", "Protocol applied immediately (Ctrl+E to start capture)");
         trl::register_en("本地时间", "Local time");
+        trl::register_en("拓扑", "Topology");
     }
 };
 const I18nRegMainWindow g_i18n_reg_mainwindow;

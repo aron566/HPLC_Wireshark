@@ -13,6 +13,7 @@
 
 #include <QByteArray>
 #include <QDateTime>
+#include <QPair>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -181,6 +182,39 @@ struct TeiMacPair {
     quint64 mac;   ///< MAC 48-bit
 };
 
+/// @brief 拓扑事件类型(对应驱动拓扑变化的管理消息)
+enum class TopoEventKind {
+    DiscoverList,   ///< 发现列表(单节点快照:TEI/MAC/代理/层级)
+    AssocReq,       ///< 关联请求(STA 正在入网)
+    AssocCnf,       ///< 关联确认(STA 已入网)
+    ChangeProxyCnf, ///< 代理变更确认(STA 换代理)
+    LeaveInd,       ///< 离网指示(STA 离网)
+    SuccessRate,    ///< 成功率上报(STA 与上级的上下行通讯成功率)
+    Other
+};
+
+/// @brief 通讯成功率信息(成功率上报条目;down/up 为百分比 0-100)
+struct CommRateInfo {
+    quint16 tei = 0;
+    quint8  down = 0; ///< 下行成功率 %(CCO/代理 → STA)
+    quint8  up = 0;   ///< 上行成功率 %(STA → CCO/代理)
+};
+
+/// @brief 从一帧管理消息提取的拓扑事件(协议无关;协议解析器在关键帧填充,
+///        拓扑窗口消费。kind==Other 表示非拓扑相关帧)
+struct TopoEvent {
+    TopoEventKind kind = TopoEventKind::Other;
+    quint32 nid = 0;
+    quint64 cco_mac = 0;                        ///< 本帧携带 CCO MAC(0=无)
+    QVector<TeiMacPair> nodes;                  ///< TEI→MAC 学习对
+    QVector<QPair<quint16, quint16>> routes;    ///< (子 TEI, 父/代理 TEI)
+    QVector<quint64> leaves;                    ///< 离网节点 MAC 列表
+    QVector<CommRateInfo> comm_rates;           ///< 成功率上报条目(SuccessRate 事件)
+    bool is_rf = false;                         ///< 接入方式:false=PLC 载波;true=HRF 无线
+    QString desc;                               ///< 变更说明(路由变更了什么)
+    qint64 epoch_ms = 0;                        ///< 时间点(epoch ms)
+};
+
 /// @brief MSDU 解析结果(由 GW_2022_MsduParser 填充)
 struct MsduInfo {
     bool    present;         ///< 本帧携带完整 MSDU(重组完成)
@@ -204,6 +238,7 @@ struct MsduInfo {
     QString summary;         ///< 概要,如 "MMeDiscoverNodeList" / "APP EventPacket"
     QVector<MsduFieldNode> tree;  ///< 字段树(协议树直接挂载显示)
     QVector<TeiMacPair> tei_mac_pairs; ///< 本帧携带的 TEI→MAC 学习对(发现列表等)
+    TopoEvent topo_event;        ///< 拓扑事件(关键管理消息填充;kind=Other 表示无)
 
     MsduInfo() : present(false), simple_head(false), msdu_seq(0),
                  msdu_src_tei(-1), msdu_dst_tei(-1), msdu_send_type(-1),
