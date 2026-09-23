@@ -214,19 +214,17 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
     }
     case NW_2021_FrameType::ACK: {
         auto* ack = tree_add_item(root, "ACK", "");
-        {
-            const quint8 et = e.mpdu.ack_ext_type;
-            QString ev;
-            switch (et) {
-            case 0: ev = QStringLiteral("0 - %1").arg(trl::L("选择确认帧")); break;
-            case 1: ev = QStringLiteral("1 - %1").arg(trl::L("网络搜索帧(抄控器)")); break;
-            case 2: ev = QStringLiteral("2 - %1").arg(trl::L("同步帧(抄控器)")); break;
-            case 3: ev = QStringLiteral("3 - %1").arg(trl::L("无线切频")); break;
-            default: ev = QStringLiteral("%1 - %2").arg(et).arg(trl::L("保留")); break;
-            }
-            tree_add_bit_field(ack, "ExtType", ev, 12, 0, 4);
+        // 扩展帧类型值释义(表21):0=选择确认帧 1=网络搜索帧 2=同步帧 其他=保留
+        const quint8 et = e.mpdu.ack_ext_type;
+        QString ext_ev;
+        switch (et) {
+        case 0: ext_ev = QStringLiteral("0 - %1").arg(trl::L("选择确认帧")); break;
+        case 1: ext_ev = QStringLiteral("1 - %1").arg(trl::L("网络搜索帧(抄控器)")); break;
+        case 2: ext_ev = QStringLiteral("2 - %1").arg(trl::L("同步帧(抄控器)")); break;
+        case 3: ext_ev = QStringLiteral("3 - %1").arg(trl::L("无线切频")); break;
+        default: ext_ev = QStringLiteral("%1 - %2").arg(et).arg(trl::L("保留")); break;
         }
-        switch (static_cast<NW_2021_AckExtType>(e.mpdu.ack_ext_type)) {
+        switch (static_cast<NW_2021_AckExtType>(et)) {
         case NW_2021_AckExtType::Normal: {
             const quint8 r = e.mpdu.ack_rx_res;
             QString rv;
@@ -250,23 +248,37 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             tree_add_bit_field(ack, "RxPBNum",
                 QStringLiteral("%1 (%2)").arg(e.mpdu.ack_rx_pb_num).arg(trl::L("含解析错误")),
                 3, 4, 4);
+            // 保留(表19:byte4-11, 64bit)
+            {
+                quint64 rsv = 0;
+                const int avail = e.raw_bytes.size() - 4;
+                for (int i = 0; i < 8 && i < avail; ++i)
+                    rsv = (rsv << 8) | (quint8)e.raw_bytes[4 + i];
+                tree_add_bit_field(ack, "Reserved",
+                    QStringLiteral("0x%1").arg(rsv, 16, 16, QChar('0')), 4, 0, 64);
+            }
+            // 扩展帧类型(表19:byte12 bit0-3)
+            tree_add_bit_field(ack, "ExtType", ext_ev, 12, 0, 4);
             break;
         }
         case NW_2021_AckExtType::Search:
             tree_add_bit_field(ack, "DstAddr", QStringLiteral("0x%1")
                 .arg(e.mpdu.ack_dst_addr, 12, 16, QChar('0')), 1, 0, 48);
             tree_add_bit_field(ack, "SearchTEI", QString::number(e.mpdu.ack_search_tei), 7, 0, 12);
+            tree_add_bit_field(ack, "ExtType", ext_ev, 12, 0, 4);
             break;
         case NW_2021_AckExtType::Sync:
             tree_add_bit_field(ack, "Timestamp", QStringLiteral("0x%1")
                 .arg(e.mpdu.ack_sync_timestamp, 8, 16, QChar('0')), 1, 0, 32);
             tree_add_bit_field(ack, "SyncTEI", QString::number(e.mpdu.ack_sync_tei), 5, 0, 12);
+            tree_add_bit_field(ack, "ExtType", ext_ev, 12, 0, 4);
             break;
         case NW_2021_AckExtType::SwitchChannel:
             tree_add_bit_field(ack, "DstAddr", QStringLiteral("0x%1")
                 .arg(e.mpdu.ack_dst_addr, 12, 16, QChar('0')), 1, 0, 48);
             tree_add_bit_field(ack, "Channel", QString::number(e.mpdu.ack_channel_quality), 7, 0, 8);
             tree_add_bit_field(ack, "Option", QString::number(e.mpdu.ack_sta_load), 8, 0, 8);
+            tree_add_bit_field(ack, "ExtType", ext_ev, 12, 0, 4);
             break;
         default:
             tree_add_item(ack, "Reserved ExtType", QString::number(e.mpdu.ack_ext_type));
