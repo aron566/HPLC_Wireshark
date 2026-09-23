@@ -52,6 +52,8 @@ public:
     /// @brief 立即请求中止文件/裸 hex 回放(原子标志,线程安全);
     ///        供 GUI 线程在 stop() 时直接调用,无需等待事件循环。
     void abort();
+    /// @brief 是否正在采集/回放(线程安全;串口打开、文件/裸hex 回放期间为真)
+    bool is_active() const { return m_active.load(); }
 
 public slots:
     void start_reading(const ReaderConfig& cfg);
@@ -88,6 +90,7 @@ private:
     qint64       m_last_ft;       ///< 上一帧 frame_time(回放时间轴基准)
     bool         m_running;
     std::atomic<bool> m_abort;   ///< 中止回放标志(GUI 线程 stop() 直接置位,while 循环检查)
+    std::atomic<bool> m_active;  ///< 正在采集/回放(串口/文件/裸hex 均置位;供 is_running 查询)
     qint64       m_raw_base_ms;   ///< 裸 hex 文本首帧时间(epoch ms;-1=未给出,回退本地)
     bool         m_hex_seg_first; ///< 裸 hex 当前段首帧标志(段首用 TIME 头时间)
     quint32      m_last_hex_ts;   ///< 裸 hex 上一帧 ts4(段内差分)
@@ -107,6 +110,7 @@ public:
 
     bool start(const ReaderConfig& cfg);
     void stop();
+    bool is_running() const;   ///< 是否正在采集/回放(转发 worker 状态)
 
 signals:
     void request_start(ReaderConfig cfg);

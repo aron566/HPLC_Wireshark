@@ -809,6 +809,12 @@ void MainWindow::dropEvent(QDropEvent* event) {
 }
 
 void MainWindow::start_file_import(const QString& path) {
+    // 仅允许在停止状态导入;采集/回放运行中拒绝(避免打断正在进行的捕获)
+    if (m_reader && m_reader->is_running()) {
+        QMessageBox::warning(this, trl::L("导入"),
+                             trl::L("正在捕获/回放中,请先点击停止后再拖入文件"));
+        return;
+    }
     const QString ext = QFileInfo(path).suffix().toLower();
     ReaderConfig cfg = load_config_from_settings();
     if (ext == QStringLiteral("bin")) {

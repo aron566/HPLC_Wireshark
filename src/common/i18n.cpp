@@ -67,6 +67,8 @@ const struct { const char* zh; const char* en; } en_dict[] = {
     { "导入", "Import" },
     { "不支持的文件类型(支持 .bin / .txt / .hex): %1",
       "Unsupported file type (.bin / .txt / .hex supported): %1" },
+    { "正在捕获/回放中,请先点击停止后再拖入文件",
+      "Capturing/replaying, please stop before dropping a file" },
 };
 
 QHash<QString, QString>& dict() {

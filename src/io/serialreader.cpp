@@ -12,7 +12,8 @@
 ReaderWorker::ReaderWorker(QObject* parent) : QObject(parent),
     m_serial(nullptr), m_file(nullptr),
     m_get3c(false), m_frame_rx_us(0), m_playback_base_ms(-1), m_first_frame(false),
-    m_last_ntb(0), m_last_ft(0), m_running(false), m_abort(false), m_raw_base_ms(-1),
+    m_last_ntb(0), m_last_ft(0), m_running(false), m_abort(false), m_active(false),
+    m_raw_base_ms(-1),
     m_hex_seg_first(false), m_last_hex_ts(0), m_last_hex_ft(0),
     m_last_local_ms(0), m_pending_seg_start(false), m_file_size(0), m_last_progress(-1) {}
 
@@ -28,6 +29,7 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
     if (m_running) stop_reading();
     m_cfg = cfg;
     m_abort.store(false);
+    m_active.store(true);   // 采集/回放开始(串口/文件/裸hex 均计入)
     m_in_buf.clear();
     m_get3c = false;
     m_last_local_ms = 0;   // 每次启动重置断段判断基准
@@ -43,6 +45,7 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
         m_serial->setFlowControl(QSerialPort::NoFlowControl);
         if (!m_serial->open(QIODevice::ReadOnly)) {
             emit error_occurred(trl::L("打开串口失败: %1").arg(m_serial->errorString()));
+            m_active.store(false);
             return;
         }
         connect(m_serial, &QSerialPort::readyRead, this, &ReaderWorker::on_serial_ready_read);
@@ -51,6 +54,7 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
         m_file = new QFile(cfg.file_path, this);
         if (!m_file->open(QIODevice::ReadOnly)) {
             emit error_occurred(trl::L("打开文件失败: %1").arg(m_file->errorString()));
+            m_active.store(false);
             return;
         }
         m_file_size = m_file->size();
@@ -84,11 +88,13 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
         emit progress_percent(100);
         emit status_message(trl::L("文件回放结束"));
         emit finished();
+        m_active.store(false);
         return;
     } else if (cfg.mode == ReaderMode::RawHex) {
         m_file = new QFile(cfg.file_path, this);
         if (!m_file->open(QIODevice::ReadOnly | QIODevice::Text)) {
             emit error_occurred(trl::L("打开文件失败: %1").arg(m_file->errorString()));
+            m_active.store(false);
             return;
         }
         emit status_message(trl::L("裸 hex 模式: %1").arg(cfg.file_path));
@@ -104,6 +110,7 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
         }
         m_file->close();
         emit finished();
+        m_active.store(false);
         return;
     }
 
@@ -112,6 +119,7 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
 
 void ReaderWorker::stop_reading() {
     m_running = false;
+    m_active.store(false);
     m_abort.store(true);
     if (m_serial)   { m_serial->close(); m_serial->deleteLater(); m_serial = nullptr; }
     if (m_file)     { m_file->close(); m_file->deleteLater(); m_file = nullptr; }
@@ -442,6 +450,10 @@ void SerialReader::stop() {
     // 文件/裸 hex 回放是同步 while 循环,必须靠原子标志打断,否则停不住。
     if (m_worker) m_worker->abort();
     emit request_stop();   // 异步清理资源(close 文件/串口)
+}
+
+bool SerialReader::is_running() const {
+    return m_worker && m_worker->is_active();
 }
 
 void SerialReader::on_frame(BplcFrame f) { emit frame_ready(f); }
