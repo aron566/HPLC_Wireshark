@@ -32,6 +32,7 @@
 #include <QFileDialog>
 #include <QFile>
 #include <QTextStream>
+#include <QStringConverter>
 #include <QMutexLocker>
 #include <QDateTime>
 #include <QKeySequence>
@@ -641,6 +642,8 @@ void run_export(const PacketListModel::ExportSnapshot& snap,
         for (const PacketEntry& e : snap.hot) w.add(e);
     } else {   // ExportFormat::Csv
         QTextStream ts(&out);
+        // 本地编码存储(Windows 中文系统=GBK/ANSI 代码页),Excel 直接打开不乱码
+        ts.setEncoding(QStringConverter::System);
         ts << QStringLiteral("#,Time,Delta,Orig Src,Source,Destination,Orig Dst,Dir,"
                              "Protocol,Frame Type,MSDU Type,MSDU Seq,Length,Info\n");
         const auto emit_row = [&](const PacketEntry& e) {
