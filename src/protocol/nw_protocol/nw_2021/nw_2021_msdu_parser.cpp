@@ -821,6 +821,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 const int mme_rel_base = mac_hdr_len + 18;
                 if (mme.size() >= 6) {
                     const quint16 mm_type = (quint16)get_bits(mme, 1, 0, 16);
+                    out.mme_type = mm_type;
                     out.summary = mme_type_name(mm_type);
                     // MMe 类型字段(管理消息类型 16b,值 + 类型名,供着色区分)
                     {

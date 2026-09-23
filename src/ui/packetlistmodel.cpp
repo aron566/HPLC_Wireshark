@@ -13,6 +13,7 @@ namespace {
 constexpr quint8 kAppPacketAckNack = 0x0;   ///< 帧类型域=确认/否认
 constexpr quint8 kBidConfirm       = 0x00;  ///< BID=确认(ACK)
 constexpr quint8 kBidDeny          = 0x01;  ///< BID=否认(NACK)
+constexpr quint16 kMmeTypeNone     = 0xFFFF; ///< 非管理消息的 mme_type 标记
 
 /// @brief 48-bit MAC 帧内原始字节序 → "aa:bb:cc:dd:ee:ff"(与 fieldspec::mac_str 一致)
 QString format_mac(quint64 v) {
@@ -24,9 +25,15 @@ QString format_mac(quint64 v) {
     return s;
 }
 
-/// @brief 应用层 BID 颜色:按 BID 散列色相(同 BID 同色,不同 BID 尽量不同色)
+/// @brief 管理消息 MMe 类型颜色:暖色系色相(0-179),与 APP 层冷色系(180-359)视觉区分
+QColor mme_color(quint16 mme_type) {
+    const int hue = int((quint64(mme_type) * 37) % 180);
+    return QColor::fromHsv(hue, 190, 220);
+}
+
+/// @brief 应用层 BID 颜色:冷色系色相(180-359),与管理消息暖色系区分
 QColor bid_color(quint8 bid) {
-    const int hue = int((quint64(bid) * 47) % 360);
+    const int hue = 180 + int((quint64(bid) * 37) % 180);
     return QColor::fromHsv(hue, 190, 220);
 }
 }  // namespace
@@ -210,7 +217,9 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
             }
         }
     } else if (role == Qt::ForegroundRole) {
-        // 应用层报文整行按 BID 着色(确认亮绿/否认红 + 其他 BID 散列);非应用层走帧类型颜色
+        // 整行着色优先级:管理消息(MMe 暖色系) > APP 层(BID 冷色系) > 帧类型(DROP灰/ACK校验失败红不变)
+        if (e.msdu.present && e.msdu.mme_type != kMmeTypeNone)
+            return mme_color(e.msdu.mme_type);
         if (e.msdu.present && e.msdu.business_id != 0xFF) {
             if (e.msdu.app_packet_type == kAppPacketAckNack) {
                 if (e.msdu.business_id == kBidConfirm) return QColor(46, 214, 106);   // 确认(ACK)亮绿

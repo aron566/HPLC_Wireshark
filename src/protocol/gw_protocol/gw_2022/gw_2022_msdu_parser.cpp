@@ -696,6 +696,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
             return out;
         }
         quint8 mm_type = (quint8)get_bits(msdu_body, 0, 0, 8);
+        out.mme_type = mm_type;
         out.summary = mme_type_name(mm_type);
         auto& root = group(out.tree, QStringLiteral("MMe: %1").arg(out.summary));
 
