@@ -23,6 +23,19 @@ enum class GW_2022_AckExtType : quint8 {
     SwitchChannel = 3,  ///< 无线切频
 };
 
+/// 国网 GW_2022 标准版本号(FCH byte12 bit4-7)
+enum class GW_2022_Version : quint8 {
+    RESERVED = 0,  ///< 保留
+    BPLC     = 1,  ///< 单模(BPLC)
+    SPLC     = 2,  ///< 双模(SPLC)
+};
+
+/// 国网 GW_2022 ACK 常规收包结果(RxRes,FCH byte4 bit0-3)
+enum class GW_2022_AckRxRes : quint8 {
+    RECEIPT_OK   = 0,  ///< 接收成功(所有 PB CRC 通过)
+    RECEIPT_FAIL = 1,  ///< 接收失败(≥1 块 CRC 未过)
+};
+
 /// 国网双模标准 2022 字段树构建器
 class GW_2022_TreeBuilder : public IProtocolTreeBuilder {
 public:

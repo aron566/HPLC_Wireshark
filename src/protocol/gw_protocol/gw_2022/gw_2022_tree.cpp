@@ -28,9 +28,12 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         .arg(e.mpdu.net_id, 6, 16, QChar('0')), 1, 0, 24);
     {
         // 版本号:0=保留 1=BPLC 2=SPLC
-        QString ver = (e.mpdu.version == 1) ? QStringLiteral("1 (BPLC)")
-                     : (e.mpdu.version == 2) ? QStringLiteral("2 (SPLC)")
-                     : QStringLiteral("%1 (Reserved)").arg(e.mpdu.version);
+        QString ver;
+        switch (static_cast<GW_2022_Version>(e.mpdu.version)) {
+        case GW_2022_Version::BPLC: ver = QStringLiteral("1 (BPLC)"); break;
+        case GW_2022_Version::SPLC: ver = QStringLiteral("2 (SPLC)"); break;
+        default: ver = QStringLiteral("%1 (Reserved)").arg(e.mpdu.version); break;
+        }
         tree_add_bit_field(mpdu_base, "Version", ver, 12, 4, 4);
     }
     tree_add_bit_field(mpdu_base, "FCH CRC24", e.mpdu.fch_crc_ok ? "OK" : "FAIL", 13, 0, 24);
@@ -178,9 +181,12 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         case GW_2022_AckExtType::Normal: {
             const quint8 rxres = e.mpdu.ack_rx_res;
             QString rv;
-            if (rxres == 0) rv = QStringLiteral("0 - Receipt OK (all PB CRC passed)");
-            else if (rxres == 1) rv = QStringLiteral("1 - Receipt FAIL (≥1 PB CRC failed)");
-            else rv = QStringLiteral("%1 - Reserved").arg(rxres);
+            if (static_cast<GW_2022_AckRxRes>(rxres) == GW_2022_AckRxRes::RECEIPT_OK)
+                rv = QStringLiteral("0 - Receipt OK (all PB CRC passed)");
+            else if (static_cast<GW_2022_AckRxRes>(rxres) == GW_2022_AckRxRes::RECEIPT_FAIL)
+                rv = QStringLiteral("1 - Receipt FAIL (≥1 PB CRC failed)");
+            else
+                rv = QStringLiteral("%1 - Reserved").arg(rxres);
             tree_add_bit_field(ack, "RxRes", rv, 4, 0, 4);
             {
                 const quint8 st = e.mpdu.ack_rx_status;

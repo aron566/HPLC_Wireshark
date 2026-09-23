@@ -23,61 +23,61 @@
 
 // 信标类型名称(51242 表39:0 发现信标/1 代理信标/2 中央信标/其它保留)
 static QString beacon_type_name(quint8 t) {
-    switch (t) {
-        case 0:  return trl::L("发现信标");
-        case 1:  return trl::L("代理信标");
-        case 2:  return trl::L("中央信标");
+    switch (static_cast<GW_2022_BeaconType>(t)) {
+        case GW_2022_BeaconType::DISCOVERY: return trl::L("发现信标");
+        case GW_2022_BeaconType::PROXY:     return trl::L("代理信标");
+        case GW_2022_BeaconType::CENTRAL:   return trl::L("中央信标");
         default: return trl::L("保留");
     }
 }
 
 // 条目头英文全称(51242 表46)
 static QString beacon_item_head_name(quint8 h) {
-    switch (h) {
-        case 0x00: return QStringLiteral("STA Capability Item");
-        case 0x01: return QStringLiteral("Route Parameter Item");
-        case 0x02: return QStringLiteral("Band Change Item");
-        case 0x03: return QStringLiteral("RF Route Parameter Item");
-        case 0x04: return QStringLiteral("RF Channel Change Item");
-        case 0x05: return QStringLiteral("Lite STA Info & Slot Item");
-        case 0xC0: return QStringLiteral("Time Slot Allocation Item");
+    switch (static_cast<GW_2022_BeaconItemType>(h)) {
+        case GW_2022_BeaconItemType::STA_CAPABILITY:       return QStringLiteral("STA Capability Item");
+        case GW_2022_BeaconItemType::ROUTE_PARAMETER:      return QStringLiteral("Route Parameter Item");
+        case GW_2022_BeaconItemType::BAND_CHANGE:          return QStringLiteral("Band Change Item");
+        case GW_2022_BeaconItemType::RF_ROUTE_PARAMETER:   return QStringLiteral("RF Route Parameter Item");
+        case GW_2022_BeaconItemType::RF_CHANNEL_CHANGE:    return QStringLiteral("RF Channel Change Item");
+        case GW_2022_BeaconItemType::LITE_STA_INFO_SLOT:   return QStringLiteral("Lite STA Info & Slot Item");
+        case GW_2022_BeaconItemType::TIME_SLOT_ALLOCATION: return QStringLiteral("Time Slot Allocation Item");
         default:   return QStringLiteral("Reserved");  // 0x06..0xBF / 0xC1..0xFF
     }
 }
 
 // 条目头中文含义(表46 定义说明)
 static QString beacon_item_head_desc(quint8 h) {
-    switch (h) {
-        case 0x00: return trl::L("站点能力条目(标准信标必选)");
-        case 0x01: return trl::L("路由参数条目(标准信标必选)");
-        case 0x02: return trl::L("频段变更条目(可选)");
-        case 0x03: return trl::L("无线路由参数条目(标准信标必选)");
-        case 0x04: return trl::L("无线信道变更条目(可选)");
-        case 0x05: return trl::L("精简信标站点信息及时隙条目(精简信标必选)");
-        case 0xC0: return trl::L("时隙分配条目(TSA,标准信标必选)");
+    switch (static_cast<GW_2022_BeaconItemType>(h)) {
+        case GW_2022_BeaconItemType::STA_CAPABILITY:       return trl::L("站点能力条目(标准信标必选)");
+        case GW_2022_BeaconItemType::ROUTE_PARAMETER:      return trl::L("路由参数条目(标准信标必选)");
+        case GW_2022_BeaconItemType::BAND_CHANGE:          return trl::L("频段变更条目(可选)");
+        case GW_2022_BeaconItemType::RF_ROUTE_PARAMETER:   return trl::L("无线路由参数条目(标准信标必选)");
+        case GW_2022_BeaconItemType::RF_CHANNEL_CHANGE:    return trl::L("无线信道变更条目(可选)");
+        case GW_2022_BeaconItemType::LITE_STA_INFO_SLOT:   return trl::L("精简信标站点信息及时隙条目(精简信标必选)");
+        case GW_2022_BeaconItemType::TIME_SLOT_ALLOCATION: return trl::L("时隙分配条目(TSA,标准信标必选)");
         default:   return trl::L("保留");
     }
 }
 
 // 相线名称(表47/52/53:0 全相线 1 A相 2 B相 3 C相)
 static QString line_name(quint8 l) {
-    switch (l) {
-        case 0:  return trl::L("全相线");
-        case 1:  return trl::L("A相线");
-        case 2:  return trl::L("B相线");
-        case 3:  return trl::L("C相线");
+    switch (static_cast<GW_2022_PhaseLine>(l)) {
+        case GW_2022_PhaseLine::ALL_LINES: return trl::L("全相线");
+        case GW_2022_PhaseLine::LINE_A:    return trl::L("A相线");
+        case GW_2022_PhaseLine::LINE_B:    return trl::L("B相线");
+        case GW_2022_PhaseLine::LINE_C:    return trl::L("C相线");
         default: return trl::L("保留");
     }
 }
 
 // 无线信标标志(51242 表51):高速载波信标与无线信标的发送组合方式
 static QString rf_wireless_desc(quint8 rf) {
-    switch (rf) {
-        case 0:  return trl::L("仅发送高速载波信标");
-        case 1:  return trl::L("仅发送无线标准信标");
-        case 2:  return trl::L("载波信标后发无线标准信标");
-        case 3:  return trl::L("载波信标后发无线精简信标");
-        case 4:  return trl::L("载波信标+CSMA时隙发无线精简信标");
+    switch (static_cast<GW_2022_BeaconSendMode>(rf)) {
+        case GW_2022_BeaconSendMode::CARRIER_ONLY:             return trl::L("仅发送高速载波信标");
+        case GW_2022_BeaconSendMode::RF_STANDARD_ONLY:         return trl::L("仅发送无线标准信标");
+        case GW_2022_BeaconSendMode::CARRIER_THEN_RF_STANDARD: return trl::L("载波信标后发无线标准信标");
+        case GW_2022_BeaconSendMode::CARRIER_THEN_RF_LITE:     return trl::L("载波信标后发无线精简信标");
+        case GW_2022_BeaconSendMode::CARRIER_CSMA_RF_LITE:     return trl::L("载波信标+CSMA时隙发无线精简信标");
         default: return trl::L("保留");
     }
 }
@@ -304,7 +304,7 @@ MsduInfo GW_2022_BeaconParser::parse_beacon(const QByteArray& payload) {
         if (pos >= gb.size() - 4) break;
         int item_len, len_bytes = 1;
         quint32 len_raw;
-        if (head == 0xC0) {  // TSA:长度 2B LE,len-3 = 内容长
+        if (head == static_cast<quint8>(GW_2022_BeaconItemType::TIME_SLOT_ALLOCATION)) {  // TSA:长度 2B LE,len-3 = 内容长
             if (pos + 1 >= gb.size() - 4) break;
             len_raw = (quint8)gb[pos] | ((quint8)gb[pos + 1] << 8);
             pos += 2;
@@ -340,8 +340,8 @@ MsduInfo GW_2022_BeaconParser::parse_beacon(const QByteArray& payload) {
                               .arg(n).arg(beacon_item_head_name(head)).arg(item_len));
         grp.children.append(hd);
         grp.children.append(ln);
-        switch (head) {
-            case 0x00: {  // STA Cap(13B)
+        switch (static_cast<GW_2022_BeaconItemType>(head)) {
+            case GW_2022_BeaconItemType::STA_CAPABILITY: {  // STA Cap(13B)
                 add_fields(grp.children, it, 0, kStaCapSpec, kStaCapSpecN, abs0);
                 // 学习 TEI→SourceMAC(发送信标站点)
                 {
@@ -368,7 +368,7 @@ MsduInfo GW_2022_BeaconParser::parse_beacon(const QByteArray& payload) {
                 }
                 break;
             }
-            case 0x01: {  // Route Param(8B)
+            case GW_2022_BeaconItemType::ROUTE_PARAMETER: {  // Route Param(8B)
                 add_fields(grp.children, it, 0, kRouteParamSpec, kRouteParamSpecN, abs0);
                 // 周期/时间单位(与 Python log "RoutePeriod: 80s" 一致)
                 annotate_unit(grp.children, "RoutePeriod", QStringLiteral("s"));
@@ -377,7 +377,7 @@ MsduInfo GW_2022_BeaconParser::parse_beacon(const QByteArray& payload) {
                 annotate_unit(grp.children, "STADiscoveryListPeriod", QStringLiteral("s"));
                 break;
             }
-            case 0x02: {  // 频段通知条目(51242 表49)
+            case GW_2022_BeaconItemType::BAND_CHANGE: {  // 频段通知条目(51242 表49)
                 add_fields(grp.children, it, 0, kBandChangeSpec, kBandChangeSpecN, abs0);
                 annotate_unit(grp.children, "SwitchRemainTime", QStringLiteral("ms"));
                 // 目标频段:0x00=频段0 / 0x01=频段1 / 其它保留(见物理层规范)
@@ -391,7 +391,7 @@ MsduInfo GW_2022_BeaconParser::parse_beacon(const QByteArray& payload) {
                 }
                 break;
             }
-            case 0x03: {  // 无线路由参数条目(51242 表54,必选)
+            case GW_2022_BeaconItemType::RF_ROUTE_PARAMETER: {  // 无线路由参数条目(51242 表54,必选)
                 add_fields(grp.children, it, 0, kRfRouteSpec, kRfRouteSpecN, abs0);
                 annotate_unit(grp.children, "RfDiscoveryListPeriod", QStringLiteral("s"));
                 // 老化周期个数的单位 = 无线发现列表周期
@@ -400,12 +400,12 @@ MsduInfo GW_2022_BeaconParser::parse_beacon(const QByteArray& payload) {
                         ch.value += QLatin1Char(' ') + trl::L("(x 发现列表周期)");
                 break;
             }
-            case 0x04: {  // 无线信道变更条目(51242 表55)
+            case GW_2022_BeaconItemType::RF_CHANNEL_CHANGE: {  // 无线信道变更条目(51242 表55)
                 add_fields(grp.children, it, 0, kRfChChangeSpec, kRfChChangeSpecN, abs0);
                 annotate_unit(grp.children, "ChSwitchRemainTime", QStringLiteral("ms"));
                 break;
             }
-            case 0x05: {  // 精简信标站点信息及时隙条目(51243 表57)
+            case GW_2022_BeaconItemType::LITE_STA_INFO_SLOT: {  // 精简信标站点信息及时隙条目(51243 表57)
                 add_fields(grp.children, it, 0, kLiteStaSpec, kLiteStaSpecN, abs0);
                 // 学习 TEI→SourceMAC
                 {
@@ -425,7 +425,7 @@ MsduInfo GW_2022_BeaconParser::parse_beacon(const QByteArray& payload) {
                 }
                 break;
             }
-            case 0xC0: {  // TSA/时隙分配条目:头 20B + 槽信息
+            case GW_2022_BeaconItemType::TIME_SLOT_ALLOCATION: {  // TSA/时隙分配条目:头 20B + 槽信息
                 add_fields(grp.children, it, 0, kTsaHeadSpec, kTsaHeadSpecN, abs0);
                 // TSA 时长字段单位 ms(与 Python log "BeaconSlotLen: 30ms" 一致)
                 annotate_unit(grp.children, "BeaconSlotLen", QStringLiteral("ms"));
@@ -451,9 +451,11 @@ MsduInfo GW_2022_BeaconParser::parse_beacon(const QByteArray& payload) {
                                   QString::number(tei), abs0 + o, 2);
                         slot_leaf(sg.children, QStringLiteral("Beacon Type [1b]"),
                                   QStringLiteral("%1 - %2").arg(bt).arg(
-                                      bt == 0 ? trl::L("发现信标")
-                                              : (bt == 1 ? trl::L("代理信标")
-                                                         : trl::L("保留"))),
+                                      bt == static_cast<quint8>(GW_2022_BeaconType::DISCOVERY)
+                                          ? trl::L("发现信标")
+                                          : (bt == static_cast<quint8>(GW_2022_BeaconType::PROXY)
+                                                 ? trl::L("代理信标")
+                                                 : trl::L("保留"))),
                                   abs0 + o + 1, 1);
                         slot_leaf(sg.children, QStringLiteral("RF Beacon Flag [3b]"),
                                   QStringLiteral("%1 - %2").arg(rf).arg(rf_wireless_desc(rf)),

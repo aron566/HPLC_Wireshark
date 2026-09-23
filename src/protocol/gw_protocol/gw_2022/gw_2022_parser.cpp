@@ -6,6 +6,7 @@
 ///          位域/CRC 公共工具见 fieldspec.h。
 #include "gw_2022_parser.h"
 #include "gw_2022_pb_table.h"
+#include "gw_2022_tree.h"
 #include "i18n.h"
 #include "statistics.h"
 #include "gw_2022_msdu_parser.h"
@@ -154,18 +155,19 @@ GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msd
         return r;
     }
 
-    switch (r.mpdu.frame_type) {
-        case 0: if (!f.allow_beacon) { r.reject_reason = trl::L("BEACON 被过滤"); r.accept = false; return r; } break;
-        case 1: if (!f.allow_sof)    { r.reject_reason = trl::L("SOF 被过滤");    r.accept = false; return r; } break;
-        case 2: if (!f.allow_ack)    { r.reject_reason = trl::L("ACK 被过滤");    r.accept = false; return r; } break;
-        case 3: if (!f.allow_coord)  { r.reject_reason = trl::L("COORD 被过滤");  r.accept = false; return r; } break;
+    const GW_2022_FrameType ft = static_cast<GW_2022_FrameType>(r.mpdu.frame_type);
+    switch (ft) {
+        case GW_2022_FrameType::BEACON: if (!f.allow_beacon) { r.reject_reason = trl::L("BEACON 被过滤"); r.accept = false; return r; } break;
+        case GW_2022_FrameType::SOF:    if (!f.allow_sof)    { r.reject_reason = trl::L("SOF 被过滤");    r.accept = false; return r; } break;
+        case GW_2022_FrameType::ACK:    if (!f.allow_ack)    { r.reject_reason = trl::L("ACK 被过滤");    r.accept = false; return r; } break;
+        case GW_2022_FrameType::COORD:  if (!f.allow_coord)  { r.reject_reason = trl::L("COORD 被过滤");  r.accept = false; return r; } break;
         default: break;
     }
 
     const quint8* p =
         reinterpret_cast<const quint8*>(r.payload_for_log.constData());
 
-    if (r.mpdu.frame_type == 1) {
+    if (ft == GW_2022_FrameType::SOF) {
         // SOF:FCH 字段 + 多 PB 重组(sof 模块)
         err = gw_2022_sof::assemble(r.payload_for_log, r.mpdu, msdu, r.msdu_body,
                                     r.meta.is_rf ? 0xFF : (quint8)r.meta.channel);
@@ -184,7 +186,7 @@ GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msd
             // 多块重组时各 pb_body 在 raw 中被 pb_head/CRC 隔断,不连续,置 -1。
             r.msdu_raw_base = (r.mpdu.pb_num == 1) ? 17 : -1;
         }
-    } else if (r.mpdu.frame_type == 0) {
+    } else if (ft == GW_2022_FrameType::BEACON) {
         // BEACON:FCH 摘要 + 载荷区解析(beacon 模块)
         r.mpdu.beacon_timestamp = (quint32)get_bits(p, 4, 0, 32);
         r.mpdu.src_tei          = (quint16)get_bits(p, 8, 0, 12);
@@ -208,10 +210,10 @@ GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.beacon_rf_option  = 0;
             r.mpdu.beacon_item_num   = (quint8)gb.at(16 + (lite ? 12 : 20));
         }
-    } else if (r.mpdu.frame_type == 2) {
+    } else if (ft == GW_2022_FrameType::ACK) {
         // ACK(ack 模块)
         gw_2022_ackp::parse_fch(p, r.mpdu);
-    } else if (r.mpdu.frame_type == 3) {
+    } else if (ft == GW_2022_FrameType::COORD) {
         // 网间协调帧 COORD(coord 模块)
         gw_2022_coordp::parse_fch(p, r.mpdu);
     }

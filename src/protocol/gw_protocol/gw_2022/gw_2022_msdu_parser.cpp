@@ -10,30 +10,6 @@
 #include <cstdint>
 
 // ---------- 工具:取位域(与 bplcparser 同算法,本地独立实现) ----------
-/// @brief MMe 管理消息类型(表59,8bit;不处理时保留枚举供扩展)
-enum MMeType : quint8 {
-    MME_ASSOC_REQ                 = 0x00,
-    MME_ASSOC_CNF                 = 0x01,
-    MME_ASSOC_GATHER_IND          = 0x02,
-    MME_CHANGE_PROXY_REQ          = 0x03,
-    MME_CHANGE_PROXY_CNF          = 0x04,
-    MME_CHANGE_PROXY_BITMAP_CNF   = 0x05,
-    MME_LEAVE_IND                 = 0x06,
-    MME_HEARTBEAT_CHECK           = 0x07,
-    MME_DISCOVER_NODE_LIST        = 0x08,
-    MME_SUCCESS_RATE_REPORT       = 0x09,
-    MME_NETWORK_CONFLICT_REPORT   = 0x0A,
-    MME_ZERO_CROSS_NTB_COLLECT_IND= 0x0B,
-    MME_ZERO_CROSS_NTB_REPORT     = 0x0C,
-    MME_DIAGNOSE                  = 0x4F,
-    MME_ROUTE_REQUEST             = 0x50,
-    MME_ROUTE_REPLY               = 0x51,
-    MME_ROUTE_ERROR               = 0x52,
-    MME_ROUTE_ACK                 = 0x53,
-    MME_LINK_CONFIRM_REQUEST      = 0x54,
-    MME_LINK_CONFIRM_RESPONSE     = 0x55,
-    MME_RF_CHANNEL_CONFLICT_REPORT= 0x80,
-};
 // ================= 公共头字段表(Python MSDU_BASE) =================
 static const FieldSpec kMsduBaseSpec[] = {
     {"Version",             0, 0, 4,  Fmt::DEC},
@@ -67,28 +43,28 @@ static const FieldSpec kMsduMacSpec[] = {
 
 // ================= MMe 公共头(MMe_BASE):MMType(0,0,8) RSV(2,0,8) =================
 static QString mme_type_name(quint8 t) {
-    switch (t) {
-        case MME_ASSOC_REQ: return QStringLiteral("MMeAssocReq");
-        case MME_ASSOC_CNF: return QStringLiteral("MMeAssocCnf");
-        case MME_ASSOC_GATHER_IND: return QStringLiteral("MMeAssocGatherInd");
-        case MME_CHANGE_PROXY_REQ: return QStringLiteral("MMeChangeProxyReq");
-        case MME_CHANGE_PROXY_CNF: return QStringLiteral("MMeChangeProxyCnf");
-        case MME_CHANGE_PROXY_BITMAP_CNF: return QStringLiteral("MMeChangeProxyBitMapCnf");
-        case MME_LEAVE_IND: return QStringLiteral("MMeLeaveInd");
-        case MME_HEARTBEAT_CHECK: return QStringLiteral("MMeHeartBeatCheck");
-        case MME_DISCOVER_NODE_LIST: return QStringLiteral("MMeDiscoveryNodeList");
-        case MME_SUCCESS_RATE_REPORT: return QStringLiteral("MMeSuccessRateReport");
-        case MME_NETWORK_CONFLICT_REPORT: return QStringLiteral("MMeNetworkConflictReport");
-        case MME_ZERO_CROSS_NTB_COLLECT_IND: return QStringLiteral("MMeZeroCrossNTBCollectInd");
-        case MME_ZERO_CROSS_NTB_REPORT: return QStringLiteral("MMeZeroCrossNTBReport");
-        case MME_DIAGNOSE: return QStringLiteral("MMeDiagnose");
-        case MME_ROUTE_REQUEST: return QStringLiteral("MMeRouteRequest");
-        case MME_ROUTE_REPLY: return QStringLiteral("MMeRouteReply");
-        case MME_ROUTE_ERROR: return QStringLiteral("MMeRouteError");
-        case MME_ROUTE_ACK: return QStringLiteral("MMeRouteAck");
-        case MME_LINK_CONFIRM_REQUEST: return QStringLiteral("MMeLinkConfirmRequest");
-        case MME_LINK_CONFIRM_RESPONSE: return QStringLiteral("MMeLinkConfirmResponse");
-        case MME_RF_CHANNEL_CONFLICT_REPORT: return QStringLiteral("MMeRFChannelConflictReport");
+    switch (static_cast<GW_2022_MMeType>(t)) {
+        case GW_2022_MMeType::MME_ASSOC_REQ: return QStringLiteral("MMeAssocReq");
+        case GW_2022_MMeType::MME_ASSOC_CNF: return QStringLiteral("MMeAssocCnf");
+        case GW_2022_MMeType::MME_ASSOC_GATHER_IND: return QStringLiteral("MMeAssocGatherInd");
+        case GW_2022_MMeType::MME_CHANGE_PROXY_REQ: return QStringLiteral("MMeChangeProxyReq");
+        case GW_2022_MMeType::MME_CHANGE_PROXY_CNF: return QStringLiteral("MMeChangeProxyCnf");
+        case GW_2022_MMeType::MME_CHANGE_PROXY_BITMAP_CNF: return QStringLiteral("MMeChangeProxyBitMapCnf");
+        case GW_2022_MMeType::MME_LEAVE_IND: return QStringLiteral("MMeLeaveInd");
+        case GW_2022_MMeType::MME_HEARTBEAT_CHECK: return QStringLiteral("MMeHeartBeatCheck");
+        case GW_2022_MMeType::MME_DISCOVER_NODE_LIST: return QStringLiteral("MMeDiscoveryNodeList");
+        case GW_2022_MMeType::MME_SUCCESS_RATE_REPORT: return QStringLiteral("MMeSuccessRateReport");
+        case GW_2022_MMeType::MME_NETWORK_CONFLICT_REPORT: return QStringLiteral("MMeNetworkConflictReport");
+        case GW_2022_MMeType::MME_ZERO_CROSS_NTB_COLLECT_IND: return QStringLiteral("MMeZeroCrossNTBCollectInd");
+        case GW_2022_MMeType::MME_ZERO_CROSS_NTB_REPORT: return QStringLiteral("MMeZeroCrossNTBReport");
+        case GW_2022_MMeType::MME_DIAGNOSE: return QStringLiteral("MMeDiagnose");
+        case GW_2022_MMeType::MME_ROUTE_REQUEST: return QStringLiteral("MMeRouteRequest");
+        case GW_2022_MMeType::MME_ROUTE_REPLY: return QStringLiteral("MMeRouteReply");
+        case GW_2022_MMeType::MME_ROUTE_ERROR: return QStringLiteral("MMeRouteError");
+        case GW_2022_MMeType::MME_ROUTE_ACK: return QStringLiteral("MMeRouteAck");
+        case GW_2022_MMeType::MME_LINK_CONFIRM_REQUEST: return QStringLiteral("MMeLinkConfirmRequest");
+        case GW_2022_MMeType::MME_LINK_CONFIRM_RESPONSE: return QStringLiteral("MMeLinkConfirmResponse");
+        case GW_2022_MMeType::MME_RF_CHANNEL_CONFLICT_REPORT: return QStringLiteral("MMeRFChannelConflictReport");
         default:   return QStringLiteral("Unknown(0x%1)").arg(t, 2, 16, QChar('0'));
     }
 }
@@ -138,48 +114,48 @@ static void translate_enum_sparse(QVector<MsduFieldNode>& nodes, const char* fie
 /// APP PacketID → 报文类型注释
 /// 依据协议"表 2 报文 ID"(含义/报文端口号),与 Python MPDU_Process 分发补充。
 static QString packet_id_name(quint16 id) {
-    switch (id) {
-        case 0x0001: return trl::L("终端主动抄表");
-        case 0x0002: return trl::L("路由主动抄表");
-        case 0x0003:
-        case 0x00B3: return trl::L("终端主动并发抄表");
-        case 0x0004: return trl::L("校时");
-        case 0x0006: return trl::L("通信测试");
-        case 0x0008: return trl::L("事件上报");
-        case 0x0011: return trl::L("查询从节点主动注册");
-        case 0x0012: return trl::L("启动从节点主动注册");
-        case 0x0013: return trl::L("停止从节点主动注册");
-        case 0x0020: return trl::L("确认/否认");
-        case 0x0030: return trl::L("开始升级");
-        case 0x0031: return trl::L("停止升级");
-        case 0x0032: return trl::L("传输文件数据");
-        case 0x0033: return trl::L("传输文件数据(单播转本地广播)");
-        case 0x0034: return trl::L("查询站点升级状态");
-        case 0x0035: return trl::L("执行升级");
-        case 0x0036: return trl::L("查询站点信息");
-        case 0x0040: return trl::L("抄控器 CCO");
-        case 0x0041: return trl::L("抄控器数据透传串口转发");
-        case 0x00A0: return trl::L("鉴权安全");
-        case 0x00A1: return trl::L("台区户变关系识别");
-        case 0x00A2: return trl::L("查询ID信息");
-        case 0x00A3: return trl::L("精准校时");
-        case 0x00A4: return trl::L("配电信息上报");
+    switch (static_cast<GW_2022_AppBid>(id)) {
+        case GW_2022_AppBid::TERMINAL_METER_READING: return trl::L("终端主动抄表");
+        case GW_2022_AppBid::ROUTER_METER_READING: return trl::L("路由主动抄表");
+        case GW_2022_AppBid::TERMINAL_CONCURRENT_METER_READING:
+        case GW_2022_AppBid::TERMINAL_CONCURRENT_METER_READING_EXT: return trl::L("终端主动并发抄表");
+        case GW_2022_AppBid::TIME_SYNC: return trl::L("校时");
+        case GW_2022_AppBid::COMM_TEST: return trl::L("通信测试");
+        case GW_2022_AppBid::EVENT_REPORT: return trl::L("事件上报");
+        case GW_2022_AppBid::QUERY_SLAVE_REGISTRATION: return trl::L("查询从节点主动注册");
+        case GW_2022_AppBid::START_SLAVE_REGISTRATION: return trl::L("启动从节点主动注册");
+        case GW_2022_AppBid::STOP_SLAVE_REGISTRATION: return trl::L("停止从节点主动注册");
+        case GW_2022_AppBid::CONFIRM_DENY: return trl::L("确认/否认");
+        case GW_2022_AppBid::START_UPGRADE: return trl::L("开始升级");
+        case GW_2022_AppBid::STOP_UPGRADE: return trl::L("停止升级");
+        case GW_2022_AppBid::TRANSFER_FILE_DATA: return trl::L("传输文件数据");
+        case GW_2022_AppBid::TRANSFER_FILE_DATA_UNICAST_TO_LOCAL_BROADCAST: return trl::L("传输文件数据(单播转本地广播)");
+        case GW_2022_AppBid::QUERY_NODE_UPGRADE_STATUS: return trl::L("查询站点升级状态");
+        case GW_2022_AppBid::EXECUTE_UPGRADE: return trl::L("执行升级");
+        case GW_2022_AppBid::QUERY_NODE_INFO: return trl::L("查询站点信息");
+        case GW_2022_AppBid::METER_CONTROLLER_CCO: return trl::L("抄控器 CCO");
+        case GW_2022_AppBid::METER_CONTROLLER_SERIAL_FORWARDING: return trl::L("抄控器数据透传串口转发");
+        case GW_2022_AppBid::AUTH_SECURITY: return trl::L("鉴权安全");
+        case GW_2022_AppBid::TRANSFORMER_AREA_RELATION: return trl::L("台区户变关系识别");
+        case GW_2022_AppBid::QUERY_ID_INFO: return trl::L("查询ID信息");
+        case GW_2022_AppBid::PRECISE_TIME_SYNC: return trl::L("精准校时");
+        case GW_2022_AppBid::DISTRIBUTION_INFO_REPORT: return trl::L("配电信息上报");
         // 以下为 Python 已实现但"表 2"未单列的应用报文(扩展补充)
-        case 0x00B0: return trl::L("存储采集扩展配置");
-        case 0x00B1: return trl::L("存储数据广播时规");
-        case 0x00B2: return trl::L("存储数据同步配置");
-        case 0x00C1: return trl::L("认证");
-        case 0x00CC: return trl::L("存储 HRF 中继心跳");
+        case GW_2022_AppBid::STORAGE_COLLECT_EXT_CONFIG: return trl::L("存储采集扩展配置");
+        case GW_2022_AppBid::STORAGE_DATA_BROADCAST_SCHEDULE: return trl::L("存储数据广播时规");
+        case GW_2022_AppBid::STORAGE_DATA_SYNC_CONFIG: return trl::L("存储数据同步配置");
+        case GW_2022_AppBid::AUTHENTICATION: return trl::L("认证");
+        case GW_2022_AppBid::STORE_HRF_RELAY_HEARTBEAT: return trl::L("存储 HRF 中继心跳");
         default:     return trl::L("(未实现)");
     }
 }
 
 /// APP PortNum → 端口注释(表 2 报文端口号列)
 static QString app_port_name(quint8 port) {
-    switch (port) {
-        case 0x11: return trl::L("管理/抄表端口");
-        case 0x12: return trl::L("升级端口");
-        case 0x1A: return trl::L("安全端口");
+    switch (static_cast<GW_2022_PortNum>(port)) {
+        case GW_2022_PortNum::MANAGEMENT_METER_READING: return trl::L("管理/抄表端口");
+        case GW_2022_PortNum::UPGRADE: return trl::L("升级端口");
+        case GW_2022_PortNum::SECURITY: return trl::L("安全端口");
         default:   return QString();
     }
 }
@@ -667,7 +643,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
         int   msdu_len   = (int)get_bits(p, 2, 0, 11);
         if (msdu_len > body.size() - 4) msdu_len = body.size() - 4;  // 防声明长度越界
         QByteArray msdu_body = body.mid(4, msdu_len);
-        if (msdu_type == 0) {
+        if (static_cast<GW_2022_MsduSType>(msdu_type) == GW_2022_MsduSType::FIND_LIST) {
             out.summary = QStringLiteral("Find List Message");
         } else {
             out.summary = QStringLiteral("Simple MSDU type %1").arg(msdu_type);
@@ -713,7 +689,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
     QByteArray msdu_body = body.mid(head_size, msdu_len);
     out.present = true;
 
-    if (msdu_type == 0) {
+    if (static_cast<GW_2022_MsduType>(msdu_type) == GW_2022_MsduType::NET_MANAGEMENT) {
         // ---- 网络管理消息:MMe_BASE(4B) ----
         if (msdu_body.size() < 4) {
             out.summary = QStringLiteral("MMe (truncated)");
@@ -744,8 +720,8 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
 
         // body 从 MMeHeadSize=4 起
         QByteArray b = msdu_body.mid(4);
-        switch (mm_type) {
-            case MME_ASSOC_REQ: {
+        switch (static_cast<GW_2022_MMeType>(mm_type)) {
+            case GW_2022_MMeType::MME_ASSOC_REQ: {
                 // MMeAssocReq(关联请求),字段按 51321/表60 结构:
                 // 固定区(0..23)→ 厂家自定义信息(24-41)→ 站点版本信息
                 // (42-51,组)→ 复位计数/代理类型/端到端序号(52..60)→ 管理ID
@@ -796,7 +772,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 root.children.append(mid);
                 break;
             }
-            case MME_ASSOC_CNF: {
+            case GW_2022_MMeType::MME_ASSOC_CNF: {
                 // MMeAssocCnf(关联确认):固定头到 b[40],RouteInfo 从 b[40] 起
                 add_fields(root.children, b, 0, kAssocCnfSpec, kAssocCnfSpecN, head_size + 4);
                 apply_dicts(root.children);
@@ -877,7 +853,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case MME_ASSOC_GATHER_IND: {
+            case GW_2022_MMeType::MME_ASSOC_GATHER_IND: {
                 // MMeAssocGatherInd(关联汇总指示,5134):固定头 16B(表76)
                 // + 站点信息表(表78,每条 8B=MAC6+TEI12b+保留4b,16 起)
                 add_fields(root.children, b, 0, kAssocGatherIndSpec,
@@ -920,11 +896,11 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case MME_CHANGE_PROXY_REQ:
+            case GW_2022_MMeType::MME_CHANGE_PROXY_REQ:
                 add_fields(root.children, b, 0, kChangeProxyReqSpec, kChangeProxyReqSpecN, head_size + 4);
                 apply_dicts(root.children);
                 break;
-            case MME_CHANGE_PROXY_BITMAP_CNF: {
+            case GW_2022_MMeType::MME_CHANGE_PROXY_BITMAP_CNF: {
                 // MMeChangeProxyBitMapCnf:固定头到 b[20],随后 BitMap(BitMapSize 字节)
                 add_fields(root.children, b, 0, kChangeProxyBitMapCnfSpec, kChangeProxyBitMapCnfSpecN, head_size + 4);
                 apply_dicts(root.children);
@@ -948,7 +924,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case MME_HEARTBEAT_CHECK: {
+            case GW_2022_MMeType::MME_HEARTBEAT_CHECK: {
                 // MMeHeartBeatCheck:bitmap → TEI 列表
                 add_fields(root.children, b, 0, kHeartBeatSpec, kHeartBeatSpecN, head_size + 4);
                 apply_dicts(root.children);
@@ -984,7 +960,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case MME_DISCOVER_NODE_LIST: {
+            case GW_2022_MMeType::MME_DISCOVER_NODE_LIST: {
                 // MMeDiscoverNodeList
                 add_fields(root.children, b, 0, kDiscoverNodeListSpec, kDiscoverNodeListSpecN, head_size + 4);
                 // 学习 TEI→MAC:STATEI→MACAddr、CCOMACAddr(TEI=1)
@@ -1122,7 +1098,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case MME_SUCCESS_RATE_REPORT: {
+            case GW_2022_MMeType::MME_SUCCESS_RATE_REPORT: {
                 add_fields(root.children, b, 0, kSuccessRateSpec, kSuccessRateSpecN, head_size + 4);
                 apply_dicts(root.children);
                 int sta_num = (int)get_bits(b, 2, 0, 16);
@@ -1168,7 +1144,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case MME_CHANGE_PROXY_CNF: {
+            case GW_2022_MMeType::MME_CHANGE_PROXY_CNF: {
                 // MMeChangeProxyCnf(代理变更确认):固定 20B + 子站点 2B×ChildSum
                 add_fields(root.children, b, 0, kChangeProxyCnfSpec,
                            kChangeProxyCnfSpecN, head_size + 4);
@@ -1199,7 +1175,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case MME_LEAVE_IND: {
+            case GW_2022_MMeType::MME_LEAVE_IND: {
                 // MMeLeaveInd(离线指示):固定 16B + 离线站点 MAC 6B×N
                 add_fields(root.children, b, 0, kLeaveIndSpec, kLeaveIndSpecN,
                            head_size + 4);
@@ -1231,7 +1207,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case MME_NETWORK_CONFLICT_REPORT: {
+            case GW_2022_MMeType::MME_NETWORK_CONFLICT_REPORT: {
                 // MMeNetworkConflictReport(网络冲突上报):固定 8B + 邻居网络号
                 // NIDSize(规范=3)×NeighbourNetWorkCount
                 add_fields(root.children, b, 0, kNetworkConflictSpec,
@@ -1257,7 +1233,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case MME_RF_CHANNEL_CONFLICT_REPORT: {
+            case GW_2022_MMeType::MME_RF_CHANNEL_CONFLICT_REPORT: {
                 // MMeRFChannelConflictReport(无线信道冲突上报):CCO MAC + 邻居数;
                 // 随后 Count 字节信道 + Count 字节 option(每邻居一对)
                 add_fields(root.children, b, 0, kRFChannelConflictSpec,
@@ -1281,7 +1257,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case MME_ROUTE_REQUEST: {
+            case GW_2022_MMeType::MME_ROUTE_REQUEST: {
                 // MMeRouteRequest(路由请求):头 7B + LoadData(4B×N RoutePath)
                 add_fields(root.children, b, 0, kRouteReqReplyHeadSpec,
                            kRouteReqReplyHeadSpecN, head_size + 4);
@@ -1291,7 +1267,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 annotate_route_loaddata(root.children, b, head_size + 4);
                 break;
             }
-            case MME_ROUTE_REPLY: {
+            case GW_2022_MMeType::MME_ROUTE_REPLY: {
                 // MMeRouteReply(路由回复):头 7B + LoadData(4B×N RoutePath)
                 add_fields(root.children, b, 0, kRouteReqReplyHeadSpec,
                            kRouteReqReplyHeadSpecN, head_size + 4);
@@ -1301,7 +1277,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 annotate_route_loaddata(root.children, b, head_size + 4);
                 break;
             }
-            case MME_ROUTE_ERROR: {
+            case GW_2022_MMeType::MME_ROUTE_ERROR: {
                 // MMeRouteError(路由错误):固定 7B + 不可达站点 2B×N
                 add_fields(root.children, b, 0, kRouteErrorSpec,
                            kRouteErrorSpecN, head_size + 4);
@@ -1324,13 +1300,13 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case MME_ROUTE_ACK: {
+            case GW_2022_MMeType::MME_ROUTE_ACK: {
                 // MMeRouteAck(路由应答):固定 8B
                 add_fields(root.children, b, 0, kRouteAckSpec, kRouteAckSpecN,
                            head_size + 4);
                 break;
             }
-            case MME_LINK_CONFIRM_REQUEST: {
+            case GW_2022_MMeType::MME_LINK_CONFIRM_REQUEST: {
                 // MMeLinkConfirmRequest(链路确认请求):固定 7B + 应答站点 2B×N
                 add_fields(root.children, b, 0, kLinkConfirmRequestSpec,
                            kLinkConfirmRequestSpecN, head_size + 4);
@@ -1353,7 +1329,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case MME_LINK_CONFIRM_RESPONSE: {
+            case GW_2022_MMeType::MME_LINK_CONFIRM_RESPONSE: {
                 // MMeLinkConfirmResponse(链路确认回应):固定 8B
                 add_fields(root.children, b, 0, kLinkConfirmResponseSpec,
                            kLinkConfirmResponseSpecN, head_size + 4);
@@ -1367,7 +1343,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case MME_DIAGNOSE: {
+            case GW_2022_MMeType::MME_DIAGNOSE: {
                 // MMeDiagnose(网络诊断):芯片厂商 ID(1-HS 2-ES 3-TC 4-LH
                 // 5-HT 6-RS 7-SW 8-SC,0 与其它保留)
                 add_fields(root.children, b, 0, kDiagnoseSpec, kDiagnoseSpecN,
@@ -1384,7 +1360,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case MME_ZERO_CROSS_NTB_COLLECT_IND: {
+            case GW_2022_MMeType::MME_ZERO_CROSS_NTB_COLLECT_IND: {
                 // MMeZeroCrossNTBCollectInd(过零NTB采集指示):固定 8B
                 add_fields(root.children, b, 0, kZeroCrossCollectSpec,
                            kZeroCrossCollectSpecN, head_size + 4);
@@ -1404,7 +1380,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case MME_ZERO_CROSS_NTB_REPORT: {
+            case GW_2022_MMeType::MME_ZERO_CROSS_NTB_REPORT: {
                 // MMeZeroCrossNTBReport(过零NTB上报):固定 10B + 差分 NTB
                 // (12bit 打包:偶序号 = b0|(b1&0F)<<8 吃1B;奇序号=(b0>>4)|(b1<<4)
                 // 吃2B;LineA/B/C 依次各消费各自计数)
@@ -1462,7 +1438,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 break;
             }
         }
-    } else if (msdu_type == 48 || msdu_type == 49) {
+    } else if (static_cast<GW_2022_MsduType>(msdu_type) == GW_2022_MsduType::APPLICATION || static_cast<GW_2022_MsduType>(msdu_type) == GW_2022_MsduType::IP) {
         // ---- 应用层报文:APP_BASE(4B) ----
         quint16 packet_id = (quint16)get_bits(msdu_body, 1, 0, 16);
         out.summary = QStringLiteral("APP %1 (0x%2)")
@@ -1483,7 +1459,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
         {
             // APP 载荷统一 hex 原文(0x0008 事件上报保留专属名,便于日后专用解析)
             MsduFieldNode raw;
-            raw.name = (packet_id == 0x0008)
+            raw.name = (static_cast<GW_2022_AppBid>(packet_id) == GW_2022_AppBid::EVENT_REPORT)
                 ? QStringLiteral("EventPacket Payload")
                 : QStringLiteral("Payload");
             raw.value = QString(msdu_body.mid(4).toHex(' '));
