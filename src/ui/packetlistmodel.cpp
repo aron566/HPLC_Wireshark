@@ -18,6 +18,12 @@ QString format_mac(quint64 v) {
     }
     return s;
 }
+
+/// @brief 应用层 BID 颜色:按 BID 散列色相(同 BID 同色,不同 BID 尽量不同色)
+QColor bid_color(quint8 bid) {
+    const int hue = int((quint64(bid) * 47) % 360);
+    return QColor::fromHsv(hue, 190, 220);
+}
 }  // namespace
 
 PacketListModel::PacketListModel(QObject* parent)
@@ -199,6 +205,10 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
             }
         }
     } else if (role == Qt::ForegroundRole) {
+        // MSDU Type 列:应用层报文按 BID 着色(不同 BID 不同颜色,快速区分业务)
+        if (idx.column() == COL_MSDU_TYPE && e.msdu.present
+            && e.msdu.business_id != 0xFF)
+            return bid_color(e.msdu.business_id);
         return data_color(e);
     } else if (role == Qt::TextAlignmentRole) {
         if (idx.column() == COL_INDEX || idx.column() == COL_LENGTH)

@@ -697,8 +697,11 @@ static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base, quint1
                   .arg(msdu_type, 4, 16, QChar('0')).arg(trl::L("应用层报文"))
                   .arg(business_id, 2, 16, QChar('0')).arg(bid_name);
     }
-    out.summary = QStringLiteral("APP %1 (BID=0x%2)").arg(app_type_name(packet_type))
-                      .arg(business_id, 2, 16, QChar('0'));
+    out.business_id = business_id;
+    out.summary = QStringLiteral("APP %1 (BID=0x%2%3)").arg(app_type_name(packet_type))
+                      .arg(business_id, 2, 16, QChar('0'))
+                      .arg(bid_name.isEmpty() ? QString()
+                                              : QStringLiteral(" %1").arg(bid_name));
     // 业务数据单元(业务报文头之后,含业务扩展域)统一以"APP Data"字段展示
     append_payload_hex(out, app, 12, -1, QStringLiteral("APP Data"), rel_base);
 }
