@@ -1,6 +1,7 @@
 /// @file nw_2021_tree.cpp
 /// @brief 南网 NW_2021 协议字段树构建器实现
 #include "nw_2021_tree.h"
+#include "nw_2021_beacon_parser.h"
 #include "i18n.h"
 
 namespace {
@@ -75,11 +76,11 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             }
             // 相线(表15):0=未知 1=A 2=B 3=C
             QString line;
-            switch (e.mpdu.beacon_line) {
-                case 0: line = trl::L("未知相线"); break;
-                case 1: line = trl::L("A相线"); break;
-                case 2: line = trl::L("B相线"); break;
-                case 3: line = trl::L("C相线"); break;
+            switch (static_cast<NW_2021_PhaseLine>(e.mpdu.beacon_line)) {
+                case NW_2021_PhaseLine::ALL_LINES: line = trl::L("未知相线"); break;  // 表15:0=未知
+                case NW_2021_PhaseLine::LINE_A:    line = trl::L("A相线"); break;
+                case NW_2021_PhaseLine::LINE_B:    line = trl::L("B相线"); break;
+                case NW_2021_PhaseLine::LINE_C:    line = trl::L("C相线"); break;
                 default: line = QString::number(e.mpdu.beacon_line); break;
             }
             tree_add_bit_field(bcn, "Line",
@@ -217,11 +218,11 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         // 扩展帧类型值释义(表21):0=选择确认帧 1=网络搜索帧 2=同步帧 其他=保留
         const quint8 et = e.mpdu.ack_ext_type;
         QString ext_ev;
-        switch (et) {
-        case 0: ext_ev = QStringLiteral("0 - %1").arg(trl::L("选择确认帧")); break;
-        case 1: ext_ev = QStringLiteral("1 - %1").arg(trl::L("网络搜索帧(抄控器)")); break;
-        case 2: ext_ev = QStringLiteral("2 - %1").arg(trl::L("同步帧(抄控器)")); break;
-        case 3: ext_ev = QStringLiteral("3 - %1").arg(trl::L("无线切频")); break;
+        switch (static_cast<NW_2021_AckExtType>(et)) {
+        case NW_2021_AckExtType::Normal:        ext_ev = QStringLiteral("0 - %1").arg(trl::L("选择确认帧")); break;
+        case NW_2021_AckExtType::Search:        ext_ev = QStringLiteral("1 - %1").arg(trl::L("网络搜索帧(抄控器)")); break;
+        case NW_2021_AckExtType::Sync:          ext_ev = QStringLiteral("2 - %1").arg(trl::L("同步帧(抄控器)")); break;
+        case NW_2021_AckExtType::SwitchChannel: ext_ev = QStringLiteral("3 - %1").arg(trl::L("无线切频")); break;
         default: ext_ev = QStringLiteral("%1 - %2").arg(et).arg(trl::L("保留")); break;
         }
         switch (static_cast<NW_2021_AckExtType>(et)) {

@@ -14,45 +14,45 @@ namespace {
 
 // 信标类型名称(表25:0 发现/1 代理/2 中央/其它保留)
 static QString beacon_type_name(quint8 t) {
-    switch (t) {
-        case 0: return trl::L("发现信标");
-        case 1: return trl::L("代理信标");
-        case 2: return trl::L("中央信标");
+    switch (static_cast<NW_2021_BeaconType>(t)) {
+        case NW_2021_BeaconType::DISCOVERY: return trl::L("发现信标");
+        case NW_2021_BeaconType::PROXY:     return trl::L("代理信标");
+        case NW_2021_BeaconType::CENTRAL:   return trl::L("中央信标");
         default: return trl::L("保留");
     }
 }
 
 // 相线名称(表33:0 全相线 1 A 2 B 3 C)
 static QString line_name(quint8 l) {
-    switch (l) {
-        case 0: return trl::L("全相线");
-        case 1: return trl::L("A相线");
-        case 2: return trl::L("B相线");
-        case 3: return trl::L("C相线");
+    switch (static_cast<NW_2021_PhaseLine>(l)) {
+        case NW_2021_PhaseLine::ALL_LINES: return trl::L("全相线");
+        case NW_2021_PhaseLine::LINE_A:    return trl::L("A相线");
+        case NW_2021_PhaseLine::LINE_B:    return trl::L("B相线");
+        case NW_2021_PhaseLine::LINE_C:    return trl::L("C相线");
         default: return trl::L("保留");
     }
 }
 
 // 站点角色(表33:0 未知 1 STA 2 PCO 4 CCO 其它保留)
 static QString role_name(quint8 r) {
-    switch (r) {
-        case 0: return trl::L("未知");
-        case 1: return QStringLiteral("STA");
-        case 2: return QStringLiteral("PCO");
-        case 4: return QStringLiteral("CCO");
+    switch (static_cast<NW_2021_StationType>(r)) {
+        case NW_2021_StationType::UNKNOWN: return trl::L("未知");
+        case NW_2021_StationType::STA:     return QStringLiteral("STA");
+        case NW_2021_StationType::PCO:     return QStringLiteral("PCO");
+        case NW_2021_StationType::CCO:     return QStringLiteral("CCO");
         default: return trl::L("保留");
     }
 }
 
 // 信标条目头名称(表31)
 static QString beacon_item_head_name(quint8 h) {
-    switch (h) {
-        case 0x01: return trl::L("站点能力条目");
-        case 0x02: return trl::L("时隙分配条目");
-        case 0x06: return trl::L("路由参数条目");
-        case 0x07: return trl::L("频段变更条目");
-        case 0x0A: return trl::L("频段探测条目");
-        case 0x0B: return trl::L("万年历同步条目");
+    switch (static_cast<NW_2021_BeaconItemType>(h)) {
+        case NW_2021_BeaconItemType::STA_CAPABILITY:  return trl::L("站点能力条目");
+        case NW_2021_BeaconItemType::TIME_SLOT_ALLOC: return trl::L("时隙分配条目");
+        case NW_2021_BeaconItemType::ROUTE_PARAM:     return trl::L("路由参数条目");
+        case NW_2021_BeaconItemType::BAND_CHANGE:     return trl::L("频段变更条目");
+        case NW_2021_BeaconItemType::BAND_PROBE:      return trl::L("频段探测条目");
+        case NW_2021_BeaconItemType::CALENDAR_SYNC:   return trl::L("万年历同步条目");
         default:
             return (h >= 0x80 && h <= 0xEF) ? trl::L("厂家自定义条目")
                                             : trl::L("保留条目");
@@ -216,15 +216,19 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
         for (int n = 0; n < item_num && pos < mgmt_end; ++n) {
             const int head_abs = pos;
             const quint8 head = (quint8)gb[pos++];
-            // 长度字段大小:0x02(时隙分配)用 2B,其余 1B(表31)
-            const int len_bytes = (head == 0x02) ? 2 : 1;
+            const NW_2021_BeaconItemType head_type =
+                static_cast<NW_2021_BeaconItemType>(head);
+            // 长度字段大小:时隙分配(0x02)用 2B,其余 1B(表31)
+            const int len_bytes =
+                (head_type == NW_2021_BeaconItemType::TIME_SLOT_ALLOC) ? 2 : 1;
             if (pos + len_bytes > mgmt_end) break;
             quint32 len_raw = 0;
             for (int k = 0; k < len_bytes; ++k)
                 len_raw |= (quint32)(quint8)gb[pos + k] << (8 * k);
             pos += len_bytes;
             // 条目内容长:时隙分配 len-3(头1+长度2),其余 len-2(头1+长度1)
-            const int item_len = (head == 0x02) ? int(len_raw) - 3 : int(len_raw) - 2;
+            const int item_len = (head_type == NW_2021_BeaconItemType::TIME_SLOT_ALLOC)
+                                     ? int(len_raw) - 3 : int(len_raw) - 2;
             if (item_len < 0 || pos + item_len > mgmt_end) break;
             const QByteArray it = gb.mid(pos, item_len);
             const int abs0 = pos;
@@ -247,8 +251,8 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
             ln.rel_len   = len_bytes;
             grp.children.append(ln);
 
-            switch (head) {
-            case 0x01: {  // 站点能力条目(表33)
+            switch (head_type) {
+            case NW_2021_BeaconItemType::STA_CAPABILITY: {  // 站点能力条目(表33)
                 add_fields(grp.children, it, 0, kStaCapSpec, kStaCapSpecN, abs0);
                 annotate_unit(grp.children, "LinkMinCommSuccessRate", QStringLiteral("%"));
                 for (auto& ch : grp.children) {
@@ -266,7 +270,7 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
                 }
                 break;
             }
-            case 0x02: {  // 时隙分配条目(表34 + 表35/36/37)
+            case NW_2021_BeaconItemType::TIME_SLOT_ALLOC: {  // 时隙分配条目(表34 + 表35/36/37)
                 add_fields(grp.children, it, 0, kTsaHeadSpec, kTsaHeadSpecN, abs0);
                 annotate_unit(grp.children, "BeaconSlotLen", QStringLiteral("00us"));
                 annotate_unit(grp.children, "CSMASlotSize", QStringLiteral("0ms"));
@@ -287,7 +291,8 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
                                   QString::number(tei), abs0 + o, 2);
                         slot_leaf(sg.children, QStringLiteral("Beacon Type [1b]"),
                                   QStringLiteral("%1 - %2").arg(bt).arg(
-                                      bt == 0 ? trl::L("发现信标") : trl::L("代理信标")),
+                                      static_cast<NW_2021_BeaconType>(bt) == NW_2021_BeaconType::DISCOVERY
+                                          ? trl::L("发现信标") : trl::L("代理信标")),
                                   abs0 + o + 1, 1);
                         slot_leaf(sg.children, QStringLiteral("RSV [3b]"),
                                   QString::number((quint8)get_bits(it, o + 1, 5, 3)),
@@ -327,13 +332,13 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
                 }
                 break;
             }
-            case 0x06: {  // 路由参数条目(表38)
+            case NW_2021_BeaconItemType::ROUTE_PARAM: {  // 路由参数条目(表38)
                 add_fields(grp.children, it, 0, kRouteParamSpec, kRouteParamSpecN, abs0);
                 annotate_unit(grp.children, "RoutePeriod", QStringLiteral("s"));
                 annotate_unit(grp.children, "NextRouteEstTime", QStringLiteral("s"));
                 break;
             }
-            case 0x07: {  // 频段变更条目(表39)
+            case NW_2021_BeaconItemType::BAND_CHANGE: {  // 频段变更条目(表39)
                 add_fields(grp.children, it, 0, kBandChangeSpec, kBandChangeSpecN, abs0);
                 annotate_unit(grp.children, "SwitchRemainTime", QStringLiteral("ms"));
                 for (auto& ch : grp.children) {
@@ -345,7 +350,7 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
                 }
                 break;
             }
-            case 0x0B: {  // 万年历同步条目(表40)
+            case NW_2021_BeaconItemType::CALENDAR_SYNC: {  // 万年历同步条目(表40)
                 add_fields(grp.children, it, 0, kCalendarSyncSpec, kCalendarSyncSpecN, abs0);
                 for (auto& ch : grp.children) {
                     if (ch.name.startsWith(QStringLiteral("CCOCalendarTime"))) {

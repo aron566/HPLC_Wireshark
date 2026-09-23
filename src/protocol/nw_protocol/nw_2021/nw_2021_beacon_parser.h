@@ -9,6 +9,39 @@
 
 #include "bplcframe.h"
 
+/// 南网 NW_2021 信标类型(表25:0 发现/1 代理/2 中央)
+enum class NW_2021_BeaconType : quint8 {
+    DISCOVERY = 0,  ///< 发现信标
+    PROXY     = 1,  ///< 代理信标
+    CENTRAL   = 2,  ///< 中央信标
+};
+
+/// 南网 NW_2021 相线(表33站点相线:0 全相线/1 A/2 B/3 C;表15信标相线中 0=未知)
+enum class NW_2021_PhaseLine : quint8 {
+    ALL_LINES = 0,  ///< 全相线
+    LINE_A    = 1,  ///< A 相线
+    LINE_B    = 2,  ///< B 相线
+    LINE_C    = 3,  ///< C 相线
+};
+
+/// 南网 NW_2021 站点角色(表33:0 未知/1 STA/2 PCO/4 CCO)
+enum class NW_2021_StationType : quint8 {
+    UNKNOWN = 0,  ///< 未知
+    STA     = 1,  ///< STA 站点
+    PCO     = 2,  ///< PCO 站点
+    CCO     = 4,  ///< CCO 站点
+};
+
+/// 南网 NW_2021 信标条目类型(表31)
+enum class NW_2021_BeaconItemType : quint8 {
+    STA_CAPABILITY = 0x01,  ///< 站点能力条目
+    TIME_SLOT_ALLOC = 0x02, ///< 时隙分配条目
+    ROUTE_PARAM     = 0x06, ///< 路由参数条目
+    BAND_CHANGE     = 0x07, ///< 频段变更条目
+    BAND_PROBE      = 0x0A, ///< 频段探测条目
+    CALENDAR_SYNC   = 0x0B, ///< 万年历同步条目
+};
+
 namespace NW_2021_BeaconParser {
 
 /// @brief 解析南网信标帧载荷区
