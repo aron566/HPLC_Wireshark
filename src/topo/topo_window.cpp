@@ -47,6 +47,7 @@ QString event_kind_name(TopoEventKind k) {
         case TopoEventKind::AssocReq:       return trl::L("关联请求");
         case TopoEventKind::AssocCnf:       return trl::L("关联确认");
         case TopoEventKind::AssocGatherInd: return trl::L("关联汇总指示");
+        case TopoEventKind::AssocInd:       return trl::L("关联指示");
         case TopoEventKind::ChangeProxyCnf: return trl::L("代理变更");
         case TopoEventKind::LeaveInd:       return trl::L("离线指示");
         default:                            return trl::L("其他");
@@ -61,8 +62,8 @@ struct I18nRegTopoWindow {
         trl::register_en("搜索 TEI / MAC…", "Search TEI / MAC…");
         trl::register_en("筛选(时间/类型/说明)…", "Filter (time/type/description)…");
         trl::register_en("TEI → MAC 映射", "TEI → MAC mapping");
-        trl::register_en("路由变更记录(关联确认/关联汇总指示/代理变更/发现列表/离线指示)",
-                         "Route change log (assoc conf / gather ind / proxy change / discover list / leave ind)");
+        trl::register_en("路由变更记录(关联确认/关联指示/关联汇总指示/代理变更/发现列表/离线指示)",
+                         "Route change log (assoc conf / assoc ind / gather ind / proxy change / discover list / leave ind)");
         trl::register_en("序号", "Seq");
         trl::register_en("时间点", "Time");
         trl::register_en("类型", "Type");
@@ -77,6 +78,7 @@ struct I18nRegTopoWindow {
         trl::register_en("关联请求", "Assoc request");
         trl::register_en("关联确认", "Assoc confirm");
         trl::register_en("关联汇总指示", "Assoc gather indication");
+        trl::register_en("关联指示", "Assoc indication");
         trl::register_en("代理变更", "Proxy change");
         trl::register_en("离线指示", "Leave indication");
         trl::register_en("其他", "Other");
@@ -449,7 +451,7 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     auto* routes_panel = new QWidget(this);
     auto* routes_lay = new QVBoxLayout(routes_panel);
     routes_lay->setContentsMargins(0, 0, 0, 0);
-    routes_lay->addWidget(new QLabel(trl::L("路由变更记录(关联确认/关联汇总指示/代理变更/发现列表/离线指示)"), routes_panel));
+    routes_lay->addWidget(new QLabel(trl::L("路由变更记录(关联确认/关联指示/关联汇总指示/代理变更/发现列表/离线指示)"), routes_panel));
     routes_lay->addWidget(m_routes_filter);
     routes_lay->addWidget(m_routes_table, 1);
 

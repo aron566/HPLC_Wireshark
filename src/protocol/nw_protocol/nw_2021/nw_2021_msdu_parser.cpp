@@ -940,7 +940,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                     const quint64 cco_mac = get_bits(mme, 14, 0, 48);
                     const quint16 sta_tei = (quint16)get_bits(mme, 20, 0, 12);
                     const quint16 proxy_tei = (quint16)get_bits(mme, 22, 0, 16);
-                    out.topo_event.kind = TopoEventKind::AssocCnf;
+                    out.topo_event.kind = TopoEventKind::AssocInd;
                     if (cco_mac) out.topo_event.cco_mac = cco_mac;
                     if (sta_tei && sta_mac) out.topo_event.nodes.append({sta_tei, sta_mac});
                     if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
