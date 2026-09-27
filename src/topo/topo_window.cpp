@@ -11,6 +11,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
+#include <QPushButton>
 #include <QSplitter>
 #include <QScrollBar>
 #include <QStandardItemModel>
@@ -45,8 +46,12 @@ QString event_kind_name(TopoEventKind k) {
         case TopoEventKind::DiscoverList:   return trl::L("发现列表");
         case TopoEventKind::AssocReq:       return trl::L("关联请求");
         case TopoEventKind::AssocCnf:       return trl::L("关联确认");
+        case TopoEventKind::AssocGatherInd: return trl::L("关联汇总指示");
+        case TopoEventKind::AssocInd:       return trl::L("关联指示");
         case TopoEventKind::ChangeProxyCnf: return trl::L("代理变更");
         case TopoEventKind::LeaveInd:       return trl::L("离线指示");
+        case TopoEventKind::CcoRestart:     return trl::L("CCO重启");
+        case TopoEventKind::StaRestart:     return trl::L("STA重启");
         default:                            return trl::L("其他");
     }
 }
@@ -59,8 +64,12 @@ struct I18nRegTopoWindow {
         trl::register_en("搜索 TEI / MAC…", "Search TEI / MAC…");
         trl::register_en("筛选(时间/类型/说明)…", "Filter (time/type/description)…");
         trl::register_en("TEI → MAC 映射", "TEI → MAC mapping");
-        trl::register_en("路由变更记录(关联确认/代理变更/发现列表/离线指示)",
-                         "Route change log (assoc conf / proxy change / discover list / leave ind)");
+        trl::register_en("路由变更记录(关联确认/关联指示/关联汇总指示/代理变更/发现列表/离线指示/CCO重启/STA重启)",
+                         "Route change log (assoc conf / assoc ind / gather ind / proxy change / discover list / leave ind / CCO reboot / STA reboot)");
+        trl::register_en("CCO重启", "CCO reboot");
+        trl::register_en("STA重启", "STA reboot");
+        trl::register_en("序号", "Seq");
+        trl::register_en("首次", "First seen");
         trl::register_en("时间点", "Time");
         trl::register_en("类型", "Type");
         trl::register_en("变更说明", "Description");
@@ -73,6 +82,8 @@ struct I18nRegTopoWindow {
         trl::register_en("发现列表", "Discover list");
         trl::register_en("关联请求", "Assoc request");
         trl::register_en("关联确认", "Assoc confirm");
+        trl::register_en("关联汇总指示", "Assoc gather indication");
+        trl::register_en("关联指示", "Assoc indication");
         trl::register_en("代理变更", "Proxy change");
         trl::register_en("离线指示", "Leave indication");
         trl::register_en("其他", "Other");
@@ -84,6 +95,9 @@ struct I18nRegTopoWindow {
         trl::register_en("通讯成功率: 暂无上报", "Comm success rate: no report yet");
         trl::register_en("接入方式", "Link");
         trl::register_en("载波", "PLC");
+        trl::register_en("实时", "Live");
+        trl::register_en("历史回放", "History replay");
+        trl::register_en("回到实时", "Back to Live");
     }
 } i18n_reg_topo_window;
 
@@ -412,6 +426,9 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     m_routes_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_routes_table->horizontalHeader()->setStretchLastSection(true);
     m_routes_table->verticalHeader()->setVisible(false);
+    // 双击路由变更表某行 → 追溯到该行对应的帧(序号列对应主界面帧序号)
+    connect(m_routes_table, &QTableView::doubleClicked,
+            this, &TopoWindow::on_routes_double_clicked);
     // 滚动逻辑与主界面一致:滚到底部才跟随最新,滚离底部暂停跟随
     connect(m_routes_table->verticalScrollBar(), &QScrollBar::valueChanged,
             this, [this](int value) {
@@ -439,7 +456,7 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     auto* routes_panel = new QWidget(this);
     auto* routes_lay = new QVBoxLayout(routes_panel);
     routes_lay->setContentsMargins(0, 0, 0, 0);
-    routes_lay->addWidget(new QLabel(trl::L("路由变更记录(关联确认/代理变更/发现列表/离线指示)"), routes_panel));
+    routes_lay->addWidget(new QLabel(trl::L("路由变更记录(关联确认/关联指示/关联汇总指示/代理变更/发现列表/离线指示/CCO重启/STA重启)"), routes_panel));
     routes_lay->addWidget(m_routes_filter);
     routes_lay->addWidget(m_routes_table, 1);
 
@@ -447,6 +464,14 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     auto* top_lay = new QHBoxLayout();
     top_lay->addWidget(new QLabel(trl::L("网络:"), this));
     top_lay->addWidget(m_nid_combo, 1);
+    // 历史回放调试:模式标签 + 回到实时按钮
+    m_mode_label = new QLabel(trl::L("实时"), this);
+    m_mode_label->setStyleSheet(QStringLiteral("QLabel { color: palette(highlight); font-weight: bold; }"));
+    top_lay->addWidget(m_mode_label);
+    m_btn_live = new QPushButton(trl::L("回到实时"), this);
+    m_btn_live->setVisible(false);
+    connect(m_btn_live, &QPushButton::clicked, this, &TopoWindow::request_live);
+    top_lay->addWidget(m_btn_live);
 
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(6, 6, 6, 6);
@@ -458,7 +483,7 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     m_refresh_timer = new QTimer(this);
     m_refresh_timer->setInterval(200);
     connect(m_refresh_timer, &QTimer::timeout, this, [this] {
-        if (m_dirty && isVisible()) {
+        if (m_dirty && isVisible() && !m_hist_mode) {
             m_dirty = false;
             refresh_nids();
             rebuild_all();
@@ -474,17 +499,29 @@ void TopoWindow::set_state_map(const QHash<quint32, TopoState>* map) {
 
 void TopoWindow::refresh_nids() {
     const quint32 prev = m_current_nid;
+    const auto* states = view_states();
     m_nid_combo->blockSignals(true);
     m_nid_combo->clear();
-    if (m_states) {
-        // 按 NID 升序
-        QList<quint32> nids = m_states->keys();
+    if (states) {
+        // 按 NID 升序;下拉项附带 CCO MAC 与首次识别时间(区分同 MAC 新旧网络)
+        QList<quint32> nids = states->keys();
         std::sort(nids.begin(), nids.end());
-        for (quint32 nid : nids)
-            m_nid_combo->addItem(QStringLiteral("NID:0x%1 TOPO").arg(nid, 0, 16), nid);
+        for (quint32 nid : nids) {
+            const TopoState& st = states->value(nid);
+            QString label = QStringLiteral("NID:0x%1").arg(nid, 0, 16);
+            if (st.cco_mac)
+                label += QStringLiteral(" CCO:") + format_mac(st.cco_mac);
+            if (st.first_seen_frame >= 0) {
+                label += QStringLiteral(" %1:#%2 %3")
+                    .arg(trl::L("首次"))
+                    .arg(st.first_seen_frame)
+                    .arg(format_time(st.first_seen_ms));
+            }
+            m_nid_combo->addItem(label, nid);
+        }
     }
     m_nid_combo->blockSignals(false);
-    if (prev && m_states && m_states->contains(prev))
+    if (prev && states && states->contains(prev))
         set_current_nid(prev);
     else if (m_nid_combo->count() > 0)
         set_current_nid(m_nid_combo->itemData(0).toUInt());
@@ -531,6 +568,7 @@ void TopoWindow::closeEvent(QCloseEvent* e) {
 }
 
 void TopoWindow::mark_dirty() {
+    if (m_hist_mode) return;  // 历史回放模式:冻结,不跟随新帧
     m_dirty = true;  // 仅置脏标志;定时器批量刷新
 }
 
@@ -542,16 +580,106 @@ void TopoWindow::refresh_current() {
 }
 
 void TopoWindow::rebuild_all() {
-    // 图
+    // 图(历史回放模式读冻结快照,否则读实时表)
     const TopoState* st = nullptr;
-    if (m_states) {
-        auto it = m_states->constFind(m_current_nid);
-        if (it != m_states->constEnd()) st = &it.value();
+    if (const auto* states = view_states()) {
+        auto it = states->constFind(m_current_nid);
+        if (it != states->constEnd()) st = &it.value();
     }
     m_graph->set_state(st);
     // 两张表
     rebuild_routes_table();
     rebuild_teimac_table();
+}
+
+void TopoWindow::show_history(const QHash<quint32, TopoState>* hist, bool active,
+                              qint64 frame_index, qint64 frame_ms) {
+    m_hist_states = hist;
+    m_hist_mode = active;
+    m_hist_frame = active ? frame_index : -1;
+    if (active) {
+        m_mode_label->setText(
+            QStringLiteral("%1 @ #%2 %3").arg(trl::L("历史回放")).arg(frame_index)
+                                         .arg(format_time(frame_ms)));
+    }
+    update_mode_ui();
+    refresh_nids();
+    rebuild_all();
+    highlight_history_row();  // 标出冻结位置;路由表保留全部行(含目标帧之后的)
+}
+
+void TopoWindow::show_live() {
+    m_hist_mode = false;
+    m_hist_states = nullptr;
+    m_hist_frame = -1;
+    if (m_routes_table && m_routes_table->selectionModel())
+        m_routes_table->selectionModel()->clearSelection();
+    update_mode_ui();
+    refresh_nids();
+    rebuild_all();
+}
+
+void TopoWindow::update_mode_ui() {
+    if (!m_hist_mode)
+        m_mode_label->setText(trl::L("实时"));
+    m_btn_live->setVisible(m_hist_mode);
+}
+
+void TopoWindow::append_routes_rows(const TopoState* st, const QString& filter,
+                                   int from, int to) {
+    for (int i = from; i < to; ++i) {  // 时间正序,最新在底部(与主界面一致)
+        const TopoEvent& e = st->events[i];
+        const QString time = format_time(e.epoch_ms);
+        const QString kind = event_kind_name(e.kind);
+        const QString nid = QStringLiteral("0x%1").arg(e.nid, 0, 16);
+        const QString desc = e.desc;
+        if (!filter.isEmpty()) {
+            if (!time.contains(filter, Qt::CaseInsensitive) &&
+                !kind.contains(filter, Qt::CaseInsensitive) &&
+                !nid.contains(filter, Qt::CaseInsensitive) &&
+                !desc.contains(filter, Qt::CaseInsensitive))
+                continue;
+        }
+        QList<QStandardItem*> row;
+        // 首列序号:对应主界面帧列表的帧序号;UserRole 存帧序号/时间点供双击追溯
+        // (过滤可能跳过行,不能用行号反推事件下标)
+        QStandardItem* seq_item = new QStandardItem(QString::number(e.frame_index));
+        seq_item->setData(e.frame_index, Qt::UserRole);
+        seq_item->setData(e.epoch_ms, Qt::UserRole + 1);
+        row << seq_item
+            << new QStandardItem(time)
+            << new QStandardItem(kind)
+            << new QStandardItem(nid)
+            << new QStandardItem(desc);
+        m_routes_model->appendRow(row);
+    }
+}
+
+/// @brief 路由变更表双击 → 按该行序号列对应的帧号发射追溯请求
+void TopoWindow::on_routes_double_clicked(const QModelIndex& idx) {
+    if (!idx.isValid() || !m_routes_model) return;
+    const QStandardItem* seq_item = m_routes_model->item(idx.row(), 0);
+    if (!seq_item) return;
+    const qint64 frame = seq_item->data(Qt::UserRole).toLongLong();
+    const qint64 ms = seq_item->data(Qt::UserRole + 1).toLongLong();
+    if (frame < 0) return;
+    emit request_history(frame, ms);
+}
+
+/// @brief 历史回放模式下选中冻结帧对应的路由表行(仅高亮,不滚动/不删行)
+void TopoWindow::highlight_history_row() {
+    if (!m_hist_mode || m_hist_frame < 0 || !m_routes_model || !m_routes_table)
+        return;
+    // 首列 UserRole 存帧序号(过滤可能跳行,不能按行号反推)
+    for (int r = 0; r < m_routes_model->rowCount(); ++r) {
+        const QStandardItem* seq_item = m_routes_model->item(r, 0);
+        if (seq_item && seq_item->data(Qt::UserRole).toLongLong() == m_hist_frame) {
+            m_routes_table->selectRow(r);  // 该行双击时本就可见,不强制滚动
+            return;
+        }
+    }
+    // 过滤导致目标行不可见:清除旧选中,避免高亮停留在无关行
+    m_routes_table->selectionModel()->clearSelection();
 }
 
 void TopoWindow::rebuild_routes_table() {
@@ -560,38 +688,32 @@ void TopoWindow::rebuild_routes_table() {
     const int  saved_value = m_routes_table->verticalScrollBar()->value();
     m_rebuilding_routes = true;   // 屏蔽 clear/append 期间 scrollbar 信号干扰
 
-    m_routes_model->clear();
-    m_routes_model->setHorizontalHeaderLabels(
-        {trl::L("时间点"), trl::L("类型"), trl::L("NID"), trl::L("变更说明")});
-
+    // 路由变更表恒读实时表:它是帧记录索引,双击进入历史回放时也不得
+    // 截断目标帧之后的行(拓扑图/TEI-MAC 表仍读冻结快照,保持冻结语义)
+    const QHash<quint32, TopoState>* states = m_states;
     const TopoState* st = nullptr;
-    if (m_states) {
-        auto it = m_states->constFind(m_current_nid);
-        if (it != m_states->constEnd()) st = &it.value();
+    if (states) {
+        auto it = states->constFind(m_current_nid);
+        if (it != states->constEnd()) st = &it.value();
     }
-
     const QString filter = m_routes_filter->text().trimmed();
-    if (st) {
-        for (int i = 0; i < st->events.size(); ++i) {  // 时间正序,最新在底部(与主界面一致)
-            const TopoEvent& e = st->events[i];
-            const QString time = format_time(e.epoch_ms);
-            const QString kind = event_kind_name(e.kind);
-            const QString nid = QStringLiteral("0x%1").arg(e.nid, 0, 16);
-            const QString desc = e.desc;
-            if (!filter.isEmpty()) {
-                if (!time.contains(filter, Qt::CaseInsensitive) &&
-                    !kind.contains(filter, Qt::CaseInsensitive) &&
-                    !nid.contains(filter, Qt::CaseInsensitive) &&
-                    !desc.contains(filter, Qt::CaseInsensitive))
-                    continue;
-            }
-            QList<QStandardItem*> row;
-            row << new QStandardItem(time)
-                << new QStandardItem(kind)
-                << new QStandardItem(nid)
-                << new QStandardItem(desc);
-            m_routes_model->appendRow(row);
-        }
+    const int ev_count = st ? st->events.size() : 0;
+    // 视图变化(数据源/NID/过滤文本切换,或事件数收缩)→全量重建;
+    // 否则只追加新增事件行,避免每 200ms 全量重建 O(E)(E 随抓包时长线性增长)
+    const bool view_changed = (states != m_routes_view) || (m_current_nid != m_routes_nid)
+                           || (filter != m_routes_filter_text) || (ev_count < m_routes_shown);
+    if (view_changed) {
+        m_routes_model->clear();
+        m_routes_model->setHorizontalHeaderLabels(
+            {trl::L("序号"), trl::L("时间点"), trl::L("类型"), trl::L("NID"), trl::L("变更说明")});
+        if (st) append_routes_rows(st, filter, 0, ev_count);
+        m_routes_view = states;
+        m_routes_nid = m_current_nid;
+        m_routes_filter_text = filter;
+        m_routes_shown = ev_count;
+    } else if (ev_count > m_routes_shown) {
+        append_routes_rows(st, filter, m_routes_shown, ev_count);
+        m_routes_shown = ev_count;
     }
 
     m_rebuilding_routes = false;
@@ -608,9 +730,10 @@ void TopoWindow::rebuild_teimac_table() {
         {trl::L("TEI"), trl::L("MAC"), trl::L("状态"), trl::L("层级"), trl::L("代理 TEI")});
 
     const TopoState* st = nullptr;
-    if (m_states) {
-        auto it = m_states->constFind(m_current_nid);
-        if (it != m_states->constEnd()) st = &it.value();
+    // 历史回放模式读冻结快照,否则读实时表(此前误读 m_states,回放时表格未冻结)
+    if (const auto* states = view_states()) {
+        auto it = states->constFind(m_current_nid);
+        if (it != states->constEnd()) st = &it.value();
     }
     if (!st) return;
 

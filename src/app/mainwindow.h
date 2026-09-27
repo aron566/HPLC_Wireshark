@@ -37,6 +37,12 @@ class ProtocolTree;
 class TopoWindow;
 struct PacketEntry;
 
+/// @brief 拓扑事件回放日志条目(帧序号 → 事件;供 TOPO 历史回放调试)
+struct TopoLogItem {
+    qint64    frame_index = 0; ///< PacketEntry::index(1-based 全局帧序号)
+    TopoEvent event;           ///< 已填充 nid/epoch_ms/is_rf 的完整事件
+};
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
@@ -55,6 +61,12 @@ private slots:
     void on_status_message(const QString& s);
     void on_error(const QString& e);
     void on_row_activated(const PacketEntry& e);
+    void on_topo_request_live();       ///< Topo 窗口"回到实时"按钮
+    void update_topo_history(qint64 frame_index, qint64 frame_ms); ///< 帧点击 → TOPO 回放/实时切换
+    void enter_topo_history(qint64 frame_index, qint64 frame_ms);  ///< 帧双击 → 强制历史追溯(冻结,不跟随实时)
+    void on_topo_request_history(qint64 frame_index, qint64 frame_ms); ///< TOPO 路由表双击 → 追溯到该帧
+    void jump_packet_to_frame(qint64 frame_index); ///< TOPO 双击 → 主帧列表定位到该帧(选中+居中,清过滤)
+    void replay_topo_history();        ///< 按 m_topo_hist_frame 重放日志生成冻结快照
     void on_ranges_selected(const QList<QPair<int, int>>& ranges, const QByteArray& copy_bytes);
     void on_flush_buffer();
     void refresh_status_bar();
@@ -108,6 +120,12 @@ private:
     PacketListModel* m_model;
     TopoWindow*    m_topo_window = nullptr;       ///< 拓扑独立窗口(懒创建)
     QHash<quint32, TopoState> m_topo_states;      ///< NID → 拓扑状态(实时累积)
+    QVector<TopoLogItem> m_topo_log;              ///< 拓扑事件日志(帧序;供历史回放)
+    QHash<quint32, TopoState> m_topo_hist_states; ///< 回放快照:重放到选中帧的拓扑(冻结显示)
+    bool   m_topo_hist_active = false;            ///< TOPO 历史回放(冻结)模式
+    qint64 m_topo_hist_frame = 0;                 ///< 回放到的帧序号
+    qint64 m_topo_hist_ms = 0;                    ///< 回放帧时刻(epoch ms)
+    qint64 m_topo_hist_replayed = -1;             ///< 回放水位:快照已覆盖到的帧(增量回放用;-1=需全量重建)
 
     QTimer*          m_flush_timer;
     QTimer*          m_status_timer;

@@ -187,9 +187,13 @@ enum class TopoEventKind {
     DiscoverList,   ///< 发现列表(单节点快照:TEI/MAC/代理/层级)
     AssocReq,       ///< 关联请求(STA 正在入网)
     AssocCnf,       ///< 关联确认(STA 已入网)
+    AssocGatherInd, ///< 关联汇总指示(批量站点入网)
+    AssocInd,       ///< 关联指示(南网;拓扑语义等同关联确认)
     ChangeProxyCnf, ///< 代理变更确认(STA 换代理)
     LeaveInd,       ///< 离网指示(STA 离网)
     SuccessRate,    ///< 成功率上报(STA 与上级的上下行通讯成功率)
+    CcoRestart,     ///< CCO 重启(发现列表重启次数变化;仅 TopoState 内部生成,警告记录)
+    StaRestart,     ///< STA 重启(关联请求重启次数变化;仅 TopoState 内部生成,警告记录)
     Other
 };
 
@@ -211,8 +215,10 @@ struct TopoEvent {
     QVector<quint64> leaves;                    ///< 离网节点 MAC 列表
     QVector<CommRateInfo> comm_rates;           ///< 成功率上报条目(SuccessRate 事件)
     bool is_rf = false;                         ///< 接入方式:false=PLC 载波;true=HRF 无线
+    int restart_count = -1;                     ///< 发送方重启次数(南网 MAC 帧头 4-bit;-1=未知/无)
     QString desc;                               ///< 变更说明(路由变更了什么)
     qint64 epoch_ms = 0;                        ///< 时间点(epoch ms)
+    qint64 frame_index = -1;                    ///< 来源帧序号(PacketEntry::index;路由表显示与双击追溯用)
 };
 
 /// @brief MSDU 解析结果(由 GW_2022_MsduParser 填充)
@@ -229,7 +235,7 @@ struct MsduInfo {
     // 南网 NW_2021 MSDU 头字段(国网填 0)
     quint32 vlan_tag;            ///< VLAN 标签 32-bit(南网 MSDU 长头)
     quint16 msdu_type;           ///< MSDU 类型 16-bit(南网 MSDU 长头)
-    quint8  restart_count;       ///< 重启次数 4-bit(南网 MAC 帧头)
+    quint8  restart_count;       ///< 重启次数 4-bit(国网 MSDU 头/南网 MAC 帧头);0xFF=未知/无此字段
     quint8  broadcast_direction; ///< 广播方向 4-bit(南网 MAC 帧头)
     quint8  business_id;         ///< 应用层 BID(业务标识;非应用层报文=0xFF,供整行着色)
     quint8  app_packet_type;     ///< 应用层帧类型域 4-bit(南网表4;非 NW 应用层=0xFF)
@@ -243,7 +249,7 @@ struct MsduInfo {
     MsduInfo() : present(false), simple_head(false), msdu_seq(0),
                  msdu_src_tei(-1), msdu_dst_tei(-1), msdu_send_type(-1),
                  msdu_src_mac(0), msdu_dst_mac(0), sta_mac(0),
-                 vlan_tag(0), msdu_type(0), restart_count(0),
+                 vlan_tag(0), msdu_type(0), restart_count(0xFF),
                  broadcast_direction(0), business_id(0xFF), app_packet_type(0xFF),
                  mme_type(0xFFFF), total_len(-1) {}
 };

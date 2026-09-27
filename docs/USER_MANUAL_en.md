@@ -180,14 +180,24 @@ The left side shows current status, source, replay progress, or errors. The righ
 
 Click the toolbar `Topology` button to open a standalone window that visualizes the network structure:
 
-- Switch networks via the NID drop-down; the CCO and each STA are drawn as a tree topology.
+- Switch networks via the NID drop-down; the CCO and each STA are drawn as a tree topology. Each drop-down item shows the NID, the CCO's MAC address, and when the network was first seen (timestamp of the first frame carrying that NID), making it easy to tell old and new networks apart when they share the same CCO MAC.
 - Node icons distinguish four states: CCO router, STA online, STA joining, STA offline.
 - Three-line node label: node title (CCO/STA-N), MAC address, and access method (carrier PLC / wireless RF).
 - Mouse-drag to pan and the mouse wheel to zoom.
 - Hover over a node to see its TEI, MAC, parent TEI, status, uplink/downlink success rate, and access method.
-- The right-hand `Route Changes` table records association request/confirm, proxy-change, and offline-indication events in chronological order (time, type, NID, description) and supports keyword filtering. Scrolling matches the main window: it follows the newest row only while at the bottom and keeps position when scrolling up.
+- The right-hand `Route Changes` table records topology events in chronological order. The first column `Seq` matches the frame number in the main frame list. Event types: association request / association confirm / association indication (Southern Grid) / association gather indication / discovery node list / proxy change / batch proxy change / offline indication / delayed offline indication (Southern Grid) / CCO reboot warning / STA reboot warning. Columns: time, type, NID, description; keyword filtering supported. Scrolling matches the main window: it follows the newest row only while at the bottom and keeps position when scrolling up.
+- CCO reboot detection: when a discovery node list is sent by the CCO itself (source TEI = 1) and its MSDU header restart count changes, a "CCO reboot warning" is recorded (warning only; the topology is not cleared).
+- STA reboot detection: when an association request is sent by the STA itself and its MSDU header restart count changes, a "STA reboot warning" is recorded.
+- When a device powers back on and sends an association request again, the old node state for the same MAC is removed first, avoiding duplicate "online" and "joining" states for one device.
 - The right-hand `TEI-to-MAC` table lists the TEI and MAC mapping of each node.
 - Topology data refreshes with incoming frames (throttled to ~200 ms to avoid lag during high-rate replay).
+
+### 4.7 TOPO History Replay Debugging
+
+- Single-click any historical frame in the main frame list: TOPO enters history-replay mode, freezing the topology graph, route-change table, and TEI-to-MAC table as a snapshot of that moment. The header shows "History replay @ #frame". Single-click the newest frame or press the "Back to live" button to resume live following.
+- Double-click any frame in the main frame list (including the newest): force-enters history tracing and freezes at that frame, no longer following live traffic.
+- Double-click any row in the TOPO `Route Changes` table: TOPO freezes at the frame that row corresponds to, and the main frame list selects and scrolls that frame into the center, so you can inspect the surrounding frames.
+- In history-replay mode the route-change table keeps all rows (including those after the target frame) and only highlights the frozen position; the highlight is cleared when returning to live.
 
 ## 5. Frame Operations
 

@@ -35,8 +35,11 @@ class TopoState {
 public:
     quint32 nid = 0;
     quint64 cco_mac = 0;
+    qint64 first_seen_ms = 0;     ///< 首次识别到该 NID 的帧时间戳(epoch ms;0=未知)
+    qint64 first_seen_frame = -1; ///< 首次识别到该 NID 的帧序号(-1=未知)
     QHash<quint16, TopoNode> nodes; ///< TEI → 节点(含 CCO TEI=1)
     QHash<quint64, TopoNode> pending; ///< MAC → 正在入网节点(TEI 未分配,关联请求阶段)
+    QHash<quint64, quint16> mac_to_tei; ///< MAC → TEI 快速索引(离线标记按 MAC 查找;与 nodes 双向一致)
     QHash<quint16, CommRateInfo> comm_rates; ///< TEI → 通讯成功率(成功率上报)
     QVector<TopoEvent> events;      ///< 路由变更事件(时间序,供底部表格)
 
@@ -48,6 +51,17 @@ public:
 
     /// @brief 取节点 MAC(TEI 未知返回 0)
     quint64 mac_of(quint16 tei) const;
+
+private:
+    /// @brief 维护 mac_to_tei 双向一致(处理"同一 MAC 先后对应不同 TEI"和"同一 TEI 先后对应不同 MAC")
+    void index_mac(quint16 tei, quint64 mac);
+    /// @brief 按 MAC 移除已存在的拓扑节点(设备重上电再次发起关联时先清旧状态)
+    /// @details CCO(TEI=1)永不移除;同时清理该 TEI 的成功率残留与 MAC 索引。
+    /// @return 是否移除了节点
+    bool remove_node_by_mac(quint64 mac);
+
+    int m_last_restart_count = -1; ///< 上次发现列表的发送方重启次数(-1=尚无基线;CCO 重启检测用)
+    QHash<quint64, int> m_sta_restart_count; ///< STA MAC → 上次重启次数(-1=尚无基线;STA 重启检测用,仅关联请求更新)
 };
 
 #endif // TOPO_STATE_H
