@@ -103,6 +103,8 @@ public:
 signals:
     /// @brief 用户点击"回到实时"按钮
     void request_live();
+    /// @brief 用户双击路由变更表某行 → 追溯到该行对应的帧(序号,时间点ms)
+    void request_history(qint64 frame_index, qint64 frame_ms);
 
 protected:
     /// @brief 关闭 = 隐藏(保留状态,下次打开复用)
@@ -112,6 +114,7 @@ private slots:
     void on_nid_changed(int idx);
     void on_routes_filter(const QString& text);
     void on_teimac_search(const QString& text);
+    void on_routes_double_clicked(const QModelIndex& idx);  ///< 路由表双击 → 发射 request_history
 
 private:
     /// @brief 当前视图状态表(历史回放模式用快照,否则用实时表)

@@ -64,6 +64,7 @@ private slots:
     void on_topo_request_live();       ///< Topo 窗口"回到实时"按钮
     void update_topo_history(qint64 frame_index, qint64 frame_ms); ///< 帧点击 → TOPO 回放/实时切换
     void enter_topo_history(qint64 frame_index, qint64 frame_ms);  ///< 帧双击 → 强制历史追溯(冻结,不跟随实时)
+    void on_topo_request_history(qint64 frame_index, qint64 frame_ms); ///< TOPO 路由表双击 → 追溯到该帧
     void replay_topo_history();        ///< 按 m_topo_hist_frame 重放日志生成冻结快照
     void on_ranges_selected(const QList<QPair<int, int>>& ranges, const QByteArray& copy_bytes);
     void on_flush_buffer();

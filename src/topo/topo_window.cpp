@@ -62,6 +62,7 @@ struct I18nRegTopoWindow {
         trl::register_en("TEI → MAC 映射", "TEI → MAC mapping");
         trl::register_en("路由变更记录(关联确认/代理变更/发现列表/离线指示)",
                          "Route change log (assoc conf / proxy change / discover list / leave ind)");
+        trl::register_en("序号", "Seq");
         trl::register_en("时间点", "Time");
         trl::register_en("类型", "Type");
         trl::register_en("变更说明", "Description");
@@ -416,6 +417,9 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     m_routes_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_routes_table->horizontalHeader()->setStretchLastSection(true);
     m_routes_table->verticalHeader()->setVisible(false);
+    // 双击路由变更表某行 → 追溯到该行对应的帧(序号列对应主界面帧序号)
+    connect(m_routes_table, &QTableView::doubleClicked,
+            this, &TopoWindow::on_routes_double_clicked);
     // 滚动逻辑与主界面一致:滚到底部才跟随最新,滚离底部暂停跟随
     connect(m_routes_table->verticalScrollBar(), &QScrollBar::valueChanged,
             this, [this](int value) {
@@ -612,12 +616,29 @@ void TopoWindow::append_routes_rows(const TopoState* st, const QString& filter,
                 continue;
         }
         QList<QStandardItem*> row;
-        row << new QStandardItem(time)
+        // 首列序号:对应主界面帧列表的帧序号;UserRole 存帧序号/时间点供双击追溯
+        // (过滤可能跳过行,不能用行号反推事件下标)
+        QStandardItem* seq_item = new QStandardItem(QString::number(e.frame_index));
+        seq_item->setData(e.frame_index, Qt::UserRole);
+        seq_item->setData(e.epoch_ms, Qt::UserRole + 1);
+        row << seq_item
+            << new QStandardItem(time)
             << new QStandardItem(kind)
             << new QStandardItem(nid)
             << new QStandardItem(desc);
         m_routes_model->appendRow(row);
     }
+}
+
+/// @brief 路由变更表双击 → 按该行序号列对应的帧号发射追溯请求
+void TopoWindow::on_routes_double_clicked(const QModelIndex& idx) {
+    if (!idx.isValid() || !m_routes_model) return;
+    const QStandardItem* seq_item = m_routes_model->item(idx.row(), 0);
+    if (!seq_item) return;
+    const qint64 frame = seq_item->data(Qt::UserRole).toLongLong();
+    const qint64 ms = seq_item->data(Qt::UserRole + 1).toLongLong();
+    if (frame < 0) return;
+    emit request_history(frame, ms);
 }
 
 void TopoWindow::rebuild_routes_table() {
@@ -642,7 +663,7 @@ void TopoWindow::rebuild_routes_table() {
     if (view_changed) {
         m_routes_model->clear();
         m_routes_model->setHorizontalHeaderLabels(
-            {trl::L("时间点"), trl::L("类型"), trl::L("NID"), trl::L("变更说明")});
+            {trl::L("序号"), trl::L("时间点"), trl::L("类型"), trl::L("NID"), trl::L("变更说明")});
         if (st) append_routes_rows(st, filter, 0, ev_count);
         m_routes_view = states;
         m_routes_nid = m_current_nid;

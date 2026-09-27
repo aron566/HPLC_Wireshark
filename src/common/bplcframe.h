@@ -213,6 +213,7 @@ struct TopoEvent {
     bool is_rf = false;                         ///< 接入方式:false=PLC 载波;true=HRF 无线
     QString desc;                               ///< 变更说明(路由变更了什么)
     qint64 epoch_ms = 0;                        ///< 时间点(epoch ms)
+    qint64 frame_index = -1;                    ///< 来源帧序号(PacketEntry::index;路由表显示与双击追溯用)
 };
 
 /// @brief MSDU 解析结果(由 GW_2022_MsduParser 填充)

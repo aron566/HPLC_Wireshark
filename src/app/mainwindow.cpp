@@ -906,6 +906,7 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
         te.nid = e.mpdu.net_id;
         te.epoch_ms = e.epoch_ms;
         te.is_rf = e.meta.is_rf;   // 接入方式(载波/RF)
+        te.frame_index = e.index;  // 来源帧序号(路由表序号列/双击追溯)
         m_topo_states[e.mpdu.net_id].apply(te);
         m_topo_log.append({e.index, te});
         // 增量回放依赖日志严格按帧序追加;若乱序到达则重置回放水位,下次回放全量重建
@@ -1041,6 +1042,11 @@ void MainWindow::on_topo_request_live() {
         m_topo_window->show_live();
 }
 
+/// @brief TOPO 路由变更表双击某行 → 进入历史追溯并冻结在该行对应的帧
+void MainWindow::on_topo_request_history(qint64 frame_index, qint64 frame_ms) {
+    enter_topo_history(frame_index, frame_ms);
+}
+
 void MainWindow::on_ranges_selected(const QList<QPair<int, int>>& ranges,
                                     const QByteArray& copy_bytes) {
     m_hex_view->highlight_ranges(ranges);
@@ -1133,6 +1139,8 @@ void MainWindow::open_topo_window() {
         m_topo_window->set_state_map(&m_topo_states);
         connect(m_topo_window, &TopoWindow::request_live,
                 this, &MainWindow::on_topo_request_live);
+        connect(m_topo_window, &TopoWindow::request_history,
+                this, &MainWindow::on_topo_request_history);
     }
     // 按当前模式同步:历史回放中打开 → 重放冻结快照;否则实时
     if (m_topo_hist_active)
