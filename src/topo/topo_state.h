@@ -37,6 +37,7 @@ public:
     quint64 cco_mac = 0;
     QHash<quint16, TopoNode> nodes; ///< TEI → 节点(含 CCO TEI=1)
     QHash<quint64, TopoNode> pending; ///< MAC → 正在入网节点(TEI 未分配,关联请求阶段)
+    QHash<quint64, quint16> mac_to_tei; ///< MAC → TEI 快速索引(离线标记按 MAC 查找;与 nodes 双向一致)
     QHash<quint16, CommRateInfo> comm_rates; ///< TEI → 通讯成功率(成功率上报)
     QVector<TopoEvent> events;      ///< 路由变更事件(时间序,供底部表格)
 
@@ -48,6 +49,10 @@ public:
 
     /// @brief 取节点 MAC(TEI 未知返回 0)
     quint64 mac_of(quint16 tei) const;
+
+private:
+    /// @brief 维护 mac_to_tei 双向一致(处理"同一 MAC 先后对应不同 TEI"和"同一 TEI 先后对应不同 MAC")
+    void index_mac(quint16 tei, quint64 mac);
 };
 
 #endif // TOPO_STATE_H

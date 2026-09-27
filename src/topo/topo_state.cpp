@@ -14,11 +14,37 @@ NodeStatus status_for(TopoEventKind k) {
 
 } // namespace
 
+void TopoState::index_mac(quint16 tei, quint64 mac) {
+    if (!tei || !mac) return;
+    // 情况1:该 MAC 之前映射到别的 TEI(TEI 复用/STA 重入网换 TEI)
+    //       → 把旧 TEI 节点的 MAC 清零,避免之后按 MAC 查找时 stale 命中
+    auto it = mac_to_tei.find(mac);
+    if (it != mac_to_tei.end() && it.value() != tei) {
+        const quint16 old_tei = it.value();
+        auto nit = nodes.find(old_tei);
+        if (nit != nodes.end() && nit.value().mac == mac)
+            nit.value().mac = 0;
+    }
+    // 情况2:该 TEI 之前是别的 MAC(同一 TEI 换 MAC)
+    //       → 若旧 MAC 仍指向本 TEI 则删除其映射,避免旧 MAC 离线时误伤本 TEI
+    auto nit = nodes.find(tei);
+    if (nit != nodes.end()) {
+        const quint64 old_mac = nit.value().mac;
+        if (old_mac && old_mac != mac) {
+            auto oit = mac_to_tei.find(old_mac);
+            if (oit != mac_to_tei.end() && oit.value() == tei)
+                mac_to_tei.erase(oit);
+        }
+    }
+    mac_to_tei[mac] = tei;
+}
+
 void TopoState::apply(const TopoEvent& e) {
     nid = e.nid;
     // CCO(TEI=1):根节点,父=0,始终已入网
     if (e.cco_mac) {
         cco_mac = e.cco_mac;
+        index_mac(1, e.cco_mac);
         TopoNode& cco = nodes[1];
         cco.tei = 1;
         cco.mac = e.cco_mac;
@@ -41,17 +67,16 @@ void TopoState::apply(const TopoEvent& e) {
             pending[p.mac] = n;
             continue;
         }
+        index_mac(p.tei, p.mac);
         TopoNode& n = nodes[p.tei];
         n.tei = p.tei;
         n.mac = p.mac;
         n.status = status_for(e.kind);
         n.last_seen_ms = e.epoch_ms;
         n.is_rf = e.is_rf;
-        // 若该 MAC 之前正在入网(关联请求),现已分配到 TEI → 移除 pending
-        for (auto it = pending.begin(); it != pending.end();) {
-            if (it.value().mac == p.mac) it = pending.erase(it);
-            else ++it;
-        }
+        // 若该 MAC 之前正在入网(关联请求),现已分配到 TEI → 移除 pending。
+        // pending 的 key 恒等于 TopoNode.mac(写入处 pending[p.mac]=n),等价于哈希直接删除。
+        pending.remove(p.mac);
     }
     // 路由关系(子 TEI → 父/代理 TEI)
     for (const auto& r : e.routes) {
@@ -63,14 +88,29 @@ void TopoState::apply(const TopoEvent& e) {
         n.last_seen_ms = e.epoch_ms;
         n.is_rf = e.is_rf;
     }
-    // 离网节点(按 MAC 匹配,标记离线)
+    // 离网节点(按 MAC 匹配,标记离线):先走 MAC→TEI 索引 O(1),索引不一致时回退线性扫描
     for (quint64 mac : e.leaves) {
         if (!mac) continue;
-        for (auto it = nodes.begin(); it != nodes.end(); ++it) {
-            if (it.value().mac == mac) {
-                it.value().status = NodeStatus::Offline;
-                it.value().last_seen_ms = e.epoch_ms;
-                break;
+        bool done = false;
+        auto iit = mac_to_tei.find(mac);
+        if (iit != mac_to_tei.end()) {
+            auto nit = nodes.find(iit.value());
+            if (nit != nodes.end() && nit.value().mac == mac) {
+                nit.value().status = NodeStatus::Offline;
+                nit.value().last_seen_ms = e.epoch_ms;
+                done = true;
+            } else {
+                // 索引与节点不一致(不应发生):删除坏映射,回退线性扫描保证不错杀/不漏杀
+                mac_to_tei.erase(iit);
+            }
+        }
+        if (!done) {
+            for (auto it = nodes.begin(); it != nodes.end(); ++it) {
+                if (it.value().mac == mac) {
+                    it.value().status = NodeStatus::Offline;
+                    it.value().last_seen_ms = e.epoch_ms;
+                    break;
+                }
             }
         }
     }
