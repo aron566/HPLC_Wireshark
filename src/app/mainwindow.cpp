@@ -1043,8 +1043,37 @@ void MainWindow::on_topo_request_live() {
 }
 
 /// @brief TOPO 路由变更表双击某行 → 进入历史追溯并冻结在该行对应的帧
+/// @details 同时主帧列表联动定位到该帧(选中+居中),方便查看上下报文,无需手动翻找
 void MainWindow::on_topo_request_history(qint64 frame_index, qint64 frame_ms) {
     enter_topo_history(frame_index, frame_ms);
+    jump_packet_to_frame(frame_index);
+}
+
+/// @brief 主帧列表定位到指定帧序号
+/// @details 表格为插入序(无排序),可见行 = 帧序号 - 1(序号 1-based);
+///          若有显示过滤会隐藏目标帧,先同步清除过滤(清空是同步的)再定位;
+///          定位后选中该行并滚动居中,同时激活详情面板
+void MainWindow::jump_packet_to_frame(qint64 frame_index) {
+    if (!m_model || !m_table_packets || frame_index < 1)
+        return;
+    if (frame_index > m_model->total_count())
+        return;
+    // 有过滤时目标帧可能不可见:先清除(同步),保证能看到上下报文上下文
+    if (m_edt_filter && !m_edt_filter->text().trimmed().isEmpty()) {
+        m_edt_filter->clear();
+        m_model->set_display_filter(QString());
+    }
+    const int row = int(frame_index - 1);
+    if (row < 0 || row >= m_model->rowCount())
+        return;
+    const QModelIndex idx = m_model->index(row, 0);
+    if (!idx.isValid())
+        return;
+    m_table_packets->selectionModel()->select(
+        idx, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+    m_table_packets->setCurrentIndex(idx);
+    m_table_packets->scrollTo(idx, QAbstractItemView::PositionAtCenter);
+    m_model->activate_row(row);
 }
 
 void MainWindow::on_ranges_selected(const QList<QPair<int, int>>& ranges,

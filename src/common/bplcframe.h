@@ -235,7 +235,7 @@ struct MsduInfo {
     // 南网 NW_2021 MSDU 头字段(国网填 0)
     quint32 vlan_tag;            ///< VLAN 标签 32-bit(南网 MSDU 长头)
     quint16 msdu_type;           ///< MSDU 类型 16-bit(南网 MSDU 长头)
-    quint8  restart_count;       ///< 重启次数 4-bit(南网 MAC 帧头)
+    quint8  restart_count;       ///< 重启次数 4-bit(国网 MSDU 头/南网 MAC 帧头);0xFF=未知/无此字段
     quint8  broadcast_direction; ///< 广播方向 4-bit(南网 MAC 帧头)
     quint8  business_id;         ///< 应用层 BID(业务标识;非应用层报文=0xFF,供整行着色)
     quint8  app_packet_type;     ///< 应用层帧类型域 4-bit(南网表4;非 NW 应用层=0xFF)
@@ -249,7 +249,7 @@ struct MsduInfo {
     MsduInfo() : present(false), simple_head(false), msdu_seq(0),
                  msdu_src_tei(-1), msdu_dst_tei(-1), msdu_send_type(-1),
                  msdu_src_mac(0), msdu_dst_mac(0), sta_mac(0),
-                 vlan_tag(0), msdu_type(0), restart_count(0),
+                 vlan_tag(0), msdu_type(0), restart_count(0xFF),
                  broadcast_direction(0), business_id(0xFF), app_packet_type(0xFF),
                  mme_type(0xFFFF), total_len(-1) {}
 };

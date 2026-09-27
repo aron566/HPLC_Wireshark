@@ -662,6 +662,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
     out.msdu_src_tei  = (int)get_bits(p, 0, 4, 12);
     out.msdu_dst_tei  = (int)get_bits(p, 2, 0, 12);
     out.msdu_send_type = (int)get_bits(p, 3, 4, 4);   // 广播类型判定
+    out.restart_count  = (quint8)get_bits(p, 9, 3, 4); // RestartCount(国网 MSDU 头 byte9 bits3-6,发送方重启次数)
     quint8 msdu_type   = (quint8)get_bits(p, 7, 0, 8);
     int    msdu_len    = (int)get_bits(p, 8, 0, 11);
     bool   mac_flag    = get_bits(p, 11, 3, 1) != 0;
@@ -732,6 +733,10 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 // 拓扑事件:关联请求(STA 正在入网;TEI 未分配,用 tei=0 承载 MAC)
                 out.topo_event.kind = TopoEventKind::AssocReq;
                 out.topo_event.nodes.append({0, out.sta_mac});
+                // STA 重启检测用:关联请求由 STA 本人发出,MSDU 头 RestartCount 即该 STA 的;
+                // 0xFF=无此字段不检测
+                if (out.restart_count != 0xFF)
+                    out.topo_event.restart_count = (int)out.restart_count;
                 out.topo_event.desc = trl::L("关联请求: STA %1 正在入网")
                     .arg(mac_str(out.sta_mac));
                 MsduFieldNode mn;
@@ -1044,6 +1049,12 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                     // 拓扑事件:发现列表(节点 + 代理关系 + CCO MAC)
                     out.topo_event.kind = TopoEventKind::DiscoverList;
                     out.topo_event.cco_mac = cco_mac;
+                    // CCO 重启检测用:MSDU 头 RestartCount(发送方重启次数);
+                    // 只有 CCO 本人发出(src_tei==1)的发现列表才采用,STA 中继转发的
+                    // 发现列表其 RestartCount 是中继 STA 的,不能用于 CCO 重启判断;
+                    // 0xFF=无此字段不检测
+                    if (out.restart_count != 0xFF && out.msdu_src_tei == 1)
+                        out.topo_event.restart_count = (int)out.restart_count;
                     if (sta_tei && sta_mac) out.topo_event.nodes.append({sta_tei, sta_mac});
                     if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
                     out.topo_event.desc = trl::L("发现列表: STA TEI=%1 代理=%2")
