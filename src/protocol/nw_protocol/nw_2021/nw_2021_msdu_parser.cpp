@@ -870,17 +870,20 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case NW_2021_MMeType::MME_ASSOCCNF: {
             add_fields(out.tree, mme, 6, kMMeAssocCnfSpec, kMMeAssocCnfSpecN, mme_rel_base);
-            // 拓扑事件:关联确认(STA 入网 + 代理)
+            // 拓扑事件:关联确认(STA 入网 + 代理);仅成功(0=成功,0x0A=再次入网成功)时更新拓扑
             {
+                const quint8 assoc_res = (quint8)get_bits(mme, 12, 0, 8);
                 const quint64 sta_mac = get_bits(mme, 6, 0, 48);
                 const quint16 sta_tei = (quint16)get_bits(mme, 14, 0, 12);
                 const quint16 proxy_tei = (quint16)get_bits(mme, 16, 0, 16);
+                if (assoc_res == 0 || assoc_res == 0x0A) {
                 out.topo_event.kind = TopoEventKind::AssocCnf;
                 if (sta_tei && sta_mac) out.topo_event.nodes.append({sta_tei, sta_mac});
                 if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
                 out.topo_event.desc = trl::L("关联确认: STA TEI=%1 入网 代理=%2")
                     .arg(sta_tei)
                     .arg(proxy_tei ? QString::number(proxy_tei) : QStringLiteral("-"));
+                }
             }
             translate_enum_i18n(out.tree, "AssocResult", kAssocCnfResultZh, 14);
             translate_enum_i18n(out.tree, "LastPacketFlag", kLastPacketFlagZh, 2);
@@ -925,6 +928,23 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case NW_2021_MMeType::MME_ASSOCIND: {
             add_fields(out.tree, mme, 6, kMMeAssocIndSpec, kMMeAssocIndSpecN, mme_rel_base);
+            // 拓扑事件:关联指示(语义等同关联确认);仅成功(0=成功,0x0A=再次入网)时更新拓扑
+            {
+                const quint8 assoc_res = (quint8)get_bits(mme, 6, 0, 8);
+                if (assoc_res == 0 || assoc_res == 0x0A) {
+                    const quint64 sta_mac = get_bits(mme, 8, 0, 48);
+                    const quint64 cco_mac = get_bits(mme, 14, 0, 48);
+                    const quint16 sta_tei = (quint16)get_bits(mme, 20, 0, 12);
+                    const quint16 proxy_tei = (quint16)get_bits(mme, 22, 0, 16);
+                    out.topo_event.kind = TopoEventKind::AssocCnf;
+                    if (cco_mac) out.topo_event.cco_mac = cco_mac;
+                    if (sta_tei && sta_mac) out.topo_event.nodes.append({sta_tei, sta_mac});
+                    if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
+                    out.topo_event.desc = trl::L("关联指示: STA TEI=%1 入网 代理=%2")
+                        .arg(sta_tei)
+                        .arg(proxy_tei ? QString::number(proxy_tei) : QStringLiteral("-"));
+                }
+            }
             translate_enum_i18n(out.tree, "AssocResult", kAssocIndResultZh, 14);
             translate_enum_i18n(out.tree, "LastPacketFlag", kLastPacketFlagZh, 2);
             annotate_unit(out.tree, "STAReAssocTime", QStringLiteral("ms"));
@@ -959,15 +979,18 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case NW_2021_MMeType::MME_CHANGEPROXYCNF: {
             add_fields(out.tree, mme, 6, kMMeChangeProxyCnfSpec, kMMeChangeProxyCnfSpecN, mme_rel_base);
-            // 拓扑事件:代理变更确认(STA 换代理)
+            // 拓扑事件:代理变更确认(STA 换代理);仅 Result=0(变更成功)时更新拓扑
             {
+                const quint32 pres = (quint32)get_bits(mme, 6, 0, 32);
                 const quint16 sta_tei = (quint16)get_bits(mme, 12, 0, 16);
                 const quint16 proxy_tei = (quint16)get_bits(mme, 14, 0, 16);
+                if (pres == 0) {
                 out.topo_event.kind = TopoEventKind::ChangeProxyCnf;
                 if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
                 out.topo_event.desc = trl::L("代理变更: STA TEI=%1 代理→%2")
                     .arg(sta_tei)
                     .arg(proxy_tei ? QString::number(proxy_tei) : QStringLiteral("-"));
+                }
             }
             translate_enum_i18n(out.tree, "Result", kProxyChangeResultZh, 1);
             const quint16 child_sum = (quint16)get_bits(mme, 16, 0, 16);
@@ -985,7 +1008,25 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             translate_enum_i18n(out.tree, "AssocResult", kAssocGatherResultZh, 1);
             const quint8 sta_num = (quint8)get_bits(mme, 17, 0, 8);
             int off = 34;  // 消息体 byte 28(MMeHeadSize 6 + 28),RSV0(15B) 之后
+            // 拓扑事件:关联汇总(批量站点入网 + 代理);仅 AssocResult=0(允许加入网络)时更新拓扑
+            const quint8 gar = (quint8)get_bits(mme, 6, 0, 8);
+            const quint16 gproxy_tei = (quint16)get_bits(mme, 14, 0, 12);
+            const bool g_ok = (gar == 0);
+            if (g_ok) {
+                const quint64 gcco_mac = get_bits(mme, 8, 0, 48);
+                out.topo_event.kind = TopoEventKind::AssocCnf;
+                if (gcco_mac) out.topo_event.cco_mac = gcco_mac;
+                out.topo_event.desc = trl::L("关联汇总: %1 个站点入网 代理=%2")
+                    .arg(sta_num)
+                    .arg(gproxy_tei ? QString::number(gproxy_tei) : QStringLiteral("-"));
+            }
             for (int i = 0; i < sta_num && off + 8 <= mme.size(); ++i) {
+                if (g_ok) {
+                    const quint64 gsta_mac = get_bits(mme, off, 0, 48);
+                    const quint16 gsta_tei = (quint16)get_bits(mme, off + 6, 0, 12);
+                    if (gsta_tei && gsta_mac) out.topo_event.nodes.append({gsta_tei, gsta_mac});
+                    if (gsta_tei && gproxy_tei) out.topo_event.routes.append({gsta_tei, gproxy_tei});
+                }
                 MsduFieldNode& n = group(out.tree, QStringLiteral("NewSTA[%1]").arg(i));
                 n.rel_start = mme_rel_base + (off); n.rel_len = 8;
                 add_fields(n.children, mme, off, kSTAInfoSpec, kSTAInfoSpecN, mme_rel_base);
@@ -1002,18 +1043,35 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 const int bm_base = 15;  // mme[15] = MMe头6B + 固定头9B(Result4+STATEI2+ProxyTEI2+NetSN1)
                 // 组节点覆盖整个 bitmap 区域,点击高亮全部所属字节
                 bmg.rel_start = mme_rel_base + bm_base; bmg.rel_len = 130;
+                // 拓扑事件:批量代理变更确认;仅 Result=0(变更成功)时更新拓扑
+                const quint32 bmres = (quint32)get_bits(mme, 6, 0, 32);
+                const quint16 bmproxy_tei = (quint16)get_bits(mme, 12, 0, 16);
+                const bool bm_ok = (bmres == 0);
+                int bm_cnt = 0;
+                if (bm_ok) out.topo_event.kind = TopoEventKind::ChangeProxyCnf;
                 for (int i = 0; i < 130; ++i) {
                     const quint8 byte = (quint8)mme[bm_base + i];
                     if (byte == 0) continue;   // 空字节不显示
                     QStringList teis;
                     for (int j = 0; j < 8; ++j) {
-                        if (byte & (1u << j)) teis << QStringLiteral("TEI%1").arg(8 * i + j);
+                        if (!(byte & (1u << j))) continue;
+                        const quint16 ctei = (quint16)(8 * i + j);
+                        teis << QStringLiteral("TEI%1").arg(ctei);
+                        if (bm_ok && ctei && bmproxy_tei) {
+                            out.topo_event.routes.append({ctei, bmproxy_tei});
+                            ++bm_cnt;
+                        }
                     }
                     MsduFieldNode bl;
                     bl.name = QStringLiteral("bitmap[%1][8b]").arg(i);   // 当前字节在 bitmap 中的索引
                     bl.value = teis.join(QStringLiteral(", "));
                     bl.rel_start = mme_rel_base + (bm_base + i); bl.rel_len = 1;
                     bmg.children.append(bl);
+                }
+                if (bm_ok) {
+                    out.topo_event.desc = trl::L("代理变更(批量): %1 个站点代理→%2")
+                        .arg(bm_cnt)
+                        .arg(bmproxy_tei ? QString::number(bmproxy_tei) : QStringLiteral("-"));
                 }
             }
             break;
@@ -1180,12 +1238,17 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             annotate_unit(out.tree, "LeaveDelayTime", QStringLiteral("s"));
             const quint16 sta_num = (quint16)get_bits(mme, 8, 0, 16);
             int off = 22;  // 消息体 byte 16(MMeHeadSize 6 + 16),RSV0(10B) 之后
+            // 拓扑事件:延迟离线指示(直接按离线标,按 MAC 匹配)
+            out.topo_event.kind = TopoEventKind::LeaveInd;
             for (int i = 0; i < sta_num && off + 6 <= mme.size(); ++i) {
+                const quint64 lmac = get_bits(mme, off, 0, 48);
+                if (lmac) out.topo_event.leaves.append(lmac);
                 MsduFieldNode& n = group(out.tree, QStringLiteral("LeaveSTA[%1]").arg(i),
-                    mac_str(get_bits(mme, off, 0, 48)));
+                    mac_str(lmac));
                 n.rel_start = mme_rel_base + (off); n.rel_len = 6;
                 off += 6;
             }
+            out.topo_event.desc = trl::L("延迟离线指示: %1 个站点离线").arg(sta_num);
             break;
         }
         case NW_2021_MMeType::MME_SUCCESSRATEREPORT: {

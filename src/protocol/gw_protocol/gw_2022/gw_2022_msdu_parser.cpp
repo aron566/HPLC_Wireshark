@@ -790,12 +790,16 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
             case GW_2022_MMeType::MME_ASSOC_CNF: {
                 // MMeAssocCnf(关联确认):固定头到 b[40],RouteInfo 从 b[40] 起
                 add_fields(root.children, b, 0, kAssocCnfSpec, kAssocCnfSpecN, head_size + 4);
-                // 拓扑事件:关联确认(STA 入网 + 代理 + CCO MAC)
+                // 拓扑事件:关联确认(STA 入网 + 代理 + CCO MAC);仅成功(0=成功,0x0A=再次入网成功)时更新拓扑
                 {
+                    const quint8 assoc_res = (quint8)get_bits(b, 12, 0, 8);
                     const quint64 sta_mac = get_bits(b, 0, 0, 48);
                     const quint64 cco_mac = get_bits(b, 6, 0, 48);
                     const quint16 sta_tei = (quint16)get_bits(b, 14, 0, 12);
                     const quint16 proxy_tei = (quint16)get_bits(b, 16, 0, 12);
+                    if (assoc_res != 0 && assoc_res != 0x0A) {
+                        // 关联失败:不更新拓扑(但保留字段解析)
+                    } else {
                     out.topo_event.kind = TopoEventKind::AssocCnf;
                     if (cco_mac) out.topo_event.cco_mac = cco_mac;
                     if (sta_tei && sta_mac) out.topo_event.nodes.append({sta_tei, sta_mac});
@@ -803,6 +807,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                     out.topo_event.desc = trl::L("关联确认: STA TEI=%1 入网 代理=%2")
                         .arg(sta_tei)
                         .arg(proxy_tei ? QString::number(proxy_tei) : QStringLiteral("-"));
+                    }
                 }
                 apply_dicts(root.children);
                 annotate_unit(root.children, "STAReAssocTime", QStringLiteral("ms"));
@@ -898,21 +903,39 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 }
                 int sta_num = (int)get_bits(b, 11, 0, 8);  // 汇总站点数(51347)
                 int off = 16;                              // 站点信息起点
+                // 拓扑事件:关联汇总(批量站点入网 + 代理);仅 AssocResult=0(允许加入网络)时更新拓扑
+                const quint8 gar = (quint8)get_bits(b, 0, 0, 8);
+                const quint16 gproxy_tei = (quint16)get_bits(b, 8, 0, 12);
+                const bool g_ok = (gar == 0);
+                if (g_ok) {
+                    const quint64 gcco_mac = (quint64)get_bits(b, 2, 0, 48);
+                    out.topo_event.kind = TopoEventKind::AssocCnf;
+                    if (gcco_mac) out.topo_event.cco_mac = gcco_mac;
+                    out.topo_event.desc = trl::L("关联汇总: %1 个站点入网 代理=%2")
+                        .arg(sta_num)
+                        .arg(gproxy_tei ? QString::number(gproxy_tei) : QStringLiteral("-"));
+                }
                 if (sta_num > 0 && off + 8 <= b.size()) {
                     auto& sgi = group(root.children,
                                       QStringLiteral("STAInfo [%1]").arg(sta_num));
                     for (int i = 0; i < sta_num && off + 8 <= b.size(); ++i) {
                         const int rel0 = head_size + 4 + off;
+                        const quint64 gsta_mac = (quint64)get_bits(b, off, 0, 48);
+                        const quint16 gsta_tei = (quint16)get_bits(b, off + 6, 0, 12);
+                        if (g_ok) {
+                            if (gsta_tei && gsta_mac) out.topo_event.nodes.append({gsta_tei, gsta_mac});
+                            if (gsta_tei && gproxy_tei) out.topo_event.routes.append({gsta_tei, gproxy_tei});
+                        }
                         auto& ns = group(sgi.children,
                                          QStringLiteral("NewSTA[%1]").arg(i));
                         MsduFieldNode mac;
                         mac.name  = QStringLiteral("STAMACAddr [48b]");
-                        mac.value = mac_str((quint64)get_bits(b, off, 0, 48));
+                        mac.value = mac_str(gsta_mac);
                         mac.rel_start = rel0; mac.rel_len = 6;
                         ns.children.append(mac);
                         MsduFieldNode tei;
                         tei.name  = QStringLiteral("STATEI [12b]");
-                        tei.value = QString::number((quint16)get_bits(b, off + 6, 0, 12));
+                        tei.value = QString::number(gsta_tei);
                         tei.rel_start = rel0 + 6; tei.rel_len = 2;
                         ns.children.append(tei);
                         MsduFieldNode rv;
@@ -937,14 +960,30 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 if (bm_size > 0 && b.size() >= 20 + bm_size) {
                     auto& bmg = group(root.children, QStringLiteral("ProxyChildSTA BitMap [%1B]").arg(bm_size));
                     QByteArray bm = b.mid(20, bm_size);
+                    // 拓扑事件:批量代理变更确认;仅 Result=0(成功)时更新拓扑
+                    const quint8 bmres = (quint8)get_bits(b, 0, 0, 8);
+                    const quint16 bmproxy_tei = (quint16)get_bits(b, 6, 0, 12);
+                    const bool bm_ok = (bmres == 0);
+                    int bm_cnt = 0;
+                    if (bm_ok) out.topo_event.kind = TopoEventKind::ChangeProxyCnf;
                     QString teis;
                     for (int i = 0; i < bm.size(); ++i) {
                         quint8 byte = (quint8)bm[i];
                         for (int j = 0; j < 8; ++j) {
                             if (byte & (1u << j)) {
-                                teis += QString("%1, ").arg(8 * i + j);
+                                const quint16 ctei = (quint16)(8 * i + j);
+                                teis += QString("%1, ").arg(ctei);
+                                if (bm_ok && ctei && bmproxy_tei) {
+                                    out.topo_event.routes.append({ctei, bmproxy_tei});
+                                    ++bm_cnt;
+                                }
                             }
                         }
+                    }
+                    if (bm_ok) {
+                        out.topo_event.desc = trl::L("代理变更(批量): %1 个站点代理→%2")
+                            .arg(bm_cnt)
+                            .arg(bmproxy_tei ? QString::number(bmproxy_tei) : QStringLiteral("-"));
                     }
                     MsduFieldNode bl;
                     bl.name  = QStringLiteral("ChildSTATEI");
@@ -1189,15 +1228,20 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 // MMeChangeProxyCnf(代理变更确认):固定 20B + 子站点 2B×ChildSum
                 add_fields(root.children, b, 0, kChangeProxyCnfSpec,
                            kChangeProxyCnfSpecN, head_size + 4);
-                // 拓扑事件:代理变更确认(STA 换代理)
+                // 拓扑事件:代理变更确认(STA 换代理);仅 Result=0(成功)时更新拓扑
                 {
+                    const quint8 pres = (quint8)get_bits(b, 0, 0, 8);
                     const quint16 sta_tei = (quint16)get_bits(b, 4, 0, 12);
                     const quint16 proxy_tei = (quint16)get_bits(b, 6, 0, 12);
+                    if (pres != 0) {
+                        // 变更失败:不更新拓扑(但保留字段解析)
+                    } else {
                     out.topo_event.kind = TopoEventKind::ChangeProxyCnf;
                     if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
                     out.topo_event.desc = trl::L("代理变更: STA TEI=%1 代理→%2")
                         .arg(sta_tei)
                         .arg(proxy_tei ? QString::number(proxy_tei) : QStringLiteral("-"));
+                    }
                 }
                 apply_dicts(root.children);
                 for (auto& ch : root.children) {
