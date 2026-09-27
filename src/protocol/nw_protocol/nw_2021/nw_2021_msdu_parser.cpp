@@ -222,9 +222,13 @@ struct MMeI18nReg {
         // 拓扑事件变更说明(TOPO 路由变更表 desc)
         trl::register_en("关联请求: STA %1 正在入网", "Assoc request: STA %1 joining");
         trl::register_en("关联确认: STA TEI=%1 入网 代理=%2", "Assoc confirm: STA TEI=%1 joined, proxy=%2");
+        trl::register_en("关联指示: STA TEI=%1 入网 代理=%2", "Assoc indication: STA TEI=%1 joined, proxy=%2");
+        trl::register_en("关联汇总: %1 个站点入网 代理=%2", "Assoc gather: %1 stations joined, proxy=%2");
         trl::register_en("发现列表: STA TEI=%1 代理=%2", "Discover list: STA TEI=%1 proxy=%2");
         trl::register_en("代理变更: STA TEI=%1 代理→%2", "Proxy change: STA TEI=%1 proxy→%2");
+        trl::register_en("代理变更(批量): %1 个站点代理→%2", "Proxy change (batch): %1 stations proxy→%2");
         trl::register_en("离线指示: STA TEI=%1 离线", "Leave indication: STA TEI=%1 left");
+        trl::register_en("延迟离线指示: %1 个站点离线", "Delayed leave indication: %1 stations left");
     }
 } mme_i18n_reg;
 
