@@ -454,10 +454,11 @@ void MainWindow::on_clear() {
         m_pending.clear();
     }
     if (m_dispatch) m_dispatch->statistics()->reset();
-    // 拓扑状态随报文清空(此前漏清会导致旧拓扑残留);回放日志/快照同步清零
+    // 拓扑状态随报文清空(此前漏清会导致旧拓扑残留);回放日志/快照/回放水位同步清零
     m_topo_states.clear();
     m_topo_log.clear();
     m_topo_hist_states.clear();
+    m_topo_hist_replayed = -1;
     m_topo_hist_active = false;
     if (m_topo_window) m_topo_window->show_live();
     m_tree_protocol->clear();
@@ -902,6 +903,8 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
         te.is_rf = e.meta.is_rf;   // 接入方式(载波/RF)
         m_topo_states[e.mpdu.net_id].apply(te);
         m_topo_log.append({e.index, te});
+        // 增量回放依赖日志严格按帧序追加;若乱序到达则重置回放水位,下次回放全量重建
+        if (e.index <= m_topo_hist_replayed) m_topo_hist_replayed = -1;
         // 拓扑窗口节流刷新:仅置脏标志,由 TopoWindow 定时器批量刷新(防高频卡顿)
         // (历史回放模式下 mark_dirty 会被 TopoWindow 忽略,保持冻结)
         if (m_topo_window)
@@ -987,13 +990,30 @@ void MainWindow::update_topo_history(qint64 frame_index, qint64 frame_ms) {
 }
 
 /// @brief 按 m_topo_hist_frame 重放拓扑事件日志,生成冻结快照并显示
+/// @details 增量回放:m_topo_hist_replayed 记录快照已覆盖到的帧;
+///          目标帧更大时只 apply 差量区间(二分定位起点),目标更小时才全量重建。
+///          日志按帧序追加,乱序到达时 make_entry 已重置水位,此处兜底全量重建。
 void MainWindow::replay_topo_history() {
-    m_topo_hist_states.clear();
-    for (const TopoLogItem& it : m_topo_log) {
+    // 点到更早的帧,或水位失效(初始 -1 / 日志乱序被重置):快照从零重建。
+    // 注意:水位失效时必须清快照,否则从头重放会 double-apply(事件表翻倍)。
+    if (m_topo_hist_replayed < 0 || m_topo_hist_frame < m_topo_hist_replayed) {
+        m_topo_hist_states.clear();
+        m_topo_hist_replayed = -1;
+    }
+    // 二分定位水位之后的第一条日志
+    int lo = 0, hi = m_topo_log.size();
+    while (lo < hi) {
+        const int mid = lo + (hi - lo) / 2;
+        if (m_topo_log[mid].frame_index <= m_topo_hist_replayed) lo = mid + 1;
+        else hi = mid;
+    }
+    for (int i = lo; i < m_topo_log.size(); ++i) {
+        const TopoLogItem& it = m_topo_log[i];
         if (it.frame_index > m_topo_hist_frame)
             break;  // 日志按帧序追加,后续事件不属于本次回放
         m_topo_hist_states[it.event.nid].apply(it.event);
     }
+    m_topo_hist_replayed = m_topo_hist_frame;
     m_topo_window->show_history(&m_topo_hist_states, m_topo_hist_active,
                                 m_topo_hist_frame, m_topo_hist_ms);
 }

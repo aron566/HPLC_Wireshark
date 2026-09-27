@@ -596,44 +596,61 @@ void TopoWindow::update_mode_ui() {
     m_btn_live->setVisible(m_hist_mode);
 }
 
+void TopoWindow::append_routes_rows(const TopoState* st, const QString& filter,
+                                   int from, int to) {
+    for (int i = from; i < to; ++i) {  // 时间正序,最新在底部(与主界面一致)
+        const TopoEvent& e = st->events[i];
+        const QString time = format_time(e.epoch_ms);
+        const QString kind = event_kind_name(e.kind);
+        const QString nid = QStringLiteral("0x%1").arg(e.nid, 0, 16);
+        const QString desc = e.desc;
+        if (!filter.isEmpty()) {
+            if (!time.contains(filter, Qt::CaseInsensitive) &&
+                !kind.contains(filter, Qt::CaseInsensitive) &&
+                !nid.contains(filter, Qt::CaseInsensitive) &&
+                !desc.contains(filter, Qt::CaseInsensitive))
+                continue;
+        }
+        QList<QStandardItem*> row;
+        row << new QStandardItem(time)
+            << new QStandardItem(kind)
+            << new QStandardItem(nid)
+            << new QStandardItem(desc);
+        m_routes_model->appendRow(row);
+    }
+}
+
 void TopoWindow::rebuild_routes_table() {
     // 保存滚动状态:用户是否在底部(跟随最新),以及当前滚动条位置(滚离底部时恢复)
     const bool was_follow = m_routes_follow_bottom;
     const int  saved_value = m_routes_table->verticalScrollBar()->value();
     m_rebuilding_routes = true;   // 屏蔽 clear/append 期间 scrollbar 信号干扰
 
-    m_routes_model->clear();
-    m_routes_model->setHorizontalHeaderLabels(
-        {trl::L("时间点"), trl::L("类型"), trl::L("NID"), trl::L("变更说明")});
-
+    // 历史回放模式读冻结快照,否则读实时表(此前误读 m_states,回放时表格未冻结)
+    const auto* states = view_states();
     const TopoState* st = nullptr;
-    if (m_states) {
-        auto it = m_states->constFind(m_current_nid);
-        if (it != m_states->constEnd()) st = &it.value();
+    if (states) {
+        auto it = states->constFind(m_current_nid);
+        if (it != states->constEnd()) st = &it.value();
     }
-
     const QString filter = m_routes_filter->text().trimmed();
-    if (st) {
-        for (int i = 0; i < st->events.size(); ++i) {  // 时间正序,最新在底部(与主界面一致)
-            const TopoEvent& e = st->events[i];
-            const QString time = format_time(e.epoch_ms);
-            const QString kind = event_kind_name(e.kind);
-            const QString nid = QStringLiteral("0x%1").arg(e.nid, 0, 16);
-            const QString desc = e.desc;
-            if (!filter.isEmpty()) {
-                if (!time.contains(filter, Qt::CaseInsensitive) &&
-                    !kind.contains(filter, Qt::CaseInsensitive) &&
-                    !nid.contains(filter, Qt::CaseInsensitive) &&
-                    !desc.contains(filter, Qt::CaseInsensitive))
-                    continue;
-            }
-            QList<QStandardItem*> row;
-            row << new QStandardItem(time)
-                << new QStandardItem(kind)
-                << new QStandardItem(nid)
-                << new QStandardItem(desc);
-            m_routes_model->appendRow(row);
-        }
+    const int ev_count = st ? st->events.size() : 0;
+    // 视图变化(数据源/NID/过滤文本切换,或事件数收缩)→全量重建;
+    // 否则只追加新增事件行,避免每 200ms 全量重建 O(E)(E 随抓包时长线性增长)
+    const bool view_changed = (states != m_routes_view) || (m_current_nid != m_routes_nid)
+                           || (filter != m_routes_filter_text) || (ev_count < m_routes_shown);
+    if (view_changed) {
+        m_routes_model->clear();
+        m_routes_model->setHorizontalHeaderLabels(
+            {trl::L("时间点"), trl::L("类型"), trl::L("NID"), trl::L("变更说明")});
+        if (st) append_routes_rows(st, filter, 0, ev_count);
+        m_routes_view = states;
+        m_routes_nid = m_current_nid;
+        m_routes_filter_text = filter;
+        m_routes_shown = ev_count;
+    } else if (ev_count > m_routes_shown) {
+        append_routes_rows(st, filter, m_routes_shown, ev_count);
+        m_routes_shown = ev_count;
     }
 
     m_rebuilding_routes = false;
@@ -650,9 +667,10 @@ void TopoWindow::rebuild_teimac_table() {
         {trl::L("TEI"), trl::L("MAC"), trl::L("状态"), trl::L("层级"), trl::L("代理 TEI")});
 
     const TopoState* st = nullptr;
-    if (m_states) {
-        auto it = m_states->constFind(m_current_nid);
-        if (it != m_states->constEnd()) st = &it.value();
+    // 历史回放模式读冻结快照,否则读实时表(此前误读 m_states,回放时表格未冻结)
+    if (const auto* states = view_states()) {
+        auto it = states->constFind(m_current_nid);
+        if (it != states->constEnd()) st = &it.value();
     }
     if (!st) return;
 

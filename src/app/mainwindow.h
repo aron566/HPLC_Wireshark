@@ -122,6 +122,7 @@ private:
     bool   m_topo_hist_active = false;            ///< TOPO 历史回放(冻结)模式
     qint64 m_topo_hist_frame = 0;                 ///< 回放到的帧序号
     qint64 m_topo_hist_ms = 0;                    ///< 回放帧时刻(epoch ms)
+    qint64 m_topo_hist_replayed = -1;             ///< 回放水位:快照已覆盖到的帧(增量回放用;-1=需全量重建)
 
     QTimer*          m_flush_timer;
     QTimer*          m_status_timer;

@@ -122,6 +122,8 @@ private:
     void rebuild_routes_table();
     void rebuild_teimac_table();
     void update_mode_ui();
+    /// @brief 向路由变更表追加 [from, to) 区间的事件行(供全量重建/增量追加复用)
+    void append_routes_rows(const TopoState* st, const QString& filter, int from, int to);
 
     QComboBox*          m_nid_combo;
     QLabel*             m_mode_label = nullptr;  ///< 模式标签:实时 / 历史回放 @ #N
@@ -145,6 +147,12 @@ private:
     // 用户滚到底部(最新)才自动跟随;滚离底部则保持当前位置,不强制跳回
     bool m_routes_follow_bottom = true; ///< 是否在底部(跟随最新)
     bool m_rebuilding_routes = false;   ///< 重建期间屏蔽 scrollbar 信号干扰
+    // 路由变更表增量追加:记录当前视图的"数据源/NID/过滤/已展示事件数",
+    // 视图变化时全量重建,否则只追加新增事件行(避免每 200ms 全量重建 O(E))
+    const QHash<quint32, TopoState>* m_routes_view = nullptr;
+    quint32 m_routes_nid = 0;
+    QString m_routes_filter_text;
+    int     m_routes_shown = 0;
 };
 
 #endif // TOPO_WINDOW_H
