@@ -187,6 +187,7 @@ enum class TopoEventKind {
     DiscoverList,   ///< 发现列表(单节点快照:TEI/MAC/代理/层级)
     AssocReq,       ///< 关联请求(STA 正在入网)
     AssocCnf,       ///< 关联确认(STA 已入网)
+    AssocGatherInd, ///< 关联汇总指示(批量站点入网)
     ChangeProxyCnf, ///< 代理变更确认(STA 换代理)
     LeaveInd,       ///< 离网指示(STA 离网)
     SuccessRate,    ///< 成功率上报(STA 与上级的上下行通讯成功率)

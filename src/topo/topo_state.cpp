@@ -124,6 +124,7 @@ void TopoState::apply(const TopoEvent& e) {
     switch (e.kind) {
         case TopoEventKind::AssocReq:
         case TopoEventKind::AssocCnf:
+        case TopoEventKind::AssocGatherInd:
         case TopoEventKind::ChangeProxyCnf:
         case TopoEventKind::LeaveInd:
             events.append(e);

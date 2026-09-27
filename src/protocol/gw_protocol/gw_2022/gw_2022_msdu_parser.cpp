@@ -909,7 +909,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 const bool g_ok = (gar == 0);
                 if (g_ok) {
                     const quint64 gcco_mac = (quint64)get_bits(b, 2, 0, 48);
-                    out.topo_event.kind = TopoEventKind::AssocCnf;
+                    out.topo_event.kind = TopoEventKind::AssocGatherInd;
                     if (gcco_mac) out.topo_event.cco_mac = gcco_mac;
                     out.topo_event.desc = trl::L("关联汇总: %1 个站点入网 代理=%2")
                         .arg(sta_num)
