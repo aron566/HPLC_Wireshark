@@ -12,7 +12,9 @@
 #include <QWidget>
 
 class QComboBox;
+class QLabel;
 class QLineEdit;
+class QPushButton;
 class QTableView;
 class QStandardItemModel;
 class QPixmap;
@@ -66,15 +68,19 @@ private:
     bool    m_dragging = false;
 };
 
-/// @brief 拓扑独立窗口
+/// @brief 拓扑独立窗口(支持历史回放调试模式)
+/// @details 实时模式:显示 MainWindow 累积的 m_topo_states(新帧到达自动刷新)。
+///          历史回放模式:点击帧列表某帧后,MainWindow 按帧序号重放拓扑事件日志
+///          生成冻结快照,经 show_history() 传入;此模式下 mark_dirty() 被忽略,
+///          路由/图/表冻结在选中帧,不随新帧推进,直到回到实时。
 class TopoWindow : public QWidget {
     Q_OBJECT
 public:
     explicit TopoWindow(QWidget* parent = nullptr);
 
-    /// @brief 刷新 NID 下拉列表(从 states map 收集)
+    /// @brief 刷新 NID 下拉列表(从当前视图状态表收集:实时或回放)
     void refresh_nids();
-    /// @brief 设置状态表引用(不拷贝;由 MainWindow 持有)
+    /// @brief 设置实时状态表引用(不拷贝;由 MainWindow 持有)
     void set_state_map(const QHash<quint32, TopoState>* map);
     /// @brief 切到指定 NID(存在则切换并刷新)
     void set_current_nid(quint32 nid);
@@ -83,7 +89,20 @@ public:
     /// @brief 实时刷新:重新收集 NID 并刷新当前 NID 的图与表(新帧到达时由 MainWindow 调用)
     void refresh_current();
     /// @brief 标记有新拓扑数据(轻量,只置脏标志;定时器批量刷新,避免高频全量重建卡顿)
+    /// @note 历史回放模式下直接忽略(冻结,不跟随新帧)
     void mark_dirty();
+    /// @brief 历史回放:显示重放到 frame_index 的冻结快照;active=false 时回到实时
+    /// @param hist 回放状态表(不拷贝不拥有;调用方保证生命周期)
+    void show_history(const QHash<quint32, TopoState>* hist, bool active,
+                      qint64 frame_index, qint64 frame_ms);
+    /// @brief 回到实时显示
+    void show_live();
+    /// @brief 是否处于历史回放(冻结)模式
+    bool history_mode() const { return m_hist_mode; }
+
+signals:
+    /// @brief 用户点击"回到实时"按钮
+    void request_live();
 
 protected:
     /// @brief 关闭 = 隐藏(保留状态,下次打开复用)
@@ -95,11 +114,18 @@ private slots:
     void on_teimac_search(const QString& text);
 
 private:
+    /// @brief 当前视图状态表(历史回放模式用快照,否则用实时表)
+    const QHash<quint32, TopoState>* view_states() const {
+        return m_hist_mode ? m_hist_states : m_states;
+    }
     void rebuild_all();
     void rebuild_routes_table();
     void rebuild_teimac_table();
+    void update_mode_ui();
 
     QComboBox*          m_nid_combo;
+    QLabel*             m_mode_label = nullptr;  ///< 模式标签:实时 / 历史回放 @ #N
+    QPushButton*        m_btn_live = nullptr;    ///< 回到实时按钮(仅回放模式可见)
     TopoGraphWidget*    m_graph;
     QTableView*         m_routes_table;
     QStandardItemModel* m_routes_model;
@@ -109,6 +135,8 @@ private:
     QLineEdit*          m_teimac_search;
 
     const QHash<quint32, TopoState>* m_states = nullptr;
+    const QHash<quint32, TopoState>* m_hist_states = nullptr; ///< 回放快照(不拥有)
+    bool m_hist_mode = false;         ///< 历史回放(冻结)模式
     quint32 m_current_nid = 0;
     bool    m_dirty = false;         ///< 有新拓扑数据待刷新
     QTimer* m_refresh_timer = nullptr; ///< 节流定时器(批量刷新,防高频全量重建卡顿)

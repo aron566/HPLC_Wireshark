@@ -454,6 +454,12 @@ void MainWindow::on_clear() {
         m_pending.clear();
     }
     if (m_dispatch) m_dispatch->statistics()->reset();
+    // 拓扑状态随报文清空(此前漏清会导致旧拓扑残留);回放日志/快照同步清零
+    m_topo_states.clear();
+    m_topo_log.clear();
+    m_topo_hist_states.clear();
+    m_topo_hist_active = false;
+    if (m_topo_window) m_topo_window->show_live();
     m_tree_protocol->clear();
     m_hex_view->clear();
     m_status_left->setText(QStringLiteral("Cleared"));
@@ -886,14 +892,18 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
     e.beacon    = r.beacon;  // BEACON 载荷区字段树(BEACON 帧时非空)
     e.msdu_raw_base = r.msdu_raw_base;
     e.raw_bytes = r.payload_for_log;
-    // 拓扑:关键管理消息(关联确认/代理变更/发现列表/离网)喂给拓扑状态
+    // 拓扑:关键管理消息(关联确认/代理变更/发现列表/离网)喂给拓扑状态;
+    // 同时记入回放日志:事件直接填充在 entry 内(nid/epoch_ms/is_rf),
+    // 供 TOPO 历史回放调试(点击帧 → 按帧序号重放到该帧)
     if (e.msdu.topo_event.kind != TopoEventKind::Other) {
-        TopoEvent te = e.msdu.topo_event;
+        TopoEvent& te = e.msdu.topo_event;
         te.nid = e.mpdu.net_id;
         te.epoch_ms = e.epoch_ms;
         te.is_rf = e.meta.is_rf;   // 接入方式(载波/RF)
         m_topo_states[e.mpdu.net_id].apply(te);
+        m_topo_log.append({e.index, te});
         // 拓扑窗口节流刷新:仅置脏标志,由 TopoWindow 定时器批量刷新(防高频卡顿)
+        // (历史回放模式下 mark_dirty 会被 TopoWindow 忽略,保持冻结)
         if (m_topo_window)
             m_topo_window->mark_dirty();
     }
@@ -962,6 +972,36 @@ void MainWindow::on_row_activated(const PacketEntry& e) {
         m_raw_bytes = e.raw_wire;
         m_raw_view->setPlainText(raw_frame_text(e.raw_wire));
     }
+    // TOPO 历史回放调试:路由状态冻结,只更新到当前点击的帧
+    update_topo_history(e.index, e.epoch_ms);
+}
+
+/// @brief 帧点击 → TOPO 回放/实时切换(点到最新帧 = 回到实时)
+void MainWindow::update_topo_history(qint64 frame_index, qint64 frame_ms) {
+    m_topo_hist_frame = frame_index;
+    m_topo_hist_ms = frame_ms;
+    m_topo_hist_active = (m_model && frame_index < m_model->total_count());
+    if (!m_topo_window || !m_topo_window->isVisible())
+        return;  // TOPO 窗口未打开:只记模式,打开时再重放同步
+    replay_topo_history();
+}
+
+/// @brief 按 m_topo_hist_frame 重放拓扑事件日志,生成冻结快照并显示
+void MainWindow::replay_topo_history() {
+    m_topo_hist_states.clear();
+    for (const TopoLogItem& it : m_topo_log) {
+        if (it.frame_index > m_topo_hist_frame)
+            break;  // 日志按帧序追加,后续事件不属于本次回放
+        m_topo_hist_states[it.event.nid].apply(it.event);
+    }
+    m_topo_window->show_history(&m_topo_hist_states, m_topo_hist_active,
+                                m_topo_hist_frame, m_topo_hist_ms);
+}
+
+void MainWindow::on_topo_request_live() {
+    m_topo_hist_active = false;
+    if (m_topo_window)
+        m_topo_window->show_live();
 }
 
 void MainWindow::on_ranges_selected(const QList<QPair<int, int>>& ranges,
@@ -1054,8 +1094,14 @@ void MainWindow::open_topo_window() {
     if (!m_topo_window) {
         m_topo_window = new TopoWindow(this);
         m_topo_window->set_state_map(&m_topo_states);
+        connect(m_topo_window, &TopoWindow::request_live,
+                this, &MainWindow::on_topo_request_live);
     }
-    m_topo_window->refresh_nids();
+    // 按当前模式同步:历史回放中打开 → 重放冻结快照;否则实时
+    if (m_topo_hist_active)
+        replay_topo_history();
+    else
+        m_topo_window->show_live();
     m_topo_window->show();
     m_topo_window->raise();
     m_topo_window->activateWindow();

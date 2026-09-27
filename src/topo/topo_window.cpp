@@ -11,6 +11,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
+#include <QPushButton>
 #include <QSplitter>
 #include <QScrollBar>
 #include <QStandardItemModel>
@@ -84,6 +85,9 @@ struct I18nRegTopoWindow {
         trl::register_en("通讯成功率: 暂无上报", "Comm success rate: no report yet");
         trl::register_en("接入方式", "Link");
         trl::register_en("载波", "PLC");
+        trl::register_en("实时", "Live");
+        trl::register_en("历史回放", "History replay");
+        trl::register_en("回到实时", "Back to Live");
     }
 } i18n_reg_topo_window;
 
@@ -447,6 +451,14 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     auto* top_lay = new QHBoxLayout();
     top_lay->addWidget(new QLabel(trl::L("网络:"), this));
     top_lay->addWidget(m_nid_combo, 1);
+    // 历史回放调试:模式标签 + 回到实时按钮
+    m_mode_label = new QLabel(trl::L("实时"), this);
+    m_mode_label->setStyleSheet(QStringLiteral("QLabel { color: palette(highlight); font-weight: bold; }"));
+    top_lay->addWidget(m_mode_label);
+    m_btn_live = new QPushButton(trl::L("回到实时"), this);
+    m_btn_live->setVisible(false);
+    connect(m_btn_live, &QPushButton::clicked, this, &TopoWindow::request_live);
+    top_lay->addWidget(m_btn_live);
 
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(6, 6, 6, 6);
@@ -458,7 +470,7 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     m_refresh_timer = new QTimer(this);
     m_refresh_timer->setInterval(200);
     connect(m_refresh_timer, &QTimer::timeout, this, [this] {
-        if (m_dirty && isVisible()) {
+        if (m_dirty && isVisible() && !m_hist_mode) {
             m_dirty = false;
             refresh_nids();
             rebuild_all();
@@ -474,17 +486,18 @@ void TopoWindow::set_state_map(const QHash<quint32, TopoState>* map) {
 
 void TopoWindow::refresh_nids() {
     const quint32 prev = m_current_nid;
+    const auto* states = view_states();
     m_nid_combo->blockSignals(true);
     m_nid_combo->clear();
-    if (m_states) {
+    if (states) {
         // 按 NID 升序
-        QList<quint32> nids = m_states->keys();
+        QList<quint32> nids = states->keys();
         std::sort(nids.begin(), nids.end());
         for (quint32 nid : nids)
             m_nid_combo->addItem(QStringLiteral("NID:0x%1 TOPO").arg(nid, 0, 16), nid);
     }
     m_nid_combo->blockSignals(false);
-    if (prev && m_states && m_states->contains(prev))
+    if (prev && states && states->contains(prev))
         set_current_nid(prev);
     else if (m_nid_combo->count() > 0)
         set_current_nid(m_nid_combo->itemData(0).toUInt());
@@ -531,6 +544,7 @@ void TopoWindow::closeEvent(QCloseEvent* e) {
 }
 
 void TopoWindow::mark_dirty() {
+    if (m_hist_mode) return;  // 历史回放模式:冻结,不跟随新帧
     m_dirty = true;  // 仅置脏标志;定时器批量刷新
 }
 
@@ -542,16 +556,44 @@ void TopoWindow::refresh_current() {
 }
 
 void TopoWindow::rebuild_all() {
-    // 图
+    // 图(历史回放模式读冻结快照,否则读实时表)
     const TopoState* st = nullptr;
-    if (m_states) {
-        auto it = m_states->constFind(m_current_nid);
-        if (it != m_states->constEnd()) st = &it.value();
+    if (const auto* states = view_states()) {
+        auto it = states->constFind(m_current_nid);
+        if (it != states->constEnd()) st = &it.value();
     }
     m_graph->set_state(st);
     // 两张表
     rebuild_routes_table();
     rebuild_teimac_table();
+}
+
+void TopoWindow::show_history(const QHash<quint32, TopoState>* hist, bool active,
+                              qint64 frame_index, qint64 frame_ms) {
+    m_hist_states = hist;
+    m_hist_mode = active;
+    if (active) {
+        m_mode_label->setText(
+            QStringLiteral("%1 @ #%2 %3").arg(trl::L("历史回放")).arg(frame_index)
+                                         .arg(format_time(frame_ms)));
+    }
+    update_mode_ui();
+    refresh_nids();
+    rebuild_all();
+}
+
+void TopoWindow::show_live() {
+    m_hist_mode = false;
+    m_hist_states = nullptr;
+    update_mode_ui();
+    refresh_nids();
+    rebuild_all();
+}
+
+void TopoWindow::update_mode_ui() {
+    if (!m_hist_mode)
+        m_mode_label->setText(trl::L("实时"));
+    m_btn_live->setVisible(m_hist_mode);
 }
 
 void TopoWindow::rebuild_routes_table() {
