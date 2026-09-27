@@ -57,6 +57,8 @@ private:
     /// @details CCO(TEI=1)永不移除;同时清理该 TEI 的成功率残留与 MAC 索引。
     /// @return 是否移除了节点
     bool remove_node_by_mac(quint64 mac);
+
+    int m_last_restart_count = -1; ///< 上次发现列表的发送方重启次数(-1=尚无基线;CCO 重启检测用)
 };
 
 #endif // TOPO_STATE_H

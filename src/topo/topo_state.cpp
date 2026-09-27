@@ -1,8 +1,14 @@
 /// @file topo_state.cpp
 /// @brief 拓扑状态模型实现(节点/路由累积 + 层级计算)
 #include "topo_state.h"
+#include "i18n.h"
 
 namespace {
+
+/// @brief TopoState 内部生成的事件说明英文注册(与各 parser 的 register_en 解耦,本模块自维护)
+struct I18nRegTopoState { I18nRegTopoState() {
+    trl::register_en("CCO重启: 重启次数 %1→%2,拓扑已清空", "CCO reboot: restart count %1→%2, topology cleared");
+} } i18n_reg_topo_state;
 
 /// @brief 事件类型 → 节点入网状态(发起关联请求=正在入网,其余在网事件=已入网)
 NodeStatus status_for(TopoEventKind k) {
@@ -58,6 +64,25 @@ bool TopoState::remove_node_by_mac(quint64 mac) {
 
 void TopoState::apply(const TopoEvent& e) {
     nid = e.nid;
+    // CCO 重启检测:发现列表携带的发送方重启次数若发生变化,说明 CCO 已重启,
+    // 旧 TEI 分配不再准确 → 先清空当前拓扑与 TEI-MAC 映射,再应用本帧的新状态。
+    // (重启次数为 4-bit 计数,任何变化即视为重启,天然处理 15→0 回绕)
+    if (e.kind == TopoEventKind::DiscoverList && e.restart_count >= 0) {
+        if (m_last_restart_count >= 0 && e.restart_count != m_last_restart_count) {
+            nodes.clear();
+            pending.clear();
+            mac_to_tei.clear();
+            comm_rates.clear();
+            cco_mac = 0;
+            // 该发现列表带动了 TOPO 变化:记入路由变更表,标记为 CCO 重启事件
+            TopoEvent re = e;
+            re.kind = TopoEventKind::CcoRestart;
+            re.desc = trl::L("CCO重启: 重启次数 %1→%2,拓扑已清空")
+                          .arg(m_last_restart_count).arg(e.restart_count);
+            events.append(re);
+        }
+        m_last_restart_count = e.restart_count;
+    }
     // CCO(TEI=1):根节点,父=0,始终已入网
     if (e.cco_mac) {
         cco_mac = e.cco_mac;

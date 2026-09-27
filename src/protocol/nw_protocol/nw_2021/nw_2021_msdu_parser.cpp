@@ -1135,6 +1135,8 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                     out.topo_event.nodes.append({sta_tei, sta_mac});
                 }
                 out.topo_event.kind = TopoEventKind::DiscoverList;
+                // 南网 MAC 帧头重启次数(4-bit):TopoState 据此检测 CCO 重启
+                out.topo_event.restart_count = (int)out.restart_count;
                 if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
                 out.topo_event.desc = trl::L("发现列表: STA TEI=%1 代理=%2")
                     .arg(sta_tei)

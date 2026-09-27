@@ -192,6 +192,7 @@ enum class TopoEventKind {
     ChangeProxyCnf, ///< 代理变更确认(STA 换代理)
     LeaveInd,       ///< 离网指示(STA 离网)
     SuccessRate,    ///< 成功率上报(STA 与上级的上下行通讯成功率)
+    CcoRestart,     ///< CCO 重启(发现列表重启次数变化,拓扑已清空;仅 TopoState 内部生成)
     Other
 };
 
@@ -213,6 +214,7 @@ struct TopoEvent {
     QVector<quint64> leaves;                    ///< 离网节点 MAC 列表
     QVector<CommRateInfo> comm_rates;           ///< 成功率上报条目(SuccessRate 事件)
     bool is_rf = false;                         ///< 接入方式:false=PLC 载波;true=HRF 无线
+    int restart_count = -1;                     ///< 发送方重启次数(南网 MAC 帧头 4-bit;-1=未知/无)
     QString desc;                               ///< 变更说明(路由变更了什么)
     qint64 epoch_ms = 0;                        ///< 时间点(epoch ms)
     qint64 frame_index = -1;                    ///< 来源帧序号(PacketEntry::index;路由表显示与双击追溯用)
