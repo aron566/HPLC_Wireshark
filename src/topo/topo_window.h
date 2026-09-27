@@ -72,7 +72,9 @@ private:
 /// @details 实时模式:显示 MainWindow 累积的 m_topo_states(新帧到达自动刷新)。
 ///          历史回放模式:点击帧列表某帧后,MainWindow 按帧序号重放拓扑事件日志
 ///          生成冻结快照,经 show_history() 传入;此模式下 mark_dirty() 被忽略,
-///          路由/图/表冻结在选中帧,不随新帧推进,直到回到实时。
+///          图/TEI-MAC 表冻结在选中帧,不随新帧推进,直到回到实时;
+///          路由变更表保留进入回放时的全部记录行(不截断目标帧之后的行),
+///          仅高亮冻结帧所在行,同样不随新帧推进。
 class TopoWindow : public QWidget {
     Q_OBJECT
 public:
@@ -124,6 +126,8 @@ private:
     void rebuild_all();
     void rebuild_routes_table();
     void rebuild_teimac_table();
+    /// @brief 历史回放模式下高亮冻结帧对应的路由表行(不滚动,不移除其他行)
+    void highlight_history_row();
     void update_mode_ui();
     /// @brief 向路由变更表追加 [from, to) 区间的事件行(供全量重建/增量追加复用)
     void append_routes_rows(const TopoState* st, const QString& filter, int from, int to);
@@ -142,6 +146,7 @@ private:
     const QHash<quint32, TopoState>* m_states = nullptr;
     const QHash<quint32, TopoState>* m_hist_states = nullptr; ///< 回放快照(不拥有)
     bool m_hist_mode = false;         ///< 历史回放(冻结)模式
+    qint64 m_hist_frame = -1;         ///< 历史回放冻结到的帧序号(路由表高亮用;-1=无)
     quint32 m_current_nid = 0;
     bool    m_dirty = false;         ///< 有新拓扑数据待刷新
     QTimer* m_refresh_timer = nullptr; ///< 节流定时器(批量刷新,防高频全量重建卡顿)

@@ -576,6 +576,7 @@ void TopoWindow::show_history(const QHash<quint32, TopoState>* hist, bool active
                               qint64 frame_index, qint64 frame_ms) {
     m_hist_states = hist;
     m_hist_mode = active;
+    m_hist_frame = active ? frame_index : -1;
     if (active) {
         m_mode_label->setText(
             QStringLiteral("%1 @ #%2 %3").arg(trl::L("历史回放")).arg(frame_index)
@@ -584,11 +585,15 @@ void TopoWindow::show_history(const QHash<quint32, TopoState>* hist, bool active
     update_mode_ui();
     refresh_nids();
     rebuild_all();
+    highlight_history_row();  // 标出冻结位置;路由表保留全部行(含目标帧之后的)
 }
 
 void TopoWindow::show_live() {
     m_hist_mode = false;
     m_hist_states = nullptr;
+    m_hist_frame = -1;
+    if (m_routes_table && m_routes_table->selectionModel())
+        m_routes_table->selectionModel()->clearSelection();
     update_mode_ui();
     refresh_nids();
     rebuild_all();
@@ -641,14 +646,31 @@ void TopoWindow::on_routes_double_clicked(const QModelIndex& idx) {
     emit request_history(frame, ms);
 }
 
+/// @brief 历史回放模式下选中冻结帧对应的路由表行(仅高亮,不滚动/不删行)
+void TopoWindow::highlight_history_row() {
+    if (!m_hist_mode || m_hist_frame < 0 || !m_routes_model || !m_routes_table)
+        return;
+    // 首列 UserRole 存帧序号(过滤可能跳行,不能按行号反推)
+    for (int r = 0; r < m_routes_model->rowCount(); ++r) {
+        const QStandardItem* seq_item = m_routes_model->item(r, 0);
+        if (seq_item && seq_item->data(Qt::UserRole).toLongLong() == m_hist_frame) {
+            m_routes_table->selectRow(r);  // 该行双击时本就可见,不强制滚动
+            return;
+        }
+    }
+    // 过滤导致目标行不可见:清除旧选中,避免高亮停留在无关行
+    m_routes_table->selectionModel()->clearSelection();
+}
+
 void TopoWindow::rebuild_routes_table() {
     // 保存滚动状态:用户是否在底部(跟随最新),以及当前滚动条位置(滚离底部时恢复)
     const bool was_follow = m_routes_follow_bottom;
     const int  saved_value = m_routes_table->verticalScrollBar()->value();
     m_rebuilding_routes = true;   // 屏蔽 clear/append 期间 scrollbar 信号干扰
 
-    // 历史回放模式读冻结快照,否则读实时表(此前误读 m_states,回放时表格未冻结)
-    const auto* states = view_states();
+    // 路由变更表恒读实时表:它是帧记录索引,双击进入历史回放时也不得
+    // 截断目标帧之后的行(拓扑图/TEI-MAC 表仍读冻结快照,保持冻结语义)
+    const QHash<quint32, TopoState>* states = m_states;
     const TopoState* st = nullptr;
     if (states) {
         auto it = states->constFind(m_current_nid);
