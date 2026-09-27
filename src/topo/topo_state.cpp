@@ -78,6 +78,11 @@ bool TopoState::remove_node_by_mac(quint64 mac) {
 
 void TopoState::apply(const TopoEvent& e) {
     nid = e.nid;
+    // 首次识别:记录该 NID 第一次出现的帧序号与时间戳(供 NID 下拉框区分新旧网络)
+    if (first_seen_frame < 0) {
+        first_seen_frame = e.frame_index;
+        first_seen_ms = e.epoch_ms;
+    }
     // CCO 重启检测:发现列表携带的发送方(CCO)重启次数若发生变化,说明 CCO 已重启。
     // 仅识别记录(警告),不清空拓扑:新的关联请求可能先于发现列表到达,
     // 清空会误删已重建的正确状态。

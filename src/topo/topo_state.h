@@ -35,6 +35,8 @@ class TopoState {
 public:
     quint32 nid = 0;
     quint64 cco_mac = 0;
+    qint64 first_seen_ms = 0;     ///< 首次识别到该 NID 的帧时间戳(epoch ms;0=未知)
+    qint64 first_seen_frame = -1; ///< 首次识别到该 NID 的帧序号(-1=未知)
     QHash<quint16, TopoNode> nodes; ///< TEI → 节点(含 CCO TEI=1)
     QHash<quint64, TopoNode> pending; ///< MAC → 正在入网节点(TEI 未分配,关联请求阶段)
     QHash<quint64, quint16> mac_to_tei; ///< MAC → TEI 快速索引(离线标记按 MAC 查找;与 nodes 双向一致)

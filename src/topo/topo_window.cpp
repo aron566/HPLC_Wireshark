@@ -69,6 +69,7 @@ struct I18nRegTopoWindow {
         trl::register_en("CCO重启", "CCO reboot");
         trl::register_en("STA重启", "STA reboot");
         trl::register_en("序号", "Seq");
+        trl::register_en("首次", "First seen");
         trl::register_en("时间点", "Time");
         trl::register_en("类型", "Type");
         trl::register_en("变更说明", "Description");
@@ -502,11 +503,22 @@ void TopoWindow::refresh_nids() {
     m_nid_combo->blockSignals(true);
     m_nid_combo->clear();
     if (states) {
-        // 按 NID 升序
+        // 按 NID 升序;下拉项附带 CCO MAC 与首次识别时间(区分同 MAC 新旧网络)
         QList<quint32> nids = states->keys();
         std::sort(nids.begin(), nids.end());
-        for (quint32 nid : nids)
-            m_nid_combo->addItem(QStringLiteral("NID:0x%1 TOPO").arg(nid, 0, 16), nid);
+        for (quint32 nid : nids) {
+            const TopoState& st = states->value(nid);
+            QString label = QStringLiteral("NID:0x%1").arg(nid, 0, 16);
+            if (st.cco_mac)
+                label += QStringLiteral(" CCO:") + format_mac(st.cco_mac);
+            if (st.first_seen_frame >= 0) {
+                label += QStringLiteral(" %1:#%2 %3")
+                    .arg(trl::L("首次"))
+                    .arg(st.first_seen_frame)
+                    .arg(format_time(st.first_seen_ms));
+            }
+            m_nid_combo->addItem(label, nid);
+        }
     }
     m_nid_combo->blockSignals(false);
     if (prev && states && states->contains(prev))
