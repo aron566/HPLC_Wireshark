@@ -851,6 +851,10 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 const quint64 sta_mac = get_bits(mme, 6, 0, 48);
                 out.topo_event.kind = TopoEventKind::AssocReq;
                 out.topo_event.nodes.append({0, sta_mac});
+                // 关联请求由 STA 本人发出:MSDU 头重启次数即该 STA 的,
+                // TopoState 据此检测 STA 重启(单跳帧无此字段,不填)
+                if (!out.simple_head)
+                    out.topo_event.restart_count = (int)out.restart_count;
                 out.topo_event.desc = trl::L("关联请求: STA %1 正在入网")
                     .arg(mac_str(sta_mac));
             }
@@ -1135,8 +1139,10 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                     out.topo_event.nodes.append({sta_tei, sta_mac});
                 }
                 out.topo_event.kind = TopoEventKind::DiscoverList;
-                // 南网 MAC 帧头重启次数(4-bit):TopoState 据此检测 CCO 重启
-                out.topo_event.restart_count = (int)out.restart_count;
+                // 南网 MAC 帧头重启次数(4-bit):TopoState 据此检测 CCO 重启;
+                // 单跳帧(MSDU_BASE_S)无此字段,不填(保持 -1 未知)
+                if (!out.simple_head)
+                    out.topo_event.restart_count = (int)out.restart_count;
                 if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
                 out.topo_event.desc = trl::L("发现列表: STA TEI=%1 代理=%2")
                     .arg(sta_tei)

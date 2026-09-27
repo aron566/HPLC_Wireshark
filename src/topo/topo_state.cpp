@@ -7,8 +7,22 @@ namespace {
 
 /// @brief TopoState 内部生成的事件说明英文注册(与各 parser 的 register_en 解耦,本模块自维护)
 struct I18nRegTopoState { I18nRegTopoState() {
-    trl::register_en("CCO重启: 重启次数 %1→%2,拓扑已清空", "CCO reboot: restart count %1→%2, topology cleared");
+    trl::register_en("警告CCO重启过！重启次数 %1→%2",
+                     "Warning: CCO has rebooted! Restart count %1→%2");
+    trl::register_en("警告STA重启过！STA %1 重启次数 %2→%3",
+                     "Warning: STA has rebooted! STA %1 restart count %2→%3");
 } } i18n_reg_topo_state;
+
+/// @brief 48-bit MAC 转冒号分隔小端字符串(与 protocol/common/fieldtools.h:mac_str 同式;
+///        本模块不依赖 protocol 层,此处自维护一份)
+inline QString topo_mac_str(quint64 v) {
+    QString s;
+    for (int i = 0; i < 6; ++i) {
+        s += QString("%1").arg((v >> (8 * i)) & 0xFF, 2, 16, QChar('0'));
+        if (i < 5) s += ':';
+    }
+    return s;
+}
 
 /// @brief 事件类型 → 节点入网状态(发起关联请求=正在入网,其余在网事件=已入网)
 NodeStatus status_for(TopoEventKind k) {
@@ -64,24 +78,35 @@ bool TopoState::remove_node_by_mac(quint64 mac) {
 
 void TopoState::apply(const TopoEvent& e) {
     nid = e.nid;
-    // CCO 重启检测:发现列表携带的发送方重启次数若发生变化,说明 CCO 已重启,
-    // 旧 TEI 分配不再准确 → 先清空当前拓扑与 TEI-MAC 映射,再应用本帧的新状态。
+    // CCO 重启检测:发现列表携带的发送方(CCO)重启次数若发生变化,说明 CCO 已重启。
+    // 仅识别记录(警告),不清空拓扑:新的关联请求可能先于发现列表到达,
+    // 清空会误删已重建的正确状态。
     // (重启次数为 4-bit 计数,任何变化即视为重启,天然处理 15→0 回绕)
     if (e.kind == TopoEventKind::DiscoverList && e.restart_count >= 0) {
         if (m_last_restart_count >= 0 && e.restart_count != m_last_restart_count) {
-            nodes.clear();
-            pending.clear();
-            mac_to_tei.clear();
-            comm_rates.clear();
-            cco_mac = 0;
-            // 该发现列表带动了 TOPO 变化:记入路由变更表,标记为 CCO 重启事件
             TopoEvent re = e;
             re.kind = TopoEventKind::CcoRestart;
-            re.desc = trl::L("CCO重启: 重启次数 %1→%2,拓扑已清空")
+            re.desc = trl::L("警告CCO重启过！重启次数 %1→%2")
                           .arg(m_last_restart_count).arg(e.restart_count);
             events.append(re);
         }
         m_last_restart_count = e.restart_count;
+    }
+    // STA 重启检测:关联请求由 STA 本人发出,其 MSDU 头重启次数即该 STA 的。
+    // 按 MAC 建基线,变化即记警告(不清空,由关联流程自然更新拓扑)。
+    if (e.kind == TopoEventKind::AssocReq && e.restart_count >= 0) {
+        for (const TeiMacPair& p : e.nodes) {
+            if (!p.mac) continue;
+            const auto it = m_sta_restart_count.constFind(p.mac);
+            if (it != m_sta_restart_count.constEnd() && it.value() != e.restart_count) {
+                TopoEvent re = e;
+                re.kind = TopoEventKind::StaRestart;
+                re.desc = trl::L("警告STA重启过！STA %1 重启次数 %2→%3")
+                              .arg(topo_mac_str(p.mac)).arg(it.value()).arg(e.restart_count);
+                events.append(re);
+            }
+            m_sta_restart_count[p.mac] = e.restart_count;
+        }
     }
     // CCO(TEI=1):根节点,父=0,始终已入网
     if (e.cco_mac) {

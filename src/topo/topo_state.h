@@ -59,6 +59,7 @@ private:
     bool remove_node_by_mac(quint64 mac);
 
     int m_last_restart_count = -1; ///< 上次发现列表的发送方重启次数(-1=尚无基线;CCO 重启检测用)
+    QHash<quint64, int> m_sta_restart_count; ///< STA MAC → 上次重启次数(-1=尚无基线;STA 重启检测用,仅关联请求更新)
 };
 
 #endif // TOPO_STATE_H

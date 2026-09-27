@@ -192,7 +192,8 @@ enum class TopoEventKind {
     ChangeProxyCnf, ///< 代理变更确认(STA 换代理)
     LeaveInd,       ///< 离网指示(STA 离网)
     SuccessRate,    ///< 成功率上报(STA 与上级的上下行通讯成功率)
-    CcoRestart,     ///< CCO 重启(发现列表重启次数变化,拓扑已清空;仅 TopoState 内部生成)
+    CcoRestart,     ///< CCO 重启(发现列表重启次数变化;仅 TopoState 内部生成,警告记录)
+    StaRestart,     ///< STA 重启(关联请求重启次数变化;仅 TopoState 内部生成,警告记录)
     Other
 };
 
