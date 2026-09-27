@@ -1,9 +1,9 @@
 {
   "updates": {
     "windows": {
-      "latest-version": "1.1.1",
-      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.1.1/BPLC_STA_Monitor_Setup_v1.1.1.exe",
-      "changelog": "新增 TOPO 拓扑独立窗口:多 NID 动态绘制 CCO/STA 拓扑、路由变更记录、TEI→MAC 映射表;<br/>节点悬浮显示上下行通讯成功率与接入方式(RF/载波),支持平移缩放;<br/>Table View 红色仅保留异常报文,国网关联请求相线字段增加可信度解释;<br/>配套南网 NW_2021 Wireshark dissector;<br/>随包使用说明书(中英文)更新至 v1.1.0 功能说明",
+      "changelog": "TOPO 历史回放调试:单击历史帧冻结回放/双击强制追溯/回到实时;<br/>TOPO 路由变更表首列序号,双击行追溯对应帧并联动主界面选中居中;<br/>CCO/STA 重启检测并记警告(发现列表/关联请求重启次数变化);<br/>NID 下拉框显示 CCO MAC 与网络首次识别时间;<br/>路由变更事件补齐(批量代理变更/关联汇总指示/关联指示/延迟离线指示);<br/>重上电关联去重,同一 MAC 不再双状态并存",
+      "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.2.2/BPLC_STA_Monitor_Setup_v1.2.2.exe",
+      "latest-version": "1.2.2",
       "mandatory-update": false
     }
   }
