@@ -39,6 +39,23 @@ void TopoState::index_mac(quint16 tei, quint64 mac) {
     mac_to_tei[mac] = tei;
 }
 
+bool TopoState::remove_node_by_mac(quint64 mac) {
+    if (!mac) return false;
+    const auto iit = mac_to_tei.find(mac);
+    if (iit == mac_to_tei.end()) return false;
+    const quint16 old_tei = iit.value();
+    if (old_tei == 1) return false;  // CCO 永不移除
+    const auto nit = nodes.find(old_tei);
+    if (nit == nodes.end() || nit.value().mac != mac) {
+        mac_to_tei.erase(iit);  // 坏索引:删映射(与离线路径一致的回退策略)
+        return false;
+    }
+    nodes.erase(nit);
+    mac_to_tei.erase(iit);
+    comm_rates.remove(old_tei);  // 旧 TEI 的成功率残留一并清理
+    return true;
+}
+
 void TopoState::apply(const TopoEvent& e) {
     nid = e.nid;
     // CCO(TEI=1):根节点,父=0,始终已入网
@@ -57,7 +74,11 @@ void TopoState::apply(const TopoEvent& e) {
     for (const TeiMacPair& p : e.nodes) {
         if (!p.mac) continue;
         if (p.tei == 0) {
-            // 正在入网(TEI 未分配):按 MAC 暂存 pending(关联请求阶段)
+            // 正在入网(TEI 未分配):按 MAC 暂存 pending(关联请求阶段)。
+            // 该 MAC 若已在拓扑中(设备重上电再次发起关联):先移除旧节点,
+            // 再绘制当前"入网中"状态,避免同一 MAC 以"在线"+"入网中"
+            // 两种状态同时出现在拓扑图中。
+            remove_node_by_mac(p.mac);
             TopoNode n;
             n.tei = 0;
             n.mac = p.mac;

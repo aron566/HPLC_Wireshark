@@ -53,6 +53,10 @@ public:
 private:
     /// @brief 维护 mac_to_tei 双向一致(处理"同一 MAC 先后对应不同 TEI"和"同一 TEI 先后对应不同 MAC")
     void index_mac(quint16 tei, quint64 mac);
+    /// @brief 按 MAC 移除已存在的拓扑节点(设备重上电再次发起关联时先清旧状态)
+    /// @details CCO(TEI=1)永不移除;同时清理该 TEI 的成功率残留与 MAC 索引。
+    /// @return 是否移除了节点
+    bool remove_node_by_mac(quint64 mac);
 };
 
 #endif // TOPO_STATE_H
