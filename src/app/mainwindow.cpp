@@ -359,7 +359,12 @@ void MainWindow::wire_signals() {
 
     connect(m_table_packets, &QTableView::doubleClicked, this,
             [this](const QModelIndex& idx) {
-                if (m_model) m_model->activate_row(idx.row());
+                if (!m_model) return;
+                m_model->activate_row(idx.row());  // 照常展示报文详情
+                // 双击 → 强制历史追溯(冻结在该帧);即使是最新帧也不跟随实时
+                PacketEntry e;
+                if (m_model->entry_at(idx.row(), e))
+                    enter_topo_history(e.index, e.epoch_ms);
             });
     connect(m_table_packets->selectionModel(), &QItemSelectionModel::currentRowChanged,
             this, [this](const QModelIndex& cur, const QModelIndex&) {
@@ -977,6 +982,18 @@ void MainWindow::on_row_activated(const PacketEntry& e) {
     }
     // TOPO 历史回放调试:路由状态冻结,只更新到当前点击的帧
     update_topo_history(e.index, e.epoch_ms);
+}
+
+/// @brief 双击帧 → 强制进入历史追溯(冻结在该帧,不跟随实时)
+/// @details 与 update_topo_history(单击启发式)不同:双击任何帧都进历史模式,
+///          即使是最新帧也不 live 跟随;回到实时用"回到实时"按钮或单击最新帧。
+void MainWindow::enter_topo_history(qint64 frame_index, qint64 frame_ms) {
+    m_topo_hist_frame = frame_index;
+    m_topo_hist_ms = frame_ms;
+    m_topo_hist_active = true;  // 强制历史模式,不再 live
+    if (!m_topo_window || !m_topo_window->isVisible())
+        return;  // TOPO 窗口未打开:只记模式,打开时再重放同步
+    replay_topo_history();
 }
 
 /// @brief 帧点击 → TOPO 回放/实时切换(点到最新帧 = 回到实时)
