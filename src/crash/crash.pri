@@ -8,6 +8,7 @@
 #   CONFIG += crash_crashpad  编译 crashpad 原生后端(需 3rdparty/install/crashpad)
 #   两个开关独立,可单独开、同时开、都不开。
 #   都不开:CrashHandler::install() 返回空,业务代码无需改动。
+# BPLC_STA_Monitor.pro 默认 CONFIG += crash_crashpad(见该文件注释)。
 #
 # 第三方依赖构建(需联网,CMake):
 #   3rdparty/build_crash_deps.sh [sentry|crashpad|all]

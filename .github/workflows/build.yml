@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -91,3 +91,61 @@ jobs:
           name: ${{ github.ref_name }}
           body_path: release_body.md
           files: dist/BPLC_STA_Monitor_Setup_v*.exe
+
+  build-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 解析版本号
+        id: ver
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            V="${GITHUB_REF#refs/tags/v}"
+          else
+            V="${{ github.event.inputs.version }}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "解析版本: v$V"
+
+      - name: 安装 Qt 6.10.1
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.10.1'
+          modules: 'qtserialport'
+          cache: true
+
+      - name: 安装构建依赖
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libcurl4-openssl-dev zlib1g-dev
+
+      - name: 构建 crashpad 依赖
+        shell: bash
+        run: bash 3rdparty/build_crash_deps.sh crashpad
+
+      - name: crash 模块测试(crashpad 后端 SIGSEGV 实测)
+        shell: bash
+        run: |
+          bash src/crash/tests/run_crash_tests.sh
+          bash src/crash/tests/run_failure_tests.sh
+
+      - name: 构建 + 打包
+        shell: bash
+        run: bash scripts/package_linux.sh "${{ steps.ver.outputs.version }}"
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: BPLC_STA_Monitor_linux_x86_64
+          path: dist/BPLC_STA_Monitor_v*_linux_x86_64.tar.gz
+
+      - name: 传 asset 到 Release(仅 tag 触发)
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: dist/BPLC_STA_Monitor_v*_linux_x86_64.tar.gz

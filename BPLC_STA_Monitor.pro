@@ -27,6 +27,9 @@ RESOURCES += BPLC_STA_Monitor.qrc
 #   ui      <- app
 #   protocol <- app
 #   crash   <- 无依赖(纯 C++,与业务解耦;后端由 CONFIG+=crash_sentry/crash_crashpad 选择)
+# 默认启用 crashpad 后端(本地落盘,无外部服务依赖)。
+# 关闭默认: qmake "CONFIG-=crash_crashpad";改用 sentry: qmake "CONFIG+=crash_sentry"。
+CONFIG += crash_crashpad
 include(src/updater/updater.pri)
 include(src/common/common.pri)
 include(src/protocol/protocol.pri)

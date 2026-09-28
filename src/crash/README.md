@@ -15,15 +15,18 @@ CrashHandler::install(CrashHandler::Options());
 
 ## 编译开关(qmake CONFIG)
 
+BPLC_STA_Monitor.pro **默认启用 crashpad**(`CONFIG += crash_crashpad`),直接 qmake 即可。
+显式控制:
+
 ```bash
-# 只编 sentry
-qmake BPLC_STA_Monitor.pro "CONFIG+=crash_sentry"
-# 只编 crashpad
-qmake BPLC_STA_Monitor.pro "CONFIG+=crash_crashpad"
-# 两个都编(运行时二选一)
-qmake BPLC_STA_Monitor.pro "CONFIG+=crash_sentry" "CONFIG+=crash_crashpad"
-# 都不编(默认,CrashHandler::install 返回空)
+# 只编 sentry(需先关掉默认的 crashpad,避免两个 handler 冲突)
+qmake BPLC_STA_Monitor.pro "CONFIG-=crash_crashpad" "CONFIG+=crash_sentry"
+# 只编 crashpad(默认,不用加参数)
 qmake BPLC_STA_Monitor.pro
+# 两个都编(运行时二选一)
+qmake BPLC_STA_Monitor.pro "CONFIG+=crash_sentry"
+# 都不编(CrashHandler::install 返回空)
+qmake BPLC_STA_Monitor.pro "CONFIG-=crash_crashpad"
 ```
 
 ## 第三方依赖构建
