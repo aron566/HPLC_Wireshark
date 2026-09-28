@@ -7,6 +7,7 @@
 #include "i18n.h"
 #include "appconfig.h"
 #include "theme.h"
+#include "crash_handler.h"
 #include <QApplication>
 #include <QCoreApplication>
 #include <QLoggingCategory>
@@ -35,6 +36,18 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setApplicationVersion("1.2.2");
 
     QApplication app(argc, argv);
+
+    // 崩溃捕获:与业务解耦,失败不影响启动。后端由 qmake CONFIG
+    // (crash_sentry/crash_crashpad)决定编译进哪些,运行时按 config.ini [crash] 选择。
+    {
+        CrashHandler::Options co;
+        co.backend = appcfg::crash_backend().toStdString();
+        co.dsn = appcfg::crash_dsn().toStdString();
+        co.database_path = appcfg::crash_db_path().toStdString();
+        co.release = QCoreApplication::applicationVersion().toStdString();
+        CrashHandler::install(co);
+    }
+
     decide_language();
     theme::apply(appcfg::theme());   // 主题(config.ini [general] theme,auto 默认)
     // 跟随系统:auto 模式下 Windows 深浅色切换时即时重应用主题
@@ -43,5 +56,7 @@ int main(int argc, char* argv[]) {
 
     MainWindow w;
     w.show();
-    return app.exec();
+    const int rc = app.exec();
+    CrashHandler::shutdown();
+    return rc;
 }

@@ -33,3 +33,12 @@ mainwindow_snake.h
 # ---- Python 缓存与调试日志 ----
 __pycache__/
 *.log
+
+# ---- 崩溃转储模块:第三方构建产物与测试数据(不提交) ----
+3rdparty/build/
+3rdparty/install/
+3rdparty/received/
+3rdparty/sentry-native/
+src/crash/tests/build/
+*.dmp
+*.dmp.bak

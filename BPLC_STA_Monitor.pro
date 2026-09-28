@@ -26,12 +26,14 @@ RESOURCES += BPLC_STA_Monitor.qrc
 #   io      <- app
 #   ui      <- app
 #   protocol <- app
+#   crash   <- 无依赖(纯 C++,与业务解耦;后端由 CONFIG+=crash_sentry/crash_crashpad 选择)
 include(src/updater/updater.pri)
 include(src/common/common.pri)
 include(src/protocol/protocol.pri)
 include(src/io/io.pri)
 include(src/ui/ui.pri)
 include(src/topo/topo.pri)
+include(src/crash/crash.pri)
 include(src/app/app.pri)
 
 # main.cpp 在工程根目录,不在任何模块里

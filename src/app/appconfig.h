@@ -53,7 +53,16 @@ inline void ensure_default_file() {
         "; 回放/裸hex 文件路径\n"
         "file_path=\n"
         "; 回放文件是否带 8B BCD 时间标签(自动识别时无需勾选)\n"
-        "time_tag=false\n";
+        "time_tag=false\n"
+        "\n"
+        "[crash]\n"
+        "; 崩溃捕获后端:sentry=上报Sentry服务 / crashpad=仅本地minidump / auto=自动(默认)\n"
+        "; 编译时用 qmake CONFIG+=crash_sentry / CONFIG+=crash_crashpad 选择包含的后端\n"
+        "backend=auto\n"
+        "; Sentry DSN(backend=sentry 时上报用);留空则只本地落盘不上报\n"
+        "dsn=\n"
+        "; 本地 dump 目录(留空=exe 同目录 crashpad_db)\n"
+        "db_path=\n";
     QFile f(path);
     if (f.open(QIODevice::WriteOnly)) f.write(tmpl);
 }
@@ -117,6 +126,23 @@ inline QString reader_com()    { return settings().value(QStringLiteral("reader/
 inline int  reader_baud()      { return settings().value(QStringLiteral("reader/baud"), 460800).toInt(); }
 inline QString reader_file()   { return settings().value(QStringLiteral("reader/file_path")).toString(); }
 inline bool reader_time_tag()  { return settings().value(QStringLiteral("reader/time_tag"), false).toBool(); }
+
+// ---- crash ----
+inline QString crash_backend() {
+    const QString v = settings().value(QStringLiteral("crash/backend"),
+                                       QStringLiteral("auto")).toString().trimmed().toLower();
+    return (v == QLatin1String("sentry") || v == QLatin1String("crashpad"))
+               ? v : QStringLiteral("auto");
+}
+inline QString crash_dsn() {
+    // 环境变量 SENTRY_DSN 优先,便于 CI/测试覆盖
+    const QByteArray env = qgetenv("SENTRY_DSN");
+    if (!env.isEmpty()) return QString::fromUtf8(env).trimmed();
+    return settings().value(QStringLiteral("crash/dsn")).toString().trimmed();
+}
+inline QString crash_db_path() {
+    return settings().value(QStringLiteral("crash/db_path")).toString().trimmed();
+}
 
 inline void set_reader(int mode, const QString& com, int baud,
                        const QString& file, bool time_tag) {

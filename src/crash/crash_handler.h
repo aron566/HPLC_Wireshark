@@ -1,0 +1,49 @@
+// crash_handler.h - 崩溃转储模块唯一对外接口
+//
+// 设计目标:
+//   1. 与业务代码解耦:业务侧只调 CrashHandler::install() 一行,其他零侵入。
+//   2. 后端可插拔:编译期通过 qmake CONFIG 选择后端,运行时按 Options 选择。
+//   3. 无 Qt 依赖:纯 C++11,便于移植到其他工程。
+//
+// 编译开关 (qmake):
+//   CONFIG += crash_sentry    编译 sentry-native 后端
+//   CONFIG += crash_crashpad  编译 crashpad 原生后端
+//   两个开关独立,可同时开(运行时按 Options::backend 选择其一)。
+//
+// 后端行为:
+//   - sentry:   崩溃时生成 minidump,经 crashpad_handler 上传到 Sentry 服务(DSN)。
+//               DSN 为空时仅本地落盘,不上传。
+//   - crashpad: 崩溃时生成 minidump 到 database_path,不上传,用户手动取回分析。
+#pragma once
+
+#include <string>
+
+class CrashHandler {
+public:
+    struct Options {
+        // 要启用的后端:"sentry" | "crashpad" | "auto"(默认)。
+        // "auto":优先 sentry(若编译了),其次 crashpad。
+        std::string backend = "auto";
+        // Sentry DSN,如 "http://key@host:9000/1"。为空则 sentry 后端只本地落盘。
+        std::string dsn;
+        // 崩溃数据库/dump 落盘目录。为空则用 "./crashpad_db"。
+        std::string database_path;
+        // 发行版本,如 "1.2.2",写入崩溃报告便于区分版本。
+        std::string release;
+        // 随崩溃上报的自定义键值(产品名等),可选。
+        std::string product_name = "BPLC_STA_Monitor";
+    };
+
+    // 安装崩溃处理器。返回实际启用的后端名("sentry"/"crashpad"),空串=未启用。
+    // 只能调一次;重复调用返回首次结果。
+    static std::string install(const Options& opts);
+
+    // 关闭(程序正常退出前调用,刷新上报队列)。
+    static void shutdown();
+
+    // 编译期是否包含某后端("sentry"/"crashpad")。
+    static bool has_backend(const char* name);
+
+private:
+    CrashHandler() = delete;
+};
