@@ -2,6 +2,8 @@
 release/
 debug/
 build/
+build_linux/
+AppDir/
 Makefile
 Makefile.*
 .qmake.stash
