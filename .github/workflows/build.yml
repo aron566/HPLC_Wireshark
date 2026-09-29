@@ -64,12 +64,11 @@ jobs:
         shell: bash
         run: bash 3rdparty/build_crash_deps.sh crashpad
 
-      - name: 构建 sentry 依赖(MinGW,实验性,允许失败)
+      - name: 构建 sentry 依赖(MinGW)
         shell: bash
-        continue-on-error: true
         run: SENTRY_TRANSPORT=none bash 3rdparty/build_crash_deps.sh sentry
 
-      - name: crash 模块测试(crashpad 后端 Windows 实测 + sentry 实验性)
+      - name: crash 模块测试(crashpad + sentry 后端 Windows 实测)
         shell: bash
         run: bash src/crash/tests/run_crash_tests_win.sh
 

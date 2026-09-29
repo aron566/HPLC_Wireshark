@@ -1,5 +1,6 @@
 #!/bin/bash
-# run_crash_tests_win.sh - Windows(Git Bash + MinGW) crashpad 后端崩溃捕获实测
+# run_crash_tests_win.sh - Windows(Git Bash + MinGW) crash 后端崩溃捕获实测
+# 依据编译选择验证:crashpad / sentry 哪个依赖构建了,就实测哪个,必须通过。
 #
 # 前置: 3rdparty/build_crash_deps.sh crashpad   (Windows 上自动用 MinGW 构建)
 # 流程:
@@ -134,8 +135,9 @@ grep -q "do_crash" "$BUILD_DIR/symbolize.log" || {
 }
 echo "[test] PASS: 符号化定位到 do_crash"
 
-# --- sentry 后端(实验性) ---
-# sentry-native 在 MinGW 下是否可构建/运行未知:构建成功才跑,失败只告警不阻塞。
+# --- sentry 后端 ---
+# 依据编译选择验证:sentry 依赖已构建(CI 里构建步骤为必需)则必须实测通过,
+# 失败直接判 FAIL;未构建才跳过(本地只编了 crashpad 时)。
 # (Windows 上 transport=none,只验证崩溃捕获+本地落盘,不验证上报)
 run_sentry_win() {
     local SENTRY_ROOT="$ROOT/3rdparty/install/sentry"
@@ -171,11 +173,11 @@ run_sentry_win() {
     cat "$BUILD_DIR/sentry_run.log"
     echo "[test] exit code: $scode"
     grep -q "crashing now" "$BUILD_DIR/sentry_run.log" || {
-        echo "[sentry 实验性] FAIL: 测试程序未能到达崩溃点"
+        echo "[test] FAIL: 测试程序未能到达崩溃点"
         return 1
     }
     grep -q "active=sentry" "$BUILD_DIR/sentry_run.log" || {
-        echo "[sentry 实验性] FAIL: sentry 后端未被选中"
+        echo "[test] FAIL: sentry 后端未被选中"
         return 1
     }
     echo "=== waiting for sentry .dmp ==="
@@ -186,7 +188,7 @@ run_sentry_win() {
         sleep 1
     done
     if [ -z "$SDMP" ]; then
-        echo "[sentry 实验性] FAIL: sentry db 下无 .dmp"
+        echo "[test] FAIL: sentry db 下无 .dmp"
         find "$SDB" -type f 2>/dev/null | head -10
         return 1
     fi
@@ -195,12 +197,11 @@ run_sentry_win() {
 }
 
 if [ -f "$ROOT/3rdparty/install/sentry/include/sentry.h" ]; then
-    echo "=== sentry 后端测试(实验性,失败不阻塞) ==="
-    if ! run_sentry_win; then
-        echo "[test] WARN: sentry Windows 实测未通过(实验性),crashpad 仍是 Windows 唯一验证后端"
-    fi
+    echo "=== sentry 后端测试(已构建,必须通过) ==="
+    run_sentry_win || { echo "[test] FAIL: sentry 后端 Windows 实测未通过"; exit 1; }
+    echo "[test] PASS: sentry 后端 Windows 实测通过"
 else
-    echo "SKIP sentry: sentry 在 MinGW 下未构建成功,跳过"
+    echo "SKIP sentry: 未检测到 sentry 构建产物,跳过 sentry 后端验证"
 fi
 
 echo "ALL DONE (windows)"

@@ -112,9 +112,10 @@ build_sentry() {
         gen_args+=(-G "MinGW Makefiles")
         # Windows 无系统 zlib,sentry 内嵌的 crashpad 同样用自带 third_party/zlib,
         # 否则 find_package(ZLIB) 在 configure 阶段直接失败(CI #30 实测)。
-        # 另:跳过 WER 模块(Windows Error Reporting 集成 DLL),它与 MinGW 的
-        # werapi.h 存在头文件声明冲突,且本地 dump 流程不需要它。
-        extra_args+=(-DCRASHPAD_ZLIB_SYSTEM=OFF -DCRASHPAD_ENABLE_WER=OFF)
+        # 注意:不能加 CRASHPAD_ENABLE_WER=OFF —— sentry-native 的 CMakeLists
+        # 无条件 add_dependencies(sentry crashpad::wer),关掉 WER 会导致
+        # generate 阶段"crashpad::wer 不存在"而失败(CI #31 实测)。
+        extra_args+=(-DCRASHPAD_ZLIB_SYSTEM=OFF)
     fi
     cmake -S "$(to_win_path "$SRC_SENTRY")" -B "$(to_win_path "$SRC_SENTRY/build")" \
         "${gen_args[@]}" \
