@@ -122,11 +122,16 @@ sentry 上传链路用 `3rdparty/mock_sentry.py` 本地模拟验证(真服务部
 - sentry 后端:SIGSEGV -> .dmp 生成 -> gzip multipart 上传到 mock,带 `upload_file_minidump`
 - crashpad 后端:SIGSEGV -> .dmp 本地落盘
 - App 四种编译组合(default/sentry-only/both/none)的 CI 矩阵
-  (`app-config-matrix` job):2026-09-30 首跑 24/25 通过,挂在 `none` 组合——
-  根因是旧脚本用 `CONFIG-=crash_crashpad` 关默认,实际关不掉(见"编译开关"节),
+  (`app-config-matrix` job):2026-09-30 CI #30 全绿,通过
+  (run 36605011698,feat/crash-dump@8e31483,总耗时 8m28s)。
+  之前首跑(#29)24/25 挂在 `none` 组合——根因是旧脚本用
+  `CONFIG-=crash_crashpad` 关默认,实际关不掉(见"编译开关"节),
   `none` 编出来仍带 crashpad,崩溃后有 dump,测试正确判 FAIL;
   `sentry-only` 当时实际编进了双后端(测试只验了 sentry 路径,侥幸通过)。
-  已改用 `CONFIG+=crash_no_default` 方案,待重新跑 CI 验证,全绿前不算通过
+  已改用 `CONFIG+=crash_no_default` 方案并重跑验证通过。
+  注意:build-windows 在本轮有一条 "Process completed with exit code 1"
+  的 error 标注,但 run 总体结论为 Success(疑为 continue-on-error 步骤,
+  未及逐条核实,详见 Actions 页面)。
 - 失败路径 5 项全过
 - dump 经 `check_minidump.py` 确认为有效 minidump(含 Exception/ModuleList 等关键流)
 - 符号化链路:真实发布包 dump 经 `dump_syms` + `minidump_stackwalk`
