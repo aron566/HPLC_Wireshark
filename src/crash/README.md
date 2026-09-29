@@ -10,7 +10,7 @@ CrashHandler::install(CrashHandler::Options());
 
 | 后端 | 说明 | 崩溃产物 |
 |------|------|----------|
-| sentry-native | 官方 C/C++ SDK,内嵌 Crashpad,崩溃后上传到自建 Sentry 服务 | minidump + 上传到 Sentry |
+| sentry-native | 官方 C/C++ SDK,内嵌 Crashpad,崩溃后上报到 Sentry 服务(自建或 sentry.io SaaS 均可) | minidump + 上传到 Sentry |
 | crashpad 原生 | 直接调 Crashpad API,配 DSN 则自动上报,否则纯本地落盘 | minidump 到本地目录/上报到 Sentry |
 
 ## 编译开关(qmake CONFIG)
@@ -19,11 +19,11 @@ BPLC_STA_Monitor.pro **默认启用 crashpad**(`CONFIG += crash_crashpad`),直�
 显式控制:
 
 ```bash
-# 只编 sentry(需先关掉默认的 crashpad,避免两个 handler 冲突)
+# 只编 sentry(需先关掉默认的 crashpad)
 qmake BPLC_STA_Monitor.pro "CONFIG-=crash_crashpad" "CONFIG+=crash_sentry"
 # 只编 crashpad(默认,不用加参数)
 qmake BPLC_STA_Monitor.pro
-# 两个都编(运行时二选一)
+# 两个都编(编译期可共存;运行时按 backend 互斥二选一,auto 时优先 sentry)
 qmake BPLC_STA_Monitor.pro "CONFIG+=crash_sentry"
 # 都不编(CrashHandler::install 返回空)
 qmake BPLC_STA_Monitor.pro "CONFIG-=crash_crashpad"
@@ -52,9 +52,15 @@ db_path=          # dump 目录,空=exe 同级 crashpad_db/
 
 环境变量 `SENTRY_DSN` 优先于配置文件。
 
+注意:`backend=sentry` 时若 sentry 后端安装失败(如 handler 缺失),
+会静默回退到 crashpad 后端;两个后端都装不上才返回空
+(程序照常启动,只是无崩溃捕获,不会崩溃)。
+需要严格确认当前生效后端时,检查 `CrashHandler::install()` 返回值或启动日志。
+
 ## crashpad 后端如何配置上传 dump
 
-crashpad 后端默认只本地落盘(`<db>/reports/*.dmp`),配了 DSN 才会自动上报,
+crashpad 后端默认只本地落盘(`<db>/pending/*.dmp`;`reports/` 只是 handler
+搬运前的瞬态目录,稳定位置看 `pending/`),配了 DSN 才会自动上报,
 逻辑与 sentry 后端一致——**配 DSN 就上报,不配就只落盘**:
 
 1. 在 `config.ini [crash]` 里填 `dsn=http://<key>@<host>:<port>/<project_id>`
@@ -78,8 +84,11 @@ crashpad 后端默认只本地落盘(`<db>/reports/*.dmp`),配了 DSN 才会自�
 
 ## 发布注意
 
-- `crashpad_handler`(Linux) / `crashpad_handler.exe`(Windows) 必须放在 exe 同目录,
-  否则后端 install 优雅失败(返回空,不崩溃)。
+- `crashpad_handler`(Linux) / `crashpad_handler.exe`(Windows) 必须放在 exe 同目录。
+  缺失时对应后端 install 失败:另一后端可用则静默回退,都不行才返回空
+  (程序照常启动,只是无崩溃捕获,不会崩溃)。
+  sentry 后端同样依赖同目录的 `crashpad_handler`(sentry-native 内嵌 Crashpad,
+  缺失则崩溃时无 minidump)。
 - 发布包建议带调试符号(或另存 `.debug` 文件),否则 dump 无法符号化到源码行。
 
 ## 测试
@@ -93,6 +102,14 @@ src/crash/tests/run_failure_tests.sh
 
 # dump 结构校验
 python3 3rdparty/check_minidump.py <xxx.dmp>
+
+# 真实应用验证:发布包 --self-crash-test 触发崩溃,符号化定位到
+# crash_selftest_trigger 及其 main.cpp 行号(只验结构不算通过)
+src/crash/tests/run_app_crash_test.sh
+
+# App 编译组合矩阵:default/sentry-only/both/none 四种 CONFIG 各自构建、
+# 冒烟、崩溃捕获;带后端的组合必须符号化定位到崩溃处(CI app-config-matrix)
+src/crash/tests/run_app_config_matrix.sh
 ```
 
 sentry 上传链路用 `3rdparty/mock_sentry.py` 本地模拟验证(真服务部署见 `docker/sentry/README.md`)。
@@ -101,11 +118,13 @@ sentry 上传链路用 `3rdparty/mock_sentry.py` 本地模拟验证(真服务部
 
 - sentry 后端:SIGSEGV -> .dmp 生成 -> gzip multipart 上传到 mock,带 `upload_file_minidump`
 - crashpad 后端:SIGSEGV -> .dmp 本地落盘
-- 四种编译组合(none/sentry/crashpad/both)均编译通过
+- App 四种编译组合(default/sentry-only/both/none)在 CI 矩阵中构建、冒烟、
+  崩溃捕获全过;带后端的组合逐一符号化定位到崩溃处
 - 失败路径 5 项全过
-- dump 经 `check_minidump.py` 确认为有效 minidump(8 流,含 Exception/ModuleList)
-- 符号化链路:真实 crashpad dump 经 `dump_syms` + `minidump_stackwalk`
-  符号化到函数名/文件名/行号(如 `level3() [crasher_crashpad.cc : 7]`)
+- dump 经 `check_minidump.py` 确认为有效 minidump(含 Exception/ModuleList 等关键流)
+- 符号化链路:真实发布包 dump 经 `dump_syms` + `minidump_stackwalk`
+  定位到 `crash_selftest_trigger [main.cpp : 36]`
+- sentry.io SaaS 端到端:崩溃事件已上报,服务端符号化到函数名+源码行
 
 ## Windows(在 CI 验证)
 
@@ -120,10 +139,13 @@ sentry 上传链路用 `3rdparty/mock_sentry.py` 本地模拟验证(真服务部
   缺失时只告警(后端回退,程序照常启动,无崩溃转储)。
 - 发布包冒烟:CI 里 `BPLC_STA_Monitor.exe -platform offscreen` 跑 20 秒,
   要求 `release/crashpad_db` 下无 `.dmp`(无启动期崩溃)。
+- App 级 `--self-crash-test` 符号化定位目前仅 Linux CI 覆盖
+  (`run_app_crash_test.sh` / `app-config-matrix` 均为 Linux job),Windows 待补。
 
 ## 未验证
 
-- 真实 self-hosted Sentry 端到端(本地无 Docker,文档已写,待有资源机器验证)
+- 真实 self-hosted Sentry 端到端(sentry.io SaaS 已验证;本地无 Docker,
+  自建部署文档已写,待有资源机器验证)
 
 ## 崩溃后处理:从 dump 到堆栈
 
@@ -328,6 +350,8 @@ gdb ./BPLC_STA_Monitor
 
 - 用户发来 `.dmp` → `scripts/symbolize.sh`(第 3 步)
 - 自己机器能复现、想看变量和内存 → coredump + gdb(本节)
+- crashpad 已接管时的崩溃:minidump 和 coredump 同时产生,
+  前者上报归档,后者本地深挖(两者不互斥)
 - 崩溃在 main 极早期、crashpad 还没装上 → 只有 coredump 能抓到
 - 要归档、上报、进 Sentry → minidump(小、可传输)
 
