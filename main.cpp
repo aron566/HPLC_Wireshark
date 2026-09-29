@@ -14,6 +14,33 @@
 #include <QLocale>
 #include <QStyleHints>
 #include <QGuiApplication>
+#include <cstring>
+
+// 隐藏自测钩子(仅 CI 崩溃可用性验证用,不对外文档):
+// --self-crash-test 在崩溃处理器安装后,于本函数内触发确定性空指针崩溃,
+// 使生成的 dump 能被符号化定位到 crash_selftest_trigger(main.cpp 行号),
+// 证明发布包的崩溃 dump 是"可定位"的,而不只是结构有效。
+//
+// 注意:不能写成"局部 volatile int* p=nullptr; *p=..",
+// -O2 能证明 p 为 null 并把这次解引用当 UB 整个删掉(2026-09-29 实测,
+// 函数直接返回,进程不崩溃)。空指针必须经 volatile 全局做运行时 load,
+// 编译器在编译期无法证明其为 null,不敢删除访存指令;
+// 运行时该地址恒为 null,稳定触发 SIGSEGV。
+#if defined(_MSC_VER)
+#define CRASH_TEST_NOINLINE __declspec(noinline)
+#else
+#define CRASH_TEST_NOINLINE __attribute__((noinline))
+#endif
+static volatile void* volatile g_crash_test_addr = nullptr;
+static CRASH_TEST_NOINLINE void crash_selftest_trigger() {
+    *(volatile int*)g_crash_test_addr = 0xdead; // 必 SIGSEGV
+}
+static bool has_self_crash_flag(int argc, char* argv[]) {
+    for (int i = 1; i < argc; ++i)
+        if (std::strcmp(argv[i], "--self-crash-test") == 0)
+            return true;
+    return false;
+}
 
 static void decide_language() {
     // config.ini [general] lang = auto(默认,跟随系统)/zh/en;不存在则先生成
@@ -47,6 +74,10 @@ int main(int argc, char* argv[]) {
         co.release = QCoreApplication::applicationVersion().toStdString();
         CrashHandler::install(co);
     }
+
+    // CI 崩溃可用性验证:确定性崩溃,便于符号化定位到 crash_selftest_trigger
+    if (has_self_crash_flag(argc, argv))
+        crash_selftest_trigger();
 
     decide_language();
     theme::apply(appcfg::theme());   // 主题(config.ini [general] theme,auto 默认)
