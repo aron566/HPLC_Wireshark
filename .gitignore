@@ -27,6 +27,10 @@ samples/headless_build/release/
 # ---- 打包工具与产物 ----
 tools/
 dist/
+# coredump(崩溃分析用,不进仓库)
+core
+core.*
+*.core
 BPLC_STA_Monitor_resource.rc
 qrc_*.cpp
 forms/
