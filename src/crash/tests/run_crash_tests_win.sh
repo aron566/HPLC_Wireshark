@@ -107,6 +107,21 @@ ls -la "$DMP"
 echo "=== 结构校验 ==="
 python3 "$ROOT/3rdparty/check_minidump.py" "$DMP"
 
+echo "=== DWARF 诊断 ==="
+set +e
+echo "--- section 列表(看有没有 .debug_info) ---"
+objdump -h "$EXE_WIN" | grep -iE "debug" || echo "!! 没有 .debug_* section,exe 缺 DWARF"
+echo "--- nm 查 do_crash 符号地址 ---"
+SYM_ADDR=$(nm -n "$EXE_WIN" 2>/dev/null | grep -w "do_crash" | awk '{print $1}' | head -1)
+if [ -n "$SYM_ADDR" ]; then
+    echo "do_crash 在 nm 中的地址: 0x$SYM_ADDR"
+    echo "--- 直接用该地址试 addr2line ---"
+    addr2line -e "$EXE_WIN" -f -C "0x$SYM_ADDR"
+else
+    echo "!! nm 找不到 do_crash 符号"
+fi
+set -e
+
 echo "=== 符号化(addr2line) ==="
 # addr2line.exe 是原生 Windows 程序,exe 路径必须转 Windows 格式,否则它打不开文件
 # 直接回 ??(和"地址无调试信息"是同一种输出,靠路径先排除)。
