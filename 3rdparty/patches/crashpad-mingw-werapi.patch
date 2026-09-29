@@ -1,0 +1,20 @@
+diff --git a/compat/mingw/werapi.h b/compat/mingw/werapi.h
+index 9f0443c..af62696 100644
+--- a/compat/mingw/werapi.h
++++ b/compat/mingw/werapi.h
+@@ -21,10 +21,13 @@ typedef HANDLE HREPORT;
+ #define WER_MAX_PREFERRED_MODULES_BUFFER 256
+ #endif
+ 
+-#include_next <werapi.h>
+-
++// 老版本 MinGW 的 werapi.h 在 WerReportSubmit 声明里用了 PWER_SUBMIT_RESULT,
++// 自己却没声明该类型。必须在 include 系统头之前补上,否则系统头自己都编译不过。
++// (原垫片把 define 写在 #include_next 之后,来得太晚。)
+ #ifndef PWER_SUBMIT_RESULT
+ #define PWER_SUBMIT_RESULT WER_SUBMIT_RESULT*
+ #endif
+ 
++#include_next <werapi.h>
++
+ #endif  // CRASHPAD_COMPAT_MINGW_WERAPI_H_

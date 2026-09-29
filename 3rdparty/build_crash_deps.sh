@@ -84,6 +84,15 @@ ensure_source() {
     else
         echo "=== crashpad 本地 patch 已应用,跳过 ==="
     fi
+    # MinGW 垫片 compat/mingw/werapi.h 把 PWER_SUBMIT_RESULT 的补定义写在了
+    # #include_next 之后,但老版本 MinGW 系统头自己第 122 行就用了该类型,
+    # 导致系统头先编译不过。移到 include 之前(幂等)。
+    if ! grep -q "必须在 include 系统头之前补上" "$SRC_CRASHPAD/compat/mingw/werapi.h"; then
+        echo "=== 应用 crashpad 本地 patch: mingw-werapi ==="
+        git -C "$SRC_CRASHPAD" apply --ignore-whitespace "$PWD/patches/crashpad-mingw-werapi.patch"
+    else
+        echo "=== crashpad mingw-werapi patch 已应用,跳过 ==="
+    fi
 }
 
 build_sentry() {
