@@ -1,0 +1,19 @@
+diff --git a/snapshot/win/pe_image_reader.cc b/snapshot/win/pe_image_reader.cc
+index 35c9afe..6ed3c69 100644
+--- a/snapshot/win/pe_image_reader.cc
++++ b/snapshot/win/pe_image_reader.cc
+@@ -431,9 +431,12 @@ bool PEImageReader::ImageDataDirectoryEntryT(
+     return false;
+   }
+ 
++  // MSVC 的 offsetof 接受非常量数组下标,GCC 不接受;改写为
++  // "数组首地址偏移 + (index + 1) * 元素大小",与原式语义等价。
+   if (nt_headers.FileHeader.SizeOfOptionalHeader <
+-          offsetof(decltype(nt_headers.OptionalHeader), DataDirectory[index]) +
+-              sizeof(nt_headers.OptionalHeader.DataDirectory[index]) ||
++          offsetof(decltype(nt_headers.OptionalHeader), DataDirectory) +
++              (index + 1) *
++                  sizeof(nt_headers.OptionalHeader.DataDirectory[0]) ||
+       nt_headers.OptionalHeader.NumberOfRvaAndSizes <= index) {
+     return false;
+   }

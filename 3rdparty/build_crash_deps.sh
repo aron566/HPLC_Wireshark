@@ -93,6 +93,13 @@ ensure_source() {
     else
         echo "=== crashpad mingw-werapi patch 已应用,跳过 ==="
     fi
+    # MSVC 的 offsetof 接受非常量数组下标,GCC 不接受;改写为等价的算术形式(幂等)。
+    if ! grep -q "与原式语义等价" "$SRC_CRASHPAD/snapshot/win/pe_image_reader.cc"; then
+        echo "=== 应用 crashpad 本地 patch: mingw-offsetof ==="
+        git -C "$SRC_CRASHPAD" apply --ignore-whitespace "$PWD/patches/crashpad-mingw-offsetof.patch"
+    else
+        echo "=== crashpad mingw-offsetof patch 已应用,跳过 ==="
+    fi
 }
 
 build_sentry() {
