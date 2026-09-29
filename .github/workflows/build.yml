@@ -64,7 +64,12 @@ jobs:
         shell: bash
         run: bash 3rdparty/build_crash_deps.sh crashpad
 
-      - name: crash 模块测试(crashpad 后端 Windows 实测)
+      - name: 构建 sentry 依赖(MinGW,实验性,允许失败)
+        shell: bash
+        continue-on-error: true
+        run: SENTRY_TRANSPORT=none bash 3rdparty/build_crash_deps.sh sentry
+
+      - name: crash 模块测试(crashpad 后端 Windows 实测 + sentry 实验性)
         shell: bash
         run: bash src/crash/tests/run_crash_tests_win.sh
 
@@ -159,15 +164,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake libcurl4-openssl-dev zlib1g-dev
 
-      - name: 构建 crashpad 依赖
+      - name: 构建 crash 依赖(sentry + crashpad)
         shell: bash
-        run: bash 3rdparty/build_crash_deps.sh crashpad
+        run: bash 3rdparty/build_crash_deps.sh all
 
-      - name: crash 模块测试(crashpad 后端 SIGSEGV 实测)
+      - name: crash 模块测试(双后端 SIGSEGV 实测)
         shell: bash
         run: |
           bash src/crash/tests/run_crash_tests.sh
           bash src/crash/tests/run_failure_tests.sh
+
+      - name: 后端切换矩阵测试(选型+预期行为)
+        shell: bash
+        run: bash src/crash/tests/run_backend_switch_tests.sh
 
       - name: 构建 + 打包
         shell: bash

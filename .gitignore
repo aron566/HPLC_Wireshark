@@ -46,5 +46,7 @@ __pycache__/
 3rdparty/received/
 3rdparty/sentry-native/
 src/crash/tests/build/
+src/crash/tests/build_win/
+src/crash/tests/build_switch/
 *.dmp
 *.dmp.bak

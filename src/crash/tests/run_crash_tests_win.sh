@@ -134,4 +134,73 @@ grep -q "do_crash" "$BUILD_DIR/symbolize.log" || {
 }
 echo "[test] PASS: 符号化定位到 do_crash"
 
+# --- sentry 后端(实验性) ---
+# sentry-native 在 MinGW 下是否可构建/运行未知:构建成功才跑,失败只告警不阻塞。
+# (Windows 上 transport=none,只验证崩溃捕获+本地落盘,不验证上报)
+run_sentry_win() {
+    local SENTRY_ROOT="$ROOT/3rdparty/install/sentry"
+    echo "=== compiling crash_test_sentry.exe ==="
+    g++ -std=c++17 -g -O0 -DCRASH_HAVE_SENTRY \
+        -I"$ROOT/src/crash" \
+        -I"$SENTRY_ROOT/include" \
+        "$ROOT/src/crash/crash_handler.cpp" \
+        "$ROOT/src/crash/crash_util.cpp" \
+        "$ROOT/src/crash/backend_stub.cpp" \
+        "$ROOT/src/crash/backend_sentry.cpp" \
+        "$ROOT/src/crash/backend_crashpad.cpp" \
+        "$ROOT/src/crash/tests/crash_test.cpp" \
+        -L"$SENTRY_ROOT/lib" \
+        -lsentry \
+        -lcrashpad_client -lcrashpad_compat -lcrashpad_handler_lib -lcrashpad_minidump \
+        -lcrashpad_mpack -lcrashpad_snapshot -lcrashpad_tools -lcrashpad_util \
+        -lmini_chromium \
+        -lwinhttp -ldbghelp -lversion -lws2_32 \
+        -o "$BUILD_DIR/crash_test_sentry.exe"
+    echo "built: $BUILD_DIR/crash_test_sentry.exe"
+    cp "$SENTRY_ROOT/bin/crashpad_handler.exe" "$BUILD_DIR/"
+    local SDB="$BUILD_DIR/db_sentry"
+    rm -rf "$SDB"
+    local SDB_WIN
+    SDB_WIN=$(cygpath -m "$SDB")
+    echo "=== running sentry crash test (expect Access Violation) ==="
+    set +e
+    (cd "$BUILD_DIR" && env -u SENTRY_DSN ./crash_test_sentry.exe sentry "$SDB_WIN") \
+        > "$BUILD_DIR/sentry_run.log" 2>&1
+    local scode=$?
+    set -e
+    cat "$BUILD_DIR/sentry_run.log"
+    echo "[test] exit code: $scode"
+    grep -q "crashing now" "$BUILD_DIR/sentry_run.log" || {
+        echo "[sentry 实验性] FAIL: 测试程序未能到达崩溃点"
+        return 1
+    }
+    grep -q "active=sentry" "$BUILD_DIR/sentry_run.log" || {
+        echo "[sentry 实验性] FAIL: sentry 后端未被选中"
+        return 1
+    }
+    echo "=== waiting for sentry .dmp ==="
+    local SDMP=""
+    for i in $(seq 1 30); do
+        SDMP=$(find "$SDB" -name "*.dmp" 2>/dev/null | head -1)
+        if [ -n "$SDMP" ]; then break; fi
+        sleep 1
+    done
+    if [ -z "$SDMP" ]; then
+        echo "[sentry 实验性] FAIL: sentry db 下无 .dmp"
+        find "$SDB" -type f 2>/dev/null | head -10
+        return 1
+    fi
+    echo "[test] PASS: sentry 后端崩溃捕获可用,dump: $SDMP"
+    ls -la "$SDMP"
+}
+
+if [ -f "$ROOT/3rdparty/install/sentry/include/sentry.h" ]; then
+    echo "=== sentry 后端测试(实验性,失败不阻塞) ==="
+    if ! run_sentry_win; then
+        echo "[test] WARN: sentry Windows 实测未通过(实验性),crashpad 仍是 Windows 唯一验证后端"
+    fi
+else
+    echo "SKIP sentry: sentry 在 MinGW 下未构建成功,跳过"
+fi
+
 echo "ALL DONE (windows)"
