@@ -70,7 +70,11 @@ def pe_image_base(exe):
         f.seek(pe_off + 24)
         (magic,) = struct.unpack("<H", f.read(2))
         assert magic == 0x20B, "仅支持 64 位 PE32+"
-        f.seek(pe_off + 24 + 28)
+        # PE32+ 可选头内偏移:Magic(2)+主次版本号(2)+SizeOfCode(4)
+        #  +SizeOfInitializedData(4)+SizeOfUninitializedData(4)
+        #  +AddressOfEntryPoint(4)+BaseOfCode(4) = 24,ImageBase 在 +24。
+        # 注意:32 位 PE(0x10b)因多一个 BaseOfData(4),ImageBase 才在 +28,别混用。
+        f.seek(pe_off + 24 + 24)
         (base,) = struct.unpack("<Q", f.read(8))
         return base
 
@@ -93,7 +97,9 @@ def main():
     rva, mod = parse_dump(dmp)
     print(f"模块内 RVA: {rva:#x}")
     try:
-        va = pe_image_base(exe) + rva
+        ibase = pe_image_base(exe)
+        print(f"PE ImageBase: {ibase:#x}")
+        va = ibase + rva
     except Exception as e:
         print(f"读 PE ImageBase 失败({e}),直接用 RVA 尝试")
         va = rva
