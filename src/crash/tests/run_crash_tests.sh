@@ -113,7 +113,7 @@ run_upload_test() {
     echo "[test] waiting for handler upload (handler 后台上报,约 1 分钟)..."
     local got=""
     for i in $(seq 1 150); do
-        got=$(check_upload_received 2>/dev/null)
+        got=$(check_upload_received 2>/dev/null || true)
         if [ -n "$got" ]; then break; fi
         sleep 1
     done
