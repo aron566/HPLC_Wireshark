@@ -82,6 +82,9 @@ def addr2line(exe, va):
     lines = out.stdout.strip().splitlines()
     func = lines[0] if lines else "??"
     loc = lines[1] if len(lines) > 1 else "??:?"
+    if func == "??" and out.stderr.strip():
+        # 文件打不开 vs 地址无调试信息是两种完全不同的失败,打印 stderr 区分
+        print(f"[addr2line {va:#x}] stderr: {out.stderr.strip()}")
     return func, loc
 
 
@@ -99,8 +102,8 @@ def main():
         func, loc = addr2line(exe, rva)  # 兜底:直接 RVA
     print(f"函数: {func}")
     print(f"位置: {loc}")
-    if "??:?" in loc:
-        print("WARN: 未解析出源码行(可能 exe 被 strip 或缺 DWARF)")
+    if loc.startswith("??:") or func == "??":
+        print("WARN: 未解析出函数/源码行(可能 exe 被 strip 或缺 DWARF)")
         sys.exit(2)
     print("OK: 符号化成功")
 
