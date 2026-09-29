@@ -13,7 +13,9 @@
 // 后端行为:
 //   - sentry:   崩溃时生成 minidump,经 crashpad_handler 上传到 Sentry 服务(DSN)。
 //               DSN 为空时仅本地落盘,不上传。
-//   - crashpad: 崩溃时生成 minidump 到 database_path,不上传,用户手动取回分析。
+//   - crashpad: 崩溃时生成 minidump 到 database_path;配了 DSN/upload_url 则
+//               由 crashpad_handler 自动上报到该地址,否则只本地落盘,
+//               用户手动取回分析。
 #pragma once
 
 #include <string>
@@ -25,7 +27,13 @@ public:
         // "auto":优先 sentry(若编译了),其次 crashpad。
         std::string backend = "auto";
         // Sentry DSN,如 "http://key@host:9000/1"。为空则 sentry 后端只本地落盘。
+        // crashpad 后端:为空则只本地落盘;非空时自动派生 minidump 上报地址并上传
+        // (见 upload_url)。
         std::string dsn;
+        // crashpad 后端专用上报地址,如 "https://host/api/1/minidump/?sentry_key=key"。
+        // 为空且 dsn 非空时,从 DSN 自动派生 Sentry minidump 上报地址;
+        // 两者都为空时只本地落盘,不上传。
+        std::string upload_url;
         // 崩溃数据库/dump 落盘目录。为空则用 "./crashpad_db"。
         std::string database_path;
         // 发行版本,如 "1.2.2",写入崩溃报告便于区分版本。

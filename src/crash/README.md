@@ -11,7 +11,7 @@ CrashHandler::install(CrashHandler::Options());
 | 后端 | 说明 | 崩溃产物 |
 |------|------|----------|
 | sentry-native | 官方 C/C++ SDK,内嵌 Crashpad,崩溃后上传到自建 Sentry 服务 | minidump + 上传到 Sentry |
-| crashpad 原生 | 直接调 Crashpad API,纯本地落盘 | minidump 到本地目录 |
+| crashpad 原生 | 直接调 Crashpad API,配 DSN 则自动上报,否则纯本地落盘 | minidump 到本地目录/上报到 Sentry |
 
 ## 编译开关(qmake CONFIG)
 
@@ -46,11 +46,35 @@ crashpad 用 getsentry fork 独立构建(与 sentry 内嵌的是同一 fork)。
 ```ini
 [crash]
 backend=auto      # auto/sentry/crashpad
-dsn=              # Sentry DSN,空=只本地落盘不上报
+dsn=              # Sentry DSN,如 http://<key>@host:9000/1;空=只本地落盘不上报
 db_path=          # dump 目录,空=exe 同级 crashpad_db/
 ```
 
 环境变量 `SENTRY_DSN` 优先于配置文件。
+
+## crashpad 后端如何配置上传 dump
+
+crashpad 后端默认只本地落盘(`<db>/reports/*.dmp`),配了 DSN 才会自动上报,
+逻辑与 sentry 后端一致——**配 DSN 就上报,不配就只落盘**:
+
+1. 在 `config.ini [crash]` 里填 `dsn=http://<key>@<host>:<port>/<project_id>`
+   (或设环境变量 `SENTRY_DSN`)。
+2. 后端启动时自动把 DSN 派生为 Sentry minidump 上报地址并传给
+   `crashpad_handler`:
+   `http(s)://<host>[:port]/api/<project_id>/minidump/?sentry_key=<key>`
+3. `crashpad_handler` 还要求数据库层面的上传开关,后端已自动打开
+   (`CrashReportDatabase::GetSettings()->SetUploadsEnabled(true)`);
+   崩溃后 handler 在后台把 `reports/` 里的 dump 以 multipart
+   (`upload_file_minidump` 字段) POST 到该地址。
+4. 若上报地址不是标准 Sentry minidump 端点(如自研收集服务),可直接指定完整
+   URL(代码侧 `CrashHandler::Options::upload_url`,优先级高于 DSN 派生)。
+
+注意:
+- 上传由 `crashpad_handler` 进程在后台完成,不是崩溃瞬间同步发出,实测延迟
+  约 1 分钟;上报失败会在本地保留 dump,下次启动 handler 时重试。
+- 自建 Sentry 服务端需开启 minidump 接收(标准 Sentry 即支持,见 `docker/sentry/README.md`)。
+- 本地验证:`bash src/crash/tests/run_crash_tests.sh` 会起 `3rdparty/mock_sentry.py`,
+  用 DSN 跑 crashpad 后端并断言 mock 收到带 minidump 的上报。
 
 ## 发布注意
 

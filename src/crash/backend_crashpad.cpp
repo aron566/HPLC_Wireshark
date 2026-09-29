@@ -1,7 +1,10 @@
 // backend_crashpad.cpp - crashpad 原生后端(无 Sentry 服务依赖)
 //
-// 崩溃时由 crashpad_handler(进程外)生成 minidump 到 database_path/reports,
-// 不上传。用户手动取回 .dmp,用 minidump 工具分析。
+// 崩溃时由 crashpad_handler(进程外)生成 minidump 到 database_path/reports。
+// 上传:Options::upload_url 非空则 handler 自动上报到该地址;
+//      为空但 dsn 非空时,自动从 Sentry DSN 派生 minidump 上报地址
+//      (http(s)://host/api/<project>/minidump/?sentry_key=<key>);
+//      两者都为空则只本地落盘。
 // 需要 CRASH_HAVE_CRASHPAD 编译宏(由 crash_crashpad.pri 定义)。
 #ifdef CRASH_HAVE_CRASHPAD
 
@@ -33,6 +36,14 @@ std::string handler_path() {
 #else
     return crash_util::join(crash_util::exe_dir(), "crashpad_handler");
 #endif
+}
+
+// DSN "http(s)://<key>@<host>[:port]/<project>" => Sentry minidump 上报地址
+// (逻辑在 crash_util::sentry_dsn_to_minidump_url,此处仅做选择)。
+std::string resolve_upload_url(const CrashHandler::Options& opts) {
+    if (!opts.upload_url.empty())
+        return opts.upload_url;
+    return crash_util::sentry_dsn_to_minidump_url(opts.dsn);
 }
 
 } // namespace
@@ -67,11 +78,20 @@ std::string backend_crashpad_install(const CrashHandler::Options& opts) {
     // 失败时 StartHandler 返回 false,调用方回退。
 #endif
 
+    // url 非空 => handler 自动把 reports 里的 dump 上报到该地址(multipart,
+    // 文件字段名 upload_file_minidump);为空 => 只本地落盘。
+    const std::string url = resolve_upload_url(opts);
+    if (!url.empty()) {
+        // crashpad 要求数据库层面显式打开上传开关,否则 --url 也不会传。
+        crashpad::Settings* settings = database->GetSettings();
+        if (settings)
+            settings->SetUploadsEnabled(true);
+    }
+
     crashpad::CrashpadClient client;
-    // url 为空 => 只本地落盘,不上传
     const bool ok = client.StartHandler(
         handler_path_fp, db_path, db_path,
-        std::string(),   // url
+        url,             // upload url
         std::string(),   // http_proxy
         annotations, arguments,
         true,            // restartable:handler 崩溃后可重启

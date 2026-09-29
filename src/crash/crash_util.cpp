@@ -85,4 +85,26 @@ std::string join(const std::string& a, const std::string& b) {
     return a + sep + b;
 }
 
+std::string sentry_dsn_to_minidump_url(const std::string& dsn) {
+    const std::string::size_type scheme_end = dsn.find("://");
+    if (scheme_end == std::string::npos)
+        return std::string();
+    const std::string scheme = dsn.substr(0, scheme_end);
+    if (scheme != "http" && scheme != "https")
+        return std::string();
+    const std::string::size_type at = dsn.find('@', scheme_end + 3);
+    if (at == std::string::npos)
+        return std::string();
+    const std::string key = dsn.substr(scheme_end + 3, at - scheme_end - 3);
+    const std::string::size_type slash = dsn.rfind('/');
+    if (slash == std::string::npos || slash <= at + 1)
+        return std::string();
+    const std::string host = dsn.substr(at + 1, slash - at - 1);
+    const std::string project = dsn.substr(slash + 1);
+    if (key.empty() || host.empty() || project.empty())
+        return std::string();
+    return scheme + "://" + host + "/api/" + project +
+           "/minidump/?sentry_key=" + key;
+}
+
 } // namespace crash_util

@@ -67,6 +67,75 @@ run_one() {
     ls -la $dumps
 }
 
+# 检查 received/ 里是否有带 minidump 的上报(兼容 crashpad 的 gzip 压缩)
+check_upload_received() {
+    python3 - "$ROOT/3rdparty/received" <<'EOF'
+import os, sys, gzip
+d = sys.argv[1]
+for f in sorted(os.listdir(d)):
+    p = os.path.join(d, f)
+    try:
+        with open(p, 'rb') as fh:
+            body = fh.read()
+    except OSError:
+        continue
+    # 去掉 mock 写的文件头("### PATH: ...\n### AUTH: ...\n\n")
+    body = body.split(b"\n\n", 1)[-1]
+    if b"upload_file_minidump" in body:
+        print(p)
+        sys.exit(0)
+    if body[:2] == b"\x1f\x8b":
+        try:
+            if b"upload_file_minidump" in gzip.decompress(body):
+                print(p + " (gzip)")
+                sys.exit(0)
+        except Exception:
+            pass
+sys.exit(1)
+EOF
+}
+
+# crashpad 后端上传测试:配 DSN,handler 应自动上报到 minidump 端点
+run_upload_test() {
+    local db="$BUILD_DIR/db_crashpad_upload"
+    rm -rf "$db" "$ROOT/3rdparty/received"
+    mkdir -p "$ROOT/3rdparty/received"
+    echo "=== crashpad upload test (DSN -> mock minidump 端点) ==="
+    fuser -k 9000/tcp 2>/dev/null || true
+    sleep 1
+    python3 "$ROOT/3rdparty/mock_sentry.py" 9000 >/tmp/mock_sentry.log 2>&1 &
+    local mock_pid=$!
+    sleep 1
+    set +e
+    (cd "$BUILD_DIR" && SENTRY_DSN="http://testkey@127.0.0.1:9000/1" \
+        ./crash_test_crashpad crashpad "$db")
+    set -e
+    echo "[test] waiting for handler upload (handler 后台上报,约 1 分钟)..."
+    local got=""
+    for i in $(seq 1 150); do
+        got=$(check_upload_received 2>/dev/null)
+        if [ -n "$got" ]; then break; fi
+        sleep 1
+    done
+    kill $mock_pid 2>/dev/null || true
+    if [ -z "$got" ]; then
+        echo "[test] FAIL: mock 未收到带 minidump 的上报"
+        tail -5 /tmp/mock_sentry.log 2>/dev/null || true
+        return 1
+    fi
+    echo "[test] PASS: mock 收到上报: $got"
+    grep -a -o "### PATH: [^ ]*" "${got% (gzip)}" | head -1
+}
+
+# --- DSN -> minidump URL 单元测试(无第三方依赖) ---
+echo "=== dsn url unit test ==="
+g++ -std=c++17 -g -O0 \
+    -I"$ROOT/src/crash" \
+    "$ROOT/src/crash/crash_util.cpp" \
+    "$ROOT/src/crash/tests/test_dsn_url.cpp" \
+    -o "$BUILD_DIR/test_dsn_url"
+"$BUILD_DIR/test_dsn_url"
+
 # --- sentry 后端 ---
 if [ -f "$SENTRY_ROOT/include/sentry.h" ]; then
     # libsentry.a 依赖 crashpad 静态库,按依赖顺序列出
@@ -113,6 +182,7 @@ if [ -f "$CRASHPAD_ROOT/include/crashpad/client/crashpad_client.h" ]; then
         "$CRASHPAD_ROOT/include/crashpad" \
         "$CRASHPAD_ROOT/include/crashpad/mini_chromium"
     run_one crashpad
+    run_upload_test
 else
     echo "SKIP crashpad: $CRASHPAD_ROOT/include/crashpad/client/crashpad_client.h not found"
 fi
