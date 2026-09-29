@@ -96,9 +96,16 @@ build_sentry() {
 build_crashpad() {
     echo "=== building crashpad standalone (client + handler) ==="
     local gen_args=()
-    if [ "$ON_WINDOWS" = "1" ]; then gen_args+=(-G "MinGW Makefiles"); fi
+    local extra_args=()
+    if [ "$ON_WINDOWS" = "1" ]; then
+        gen_args+=(-G "MinGW Makefiles")
+        # Windows 无系统 zlib,用 crashpad 自带的 third_party/zlib(已作 submodule 初始化),
+        # 否则 find_package(ZLIB) 在 configure 阶段直接失败。
+        extra_args+=(-DCRASHPAD_ZLIB_SYSTEM=OFF)
+    fi
     cmake -S "$(to_win_path "$SRC_CRASHPAD")" -B "$(to_win_path "$SRC_CRASHPAD/build")" \
         "${gen_args[@]}" \
+        "${extra_args[@]}" \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DCRASHPAD_ENABLE_INSTALL=ON \
         -DCRASHPAD_ENABLE_INSTALL_DEV=ON
