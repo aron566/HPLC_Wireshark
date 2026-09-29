@@ -60,6 +60,14 @@ jobs:
           choco install nsis -y --no-progress
           choco install pandoc -y --no-progress
 
+      - name: 构建 crashpad 依赖(MinGW)
+        shell: bash
+        run: bash 3rdparty/build_crash_deps.sh crashpad
+
+      - name: crash 模块测试(crashpad 后端 Windows 实测)
+        shell: bash
+        run: bash src/crash/tests/run_crash_tests_win.sh
+
       - name: round-trip 无损验证(bin↔裸hex 往返一致)
         shell: bash
         run: |
@@ -71,6 +79,34 @@ jobs:
       - name: 构建 + 打包
         shell: bash
         run: bash scripts/package_ci.sh "${{ steps.ver.outputs.version }}"
+
+      - name: 冒烟:offscreen 启动,检查无启动期崩溃
+        shell: bash
+        run: |
+          cd release
+          ls BPLC_STA_Monitor.exe crashpad_handler.exe
+          rm -rf crashpad_db
+          set +e
+          timeout 20 ./BPLC_STA_Monitor.exe -platform offscreen
+          code=$?
+          set -e
+          echo "exit=$code (124=被 timeout 正常结束,说明进程存活)"
+          if [ -n "$(find crashpad_db -name '*.dmp' 2>/dev/null | head -1)" ]; then
+            echo "::error::启动期产生崩溃 dump"
+            find crashpad_db -name '*.dmp'
+            exit 1
+          fi
+          echo "冒烟通过:无启动期崩溃"
+
+      - name: 上传 Windows 崩溃测试产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crashpad_windows_test
+          path: |
+            src/crash/tests/build_win/db_crashpad/**/*.dmp
+            src/crash/tests/build_win/crash_test_crashpad.exe
+            src/crash/tests/build_win/symbolize.log
 
       - name: 提取 changelog 作为发布说明(仅 tag 触发)
         if: github.event_name == 'push'

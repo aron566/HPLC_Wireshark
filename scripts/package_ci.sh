@@ -16,6 +16,15 @@ windeployqt --release --no-translations --no-system-d3d-compiler \
     release/BPLC_STA_Monitor.exe
 # 防 config.ini 被打包:用户配置文件永不属于安装包(升级时旧配置保留)
 rm -f release/config.ini
+# crashpad_handler.exe:崩溃转储的进程外组件,必须与主 exe 同目录,
+# 否则 CrashHandler::install() 失败回退(无崩溃转储)。
+HANDLER_BIN="3rdparty/install/crashpad/bin/crashpad_handler.exe"
+if [ -f "$HANDLER_BIN" ]; then
+    cp "$HANDLER_BIN" release/
+    echo "已附带 crashpad_handler.exe"
+else
+    echo "::warning::未找到 $HANDLER_BIN,崩溃转储不可用(后端将回退)"
+fi
 # 附 Wireshark 解析插件(方便用户配合 Wireshark 用)
 mkdir -p release/wireshark_support_plugins
 cp -r wireshark_support_plugins/. release/wireshark_support_plugins/

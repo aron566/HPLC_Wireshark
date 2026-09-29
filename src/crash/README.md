@@ -83,11 +83,23 @@ sentry 上传链路用 `3rdparty/mock_sentry.py` 本地模拟验证(真服务部
 - 符号化链路:真实 crashpad dump 经 `dump_syms` + `minidump_stackwalk`
   符号化到函数名/文件名/行号(如 `level3() [crasher_crashpad.cc : 7]`)
 
+## Windows(在 CI 验证)
+
+- 依赖构建:`bash 3rdparty/build_crash_deps.sh crashpad`
+  (Git Bash + MinGW;crashpad 的 getsentry fork 支持 MinGW,脚本自动源码自举)
+- 崩溃测试:`bash src/crash/tests/run_crash_tests_win.sh`
+  (编译 `crash_test_crashpad.exe`,触发 Access Violation,检查 `db/reports/*.dmp`)
+- 符号化:MinGW 生成 DWARF(无 PDB),不走 breakpad `.sym` 流程,
+  用 `scripts/symbolize_win.py <xxx.dmp> <xxx.exe>`(内部调 MinGW 的 `addr2line`),
+  直接输出函数名与源码行。exe 须带 `-g` 且未 strip。
+- 打包:`scripts/package_ci.sh` 会把 `crashpad_handler.exe` 拷到 exe 同目录;
+  缺失时只告警(后端回退,程序照常启动,无崩溃转储)。
+- 发布包冒烟:CI 里 `BPLC_STA_Monitor.exe -platform offscreen` 跑 20 秒,
+  要求 `release/crashpad_db` 下无 `.dmp`(无启动期崩溃)。
+
 ## 未验证
 
-- Windows 构建与崩溃捕获(无 Windows 环境)
 - 真实 self-hosted Sentry 端到端(本地无 Docker,文档已写,待有资源机器验证)
-- 完整 HPLC_Wireshark 整机崩溃(本地 Qt 6.4.2,工程需 6.5+,待 CI)
 
 ## 崩溃后处理:从 dump 到堆栈
 

@@ -3,15 +3,27 @@
 #
 # 产物统一安装到 3rdparty/install/:
 #   install/sentry/{include,lib,bin}    libsentry.a(+crashpad_client...), sentry.h, crashpad_handler
-#   install/crashpad/{include,lib,bin}  libcrashpad_client.a 等, crashpad 头文件, crashpad_handler
+#   install/crashpad/{include,lib,bin}  libcrashpad_client.a 等, crashpad 头文件, crashpad_handler(.exe)
 #
 # 用法:
 #   ./build_crash_deps.sh [sentry|crashpad|all]   (默认 all)
 #
 # 注意: sentry-native 的 crashpad 后端与独立 crashpad 模块共用同一份源码
 # (3rdparty/sentry-native/external/crashpad),但分别独立构建,互不耦合。
+#
+# 源码自举: 3rdparty/sentry-native 不在仓库里(.gitignore),本脚本在缺失时按
+# SENTRY_NATIVE_REF(固定提交,保证可复现)浅克隆,并初始化 crashpad 构建所需
+# 的嵌套 submodule。可被环境变量覆盖:
+#   SENTRY_NATIVE_REF / SENTRY_NATIVE_URL
+#
+# Windows(Git Bash + MinGW): crashpad 的 getsentry fork 支持 MinGW 构建
+# (见其 README.getsentry.md "MinGW Changes"),本脚本自动切 -G "MinGW Makefiles"。
 set -e
 cd "$(dirname "$0")"
+
+# ---- 可复现版本钉 ----
+SENTRY_NATIVE_REF="${SENTRY_NATIVE_REF:-1578046f0a7922f29b44665bbfc0690aafe743a5}"
+SENTRY_NATIVE_URL="${SENTRY_NATIVE_URL:-https://github.com/getsentry/sentry-native.git}"
 
 JOBS=$(nproc 2>/dev/null || echo 4)
 SRC_SENTRY="$PWD/sentry-native"
@@ -20,32 +32,82 @@ INSTALL="$PWD/install"
 
 WHAT="${1:-all}"
 
+# ---- 平台检测 ----
+ON_WINDOWS=0
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*) ON_WINDOWS=1 ;;
+esac
+
+# 原生 Windows 路径(C:/...)供 CMake(原生 Win32 构建)使用;
+# Git Bash 的 /c/... 写法 CMake 不认。
+to_win_path() {
+    if [ "$ON_WINDOWS" = "1" ]; then
+        cygpath -m "$1"
+    else
+        printf '%s' "$1"
+    fi
+}
+
+# ---- 源码自举 ----
+ensure_source() {
+    if [ ! -f "$SRC_SENTRY/CMakeLists.txt" ]; then
+        echo "=== fetching sentry-native @ ${SENTRY_NATIVE_REF:0:12} ==="
+        git clone --no-checkout "$SENTRY_NATIVE_URL" "$SRC_SENTRY"
+        git -C "$SRC_SENTRY" fetch --depth 1 origin "$SENTRY_NATIVE_REF"
+        git -C "$SRC_SENTRY" checkout "$SENTRY_NATIVE_REF"
+    else
+        echo "=== sentry-native 源码已存在,跳过拉取 ==="
+    fi
+    # crashpad 独立构建需要的 submodule(幂等,已有则跳过)。
+    # 注意:嵌套 submodule 注册在 external/crashpad/.gitmodules,
+    # 必须进到 crashpad 仓库里初始化,顶层仓库不认这些路径。
+    echo "=== 初始化 crashpad submodule ==="
+    git -C "$SRC_SENTRY" submodule update --init --depth 1 external/crashpad
+    git -C "$SRC_CRASHPAD" submodule update --init --depth 1 \
+        third_party/mini_chromium/mini_chromium \
+        third_party/zlib/zlib
+    # 哨兵检查
+    for f in "$SRC_CRASHPAD/CMakeLists.txt" \
+             "$SRC_CRASHPAD/third_party/mini_chromium/mini_chromium/base/files/file_path.h" \
+             "$SRC_CRASHPAD/third_party/zlib/zlib/zlib.h"; do
+        [ -f "$f" ] || { echo "error: 缺失 $f,submodule 初始化失败"; exit 1; }
+    done
+}
+
 build_sentry() {
     echo "=== building sentry-native (backend=crashpad, static) ==="
     # SENTRY_TRANSPORT 可被环境变量覆盖(如无 curl 开发头时用 none 先验证捕获链路)
     local transport="${SENTRY_TRANSPORT:-curl}"
-    cmake -S "$SRC_SENTRY" -B "$SRC_SENTRY/build" \
+    local gen_args=()
+    if [ "$ON_WINDOWS" = "1" ]; then gen_args+=(-G "MinGW Makefiles"); fi
+    cmake -S "$(to_win_path "$SRC_SENTRY")" -B "$(to_win_path "$SRC_SENTRY/build")" \
+        "${gen_args[@]}" \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DBUILD_SHARED_LIBS=OFF \
         -DSENTRY_BACKEND=crashpad \
         -DSENTRY_TRANSPORT="$transport" \
         -DSENTRY_BUILD_TESTS=OFF \
         -DSENTRY_BUILD_EXAMPLES=OFF
-    cmake --build "$SRC_SENTRY/build" --parallel "$JOBS"
-    cmake --install "$SRC_SENTRY/build" --prefix "$INSTALL/sentry"
+    cmake --build "$(to_win_path "$SRC_SENTRY/build")" --parallel "$JOBS"
+    cmake --install "$(to_win_path "$SRC_SENTRY/build")" --prefix "$(to_win_path "$INSTALL/sentry")"
     echo "sentry -> $INSTALL/sentry"
 }
 
 build_crashpad() {
     echo "=== building crashpad standalone (client + handler) ==="
-    cmake -S "$SRC_CRASHPAD" -B "$SRC_CRASHPAD/build" \
+    local gen_args=()
+    if [ "$ON_WINDOWS" = "1" ]; then gen_args+=(-G "MinGW Makefiles"); fi
+    cmake -S "$(to_win_path "$SRC_CRASHPAD")" -B "$(to_win_path "$SRC_CRASHPAD/build")" \
+        "${gen_args[@]}" \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DCRASHPAD_ENABLE_INSTALL=ON \
         -DCRASHPAD_ENABLE_INSTALL_DEV=ON
-    cmake --build "$SRC_CRASHPAD/build" --parallel "$JOBS"
-    cmake --install "$SRC_CRASHPAD/build" --prefix "$INSTALL/crashpad"
+    cmake --build "$(to_win_path "$SRC_CRASHPAD/build")" --parallel "$JOBS"
+    cmake --install "$(to_win_path "$SRC_CRASHPAD/build")" --prefix "$(to_win_path "$INSTALL/crashpad")"
     echo "crashpad -> $INSTALL/crashpad"
 }
+
+ensure_source
 
 case "$WHAT" in
     sentry)   build_sentry ;;
