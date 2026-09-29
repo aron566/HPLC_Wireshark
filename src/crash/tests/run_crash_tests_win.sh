@@ -23,6 +23,13 @@ fi
 command -v g++ >/dev/null 2>&1 || { echo "error: 找不到 g++(MinGW)"; exit 1; }
 command -v addr2line >/dev/null 2>&1 || { echo "error: 找不到 addr2line"; exit 1; }
 
+# MinGW 的 bin 目录进 PATH:测试 exe 与它 spawn 的 crashpad_handler.exe 都是原生
+# Windows 程序,启动时靠 Windows PATH 找 libstdc++-6.dll 等,Git Bash 的 PATH
+# 转换不一定覆盖,显式加上最稳。
+MINGW_BIN=$(dirname "$(command -v g++)")
+export PATH="$MINGW_BIN:$PATH"
+echo "mingw bin: $MINGW_BIN"
+
 mkdir -p "$BUILD_DIR"
 
 echo "=== compiling crash_test_crashpad.exe ==="
@@ -60,12 +67,23 @@ echo "handler: $BUILD_DIR/crashpad_handler.exe"
 
 DB="$BUILD_DIR/db_crashpad"
 rm -rf "$DB"
+# 注意:crash_test_crashpad.exe 是原生 Windows 程序(MinGW 编译,不带 MSYS 路径转换),
+# 传给它的 db 路径必须是 Windows 格式;直接传 /d/a/... 会被当成当前盘下的 \d\a\...,
+# dump 会写到错误位置。
+DB_WIN=$(cygpath -m "$DB")
+echo "db(win path): $DB_WIN"
 echo "=== running crash test (expect Access Violation) ==="
 set +e
-(cd "$BUILD_DIR" && ./crash_test_crashpad.exe crashpad "$DB")
+(cd "$BUILD_DIR" && ./crash_test_crashpad.exe crashpad "$DB_WIN") > "$BUILD_DIR/crash_run.log" 2>&1
 code=$?
 set -e
-echo "[test] exit code: $code (crashed as expected)"
+cat "$BUILD_DIR/crash_run.log"
+echo "[test] exit code: $code"
+if ! grep -q "crashing now" "$BUILD_DIR/crash_run.log"; then
+    echo "[test] FAIL: 测试程序未能到达崩溃点(可能缺 MinGW DLL 或 install 失败)"
+    exit 1
+fi
+echo "[test] 测试程序已崩溃,等待 handler 写 dump"
 
 echo "=== waiting for .dmp ==="
 DMP=""
