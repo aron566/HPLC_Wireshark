@@ -173,6 +173,10 @@ jobs:
         shell: bash
         run: bash scripts/package_linux.sh "${{ steps.ver.outputs.version }}"
 
+      - name: 真实应用崩溃可用性验证(打包产物 offscreen 启动 + SIGSEGV)
+        shell: bash
+        run: bash src/crash/tests/run_app_crash_test.sh
+
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
