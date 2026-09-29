@@ -12,6 +12,10 @@ set -e
 cd "$(dirname "$0")/../../.."
 ROOT="$PWD"
 
+# Windows 控制台默认代码页是 cp1252,python 脚本打印中文会 UnicodeEncodeError;
+# 强制 UTF-8 输出(GitHub Actions 日志 viewer 认 UTF-8)。
+export PYTHONUTF8=1
+
 CRASHPAD_ROOT="$ROOT/3rdparty/install/crashpad"
 BUILD_DIR="$ROOT/src/crash/tests/build_win"
 
