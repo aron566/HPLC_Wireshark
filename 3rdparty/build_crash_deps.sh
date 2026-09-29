@@ -107,9 +107,18 @@ build_sentry() {
     # SENTRY_TRANSPORT 可被环境变量覆盖(如无 curl 开发头时用 none 先验证捕获链路)
     local transport="${SENTRY_TRANSPORT:-curl}"
     local gen_args=()
-    if [ "$ON_WINDOWS" = "1" ]; then gen_args+=(-G "MinGW Makefiles"); fi
+    local extra_args=()
+    if [ "$ON_WINDOWS" = "1" ]; then
+        gen_args+=(-G "MinGW Makefiles")
+        # Windows 无系统 zlib,sentry 内嵌的 crashpad 同样用自带 third_party/zlib,
+        # 否则 find_package(ZLIB) 在 configure 阶段直接失败(CI #30 实测)。
+        # 另:跳过 WER 模块(Windows Error Reporting 集成 DLL),它与 MinGW 的
+        # werapi.h 存在头文件声明冲突,且本地 dump 流程不需要它。
+        extra_args+=(-DCRASHPAD_ZLIB_SYSTEM=OFF -DCRASHPAD_ENABLE_WER=OFF)
+    fi
     cmake -S "$(to_win_path "$SRC_SENTRY")" -B "$(to_win_path "$SRC_SENTRY/build")" \
         "${gen_args[@]}" \
+        "${extra_args[@]}" \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DBUILD_SHARED_LIBS=OFF \
         -DSENTRY_BACKEND=crashpad \
