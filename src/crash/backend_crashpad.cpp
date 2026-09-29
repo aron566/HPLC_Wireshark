@@ -16,6 +16,7 @@
 #include "crashpad/client/crashpad_client.h"
 #include "crashpad/client/settings.h"
 
+#include <cstdlib>
 #include <map>
 #include <string>
 #include <vector>
@@ -47,6 +48,17 @@ std::string resolve_upload_url(const CrashHandler::Options& opts) {
 }
 
 } // namespace
+
+// sentry-native 同款做法:从环境变量取代理地址传给 handler。
+// 企业代理环境下不传代理会导致 handler 直连上传失败。
+std::string resolve_proxy(const std::string& url) {
+    const char* env = nullptr;
+    if (url.compare(0, 8, "https://") == 0)
+        env = std::getenv("https_proxy");
+    else if (url.compare(0, 7, "http://") == 0)
+        env = std::getenv("http_proxy");
+    return env ? env : "";
+}
 
 std::string backend_crashpad_install(const CrashHandler::Options& opts) {
     if (g_installed)
@@ -92,7 +104,7 @@ std::string backend_crashpad_install(const CrashHandler::Options& opts) {
     const bool ok = client.StartHandler(
         handler_path_fp, db_path, db_path,
         url,             // upload url
-        std::string(),   // http_proxy
+        resolve_proxy(url), // http_proxy:从环境变量取,代理环境下上传必需
         annotations, arguments,
         true,            // restartable:handler 崩溃后可重启
         true);           // asynchronous_start
