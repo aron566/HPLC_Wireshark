@@ -78,7 +78,9 @@ ensure_source() {
     # Windows/MinGW 构建时用它跳过 WER 模块(与 MinGW werapi.h 冲突,且不需要)。
     if ! grep -q "CRASHPAD_ENABLE_WER" "$SRC_CRASHPAD/handler/CMakeLists.txt"; then
         echo "=== 应用 crashpad 本地 patch: disable-wer ==="
-        git -C "$SRC_CRASHPAD" apply "$PWD/patches/crashpad-disable-wer.patch"
+        # --ignore-whitespace:Windows runner 上 git 默认 autocrlf=true,checkout 出 CRLF
+        # 换行,而 patch 是 LF,不加这个上下文匹配失败。
+        git -C "$SRC_CRASHPAD" apply --ignore-whitespace "$PWD/patches/crashpad-disable-wer.patch"
     else
         echo "=== crashpad 本地 patch 已应用,跳过 ==="
     fi
