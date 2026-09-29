@@ -105,6 +105,31 @@ build_sentry() {
     echo "sentry -> $INSTALL/sentry"
 }
 
+# Windows:准备 MASM 兼容汇编器 uasm,crashpad 的 util/*.asm 需要它。
+# MinGW 自带 as 不认 MASM 语法,crashpad 的 CMake 在 MinGW 下会回退找 uasm。
+ensure_uasm() {
+    [ "$ON_WINDOWS" = "1" ] || return 0
+    local tools_dir="$PWD/tools"
+    # 注:不能用 command -v uasm 做存在性校验——Git Bash 下它能命中 uasm.exe,
+    # 但 Linux shell 只认无扩展名的 uasm;直接判文件最可靠。
+    if command -v uasm >/dev/null 2>&1 || [ -f "$tools_dir/uasm.exe" ]; then
+        echo "=== uasm 已就绪,跳过下载 ==="
+    else
+        local url="https://github.com/Terraspace/UASM/releases/download/v2.57r/uasm257_x64.zip"
+        mkdir -p "$tools_dir"
+        echo "=== 下载 uasm v2.57 (MASM 兼容汇编器,供 crashpad .asm 使用) ==="
+        curl -sSL -o "$tools_dir/uasm.zip" "$url"
+        ( cd "$tools_dir" && unzip -o -q uasm.zip uasm64.exe && cp -f uasm64.exe uasm.exe )
+        rm -f "$tools_dir/uasm.zip"
+        chmod +x "$tools_dir/uasm.exe" 2>/dev/null || true
+    fi
+    [ -f "$tools_dir/uasm.exe" ] || { echo "error: uasm 安装失败"; exit 1; }
+    # PATH 必须同时给 bash 格式和 Windows 格式:最终调 uasm 的是原生
+    # mingw32-make(经 CreateProcess 搜 PATH),认不了 /d/... 这种 bash 路径。
+    export PATH="$tools_dir:$(to_win_path "$tools_dir"):$PATH"
+    echo "=== uasm 就绪: $tools_dir/uasm.exe ==="
+}
+
 build_crashpad() {
     echo "=== building crashpad standalone (client + handler) ==="
     local gen_args=()
@@ -116,6 +141,7 @@ build_crashpad() {
         # 另:跳过 WER 模块(Windows Error Reporting 集成 DLL),它与 MinGW 的 werapi.h
         # 存在头文件声明冲突,且本地 dump 流程不需要它。
         extra_args+=(-DCRASHPAD_ZLIB_SYSTEM=OFF -DCRASHPAD_ENABLE_WER=OFF)
+        ensure_uasm
     fi
     cmake -S "$(to_win_path "$SRC_CRASHPAD")" -B "$(to_win_path "$SRC_CRASHPAD/build")" \
         "${gen_args[@]}" \
