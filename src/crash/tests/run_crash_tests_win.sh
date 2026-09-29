@@ -107,6 +107,9 @@ ls -la "$DMP"
 echo "=== 结构校验 ==="
 python3 "$ROOT/3rdparty/check_minidump.py" "$DMP"
 
+# addr2line/objdump/nm 都是原生 Windows 程序,路径必须转 Windows 格式
+EXE_WIN=$(cygpath -m "$BUILD_DIR/crash_test_crashpad.exe")
+DMP_WIN=$(cygpath -m "$DMP")
 echo "=== DWARF 诊断 ==="
 set +e
 echo "--- section 列表(看有没有 .debug_info) ---"
@@ -123,10 +126,7 @@ fi
 set -e
 
 echo "=== 符号化(addr2line) ==="
-# addr2line.exe 是原生 Windows 程序,exe 路径必须转 Windows 格式,否则它打不开文件
-# 直接回 ??(和"地址无调试信息"是同一种输出,靠路径先排除)。
-EXE_WIN=$(cygpath -m "$BUILD_DIR/crash_test_crashpad.exe")
-DMP_WIN=$(cygpath -m "$DMP")
+# (EXE_WIN/DMP_WIN 已在 DWARF 诊断段定义)
 python3 "$ROOT/scripts/symbolize_win.py" "$DMP_WIN" "$EXE_WIN" | tee "$BUILD_DIR/symbolize.log"
 grep -q "do_crash" "$BUILD_DIR/symbolize.log" || {
     echo "[test] FAIL: 符号化结果未定位到 do_crash"
