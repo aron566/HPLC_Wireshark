@@ -30,6 +30,11 @@ RESOURCES += BPLC_STA_Monitor.qrc
 # 默认启用 crashpad 后端(本地落盘,无外部服务依赖)。
 # 关闭默认: qmake "CONFIG-=crash_crashpad";改用 sentry: qmake "CONFIG+=crash_sentry"。
 CONFIG += crash_crashpad
+# 崩溃后端需要符号化:release 也带 -g,打包时再分离出 .sym(见 scripts/package_linux.sh)
+CONFIG(crash_crashpad)|CONFIG(crash_sentry) {
+    QMAKE_CXXFLAGS_RELEASE += -g
+    QMAKE_CFLAGS_RELEASE += -g
+}
 include(src/updater/updater.pri)
 include(src/common/common.pri)
 include(src/protocol/protocol.pri)

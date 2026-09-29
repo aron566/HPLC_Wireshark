@@ -141,11 +141,15 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: BPLC_STA_Monitor_linux_x86_64
-          path: dist/BPLC_STA_Monitor_v*_linux_x86_64.tar.gz
+          path: |
+            dist/BPLC_STA_Monitor_v*_linux_x86_64.tar.gz
+            dist/BPLC_STA_Monitor_v*_linux_x86_64_symbols.tar.gz
 
       - name: 传 asset 到 Release(仅 tag 触发)
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          files: dist/BPLC_STA_Monitor_v*_linux_x86_64.tar.gz
+          files: |
+            dist/BPLC_STA_Monitor_v*_linux_x86_64.tar.gz
+            dist/BPLC_STA_Monitor_v*_linux_x86_64_symbols.tar.gz

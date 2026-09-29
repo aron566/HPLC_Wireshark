@@ -68,4 +68,20 @@ mkdir -p dist
 PKG="dist/BPLC_STA_Monitor_v${VER}_linux_${ARCH}.tar.gz"
 tar -czf "$PKG" -C AppDir .
 ls -la "$PKG"
+
+echo "== 5/5 生成符号包(供崩溃 dump 符号化,见 scripts/symbolize.sh)"
+if [ ! -x 3rdparty/install/symtools/dump_syms ]; then
+    bash 3rdparty/build_sym_tools.sh
+fi
+SYMDIR="symbols_tmp/BPLC_STA_Monitor"
+SYMFILE=$(mktemp)
+3rdparty/install/symtools/dump_syms build_linux/BPLC_STA_Monitor > "$SYMFILE"
+HASH=$(awk 'NR==1{print $4}' "$SYMFILE")
+mkdir -p "$SYMDIR/$HASH"
+mv "$SYMFILE" "$SYMDIR/$HASH/BPLC_STA_Monitor.sym"
+SYMPKG="dist/BPLC_STA_Monitor_v${VER}_linux_${ARCH}_symbols.tar.gz"
+tar -czf "$SYMPKG" -C symbols_tmp .
+rm -rf symbols_tmp
+ls -la "$SYMPKG"
 echo "DONE: $PKG"
+echo "DONE: $SYMPKG (符号包,随版本存档,分析 dump 时用)"
