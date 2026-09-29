@@ -65,13 +65,23 @@ ensure_source() {
     git -C "$SRC_SENTRY" submodule update --init --depth 1 external/crashpad
     git -C "$SRC_CRASHPAD" submodule update --init --depth 1 \
         third_party/mini_chromium/mini_chromium \
-        third_party/zlib/zlib
+        third_party/zlib/zlib \
+        third_party/lss/lss
     # 哨兵检查
     for f in "$SRC_CRASHPAD/CMakeLists.txt" \
              "$SRC_CRASHPAD/third_party/mini_chromium/mini_chromium/base/files/file_path.h" \
-             "$SRC_CRASHPAD/third_party/zlib/zlib/zlib.h"; do
+             "$SRC_CRASHPAD/third_party/zlib/zlib/zlib.h" \
+             "$SRC_CRASHPAD/third_party/lss/lss/linux_syscall_support.h"; do
         [ -f "$f" ] || { echo "error: 缺失 $f,submodule 初始化失败"; exit 1; }
     done
+    # 打上本地 patch(幂等):给 crashpad 加 CRASHPAD_ENABLE_WER 开关,
+    # Windows/MinGW 构建时用它跳过 WER 模块(与 MinGW werapi.h 冲突,且不需要)。
+    if ! grep -q "CRASHPAD_ENABLE_WER" "$SRC_CRASHPAD/handler/CMakeLists.txt"; then
+        echo "=== 应用 crashpad 本地 patch: disable-wer ==="
+        git -C "$SRC_CRASHPAD" apply "$PWD/patches/crashpad-disable-wer.patch"
+    else
+        echo "=== crashpad 本地 patch 已应用,跳过 ==="
+    fi
 }
 
 build_sentry() {
@@ -101,7 +111,9 @@ build_crashpad() {
         gen_args+=(-G "MinGW Makefiles")
         # Windows 无系统 zlib,用 crashpad 自带的 third_party/zlib(已作 submodule 初始化),
         # 否则 find_package(ZLIB) 在 configure 阶段直接失败。
-        extra_args+=(-DCRASHPAD_ZLIB_SYSTEM=OFF)
+        # 另:跳过 WER 模块(Windows Error Reporting 集成 DLL),它与 MinGW 的 werapi.h
+        # 存在头文件声明冲突,且本地 dump 流程不需要它。
+        extra_args+=(-DCRASHPAD_ZLIB_SYSTEM=OFF -DCRASHPAD_ENABLE_WER=OFF)
     fi
     cmake -S "$(to_win_path "$SRC_CRASHPAD")" -B "$(to_win_path "$SRC_CRASHPAD/build")" \
         "${gen_args[@]}" \

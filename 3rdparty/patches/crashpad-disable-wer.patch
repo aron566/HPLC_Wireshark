@@ -1,0 +1,18 @@
+diff --git a/handler/CMakeLists.txt b/handler/CMakeLists.txt
+index 7e4ab7b..dc8d051 100644
+--- a/handler/CMakeLists.txt
++++ b/handler/CMakeLists.txt
+@@ -128,7 +128,12 @@ if(NOT IOS)
+     )
+ endif()
+ 
+-if (WIN32)
++# WER module (Windows Error Reporting integration DLL) conflicts with
++# MinGW's werapi.h and is not needed for the local-dump flow, so add a
++# switch to allow skipping it.
++option(CRASHPAD_ENABLE_WER "Build the Crashpad WER module (Windows Error Reporting integration)" ON)
++
++if (WIN32 AND CRASHPAD_ENABLE_WER)
+     add_library(crashpad_wer SHARED
+         win/wer/crashpad_wer.cc
+         win/wer/crashpad_wer.h
