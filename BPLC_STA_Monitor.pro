@@ -28,8 +28,12 @@ RESOURCES += BPLC_STA_Monitor.qrc
 #   protocol <- app
 #   crash   <- 无依赖(纯 C++,与业务解耦;后端由 CONFIG+=crash_sentry/crash_crashpad 选择)
 # 默认启用 crashpad 后端(本地落盘,无外部服务依赖)。
-# 关闭默认: qmake "CONFIG-=crash_crashpad";改用 sentry: qmake "CONFIG+=crash_sentry"。
-CONFIG += crash_crashpad
+# 关闭默认: qmake "CONFIG+=crash_no_default";改用 sentry: qmake "CONFIG+=crash_no_default crash_sentry"。
+# 注意:不能用 qmake "CONFIG-=crash_crashpad" 来关默认 —— 命令行 -= 在 .pro
+# 求值前处理,删不掉下面这行默认加上的开关,crash.pri 的 contains() 照样看到它
+# (2026-09-30 实测:CI 矩阵 none/sentry-only 组合因此实际编进了 crashpad)。
+# 所以默认改用"可退出的默认":命令行 += 的标记在 .pro 求值时可见。
+!contains(CONFIG, crash_no_default): CONFIG += crash_crashpad
 # 崩溃后端需要符号化:release 也带 -g,打包时再分离出 .sym(见 scripts/package_linux.sh)
 CONFIG(crash_crashpad)|CONFIG(crash_sentry) {
     QMAKE_CXXFLAGS_RELEASE += -g

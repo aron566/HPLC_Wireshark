@@ -15,18 +15,21 @@ CrashHandler::install(CrashHandler::Options());
 
 ## 编译开关(qmake CONFIG)
 
-BPLC_STA_Monitor.pro **默认启用 crashpad**(`CONFIG += crash_crashpad`),直接 qmake 即可。
+BPLC_STA_Monitor.pro **默认启用 crashpad**。关闭默认用
+`CONFIG+=crash_no_default`(不要用 `CONFIG-=crash_crashpad`:
+qmake 命令行的 `-=` 在 .pro 求值前处理,删不掉 .pro 里默认加上的开关,
+`contains()` 照样看到它,2026-09-30 实测 CI 矩阵因此翻车)。
 显式控制:
 
 ```bash
 # 只编 sentry(需先关掉默认的 crashpad)
-qmake BPLC_STA_Monitor.pro "CONFIG-=crash_crashpad" "CONFIG+=crash_sentry"
+qmake BPLC_STA_Monitor.pro "CONFIG+=crash_no_default" "CONFIG+=crash_sentry"
 # 只编 crashpad(默认,不用加参数)
 qmake BPLC_STA_Monitor.pro
 # 两个都编(编译期可共存;运行时按 backend 互斥二选一,auto 时优先 sentry)
 qmake BPLC_STA_Monitor.pro "CONFIG+=crash_sentry"
 # 都不编(CrashHandler::install 返回空)
-qmake BPLC_STA_Monitor.pro "CONFIG-=crash_crashpad"
+qmake BPLC_STA_Monitor.pro "CONFIG+=crash_no_default"
 ```
 
 ## 第三方依赖构建
@@ -118,8 +121,12 @@ sentry 上传链路用 `3rdparty/mock_sentry.py` 本地模拟验证(真服务部
 
 - sentry 后端:SIGSEGV -> .dmp 生成 -> gzip multipart 上传到 mock,带 `upload_file_minidump`
 - crashpad 后端:SIGSEGV -> .dmp 本地落盘
-- App 四种编译组合(default/sentry-only/both/none)在 CI 矩阵中构建、冒烟、
-  崩溃捕获全过;带后端的组合逐一符号化定位到崩溃处
+- App 四种编译组合(default/sentry-only/both/none)的 CI 矩阵
+  (`app-config-matrix` job):2026-09-30 首跑 24/25 通过,挂在 `none` 组合——
+  根因是旧脚本用 `CONFIG-=crash_crashpad` 关默认,实际关不掉(见"编译开关"节),
+  `none` 编出来仍带 crashpad,崩溃后有 dump,测试正确判 FAIL;
+  `sentry-only` 当时实际编进了双后端(测试只验了 sentry 路径,侥幸通过)。
+  已改用 `CONFIG+=crash_no_default` 方案,待重新跑 CI 验证,全绿前不算通过
 - 失败路径 5 项全过
 - dump 经 `check_minidump.py` 确认为有效 minidump(含 Exception/ModuleList 等关键流)
 - 符号化链路:真实发布包 dump 经 `dump_syms` + `minidump_stackwalk`

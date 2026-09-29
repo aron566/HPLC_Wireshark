@@ -3,9 +3,13 @@
 #
 # 验证 BPLC_STA_Monitor.pro 的 qmake CONFIG 组合:
 #   default      无附加 CONFIG(.pro 默认 CONFIG+=crash_crashpad) → 测 crashpad
-#   sentry-only  CONFIG-=crash_crashpad CONFIG+=crash_sentry     → 测 sentry
+#   sentry-only  CONFIG+=crash_no_default CONFIG+=crash_sentry   → 测 sentry
 #   both         CONFIG+=crash_sentry                            → 测 sentry + crashpad
-#   none         CONFIG-=crash_crashpad                          → 无后端
+#   none         CONFIG+=crash_no_default                        → 无后端
+#
+# 注意:不要用 CONFIG-=crash_crashpad 来关默认。qmake 命令行的 -= 在 .pro
+# 求值前处理,删不掉 .pro 里默认加上的开关,crash.pri 的 contains() 照样看到它
+# (2026-09-30 实测).关闭默认必须用 CONFIG+=crash_no_default(见 .pro 注释)。
 #
 # 每种组合断言:
 #   1. qmake + make 构建成功
@@ -185,9 +189,9 @@ run_combo() {
 }
 
 run_combo default     ""                                            "crashpad"
-run_combo sentry-only "CONFIG-=crash_crashpad CONFIG+=crash_sentry" "sentry"
+run_combo sentry-only "CONFIG+=crash_no_default CONFIG+=crash_sentry" "sentry"
 run_combo both        "CONFIG+=crash_sentry"                         "sentry crashpad"
-run_combo none        "CONFIG-=crash_crashpad"                       ""
+run_combo none        "CONFIG+=crash_no_default"                       ""
 
 echo "=== App 编译组合矩阵: PASS=$PASS FAIL=$FAIL ==="
 [ "$FAIL" -eq 0 ]
