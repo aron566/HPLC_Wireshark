@@ -34,11 +34,24 @@ cp build_linux/BPLC_STA_Monitor AppDir/usr/bin/
 cp 3rdparty/install/crashpad/bin/crashpad_handler AppDir/usr/bin/
 chmod +x AppDir/usr/bin/crashpad_handler
 # 默认配置文件模板(用户首次运行可复制为 config.ini)
-cp config.ini AppDir/usr/bin/config.ini.example 2>/dev/null || true
-# 附 Wireshark 解析插件
+if [ -f config.ini ]; then
+    cp config.ini AppDir/usr/bin/config.ini.example
+else
+    # 仓库无 config.ini 时生成最小模板,避免静默缺失
+    cat > AppDir/usr/bin/config.ini.example <<'EOF'
+# BPLC STA Monitor 配置模板:复制为 config.ini 后按需修改
+# [crash]
+# dsn = https://xxx@sentry.io/xxx   ; sentry 上报 DSN(可选,不填则仅本地落盘)
+EOF
+fi
+# 附 Wireshark 解析插件(白名单:只收用户可用的插件与说明,排除测试数据/生成器/开发文档)
 mkdir -p AppDir/usr/share/bplc_sta_monitor/wireshark_support_plugins
-cp -r wireshark_support_plugins/. AppDir/usr/share/bplc_sta_monitor/wireshark_support_plugins/
-rm -f AppDir/usr/share/bplc_sta_monitor/wireshark_support_plugins/*.c
+WS_PLUGINS="wireshark_support_plugins"
+for f in "$WS_PLUGINS"/packet-*.lua "$WS_PLUGINS"/bplc_serial_extcap.py \
+         "$WS_PLUGINS"/bin2pcap.py "$WS_PLUGINS"/serial2pcap.py \
+         "$WS_PLUGINS"/README.md "$WS_PLUGINS"/README_EN.md; do
+    [ -f "$f" ] && cp "$f" AppDir/usr/share/bplc_sta_monitor/wireshark_support_plugins/
+done
 # ldd 收集所有 .so 依赖(含 Qt6)
 ldd AppDir/usr/bin/BPLC_STA_Monitor | grep -o '/[^ ]*\.so[^ ]*' | sort -u | while read -r lib; do
     cp -L "$lib" AppDir/usr/lib/ 2>/dev/null || true
@@ -62,6 +75,43 @@ export QT_PLUGIN_PATH="$HERE/../lib/qt6/plugins"
 exec "$HERE/BPLC_STA_Monitor" "$@"
 EOF
 chmod +x AppDir/usr/bin/run.sh
+
+echo "== 3.5/4 包级说明文档与用户手册"
+# 包根 README:用户解压后第一眼看到的使用说明
+cat > AppDir/README.md <<EOF
+# BPLC STA Monitor v${VER} (Linux x86_64)
+
+BPLC/HPLC 协议 STA 报文监控上位机。
+
+## 快速开始
+
+\`\`\`bash
+tar -xzf BPLC_STA_Monitor_v${VER}_linux_${ARCH}.tar.gz
+cd usr/bin
+./run.sh
+\`\`\`
+
+## 目录说明
+
+- \`usr/bin/BPLC_STA_Monitor\` — 主程序(请经 \`run.sh\` 启动,勿直接运行)
+- \`usr/bin/run.sh\` — 启动器(设置库路径与 Qt 插件路径)
+- \`usr/bin/crashpad_handler\` — 崩溃转储辅助进程(须与主程序同目录,勿删除)
+- \`usr/bin/config.ini.example\` — 配置模板,复制为 \`config.ini\` 后按需修改
+- \`usr/lib/\` — Qt6 及第三方运行时库
+- \`usr/share/bplc_sta_monitor/wireshark_support_plugins/\` — Wireshark 解析插件
+  (\`packet-*.lua\` 放 Wireshark 插件目录,\`bplc_serial_extcap.py\` 为 extcap 抓包接口)
+- \`docs/\` — 用户手册(中英文)
+
+## 详细文档
+
+- \`docs/USER_MANUAL_zh-CN.md\` — 中文使用说明书
+- \`docs/USER_MANUAL_en.md\` — English User Manual
+EOF
+# 用户手册(中英文)随包
+mkdir -p AppDir/docs
+for m in docs/USER_MANUAL_zh-CN.md docs/USER_MANUAL_en.md; do
+    [ -f "$m" ] && cp "$m" AppDir/docs/
+done
 
 echo "== 4/4 打包 tar.gz"
 mkdir -p dist
