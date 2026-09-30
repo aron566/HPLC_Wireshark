@@ -40,7 +40,7 @@ PluginManager::~PluginManager() {
         if (rt->socket) {
             // 优雅退出
             QByteArray p;
-            sendMessage(rt, static_cast<quint8>(plugin_ipc::MsgType::Shutdown), p);
+            send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::Shutdown), p);
             rt->socket->flush();
         }
         if (rt->process) {
@@ -59,9 +59,10 @@ void PluginManager::loadAll(const QString& plugins_dir) {
     for (const QString& sub : d.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
         const PluginManifest m = read_plugin_manifest(d.filePath(sub));
         if (!m.valid) continue;  // 无效清单跳过(可日志)
-        if (m.runtime != QStringLiteral("native")) continue;  // Phase1 仅 native
+        if (m.runtime != QStringLiteral("native")
+            && m.runtime != QStringLiteral("js")) continue;  // Phase2: native/js
         if (m_plugins.contains(m.protocol_id)) continue;      // 重复协议 id
-        startPlugin(m);
+        start_plugin(m);
     }
 }
 
@@ -69,7 +70,7 @@ QStringList PluginManager::pluginProtocolIds() const {
     return m_plugins.keys();
 }
 
-bool PluginManager::isPluginProtocol(const QString& protocol_id) const {
+bool PluginManager::is_plugin_protocol(const QString& protocol_id) const {
     auto it = m_plugins.find(protocol_id);
     return it != m_plugins.end() && (*it)->ready && !(*it)->disabled;
 }
@@ -80,7 +81,7 @@ static QString hostBinaryPath() {
          + QStringLiteral("/bplc-plugin-host");
 }
 
-bool PluginManager::startPlugin(const PluginManifest& m) {
+bool PluginManager::start_plugin(const PluginManifest& m) {
     auto* rt = new PluginRuntime;
     rt->manifest = m;
     const QString sock_name = plugin_ipc::socketName(m.name);
@@ -93,16 +94,16 @@ bool PluginManager::startPlugin(const PluginManifest& m) {
     }
     const QString pid = m.protocol_id;
     connect(rt->server, &QLocalServer::newConnection,
-            this, [this, pid]() { onNewConnection(pid); });
+            this, [this, pid]() { on_new_connection(pid); });
 
     rt->process = new QProcess(this);
     connect(rt->process,
             QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this, pid](int code, QProcess::ExitStatus) {
-                onProcessFinished(pid, code);
+                on_process_finished(pid, code);
             });
     connect(rt->process, &QProcess::errorOccurred,
-            this, [this, pid]() { onProcessError(pid); });
+            this, [this, pid]() { on_process_error(pid); });
 
     rt->process->start(hostBinaryPath(),
         {QStringLiteral("--socket"), sock_name,
@@ -115,20 +116,20 @@ bool PluginManager::startPlugin(const PluginManifest& m) {
     return true;
 }
 
-void PluginManager::onNewConnection(const QString& plugin_id) {
+void PluginManager::on_new_connection(const QString& plugin_id) {
     auto it = m_plugins.find(plugin_id);
     if (it == m_plugins.end()) return;
     PluginRuntime* rt = *it;
     rt->socket = rt->server->nextPendingConnection();
     connect(rt->socket, &QLocalSocket::readyRead,
-            this, [this, plugin_id]() { onHostReadyRead(plugin_id); });
+            this, [this, plugin_id]() { on_host_ready_read(plugin_id); });
     connect(rt->socket, &QLocalSocket::disconnected,
             this, [this, plugin_id]() {
-                disablePlugin(plugin_id, QStringLiteral("host disconnected"));
+                disable_plugin(plugin_id, QStringLiteral("host disconnected"));
             });
 }
 
-void PluginManager::onHostReadyRead(const QString& plugin_id) {
+void PluginManager::on_host_ready_read(const QString& plugin_id) {
     auto it = m_plugins.find(plugin_id);
     if (it == m_plugins.end() || !(*it)->socket) return;
     PluginRuntime* rt = *it;
@@ -145,11 +146,11 @@ void PluginManager::onHostReadyRead(const QString& plugin_id) {
         ds.setVersion(plugin_ipc::kStreamVersion);
         quint8 t = 0;
         ds >> t;
-        handleMessage(plugin_id, t, ds);
+        handle_message(plugin_id, t, ds);
     }
 }
 
-void PluginManager::handleMessage(const QString& plugin_id, quint8 type,
+void PluginManager::handle_message(const QString& plugin_id, quint8 type,
                                   QDataStream& ds) {
     auto it = m_plugins.find(plugin_id);
     if (it == m_plugins.end()) return;
@@ -166,16 +167,16 @@ void PluginManager::handleMessage(const QString& plugin_id, quint8 type,
                      && (proto == rt->manifest.protocol_id);
         o << ok;
         o << (ok ? QString() : QStringLiteral("api_version/protocol mismatch"));
-        sendMessage(rt, static_cast<quint8>(plugin_ipc::MsgType::HelloAck), p);
+        send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::HelloAck), p);
         if (ok) {
             rt->ready = true;
             rt->last_pong_ms = QDateTime::currentMSecsSinceEpoch();
             // 注册到解析器工厂(插件协议 id → 代理)
             const QString pid = rt->manifest.protocol_id;
             register_parser(pid, [pid]() { return make_plugin_parser(pid); });
-            emit pluginStatusChanged(plugin_id, QStringLiteral("ready"));
+            emit plugin_status_changed(plugin_id, QStringLiteral("ready"));
         } else {
-            disablePlugin(plugin_id, QStringLiteral("handshake failed"));
+            disable_plugin(plugin_id, QStringLiteral("handshake failed"));
         }
         break;
     }
@@ -195,7 +196,7 @@ void PluginManager::handleMessage(const QString& plugin_id, quint8 type,
     }
 }
 
-void PluginManager::sendMessage(PluginRuntime* rt, quint8 type,
+void PluginManager::send_message(PluginRuntime* rt, quint8 type,
                                 const QByteArray& payload) {
     if (!rt->socket) return;
     QByteArray frame;
@@ -207,7 +208,7 @@ void PluginManager::sendMessage(PluginRuntime* rt, quint8 type,
     rt->socket->flush();
 }
 
-bool PluginManager::parseViaPlugin(const QString& protocol_id,
+bool PluginManager::parse_via_plugin(const QString& protocol_id,
                                    const BplcFrame& frame, MsduState& msdu,
                                    const ParseFilter& filter,
                                    ParseResult* result) {
@@ -223,7 +224,7 @@ bool PluginManager::parseViaPlugin(const QString& protocol_id,
     QDataStream o(&payload, QIODevice::WriteOnly);
     o.setVersion(plugin_ipc::kStreamVersion);
     o << seq << frame << msdu << filter;
-    sendMessage(rt, static_cast<quint8>(plugin_ipc::MsgType::ParseRequest), payload);
+    send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::ParseRequest), payload);
 
     // 阻塞等待响应(worker 线程调用,不阻塞 UI)
     QByteArray resp_buf;
@@ -270,11 +271,11 @@ bool PluginManager::parseViaPlugin(const QString& protocol_id,
         r.accept = false;
         r.reject_reason = QStringLiteral("plugin parse timeout/crash");
         // 超时很可能意味着 host 挂了,禁用插件
-        // 注意:不能在 worker 线程直接调 disablePlugin(涉及信号),标记即可
+        // 注意:不能在 worker 线程直接调 disable_plugin(涉及信号),标记即可
         rt->disabled = true;
         rt->disable_reason = r.reject_reason;
         QMetaObject::invokeMethod(this, [this, protocol_id]() {
-            emit pluginStatusChanged(protocol_id, QStringLiteral("timeout-disabled"));
+            emit plugin_status_changed(protocol_id, QStringLiteral("timeout-disabled"));
         }, Qt::QueuedConnection);
         return false;
     }
@@ -283,22 +284,22 @@ bool PluginManager::parseViaPlugin(const QString& protocol_id,
     return true;
 }
 
-void PluginManager::onProcessFinished(const QString& plugin_id, int code) {
+void PluginManager::on_process_finished(const QString& plugin_id, int code) {
     Q_UNUSED(code);
     auto it = m_plugins.find(plugin_id);
     if (it == m_plugins.end()) return;
     PluginRuntime* rt = *it;
     if (!rt->disabled) {
         // 非预期退出(未主动禁用):视为崩溃
-        disablePlugin(plugin_id, QStringLiteral("host process exited unexpectedly"));
+        disable_plugin(plugin_id, QStringLiteral("host process exited unexpectedly"));
     }
 }
 
-void PluginManager::onProcessError(const QString& plugin_id) {
-    disablePlugin(plugin_id, QStringLiteral("host process error"));
+void PluginManager::on_process_error(const QString& plugin_id) {
+    disable_plugin(plugin_id, QStringLiteral("host process error"));
 }
 
-void PluginManager::disablePlugin(const QString& plugin_id,
+void PluginManager::disable_plugin(const QString& plugin_id,
                                   const QString& reason) {
     auto it = m_plugins.find(plugin_id);
     if (it == m_plugins.end() || (*it)->disabled) return;
@@ -307,7 +308,7 @@ void PluginManager::disablePlugin(const QString& plugin_id,
     rt->disable_reason = reason;
     rt->ready = false;
     unregister_parser(rt->manifest.protocol_id);
-    emit pluginStatusChanged(plugin_id, QStringLiteral("disabled: ") + reason);
+    emit plugin_status_changed(plugin_id, QStringLiteral("disabled: ") + reason);
 }
 
 void PluginManager::checkHeartbeats() {
@@ -322,10 +323,10 @@ void PluginManager::checkHeartbeats() {
             QDataStream o(&p, QIODevice::WriteOnly);
             o.setVersion(plugin_ipc::kStreamVersion);
             o << ++rt->seq;
-            sendMessage(rt, static_cast<quint8>(plugin_ipc::MsgType::Ping), p);
+            send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::Ping), p);
         }
         if (now - rt->last_pong_ms > kHeartbeatTimeoutMs) {
-            disablePlugin(it.key(), QStringLiteral("heartbeat timeout"));
+            disable_plugin(it.key(), QStringLiteral("heartbeat timeout"));
         }
     }
 }

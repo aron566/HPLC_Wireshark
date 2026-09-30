@@ -18,7 +18,7 @@ public:
     /// @brief 插件唯一标识(小写,如 "my-proto")
     virtual QString id() const = 0;
     /// @brief 插件显示名(如 "My Protocol 2024")
-    virtual QString displayName() const = 0;
+    virtual QString display_name() const = 0;
     /// @brief 插件版本(语义化版本,如 "1.0.0")
     virtual QString version() const = 0;
     /// @brief 插件描述

@@ -1,12 +1,12 @@
 /// @file plugin_host.cpp
-/// @brief bplc-plugin-host 实现
+/// @brief bplc-plugin-host 实现(多 backend)
 #include "plugin_host.h"
 
 #include <QCoreApplication>
 #include <QDataStream>
-#include <QDir>
 #include <QTimer>
 
+#include "plugin_backend.h"
 #include "plugin_serialization.h"
 
 PluginHost::PluginHost(const QString& socket_name, const QString& plugin_dir,
@@ -16,20 +16,13 @@ PluginHost::PluginHost(const QString& socket_name, const QString& plugin_dir,
 }
 
 PluginHost::~PluginHost() {
-    delete m_parser;
-    m_parser = nullptr;
-    if (m_plugin) { m_plugin->shutdown(); m_plugin = nullptr; }
-    m_loader.unload();
+    delete m_backend;
+    m_backend = nullptr;
 }
 
 bool PluginHost::start(QString* err) {
     if (!m_manifest.valid) {
         *err = QStringLiteral("bad manifest: %1").arg(m_manifest.error);
-        return false;
-    }
-    if (m_manifest.runtime != QStringLiteral("native")) {
-        *err = QStringLiteral("unsupported runtime '%1' (Phase1 only native)")
-                   .arg(m_manifest.runtime);
         return false;
     }
     if (m_manifest.api_version != plugin_ipc::kApiVersion) {
@@ -38,34 +31,32 @@ bool PluginHost::start(QString* err) {
         return false;
     }
 
-    const QString lib_path = QDir(m_manifest.dir_path).filePath(m_manifest.entry);
-    m_loader.setFileName(lib_path);
-    QObject* inst = m_loader.instance();
-    if (!inst) {
-        *err = QStringLiteral("load failed: %1").arg(m_loader.errorString());
+    m_backend = create_backend(m_manifest.runtime);
+    if (!m_backend) {
+        *err = QStringLiteral("unsupported runtime '%1'")
+                   .arg(m_manifest.runtime);
         return false;
     }
-    m_plugin = qobject_cast<IProtocolParserPlugin*>(inst);
-    if (!m_plugin) {
-        *err = QStringLiteral("not a IProtocolParserPlugin");
+    if (!m_backend->initialize(m_manifest, err)) {
+        delete m_backend;
+        m_backend = nullptr;
         return false;
     }
-    if (!m_plugin->initialize()) {
-        *err = QStringLiteral("plugin initialize() failed");
-        return false;
-    }
-    m_parser = m_plugin->createParser();
-    if (!m_parser) {
-        *err = QStringLiteral("createParser() returned null");
+    // 后端协议 id 须与清单一致
+    if (m_backend->protocol_id() != m_manifest.protocol_id) {
+        *err = QStringLiteral("protocolId mismatch: manifest=%1 backend=%2")
+                   .arg(m_manifest.protocol_id, m_backend->protocol_id());
+        delete m_backend;
+        m_backend = nullptr;
         return false;
     }
 
-    connect(&m_socket, &QLocalSocket::connected, this, &PluginHost::onConnected);
-    connect(&m_socket, &QLocalSocket::readyRead, this, &PluginHost::onReadyRead);
+    connect(&m_socket, &QLocalSocket::connected, this, &PluginHost::on_connected);
+    connect(&m_socket, &QLocalSocket::readyRead, this, &PluginHost::on_ready_read);
     connect(&m_socket, &QLocalSocket::disconnected,
             qApp, &QCoreApplication::quit);
     connect(&m_socket, &QLocalSocket::errorOccurred,
-            this, &PluginHost::onSocketError);
+            this, &PluginHost::on_socket_error);
     m_socket.connectToServer(m_socket_name);
     if (!m_socket.waitForConnected(10000)) {
         *err = QStringLiteral("connect to main app failed: %1")
@@ -79,16 +70,16 @@ int PluginHost::exec() {
     return QCoreApplication::exec();
 }
 
-void PluginHost::onConnected() {
+void PluginHost::on_connected() {
     // 握手
     QByteArray p;
     QDataStream ds(&p, QIODevice::WriteOnly);
     ds.setVersion(plugin_ipc::kStreamVersion);
     ds << plugin_ipc::kApiVersion << m_manifest.name << m_manifest.protocol_id;
-    sendMessage(plugin_ipc::MsgType::Hello, p);
+    send_message(plugin_ipc::MsgType::Hello, p);
 }
 
-void PluginHost::onReadyRead() {
+void PluginHost::on_ready_read() {
     m_rx_buf.append(m_socket.readAll());
     // 帧:[quint32 len][quint8 type][payload]
     while (m_rx_buf.size() >= 5) {
@@ -104,20 +95,20 @@ void PluginHost::onReadyRead() {
         ds.setVersion(plugin_ipc::kStreamVersion);
         quint8 t = 0;
         ds >> t;
-        handleMessage(static_cast<plugin_ipc::MsgType>(t), ds);
+        handle_message(static_cast<plugin_ipc::MsgType>(t), ds);
     }
 }
 
-void PluginHost::onDisconnected() {
+void PluginHost::on_disconnected() {
     QCoreApplication::quit();  // 主程序断开 → 退出
 }
 
-void PluginHost::onSocketError(QLocalSocket::LocalSocketError e) {
+void PluginHost::on_socket_error(QLocalSocket::LocalSocketError e) {
     if (e != QLocalSocket::PeerClosedError)
         QCoreApplication::exit(2);
 }
 
-void PluginHost::sendMessage(plugin_ipc::MsgType t, const QByteArray& payload) {
+void PluginHost::send_message(plugin_ipc::MsgType t, const QByteArray& payload) {
     QByteArray frame;
     QDataStream ds(&frame, QIODevice::WriteOnly);
     ds.setVersion(plugin_ipc::kStreamVersion);
@@ -127,7 +118,7 @@ void PluginHost::sendMessage(plugin_ipc::MsgType t, const QByteArray& payload) {
     m_socket.flush();
 }
 
-void PluginHost::handleMessage(plugin_ipc::MsgType t, QDataStream& ds) {
+void PluginHost::handle_message(plugin_ipc::MsgType t, QDataStream& ds) {
     switch (t) {
     case plugin_ipc::MsgType::HelloAck: {
         bool ok = false; QString reason;
@@ -137,13 +128,13 @@ void PluginHost::handleMessage(plugin_ipc::MsgType t, QDataStream& ds) {
         break;
     }
     case plugin_ipc::MsgType::ParseRequest:
-        handleParseRequest(ds);
+        handle_parse_request(ds);
         break;
     case plugin_ipc::MsgType::Ping: {
         quint64 seq = 0; ds >> seq;
         QByteArray p; QDataStream o(&p, QIODevice::WriteOnly);
         o.setVersion(plugin_ipc::kStreamVersion); o << seq;
-        sendMessage(plugin_ipc::MsgType::Pong, p);
+        send_message(plugin_ipc::MsgType::Pong, p);
         break;
     }
     case plugin_ipc::MsgType::Shutdown:
@@ -154,7 +145,7 @@ void PluginHost::handleMessage(plugin_ipc::MsgType t, QDataStream& ds) {
     }
 }
 
-void PluginHost::handleParseRequest(QDataStream& ds) {
+void PluginHost::handle_parse_request(QDataStream& ds) {
     quint64 seq = 0;
     BplcFrame frame; MsduState msdu; ParseFilter filter;
     ds >> seq >> frame >> msdu >> filter;
@@ -163,12 +154,15 @@ void PluginHost::handleParseRequest(QDataStream& ds) {
     QDataStream o(&resp, QIODevice::WriteOnly);
     o.setVersion(plugin_ipc::kStreamVersion);
     o << seq;
-    if (!m_hello_done || !m_parser) {
+    if (!m_hello_done || !m_backend) {
         o << false;  // ok=false
         o << QStringLiteral("not ready");
     } else {
-        const ParseResult r = m_parser->parse(frame, msdu, filter);
-        o << true << r << msdu;
+        QString err;
+        const ParseResult r = m_backend->parse(frame, msdu, filter, &err);
+        // JS 等脚本后端可能置 err:accept=false 时 reject_reason 已填
+        o << r.accept << r << msdu;
+        Q_UNUSED(err);
     }
-    sendMessage(plugin_ipc::MsgType::ParseResponse, resp);
+    send_message(plugin_ipc::MsgType::ParseResponse, resp);
 }

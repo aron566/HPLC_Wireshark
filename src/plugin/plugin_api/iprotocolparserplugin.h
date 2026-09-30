@@ -14,7 +14,7 @@
 
 /// @brief 协议解析器插件接口
 /// @note 实现者注意:
-///   - createParser() 每次调用返回一个独立实例(多帧并发/多状态隔离)
+///   - create_parser() 每次调用返回一个独立实例(多帧并发/多状态隔离)
 ///   - IProtocolParser::parse() 的语义与主程序内完全一致:
 ///     输入 BplcFrame + MsduState(重组状态) + ParseFilter,
 ///     返回 ParseResult(字段树 msdu.tree 由插件直接填充)
@@ -22,9 +22,9 @@
 class IProtocolParserPlugin : public IPlugin {
 public:
     /// @brief 协议唯一标识(大写,如 "MYPROTO_2024",用于配置与注册)
-    virtual QString protocolId() const = 0;
+    virtual QString protocol_id() const = 0;
     /// @brief 创建解析器实例(调用方拥有所有权)
-    virtual IProtocolParser* createParser() = 0;
+    virtual IProtocolParser* create_parser() = 0;
 };
 
 Q_DECLARE_INTERFACE(IProtocolParserPlugin, BPLC_PARSER_PLUGIN_IID)

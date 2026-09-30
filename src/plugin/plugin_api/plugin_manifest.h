@@ -8,8 +8,10 @@
 ///     "entry": "libmyproto.so",      // 入口文件(相对插件目录)
 ///     "api_version": 1,              // 插件 API 版本(须与主程序一致)
 ///     "protocol_id": "MYPROTO_2024", // 协议唯一标识(解析器插件必填)
-///     "display_name": "My Protocol", // 显示名
-///     "description": "...",          // 描述(可选)
+///     "display_name": "My Protocol", // 显示名(中文界面用)
+///     "display_name_en": "My Protocol", // 显示名英文(可选,缺省回退 display_name)
+///     "description": "...",          // 描述(可选,中文界面用)
+///     "description_en": "...",       // 描述英文(可选,缺省回退 description)
 ///     "author": "..."                // 作者(可选)
 ///   }
 #ifndef BPLC_PLUGIN_MANIFEST_H
@@ -30,7 +32,9 @@ struct PluginManifest {
     int     api_version = 0;
     QString protocol_id;   ///< 解析器插件的协议标识
     QString display_name;
+    QString display_name_en;  ///< 英文显示名(可选,缺省回退 display_name)
     QString description;
+    QString description_en;   ///< 英文描述(可选,缺省回退 description)
     QString author;
     QString dir_path;      ///< 插件目录绝对路径(解析时填充)
     bool    valid = false;
@@ -61,7 +65,9 @@ inline PluginManifest read_plugin_manifest(const QString& plugin_dir) {
     m.api_version  = o.value(QStringLiteral("api_version")).toInt(0);
     m.protocol_id  = o.value(QStringLiteral("protocol_id")).toString();
     m.display_name = o.value(QStringLiteral("display_name")).toString(m.name);
+    m.display_name_en = o.value(QStringLiteral("display_name_en")).toString(m.display_name);
     m.description  = o.value(QStringLiteral("description")).toString();
+    m.description_en = o.value(QStringLiteral("description_en")).toString(m.description);
     m.author       = o.value(QStringLiteral("author")).toString();
 
     if (m.name.isEmpty())         { m.error = QStringLiteral("missing 'name'"); return m; }
@@ -75,6 +81,18 @@ inline PluginManifest read_plugin_manifest(const QString& plugin_dir) {
     }
     m.valid = true;
     return m;
+}
+
+/// @brief 按是否英文取插件显示名(缺省回退中文名)
+inline QString plugin_display_name(const PluginManifest& m, bool english) {
+    if (english && !m.display_name_en.isEmpty()) return m.display_name_en;
+    return m.display_name;
+}
+
+/// @brief 按是否英文取插件描述(缺省回退中文描述)
+inline QString plugin_description(const PluginManifest& m, bool english) {
+    if (english && !m.description_en.isEmpty()) return m.description_en;
+    return m.description;
 }
 
 #endif // BPLC_PLUGIN_MANIFEST_H

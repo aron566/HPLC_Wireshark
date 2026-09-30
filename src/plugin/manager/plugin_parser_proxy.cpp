@@ -14,7 +14,7 @@ ProtocolVariant PluginParserProxy::variant() const {
 ParseResult PluginParserProxy::parse(const BplcFrame& in, MsduState& msdu,
                                      const ParseFilter& f) {
     ParseResult r;
-    if (!PluginManager::instance().parseViaPlugin(m_protocol_id, in, msdu, f, &r)) {
+    if (!PluginManager::instance().parse_via_plugin(m_protocol_id, in, msdu, f, &r)) {
         r.accept = false;
         if (r.reject_reason.isEmpty())
             r.reject_reason = QStringLiteral("plugin unavailable");
@@ -23,7 +23,7 @@ ParseResult PluginParserProxy::parse(const BplcFrame& in, MsduState& msdu,
 }
 
 std::unique_ptr<IProtocolParser> make_plugin_parser(const QString& protocol_id) {
-    if (!PluginManager::instance().isPluginProtocol(protocol_id))
+    if (!PluginManager::instance().is_plugin_protocol(protocol_id))
         return nullptr;
     return std::make_unique<PluginParserProxy>(protocol_id);
 }

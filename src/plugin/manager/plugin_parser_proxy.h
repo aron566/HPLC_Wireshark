@@ -21,7 +21,7 @@ public:
                       const ParseFilter& f) override;
 
     /// @brief 所属插件协议 id
-    QString protocolId() const { return m_protocol_id; }
+    QString protocol_id() const { return m_protocol_id; }
 
 private:
     QString m_protocol_id;

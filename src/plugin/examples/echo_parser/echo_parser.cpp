@@ -57,18 +57,18 @@ class EchoParserPlugin : public QObject, public IProtocolParserPlugin {
     Q_INTERFACES(IPlugin IProtocolParserPlugin)
 public:
     QString id() const override { return QStringLiteral("echo-parser"); }
-    QString displayName() const override { return QStringLiteral("ECHO 示例插件"); }
+    QString display_name() const override { return QStringLiteral("ECHO 示例插件"); }
     QString version() const override { return QStringLiteral("1.0.0"); }
     QString description() const override {
         return QStringLiteral("示例协议解析器插件,验证插件系统全链路");
     }
     QString author() const override { return QStringLiteral("BPLC Team"); }
-    QString protocolId() const override { return QStringLiteral("ECHO_2024"); }
+    QString protocol_id() const override { return QStringLiteral("ECHO_2024"); }
 
     bool initialize() override { return true; }
     void shutdown() override {}
 
-    IProtocolParser* createParser() override { return new EchoParser(); }
+    IProtocolParser* create_parser() override { return new EchoParser(); }
 };
 
 #include "echo_parser.moc"

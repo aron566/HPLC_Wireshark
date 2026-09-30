@@ -1,0 +1,33 @@
+/// @file plugin_backend.h
+/// @brief 插件后端抽象接口(plugin-host 内多种 runtime 的统一抽象)
+/// @details NativeBackend(QPluginLoader)/JsBackend(QJSEngine)/LuaBackend
+///          都实现此接口,PluginHost 只依赖接口,不感知具体 runtime。
+#ifndef BPLC_PLUGIN_BACKEND_H
+#define BPLC_PLUGIN_BACKEND_H
+
+#include <QString>
+
+#include "bplcframe.h"
+#include "iprotocolparser.h"
+#include "plugin_manifest.h"
+
+/// @brief 插件后端接口
+class IPluginBackend {
+public:
+    virtual ~IPluginBackend() = default;
+
+    /// @brief 初始化(加载插件代码)。false=失败,err 置原因
+    virtual bool initialize(const PluginManifest& m, QString* err) = 0;
+    /// @brief 清理
+    virtual void shutdown() = 0;
+    /// @brief 协议 id(从插件获取,用于校验)
+    virtual QString protocol_id() const = 0;
+    /// @brief 解析一帧。err 非空时置错误信息
+    virtual ParseResult parse(const BplcFrame& frame, MsduState& msdu,
+                              const ParseFilter& filter, QString* err) = 0;
+};
+
+/// @brief 按 runtime 创建后端。未知 runtime 返回 nullptr
+IPluginBackend* create_backend(const QString& runtime);
+
+#endif // BPLC_PLUGIN_BACKEND_H

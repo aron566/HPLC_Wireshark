@@ -48,30 +48,30 @@ public:
     /// @brief 已注册的插件协议 id 列表(供 UI/配置)
     QStringList pluginProtocolIds() const;
     /// @brief 协议 id 是否来自插件
-    bool isPluginProtocol(const QString& protocol_id) const;
+    bool is_plugin_protocol(const QString& protocol_id) const;
 
     /// @brief 经插件解析一帧(阻塞,worker 线程调用)
     /// @return ok=false 时 result.accept=false 且 reject_reason 置错误信息
-    bool parseViaPlugin(const QString& protocol_id,
+    bool parse_via_plugin(const QString& protocol_id,
                         const BplcFrame& frame, MsduState& msdu,
                         const ParseFilter& filter, ParseResult* result);
 
 signals:
     /// @brief 插件状态变化(崩溃/禁用/就绪),UI 可据此提示
-    void pluginStatusChanged(const QString& plugin_id, const QString& status);
+    void plugin_status_changed(const QString& plugin_id, const QString& status);
 
 private:
     explicit PluginManager(QObject* parent = nullptr);
     ~PluginManager() override;
 
-    bool startPlugin(const PluginManifest& m);
-    void onNewConnection(const QString& plugin_id);
-    void onHostReadyRead(const QString& plugin_id);
-    void onProcessFinished(const QString& plugin_id, int code);
-    void onProcessError(const QString& plugin_id);
-    void disablePlugin(const QString& plugin_id, const QString& reason);
-    void handleMessage(const QString& plugin_id, quint8 type, QDataStream& ds);
-    void sendMessage(PluginRuntime* rt, quint8 type, const QByteArray& payload);
+    bool start_plugin(const PluginManifest& m);
+    void on_new_connection(const QString& plugin_id);
+    void on_host_ready_read(const QString& plugin_id);
+    void on_process_finished(const QString& plugin_id, int code);
+    void on_process_error(const QString& plugin_id);
+    void disable_plugin(const QString& plugin_id, const QString& reason);
+    void handle_message(const QString& plugin_id, quint8 type, QDataStream& ds);
+    void send_message(PluginRuntime* rt, quint8 type, const QByteArray& payload);
     void checkHeartbeats();
 
     QMap<QString, PluginRuntime*> m_plugins;  ///< key: protocol_id
