@@ -117,6 +117,7 @@ private slots:
     void on_routes_filter(const QString& text);
     void on_teimac_search(const QString& text);
     void on_routes_double_clicked(const QModelIndex& idx);  ///< 路由表双击 → 发射 request_history
+    void on_teimac_double_clicked(const QModelIndex& idx);  ///< 邻居表单元格双击 → 弹出邻居明细
 
 private:
     /// @brief 当前视图状态表(历史回放模式用快照,否则用实时表)

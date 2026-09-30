@@ -3,11 +3,15 @@
 #include "topo_window.h"
 #include "i18n.h"
 
+#include <QApplication>
+#include <QClipboard>
 #include <QComboBox>
 #include <QColor>
 #include <QDateTime>
+#include <QDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QKeyEvent>
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QPainter>
@@ -28,6 +32,62 @@
 #include <algorithm>
 
 namespace {
+
+/// @brief QTableView Ctrl+C 复制选中单元格为 TSV(制表符分隔,可粘贴到 Excel)
+class TableCopyFilter : public QObject {
+public:
+    explicit TableCopyFilter(QObject* parent = nullptr) : QObject(parent) {}
+protected:
+    bool eventFilter(QObject* obj, QEvent* event) override {
+        if (event->type() == QEvent::KeyPress) {
+            auto* ke = static_cast<QKeyEvent*>(event);
+            if (ke->matches(QKeySequence::Copy)) {
+                auto* view = qobject_cast<QTableView*>(obj);
+                if (view && copy_selected(view))
+                    return true;
+            }
+        }
+        return QObject::eventFilter(obj, event);
+    }
+private:
+    static bool copy_selected(QTableView* view) {
+        auto* sel = view->selectionModel();
+        if (!sel || !sel->hasSelection()) return false;
+        QModelIndexList idxs = sel->selectedIndexes();
+        if (idxs.isEmpty()) return false;
+        // 按行列排序
+        std::sort(idxs.begin(), idxs.end(), [](const QModelIndex& a, const QModelIndex& b) {
+            if (a.row() != b.row()) return a.row() < b.row();
+            return a.column() < b.column();
+        });
+        QStringList rows;
+        int cur_row = -1;
+        QStringList cur_cols;
+        for (const QModelIndex& idx : idxs) {
+            if (idx.row() != cur_row) {
+                if (cur_row >= 0) rows << cur_cols.join(QStringLiteral("\t"));
+                cur_row = idx.row();
+                cur_cols.clear();
+            }
+            // 邻居表列存 HTML,复制时取纯文本
+            QString text = idx.data(Qt::DisplayRole).toString();
+            if (text.contains(QLatin1String("<span"))) {
+                QTextDocument doc;
+                doc.setHtml(text);
+                text = doc.toPlainText();
+            }
+            cur_cols << text;
+        }
+        if (!cur_cols.isEmpty()) rows << cur_cols.join(QStringLiteral("\t"));
+        QApplication::clipboard()->setText(rows.join(QStringLiteral("\n")));
+        return true;
+    }
+};
+
+/// @brief 为 QTableView 启用 Ctrl+C 复制
+inline void enable_table_copy(QTableView* view) {
+    view->installEventFilter(new TableCopyFilter(view));
+}
 
 /// @brief 邻居表单元格 HTML 代理:同一格内各 "TEIx" 按信号强度显示不同绿色
 /// (DisplayRole 存 HTML,含 <span> 时用 QTextDocument 渲染)
@@ -115,6 +175,7 @@ struct I18nRegTopoWindow {
         trl::register_en("层级", "Level");
         trl::register_en("邻居表", "Neighbors");
         trl::register_en("代理 TEI", "Proxy TEI");
+        trl::register_en("STA TEI=%1 的邻居表", "Neighbors of STA TEI=%1");
         trl::register_en("在线", "Online");
         trl::register_en("入网中", "Joining");
         trl::register_en("离线", "Offline");
@@ -456,6 +517,10 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     m_teimac_table->verticalHeader()->setVisible(false);
     // 邻居表列(索引 4)用 HTML 代理渲染多色 TEI
     m_teimac_table->setItemDelegateForColumn(4, new NeighborHtmlDelegate(this));
+    // 双击邻居表单元格 → 弹出独立窗口显示邻居 TEI/MAC/层级
+    connect(m_teimac_table, &QTableView::doubleClicked,
+            this, &TopoWindow::on_teimac_double_clicked);
+    enable_table_copy(m_teimac_table);
 
     // 底部:路由变更表(筛选)
     m_routes_filter = new QLineEdit(this);
@@ -471,6 +536,7 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     // 双击路由变更表某行 → 追溯到该行对应的帧(序号列对应主界面帧序号)
     connect(m_routes_table, &QTableView::doubleClicked,
             this, &TopoWindow::on_routes_double_clicked);
+    enable_table_copy(m_routes_table);
     // 滚动逻辑与主界面一致:滚到底部才跟随最新,滚离底部暂停跟随
     connect(m_routes_table->verticalScrollBar(), &QScrollBar::valueChanged,
             this, [this](int value) {
@@ -708,6 +774,60 @@ void TopoWindow::on_routes_double_clicked(const QModelIndex& idx) {
     emit request_history(frame, ms);
 }
 
+/// @brief TEI→MAC 表邻居表单元格双击 → 弹出独立窗口显示邻居 TEI/MAC/层级
+void TopoWindow::on_teimac_double_clicked(const QModelIndex& idx) {
+    if (!idx.isValid() || idx.column() != 4) return;  // 仅邻居表列
+    const QStandardItem* tei_item = m_teimac_model->item(idx.row(), 0);
+    if (!tei_item) return;
+    const quint16 sta_tei = (quint16)tei_item->data(Qt::UserRole).toUInt();
+    if (sta_tei == 0) return;  // 未分配 TEI 的入网中节点无邻居表
+
+    const TopoState* st = nullptr;
+    if (const auto* states = view_states()) {
+        auto it = states->constFind(m_current_nid);
+        if (it != states->constEnd()) st = &it.value();
+    }
+    if (!st) return;
+
+    QVector<quint16> nbs = st->neighbors.value(sta_tei);
+    if (nbs.isEmpty()) return;
+    // 按发现列表出现次数降序(与主表一致)
+    const QHash<quint16, int> counts = st->neighbor_counts.value(sta_tei);
+    std::sort(nbs.begin(), nbs.end(), [&](quint16 a, quint16 b) {
+        return counts.value(a, 0) > counts.value(b, 0);
+    });
+    const QHash<quint16, int> levels = st->compute_levels();
+
+    auto* dlg = new QDialog(this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setWindowTitle(trl::L("STA TEI=%1 的邻居表").arg(sta_tei));
+    dlg->resize(420, 320);
+    auto* lay = new QVBoxLayout(dlg);
+    auto* model = new QStandardItemModel(dlg);
+    model->setHorizontalHeaderLabels(
+        {trl::L("TEI"), trl::L("MAC"), trl::L("层级")});
+    for (quint16 nb : nbs) {
+        const TopoNode& node = st->nodes.value(nb);
+        const QString s_mac = node.mac ? format_mac(node.mac) : QStringLiteral("-");
+        const int level = levels.value(nb, -1);
+        const QString s_level = level < 0 ? QStringLiteral("-") : QString::number(level);
+        QList<QStandardItem*> row;
+        row << new QStandardItem(QString::number(nb))
+            << new QStandardItem(s_mac)
+            << new QStandardItem(s_level);
+        model->appendRow(row);
+    }
+    auto* view = new QTableView(dlg);
+    view->setModel(model);
+    view->setSelectionBehavior(QAbstractItemView::SelectRows);
+    view->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    view->horizontalHeader()->setStretchLastSection(true);
+    view->verticalHeader()->setVisible(false);
+    enable_table_copy(view);  // 支持 Ctrl+C 复制
+    lay->addWidget(view);
+    dlg->show();
+}
+
 /// @brief 历史回放模式下选中冻结帧对应的路由表行(仅高亮,不滚动/不删行)
 void TopoWindow::highlight_history_row() {
     if (!m_hist_mode || m_hist_frame < 0 || !m_routes_model || !m_routes_table)
@@ -838,7 +958,9 @@ void TopoWindow::rebuild_teimac_table() {
                 continue;
         }
         QList<QStandardItem*> row;
-        row << new QStandardItem(s_tei)
+        auto* tei_item = new QStandardItem(s_tei);
+        tei_item->setData(tei, Qt::UserRole);  // 双击邻居表时取 STA TEI
+        row << tei_item
             << new QStandardItem(s_mac)
             << new QStandardItem(s_online)
             << new QStandardItem(s_level)
