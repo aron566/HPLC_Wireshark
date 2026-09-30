@@ -116,6 +116,10 @@ build_sentry() {
         # 无条件 add_dependencies(sentry crashpad::wer),关掉 WER 会导致
         # generate 阶段"crashpad::wer 不存在"而失败(CI #31 实测)。
         extra_args+=(-DCRASHPAD_ZLIB_SYSTEM=OFF)
+        # sentry 内嵌的 crashpad 同样要编 capture_context.asm(MASM 语法),
+        # 需要 uasm;独立 crashpad 构建调过 ensure_uasm,但 PATH 不跨 CI step,
+        # 这里再调一次(幂等,已存在则跳过下载)。
+        ensure_uasm
     fi
     cmake -S "$(to_win_path "$SRC_SENTRY")" -B "$(to_win_path "$SRC_SENTRY/build")" \
         "${gen_args[@]}" \
