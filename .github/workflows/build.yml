@@ -58,7 +58,7 @@ jobs:
         shell: bash
         run: |
           choco install nsis -y --no-progress
-          choco install pandoc -y --no-progress
+          choco install pandoc -y --no-progress || choco install pandoc -y --no-progress || echo "::warning::pandoc 安装失败,md2pdf 将走 stdlib 兜底"
           # Chrome 供 md2pdf.sh 优先使用(headless 打印 PDF 比 Edge 稳定;
           # 本机 Edge 某版本 --headless --print-to-pdf 静默失败)。
           # --ignore-checksums:choco 的 googlechrome 包 sha256 常滞后于 Google

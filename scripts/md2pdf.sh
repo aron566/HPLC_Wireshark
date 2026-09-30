@@ -12,11 +12,12 @@ if command -v pandoc >/dev/null 2>&1; then
         --metadata title="BPLC STA Monitor - Wireshark Plugin" -o "$HTML"
 else
     python - "$IN" "$HTML" <<'PY'
-import sys
-import markdown
+import sys, html
 md = open(sys.argv[1], encoding='utf-8').read()
-body = markdown.markdown(md, extensions=['tables', 'fenced_code'])
-css = "body{font-family:'Microsoft YaHei',sans-serif;max-width:900px;margin:24px auto;padding:0 16px;} table{border-collapse:collapse;width:100%;} th,td{border:1px solid #bbb;padding:6px 10px;text-align:left;} th{background:#f0f0f0;} code{background:#f5f5f5;padding:1px 4px;border-radius:3px;} pre{background:#f5f5f5;padding:10px;border-radius:4px;overflow-x:auto;}"
+# 纯 stdlib 兜底(不依赖 markdown 模块):原文转义 + 等宽预排,
+# 表格/标题不完整渲染但内容可读;有 pandoc 时走上面分支、完整渲染
+css = "body{font-family:'Microsoft YaHei',sans-serif;max-width:900px;margin:24px auto;padding:0 16px;} table{border-collapse:collapse;width:100%;} th,td{border:1px solid #bbb;padding:6px 10px;text-align:left;} th{background:#f0f0f0;} code{background:#f5f5f5;padding:1px 4px;border-radius:3px;} pre{background:#f5f5f5;padding:10px;border-radius:4px;overflow-x:auto;white-space:pre-wrap;}"
+body = f'<pre>{html.escape(md)}</pre>'
 open(sys.argv[2], 'w', encoding='utf-8').write(
     f'<html><head><meta charset="utf-8"><style>{css}</style></head><body>{body}</body></html>')
 PY
