@@ -1,0 +1,1 @@
+{"api_version":1,"author":"BPLC Team","description":"示例协议解析器插件,验证插件系统全链路","display_name":"ECHO 示例插件","entry":"libecho_parser.so","name":"echo-parser","protocol_id":"ECHO_2024","runtime":"native","version":"1.0.0"}

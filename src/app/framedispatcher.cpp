@@ -31,8 +31,11 @@ void DispatcherWorker::on_frame(const BplcFrame& frame) {
 
 FrameDispatcher::FrameDispatcher(QObject* parent)
     : QObject(parent), m_thread(nullptr), m_worker(nullptr) {
-    // 按 config.ini 协议选择实例化解析器(国网 GW_2022 / 南网 NW_2021)
-    auto parser = make_parser(protocol_from_key(appcfg::protocol()));
+    // 按 config.ini 协议选择实例化解析器(内置国网/南网,或插件协议)
+    // 协议键统一转大写为注册表 id: "gw_2022"→"GW_2022",插件协议直接存大写 id
+    auto parser = make_parser_by_id(appcfg::protocol().toUpper());
+    if (!parser)  // 未知协议回退国网
+        parser = make_parser_by_id(QStringLiteral("GW_2022"));
     m_thread = new QThread(this);
     m_worker = new DispatcherWorker(std::move(parser));
     m_worker->moveToThread(m_thread);

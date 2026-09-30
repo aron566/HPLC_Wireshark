@@ -8,6 +8,7 @@
 #include "appconfig.h"
 #include "theme.h"
 #include "crash_handler.h"
+#include "plugin_manager.h"
 #include <QApplication>
 #include <QCoreApplication>
 #include <QLoggingCategory>
@@ -87,6 +88,11 @@ int main(int argc, char* argv[]) {
 
     MainWindow w;
     w.show();
+
+    // 插件系统:扫描 plugins/ 并启动插件宿主进程(失败不影响主程序)
+    PluginManager::instance().loadAll(
+        QCoreApplication::applicationDirPath() + QStringLiteral("/plugins"));
+
     const int rc = app.exec();
     CrashHandler::shutdown();
     return rc;
