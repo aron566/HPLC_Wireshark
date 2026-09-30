@@ -15,13 +15,21 @@
 # SENTRY_NATIVE_REF(固定提交,保证可复现)浅克隆,并初始化 crashpad 构建所需
 # 的嵌套 submodule。可被环境变量覆盖:
 #   SENTRY_NATIVE_REF / SENTRY_NATIVE_URL
-#   CMAKE_BIN / MAKE_BIN (cmake 与 mingw32-make 的绝对路径;qmake 自动构建用,
-#   避免 Windows 下 bash PATH 的盘符冒号解析问题)
+#   CMAKE_BIN / MAKE_BIN (cmake 与 mingw32-make 的绝对路径;qmake 自动构建用;
+#   反斜杠路径(C:\...)会被脚本自动转成正斜杠,避免 Windows 下 bash PATH 的
+#   盘符冒号解析问题与单引号内反斜杠的字面量问题)
 #
 # Windows(Git Bash + MinGW): crashpad 的 getsentry fork 支持 MinGW 构建
 # (见其 README.getsentry.md "MinGW Changes"),本脚本自动切 -G "MinGW Makefiles"。
 set -e
 cd "$(dirname "$0")"
+
+# qmake 自动构建经 CMAKE_BIN/MAKE_BIN 传入 cmake/make 绝对路径;Windows 下
+# qmake 扫 PATH 得到的是反斜杠路径(C:\...),在 bash 单引号里会当成字面文件名
+# 而失效,统一转成正斜杠(MSYS bash 可直接执行 C:/... 形式)。
+_to_bash_path() { local p="$1"; printf '%s' "${p//\\//}"; }
+CMAKE_BIN="$(_to_bash_path "${CMAKE_BIN:-cmake}")"
+MAKE_BIN="$(_to_bash_path "${MAKE_BIN:-}")"
 
 # ---- 可复现版本钉 ----
 SENTRY_NATIVE_REF="${SENTRY_NATIVE_REF:-1578046f0a7922f29b44665bbfc0690aafe743a5}"

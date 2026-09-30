@@ -44,24 +44,26 @@ defineTest(crash_ensure_deps) {
     backend = $$1
     sentinel = $$2
     !exists($$sentinel) {
-        message("crash: 未找到 $$backend 依赖,于 qmake 阶段自动构建(需联网 + CMake,首次约数分钟)...")
+        # 注:提示信息用英文,qmake message()/error() 输出 UTF-8,在中文 Windows 的
+        # Qt Creator 输出面板会被当成 GBK 显示为乱码。
+        message("crash: $$backend dependency missing, auto-building at qmake time (needs network + CMake, several minutes on first run)...")
         CRASH_SCRIPT = $$CRASH_3RDPARTY/build_crash_deps.sh
 
         # --- 找 bash ---
         # Windows:扫 qmake 进程的 PATH(按 ; 切分,避开 where 多行输出的换行解析坑),
         # 再加 Git for Windows 默认安装路径
         win32 {
-            win32-msvc*: error("crash: Windows 下第三方依赖自动构建仅支持 MinGW 工具链(脚本使用 MinGW Makefiles);请换 MinGW kit,或手动执行: bash 3rdparty/build_crash_deps.sh $$backend")
+            win32-msvc*: error("crash: auto-build of third-party deps supports only the MinGW toolchain on Windows (script uses MinGW Makefiles); switch to a MinGW kit or run manually: bash 3rdparty/build_crash_deps.sh $$backend")
             CRASH_WINPATH = $$(PATH)
             CRASH_BASH_DIRS = $$split(CRASH_WINPATH, ;)
             CRASH_BASH_DIRS += "C:/Program Files/Git/bin" "C:/Program Files (x86)/Git/bin"
             for(d, CRASH_BASH_DIRS) {
                 isEmpty(CRASH_BASH): exists($$d/bash.exe): CRASH_BASH = $$d/bash.exe
             }
-            isEmpty(CRASH_BASH): error("crash: 自动构建需要 bash,Windows 请安装 Git for Windows(自带 Git Bash);或手动执行: bash 3rdparty/build_crash_deps.sh $$backend")
+            isEmpty(CRASH_BASH): error("crash: auto-build needs bash; on Windows install Git for Windows (includes Git Bash), or run manually: bash 3rdparty/build_crash_deps.sh $$backend")
         } else {
             CRASH_BASH = $$system(which bash 2>/dev/null)
-            isEmpty(CRASH_BASH): error("crash: 自动构建需要 bash(未在 PATH 找到);或手动执行: bash 3rdparty/build_crash_deps.sh $$backend")
+            isEmpty(CRASH_BASH): error("crash: auto-build needs bash (not found on PATH), or run manually: bash 3rdparty/build_crash_deps.sh $$backend")
         }
 
         # --- 找 cmake(脚本 configure/build 需要) ---
@@ -74,7 +76,7 @@ defineTest(crash_ensure_deps) {
         } else {
             CRASH_CMAKE = $$system(which cmake 2>/dev/null)
         }
-        isEmpty(CRASH_CMAKE): error("crash: 自动构建需要 CMake(未在 PATH 找到);Windows 可安装 Qt 自带的 CMake 组件(C:/Qt/Tools/CMake_64/bin);或手动执行: bash 3rdparty/build_crash_deps.sh $$backend")
+        isEmpty(CRASH_CMAKE): error("crash: auto-build needs CMake (not found on PATH); on Windows install the Qt CMake component (C:/Qt/Tools/CMake_64/bin), or run manually: bash 3rdparty/build_crash_deps.sh $$backend")
 
         # --- 构建工具以绝对路径经环境变量传给脚本 ---
         # (不用 PATH 传递:Windows 下 bash 的 PATH 是 : 分隔,盘符路径 C:/... 会被拆错;
@@ -84,19 +86,21 @@ defineTest(crash_ensure_deps) {
             for(d, CRASH_MAKE_DIRS) {
                 isEmpty(CRASH_MAKE): exists($$d/mingw32-make.exe): CRASH_MAKE = $$d/mingw32-make.exe
             }
-            isEmpty(CRASH_MAKE): error("crash: 自动构建需要 mingw32-make(随 MinGW kit,在 PATH 未找到);或手动执行: bash 3rdparty/build_crash_deps.sh $$backend")
+            isEmpty(CRASH_MAKE): error("crash: auto-build needs mingw32-make (ships with the MinGW kit, not found on PATH), or run manually: bash 3rdparty/build_crash_deps.sh $$backend")
+            # 诊断行:远端排查时一眼看到 qmake 实际用的工具路径
+            message("crash: auto-build tools: bash=$$CRASH_BASH cmake=$$CRASH_CMAKE make=$$CRASH_MAKE")
             CRASH_BUILD_CMD = "$$CRASH_BASH" -c "CMAKE_BIN='$$CRASH_CMAKE' MAKE_BIN='$$CRASH_MAKE' exec '$$CRASH_SCRIPT' $$backend"
         } else {
             CRASH_BUILD_CMD = "CMAKE_BIN='$$CRASH_CMAKE'" "$$CRASH_BASH" "$$CRASH_SCRIPT" $$backend
         }
 
         system($$CRASH_BUILD_CMD) {
-            message("crash: $$backend 依赖构建命令已结束,校验产物...")
+            message("crash: $$backend dependency build command finished, verifying artifacts...")
         } else {
-            error("crash: $$backend 依赖自动构建失败(见上方日志);也可手动执行: bash 3rdparty/build_crash_deps.sh $$backend")
+            error("crash: auto-build of $$backend dependency failed (see log above); or run manually: bash 3rdparty/build_crash_deps.sh $$backend")
         }
-        !exists($$sentinel): error("crash: 构建命令已返回成功,但仍找不到 $$sentinel,请检查上方日志")
-        message("crash: $$backend 依赖就绪")
+        !exists($$sentinel): error("crash: build command returned success but $$sentinel still not found, check the log above")
+        message("crash: $$backend dependency ready")
     }
 }
 
