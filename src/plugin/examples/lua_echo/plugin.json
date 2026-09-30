@@ -1,0 +1,1 @@
+{"api_version":1,"author":"bplc","description":"示例 Lua 插件:把帧字节回显成字段树。","description_en":"Example Lua plugin: echoes frame bytes into a field tree.","display_name":"Lua 回显解析器(示例)","display_name_en":"Lua Echo Parser (example)","entry":"parser.lua","name":"lua-echo","protocol_id":"LUAECHO_2024","runtime":"lua","version":"1.0.0"}

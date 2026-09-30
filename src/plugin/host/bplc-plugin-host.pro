@@ -17,11 +17,24 @@ DEPENDPATH  += ../plugin_api ../ipc
 INCLUDEPATH += ../../common ../../protocol ../../protocol/common
 DEPENDPATH  += ../../common ../../protocol ../../protocol/common
 
+# Lua 5.4 (3rdparty 内嵌,缺失时自动构建)
+LUA_SRC = $$PWD/../../../3rdparty/lua-5.4.6/src
+LUA_LIB = $$LUA_SRC/liblua.a
+!exists($$LUA_LIB) {
+    message("lua: building bundled lua-5.4.6 ...")
+    LUA_BUILD = cd $$PWD/../../../3rdparty/lua-5.4.6 && make -C src liblua.a MYCFLAGS="-fPIC"
+    system($$LUA_BUILD): message("lua: built OK")
+    !exists($$LUA_LIB): error("lua: failed to build $$LUA_LIB, run 3rdparty/build_lua.sh manually")
+}
+INCLUDEPATH += $$LUA_SRC
+LIBS += $$LUA_LIB -ldl -lm
+
 HEADERS += \
     plugin_host.h \
     plugin_backend.h \
     native_backend.h \
     js_backend.h \
+    lua_backend.h \
     ../plugin_api/iplugin.h \
     ../plugin_api/iprotocolparserplugin.h \
     ../plugin_api/plugin_manifest.h \
@@ -34,4 +47,5 @@ SOURCES += \
     plugin_backend.cpp \
     native_backend.cpp \
     js_backend.cpp \
+    lua_backend.cpp \
     ../ipc/plugin_serialization.cpp

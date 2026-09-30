@@ -60,7 +60,8 @@ void PluginManager::loadAll(const QString& plugins_dir) {
         const PluginManifest m = read_plugin_manifest(d.filePath(sub));
         if (!m.valid) continue;  // 无效清单跳过(可日志)
         if (m.runtime != QStringLiteral("native")
-            && m.runtime != QStringLiteral("js")) continue;  // Phase2: native/js
+            && m.runtime != QStringLiteral("js")
+            && m.runtime != QStringLiteral("lua")) continue;  // Phase2: native/js/lua
         if (m_plugins.contains(m.protocol_id)) continue;      // 重复协议 id
         start_plugin(m);
     }
