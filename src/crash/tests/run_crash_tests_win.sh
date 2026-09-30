@@ -160,8 +160,14 @@ run_sentry_win() {
         -lcrashpad_client -lcrashpad_compat -lcrashpad_handler_lib -lcrashpad_minidump \
         -lcrashpad_mpack -lcrashpad_snapshot -lcrashpad_tools -lcrashpad_util \
         -lmini_chromium \
-        -lwinhttp -ldbghelp -lversion -lws2_32 \
+        -lwinhttp -ldbghelp -lversion -lws2_32 -lsynchronization \
         -o "$BUILD_DIR/crash_test_sentry.exe"
+    # 链接失败时 g++ 非零退出,但 run_sentry_win 是在 || 列表里调用的,
+    # set -e 不会直接中断;显式检查 exe 是否生成,失败信息更明确。
+    [ -f "$BUILD_DIR/crash_test_sentry.exe" ] || {
+        echo "[test] FAIL: crash_test_sentry.exe 链接失败"
+        return 1
+    }
     echo "built: $BUILD_DIR/crash_test_sentry.exe"
     cp "$SENTRY_ROOT/bin/crashpad_handler.exe" "$BUILD_DIR/"
     local SDB="$BUILD_DIR/db_sentry"
