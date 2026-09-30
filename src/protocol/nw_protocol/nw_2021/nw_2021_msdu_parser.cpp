@@ -1241,7 +1241,8 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 if (!per_byte[i].isEmpty()) bm_any = true;
             }
             // 邻居表:位图置位 TEI 即该 STA 发现的邻居,供 TopoState 按 STA 更新邻居表
-            if (ur_sta_tei && nset > 0) {
+            // 全 0 位图(nset==0)也要上报(空 neighbor_teis),以清空该 STA 的旧邻居
+            if (ur_sta_tei) {
                 out.topo_event.discover_src_tei = ur_sta_tei;
                 out.topo_event.neighbor_teis.reserve(nset);
                 for (int i = 0; i < bm.size(); ++i) {
