@@ -11,6 +11,8 @@ struct I18nRegTopoState { I18nRegTopoState() {
                      "Warning: CCO has rebooted! Restart count %1→%2");
     trl::register_en("警告STA重启过！STA %1 重启次数 %2→%3",
                      "Warning: STA has rebooted! STA %1 restart count %2→%3");
+    trl::register_en("发现列表上行路由变化: %1",
+                     "Discover list uplink route change: %1");
 } } i18n_reg_topo_state;
 
 /// @brief 48-bit MAC 转冒号分隔小端字符串(与 protocol/common/fieldtools.h:mac_str 同式;

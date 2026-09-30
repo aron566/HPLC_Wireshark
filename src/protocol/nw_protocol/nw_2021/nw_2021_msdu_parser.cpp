@@ -226,6 +226,7 @@ struct MMeI18nReg {
         trl::register_en("关联汇总: %1 个站点入网 代理=%2", "Assoc gather: %1 stations joined, proxy=%2");
         trl::register_en("发现列表: STA TEI=%1 代理=%2", "Discover list: STA TEI=%1 proxy=%2");
         trl::register_en("代理变更: STA TEI=%1 代理→%2", "Proxy change: STA TEI=%1 proxy→%2");
+        trl::register_en("代理变更请求: STA TEI=%1 %2→%3", "Proxy change request: STA TEI=%1 %2→%3");
         trl::register_en("代理变更(批量): %1 个站点代理→%2", "Proxy change (batch): %1 stations proxy→%2");
         trl::register_en("离线指示: STA TEI=%1 离线", "Leave indication: STA TEI=%1 left");
         trl::register_en("延迟离线指示: %1 个站点离线", "Delayed leave indication: %1 stations left");
