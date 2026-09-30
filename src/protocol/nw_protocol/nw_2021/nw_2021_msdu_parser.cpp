@@ -1209,7 +1209,9 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             const quint16 ur_sta_tei = (quint16)get_bits(mme, 6, 0, 16);
             for (int i = 0; i < route_num && off + 3 <= mme.size(); ++i) {
                 const quint16 nexthop = (quint16)get_bits(mme, off, 0, 12);
-                if (ur_sta_tei && nexthop)
+                const quint8 route_type = (quint8)get_bits(mme, off + 2, 0, 8);
+                // 仅代理主路径(RouteType=3)为该 STA 父节点,其余路由类型忽略
+                if (ur_sta_tei && nexthop && route_type == 3)
                     out.topo_event.up_routes.append({ur_sta_tei, nexthop});
                 MsduFieldNode& n = group(out.tree, QStringLiteral("UpRoute[%1]").arg(i));
                 n.rel_start = mme_rel_base + (off); n.rel_len = 3;

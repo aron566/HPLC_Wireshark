@@ -1107,9 +1107,10 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                     auto& upg = group(root.children, QStringLiteral("UpRouteEntryList [%1]").arg(up_route_num));
                     for (int i = 0; i < up_route_num; ++i) {
                         quint16 tei = (quint16)get_bits(b, off, 0, 12);
-                        if (ur_sta_tei && tei)
-                            out.topo_event.up_routes.append({ur_sta_tei, tei});
                         quint8  rtype = (quint8)get_bits(b, off + 1, 4, 4);
+                        // 仅代理主路径(RouteType=3)为该 STA 父节点,其余路由类型忽略
+                        if (ur_sta_tei && tei && rtype == 3)
+                            out.topo_event.up_routes.append({ur_sta_tei, tei});
                         int abs0 = head_size + 4 + off;   // 条目相对 body 起点
                         off += 2;
                         // 每条目分组
