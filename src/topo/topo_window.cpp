@@ -4,6 +4,7 @@
 #include "i18n.h"
 
 #include <QComboBox>
+#include <QColor>
 #include <QDateTime>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -21,8 +22,44 @@
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <QLabel>
+#include <QStyledItemDelegate>
+#include <QTextDocument>
+
+#include <algorithm>
 
 namespace {
+
+/// @brief 邻居表单元格 HTML 代理:同一格内各 "TEIx" 按信号强度显示不同绿色
+/// (DisplayRole 存 HTML,含 <span> 时用 QTextDocument 渲染)
+class NeighborHtmlDelegate : public QStyledItemDelegate {
+public:
+    explicit NeighborHtmlDelegate(QObject* parent = nullptr)
+        : QStyledItemDelegate(parent) {}
+    void paint(QPainter* painter, const QStyleOptionViewItem& option,
+               const QModelIndex& index) const override {
+        const QString html = index.data(Qt::DisplayRole).toString();
+        if (!html.contains(QLatin1String("<span"))) {
+            QStyledItemDelegate::paint(painter, option, index);
+            return;
+        }
+        QStyleOptionViewItem opt = option;
+        initStyleOption(&opt, index);
+        painter->save();
+        if (opt.widget) {
+            QStyle* st = opt.widget->style();
+            st->drawPrimitive(QStyle::PE_PanelItemViewItem, &opt, painter, opt.widget);
+            const QRect textRect = st->subElementRect(
+                QStyle::SE_ItemViewItemText, &opt, opt.widget);
+            painter->translate(textRect.topLeft() + QPoint(4, 0));
+            QTextDocument doc;
+            doc.setHtml(html);
+            doc.setDefaultFont(opt.font);
+            doc.setTextWidth(textRect.width() - 8);
+            doc.drawContents(painter);
+        }
+        painter->restore();
+    }
+};
 
 /// @brief MAC 48-bit 帧内原始字节序 → "aa:bb:cc:dd:ee:ff"(与 Table View 一致)
 QString format_mac(quint64 v) {
@@ -48,6 +85,7 @@ QString event_kind_name(TopoEventKind k) {
         case TopoEventKind::AssocCnf:       return trl::L("关联确认");
         case TopoEventKind::AssocGatherInd: return trl::L("关联汇总指示");
         case TopoEventKind::AssocInd:       return trl::L("关联指示");
+        case TopoEventKind::ChangeProxyReq: return trl::L("代理变更请求");
         case TopoEventKind::ChangeProxyCnf: return trl::L("代理变更");
         case TopoEventKind::LeaveInd:       return trl::L("离线指示");
         case TopoEventKind::CcoRestart:     return trl::L("CCO重启");
@@ -64,8 +102,8 @@ struct I18nRegTopoWindow {
         trl::register_en("搜索 TEI / MAC…", "Search TEI / MAC…");
         trl::register_en("筛选(时间/类型/说明)…", "Filter (time/type/description)…");
         trl::register_en("TEI → MAC 映射", "TEI → MAC mapping");
-        trl::register_en("路由变更记录(关联确认/关联指示/关联汇总指示/代理变更/发现列表/离线指示/CCO重启/STA重启)",
-                         "Route change log (assoc conf / assoc ind / gather ind / proxy change / discover list / leave ind / CCO reboot / STA reboot)");
+        trl::register_en("路由变更记录(关联确认/关联指示/关联汇总指示/代理变更请求/代理变更/发现列表/离线指示/CCO重启/STA重启)",
+                         "Route change log (assoc conf / assoc ind / gather ind / proxy change req / proxy change / discover list / leave ind / CCO reboot / STA reboot)");
         trl::register_en("CCO重启", "CCO reboot");
         trl::register_en("STA重启", "STA reboot");
         trl::register_en("序号", "Seq");
@@ -75,6 +113,7 @@ struct I18nRegTopoWindow {
         trl::register_en("变更说明", "Description");
         trl::register_en("状态", "Status");
         trl::register_en("层级", "Level");
+        trl::register_en("邻居表", "Neighbors");
         trl::register_en("代理 TEI", "Proxy TEI");
         trl::register_en("在线", "Online");
         trl::register_en("入网中", "Joining");
@@ -84,6 +123,7 @@ struct I18nRegTopoWindow {
         trl::register_en("关联确认", "Assoc confirm");
         trl::register_en("关联汇总指示", "Assoc gather indication");
         trl::register_en("关联指示", "Assoc indication");
+        trl::register_en("代理变更请求", "Proxy change request");
         trl::register_en("代理变更", "Proxy change");
         trl::register_en("离线指示", "Leave indication");
         trl::register_en("其他", "Other");
@@ -414,6 +454,8 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     m_teimac_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_teimac_table->horizontalHeader()->setStretchLastSection(true);
     m_teimac_table->verticalHeader()->setVisible(false);
+    // 邻居表列(索引 4)用 HTML 代理渲染多色 TEI
+    m_teimac_table->setItemDelegateForColumn(4, new NeighborHtmlDelegate(this));
 
     // 底部:路由变更表(筛选)
     m_routes_filter = new QLineEdit(this);
@@ -456,7 +498,7 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     auto* routes_panel = new QWidget(this);
     auto* routes_lay = new QVBoxLayout(routes_panel);
     routes_lay->setContentsMargins(0, 0, 0, 0);
-    routes_lay->addWidget(new QLabel(trl::L("路由变更记录(关联确认/关联指示/关联汇总指示/代理变更/发现列表/离线指示/CCO重启/STA重启)"), routes_panel));
+    routes_lay->addWidget(new QLabel(trl::L("路由变更记录(关联确认/关联指示/关联汇总指示/代理变更请求/代理变更/发现列表/离线指示/CCO重启/STA重启)"), routes_panel));
     routes_lay->addWidget(m_routes_filter);
     routes_lay->addWidget(m_routes_table, 1);
 
@@ -727,7 +769,8 @@ void TopoWindow::rebuild_routes_table() {
 void TopoWindow::rebuild_teimac_table() {
     m_teimac_model->clear();
     m_teimac_model->setHorizontalHeaderLabels(
-        {trl::L("TEI"), trl::L("MAC"), trl::L("状态"), trl::L("层级"), trl::L("代理 TEI")});
+        {trl::L("TEI"), trl::L("MAC"), trl::L("状态"), trl::L("层级"),
+         trl::L("邻居表"), trl::L("代理 TEI")});
 
     const TopoState* st = nullptr;
     // 历史回放模式读冻结快照,否则读实时表(此前误读 m_states,回放时表格未冻结)
@@ -752,6 +795,40 @@ void TopoWindow::rebuild_teimac_table() {
                                                      trl::L("在线");
         const int level = levels.value(tei, -1);
         const QString s_level = level < 0 ? QStringLiteral("-") : QString::number(level);
+        // 邻居表:按发现列表出现次数降序排列;颜色统一绿色,
+        // 由亮绿(出现多,信号强)→暗绿(出现少),暗端仍可见。样式 "TEI2,TEI3"
+        // 白色主题下整体加深保证可读,深色主题下提亮保证可见
+        QString s_neighbors;
+        {
+            QVector<quint16> nbs = st->neighbors.value(tei);
+            const QHash<quint16, int> counts = st->neighbor_counts.value(tei);
+            if (!nbs.isEmpty()) {
+                std::sort(nbs.begin(), nbs.end(), [&](quint16 a, quint16 b) {
+                    return counts.value(a, 0) > counts.value(b, 0);
+                });
+                int max_c = 0;
+                for (quint16 nb : nbs) max_c = qMax(max_c, counts.value(nb, 0));
+                // 按表格背景明暗选择绿色区间
+                const bool light_bg = m_teimac_table->palette()
+                    .color(QPalette::Base).lightness() > 128;
+                // 亮端/暗端的 G 分量:白底用 (144→64),黑底用 (224→160)
+                const int g_bright = light_bg ? 144 : 224;
+                const int g_dark   = light_bg ? 64  : 160;
+                QStringList parts;
+                parts.reserve(nbs.size());
+                for (quint16 nb : nbs) {
+                    const double ratio = max_c > 0
+                        ? (double)counts.value(nb, 0) / (double)max_c : 0.0;
+                    const int g = g_dark + (int)((g_bright - g_dark) * ratio);
+                    const QString color = QColor(0, g, 0).name();
+                    parts << QStringLiteral("<span style=\"color:%1;\">TEI%2</span>")
+                                 .arg(color).arg(nb);
+                }
+                s_neighbors = parts.join(QStringLiteral(","));
+            } else {
+                s_neighbors = QStringLiteral("-");
+            }
+        }
         const QString s_parent = node.parent_tei == 0xFFFF
             ? QStringLiteral("-") : QString::number(node.parent_tei);
 
@@ -765,6 +842,7 @@ void TopoWindow::rebuild_teimac_table() {
             << new QStandardItem(s_mac)
             << new QStandardItem(s_online)
             << new QStandardItem(s_level)
+            << new QStandardItem(s_neighbors)
             << new QStandardItem(s_parent);
         m_teimac_model->appendRow(row);
     }
@@ -776,6 +854,7 @@ void TopoWindow::rebuild_teimac_table() {
         const QString s_mac = node.mac ? format_mac(node.mac) : QStringLiteral("-");
         const QString s_online = trl::L("入网中");
         const QString s_level = QStringLiteral("1");
+        const QString s_neighbors = QStringLiteral("-");  // 未分配 TEI,无发现列表
         const QString s_parent = QStringLiteral("1");
         if (!search.isEmpty()) {
             if (!s_tei.contains(search, Qt::CaseInsensitive) &&
@@ -787,6 +866,7 @@ void TopoWindow::rebuild_teimac_table() {
             << new QStandardItem(s_mac)
             << new QStandardItem(s_online)
             << new QStandardItem(s_level)
+            << new QStandardItem(s_neighbors)
             << new QStandardItem(s_parent);
         m_teimac_model->appendRow(row);
     }

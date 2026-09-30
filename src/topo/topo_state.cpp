@@ -78,6 +78,26 @@ bool TopoState::remove_node_by_mac(quint64 mac) {
 
 void TopoState::apply(const TopoEvent& e) {
     nid = e.nid;
+    // 南网发现列表上行路由变化检测:若 UpRoute 条目的下一跳与当前父节点
+    // 不同,则为拓扑变化,入表记录。必须在下方状态更新前判断。
+    bool up_route_changed = false;
+    QString up_route_desc;
+    if (e.kind == TopoEventKind::DiscoverList && !e.up_routes.isEmpty()) {
+        QStringList changes;
+        for (const auto& ur : e.up_routes) {
+            const auto it = nodes.find(ur.first);
+            const quint16 old_parent = (it == nodes.end()) ? 0 : it.value().parent_tei;
+            if (it == nodes.end() || old_parent != ur.second) {
+                up_route_changed = true;
+                changes.append(QStringLiteral("TEI=%1 下一跳%2→%3")
+                    .arg(ur.first)
+                    .arg(old_parent ? QString::number(old_parent) : QStringLiteral("-"))
+                    .arg(ur.second));
+            }
+        }
+        if (up_route_changed)
+            up_route_desc = trl::L("发现列表上行路由变化: %1").arg(changes.join(QStringLiteral("; ")));
+    }
     // 首次识别:记录该 NID 第一次出现的帧序号与时间戳(供 NID 下拉框区分新旧网络)
     if (first_seen_frame < 0) {
         first_seen_frame = e.frame_index;
@@ -195,16 +215,35 @@ void TopoState::apply(const TopoEvent& e) {
         if (!cr.tei) continue;
         comm_rates[cr.tei] = cr;
     }
+    // 邻居表(发现列表位图,按发送方 TEI 覆盖更新;同时累计各邻居出现次数供排序/信号强度)
+    if (e.kind == TopoEventKind::DiscoverList && e.discover_src_tei) {
+        neighbors[e.discover_src_tei] = e.neighbor_teis;
+        auto& counts = neighbor_counts[e.discover_src_tei];
+        for (quint16 nb : e.neighbor_teis)
+            counts[nb]++;
+    }
     // 记录路由变更事件(供底部表格):仅真正"变更"入表。
-    // 发现列表(周期性快照)/成功率上报(通讯质量)不入路由变更表。
+    // 发现列表(周期性快照)/成功率上报(通讯质量)不入路由变更表,
+    // 但南网发现列表若携带上行路由条目且下一跳发生变化,则作为拓扑变化入表。
+    // 代理变更请求仅记录(不更新拓扑),确认后更新拓扑。
+    // 注意:发现列表携带的成功率仍会更新 comm_rates 状态(见上方),
+    // 只是不作为一条路由变更记录入表。
     switch (e.kind) {
         case TopoEventKind::AssocReq:
         case TopoEventKind::AssocCnf:
         case TopoEventKind::AssocGatherInd:
         case TopoEventKind::AssocInd:
+        case TopoEventKind::ChangeProxyReq:
         case TopoEventKind::ChangeProxyCnf:
         case TopoEventKind::LeaveInd:
             events.append(e);
+            break;
+        case TopoEventKind::DiscoverList:
+            if (up_route_changed) {
+                TopoEvent ev = e;
+                if (!up_route_desc.isEmpty()) ev.desc = up_route_desc;
+                events.append(ev);
+            }
             break;
         default:
             break;

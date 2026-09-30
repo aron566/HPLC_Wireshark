@@ -927,6 +927,19 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case NW_2021_MMeType::MME_CHANGEPROXYREQ: {
             add_fields(out.tree, mme, 6, kMMeChangeProxyReqSpec, kMMeChangeProxyReqSpecN, mme_rel_base);
+            // 拓扑事件:代理变更请求(仅记录入表,不更新拓扑;待确认后更新)
+            {
+                const quint16 sta_tei = (quint16)get_bits(mme, 6, 0, 16);
+                const quint16 new_proxy = (quint16)get_bits(mme, 8, 0, 12);
+                const quint16 old_proxy = (quint16)get_bits(mme, 18, 0, 16);
+                if (sta_tei) {
+                    out.topo_event.kind = TopoEventKind::ChangeProxyReq;
+                    out.topo_event.desc = trl::L("代理变更请求: STA TEI=%1 %2→%3")
+                        .arg(sta_tei)
+                        .arg(old_proxy ? QString::number(old_proxy) : QStringLiteral("-"))
+                        .arg(new_proxy ? QString::number(new_proxy) : QStringLiteral("-"));
+                }
+            }
             translate_enum_i18n(out.tree, "ProxyType", kProxyTypeZh, 3);
             translate_enum_i18n(out.tree, "Reason", kProxyChangeReasonZh, 3);
             translate_enum_i18n(out.tree, "LinePhase0", kLinePhaseZh, 4);
@@ -1144,7 +1157,26 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 // 单跳帧(MSDU_BASE_S)无此字段(0xFF),不填(保持 -1 未知)
                 if (out.restart_count != 0xFF && out.msdu_src_tei == 1)
                     out.topo_event.restart_count = (int)out.restart_count;
+                // 发现列表由 CCO 广播:发送方即 CCO,填 cco_mac 保证拓扑图根节点
+                // 创建(对齐国网 DiscoverList 填 cco_mac 的行为);中继转发的帧
+                // 源 TEI 不是 1,不填,防误认
+                if (out.msdu_src_tei == 1 && out.msdu_src_mac)
+                    out.topo_event.cco_mac = out.msdu_src_mac;
                 if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
+                // 发现列表携带该 STA 经代理的上下行成功率:填入 comm_rates,
+                // TopoState::apply 会无条件更新通讯成功率状态(不入路由表)。
+                // 偏移:spec 相对 mme+6,ProxyCommRate@16/ProxyDownCommRate@20
+                {
+                    const quint32 up_rate = (quint32)get_bits(mme, 22, 0, 32);
+                    const quint32 down_rate = (quint32)get_bits(mme, 26, 0, 32);
+                    if (sta_tei && (up_rate <= 100 || down_rate <= 100)) {
+                        CommRateInfo cr;
+                        cr.tei = sta_tei;
+                        cr.up = (quint8)qMin(up_rate, 100u);
+                        cr.down = (quint8)qMin(down_rate, 100u);
+                        out.topo_event.comm_rates.append(cr);
+                    }
+                }
                 out.topo_event.desc = trl::L("发现列表: STA TEI=%1 代理=%2")
                     .arg(sta_tei)
                     .arg(proxy_tei ? QString::number(proxy_tei) : QStringLiteral("-"));
@@ -1173,7 +1205,12 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             const quint16 node_num  = (quint16)get_bits(mme, 30, 0, 16);  // DiscoverNodeNum
             int off = 48;  // 固定头 42B(MMeHead 6 + 消息体 42)
             // 上行路由条目(3B/条:NextHopTEI 12b + RSV 4b + RouteType 8b)
+            // 同步提取 NextHopTEI 入 topo_event.up_routes,供 TopoState 识别上行路径变化
+            const quint16 ur_sta_tei = (quint16)get_bits(mme, 6, 0, 16);
             for (int i = 0; i < route_num && off + 3 <= mme.size(); ++i) {
+                const quint16 nexthop = (quint16)get_bits(mme, off, 0, 12);
+                if (ur_sta_tei && nexthop)
+                    out.topo_event.up_routes.append({ur_sta_tei, nexthop});
                 MsduFieldNode& n = group(out.tree, QStringLiteral("UpRoute[%1]").arg(i));
                 n.rel_start = mme_rel_base + (off); n.rel_len = 3;
                 add_fields(n.children, mme, off, kUpRouteInfoSpec, kUpRouteInfoSpecN, mme_rel_base);
@@ -1199,6 +1236,18 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                     ++nset;
                 }
                 if (!per_byte[i].isEmpty()) bm_any = true;
+            }
+            // 邻居表:位图置位 TEI 即该 STA 发现的邻居,供 TopoState 按 STA 更新邻居表
+            if (ur_sta_tei && nset > 0) {
+                out.topo_event.discover_src_tei = ur_sta_tei;
+                out.topo_event.neighbor_teis.reserve(nset);
+                for (int i = 0; i < bm.size(); ++i) {
+                    const quint8 byte = (quint8)bm[i];
+                    for (int j = 0; j < 8; ++j) {
+                        if (byte & (1u << j))
+                            out.topo_event.neighbor_teis.append((quint16)(8 * i + j));
+                    }
+                }
             }
             // 逐字节显示(空字节不显示,非空字节按 bitmap[索引][8b] 显示,对应 hex 高亮)
             auto& bmg = group(out.tree,

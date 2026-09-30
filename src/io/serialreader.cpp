@@ -98,7 +98,8 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
             return;
         }
         emit status_message(trl::L("裸 hex 模式: %1").arg(cfg.file_path));
-        m_raw_base_ms = -1;   // 未给出时间头 → 回退本地时间
+        m_raw_base_ms = -1;   // 未给出时间头 → 首帧用本地时刻作基准,段内按 NTB 差推进
+        m_hex_seg_first = true;
         while (!m_file->atEnd()) {
             if (m_abort.load()) break;   // 立即响应 stop()
             QByteArray line = m_file->readLine().trimmed();
@@ -350,32 +351,29 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
             }
         }
         // 时间:ts 统一 NTB tick(25kHz,40ns)。段首帧用 TIME 头(m_raw_base_ms)
-        // 作基准;段内按 NTB 差×40ns 推进(与 bin 回放同构);断段(差超阈值/回绕)
-        // 回退本地时刻。无 TIME 头则回退本地。
+        // 作基准,无 TIME 头则用首帧本地时刻作基准(相对时间仍正确);段内
+        // 一律按 NTB 差×40ns 推进(与 bin 回放同构,保证帧间 ms 偏差正确);
+        // 断段(差超阈值/回绕)回退本地时刻。
         const quint32 ts_le2 = (quint32)(quint8)data[2]
                              | (quint32)(quint8)data[3] << 8
                              | (quint32)(quint8)data[4] << 16
                              | (quint32)(quint8)data[5] << 24;
+        const qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
         qint64 t2;
         bool seg_start = false;
-        if (m_raw_base_ms >= 0) {
-            if (m_hex_seg_first) {
-                t2 = m_raw_base_ms;
-                m_hex_seg_first = false;
-                seg_start = true;
-            } else {
-                const qint64 dn = (qint32)(ts_le2 - m_last_hex_ts);   // NTB 差(tick)
-                if (dn > 0 && dn <= playback::kMaxNtbGapTicks)
-                    t2 = m_last_hex_ft + playback::ntb_to_us(quint32(dn)) / 1000;
-                else
-                    t2 = QDateTime::currentMSecsSinceEpoch();   // 断段:回退本地
-            }
-            m_last_hex_ts = ts_le2;
-            m_last_hex_ft = t2;
+        if (m_hex_seg_first) {
+            t2 = (m_raw_base_ms >= 0) ? m_raw_base_ms : now_ms;
+            m_hex_seg_first = false;
+            seg_start = true;
         } else {
-            // 无 TIME 头:ts4=NTB 无法还原绝对时刻,回退本地
-            t2 = QDateTime::currentMSecsSinceEpoch();
+            const qint64 dn = (qint32)(ts_le2 - m_last_hex_ts);   // NTB 差(tick)
+            if (dn > 0 && dn <= playback::kMaxNtbGapTicks)
+                t2 = m_last_hex_ft + playback::ntb_to_us(quint32(dn)) / 1000;
+            else
+                t2 = now_ms;   // 断段:回退本地
         }
+        m_last_hex_ts = ts_le2;
+        m_last_hex_ft = t2;
 
         BplcFrame bf;
         bf.meta.from_raw = false;

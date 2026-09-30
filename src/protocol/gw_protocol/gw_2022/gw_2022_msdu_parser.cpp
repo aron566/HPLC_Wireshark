@@ -955,6 +955,19 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
             }
             case GW_2022_MMeType::MME_CHANGE_PROXY_REQ:
                 add_fields(root.children, b, 0, kChangeProxyReqSpec, kChangeProxyReqSpecN, head_size + 4);
+                // 拓扑事件:代理变更请求(仅记录入表,不更新拓扑;待确认后更新)
+                {
+                    const quint16 sta_tei = (quint16)get_bits(b, 0, 0, 12);
+                    const quint16 new_proxy = (quint16)get_bits(b, 2, 0, 12);
+                    const quint16 old_proxy = (quint16)get_bits(b, 12, 0, 12);
+                    if (sta_tei) {
+                        out.topo_event.kind = TopoEventKind::ChangeProxyReq;
+                        out.topo_event.desc = trl::L("代理变更请求: STA TEI=%1 %2→%3")
+                            .arg(sta_tei)
+                            .arg(old_proxy ? QString::number(old_proxy) : QStringLiteral("-"))
+                            .arg(new_proxy ? QString::number(new_proxy) : QStringLiteral("-"));
+                    }
+                }
                 apply_dicts(root.children);
                 break;
             case GW_2022_MMeType::MME_CHANGE_PROXY_BITMAP_CNF: {
@@ -1057,6 +1070,19 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                         out.topo_event.restart_count = (int)out.restart_count;
                     if (sta_tei && sta_mac) out.topo_event.nodes.append({sta_tei, sta_mac});
                     if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
+                    // 成功率:ProxyCommRate(上行)/ProxyDownCommRate(下行)为百分比,
+                    // 填入 comm_rates 供 TopoState 更新通讯成功率状态(对齐南网)
+                    {
+                        const quint8 up_rate = (quint8)get_bits(b, 18, 0, 8);
+                        const quint8 down_rate = (quint8)get_bits(b, 19, 0, 8);
+                        if (sta_tei && (up_rate <= 100 || down_rate <= 100)) {
+                            CommRateInfo cr;
+                            cr.tei = sta_tei;
+                            cr.up = (quint8)qMin<quint8>(up_rate, 100);
+                            cr.down = (quint8)qMin<quint8>(down_rate, 100);
+                            out.topo_event.comm_rates.append(cr);
+                        }
+                    }
                     out.topo_event.desc = trl::L("发现列表: STA TEI=%1 代理=%2")
                         .arg(sta_tei)
                         .arg(proxy_tei ? QString::number(proxy_tei) : QStringLiteral("-"));
@@ -1074,10 +1100,15 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 int off = 32;  // 固定头 32B(MMeHead 4 + DiscoverNodeList 28)
                 // UpRoute 条目:2B/条 NextHopTEI(0,0,12) + RouteType(1,4,4)
                 // 与 Python MMe_UpRouteInfo 一致;RouteTypeDict 含义翻译
+                // 同步提取 NextHopTEI 入 topo_event.up_routes,供 TopoState 识别
+                // 上行路径变化(对齐南网)
                 if (up_route_num > 0 && off + up_route_num * 2 <= b.size()) {
+                    const quint16 ur_sta_tei = (quint16)get_bits(b, 0, 0, 12);
                     auto& upg = group(root.children, QStringLiteral("UpRouteEntryList [%1]").arg(up_route_num));
                     for (int i = 0; i < up_route_num; ++i) {
                         quint16 tei = (quint16)get_bits(b, off, 0, 12);
+                        if (ur_sta_tei && tei)
+                            out.topo_event.up_routes.append({ur_sta_tei, tei});
                         quint8  rtype = (quint8)get_bits(b, off + 1, 4, 4);
                         int abs0 = head_size + 4 + off;   // 条目相对 body 起点
                         off += 2;
@@ -1124,6 +1155,21 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                         ++nset;
                     }
                     if (!per_byte[i].isEmpty()) bm_any = true;
+                }
+                // 邻居表:位图置位 TEI 即该 STA 发现的邻居,供 TopoState 按 STA 更新邻居表
+                {
+                    const quint16 bm_sta_tei = (quint16)get_bits(b, 0, 0, 12);
+                    if (bm_sta_tei && nset > 0) {
+                        out.topo_event.discover_src_tei = bm_sta_tei;
+                        out.topo_event.neighbor_teis.reserve(nset);
+                        for (int i = 0; i < bm.size(); ++i) {
+                            const quint8 byte = (quint8)bm[i];
+                            for (int j = 0; j < 8; ++j) {
+                                if (byte & (1u << j))
+                                    out.topo_event.neighbor_teis.append((quint16)(8 * i + j));
+                            }
+                        }
+                    }
                 }
                 if (!bm_any) {
                     // 全 0(如 bitmap size=1 且 bitmap[0]=0)→ NULL

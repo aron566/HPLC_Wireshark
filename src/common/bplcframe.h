@@ -189,6 +189,7 @@ enum class TopoEventKind {
     AssocCnf,       ///< 关联确认(STA 已入网)
     AssocGatherInd, ///< 关联汇总指示(批量站点入网)
     AssocInd,       ///< 关联指示(南网;拓扑语义等同关联确认)
+    ChangeProxyReq, ///< 代理变更请求(STA 请求换代理;仅记录,待确认后更新拓扑)
     ChangeProxyCnf, ///< 代理变更确认(STA 换代理)
     LeaveInd,       ///< 离网指示(STA 离网)
     SuccessRate,    ///< 成功率上报(STA 与上级的上下行通讯成功率)
@@ -212,6 +213,9 @@ struct TopoEvent {
     quint64 cco_mac = 0;                        ///< 本帧携带 CCO MAC(0=无)
     QVector<TeiMacPair> nodes;                  ///< TEI→MAC 学习对
     QVector<QPair<quint16, quint16>> routes;    ///< (子 TEI, 父/代理 TEI)
+    QVector<QPair<quint16, quint16>> up_routes; ///< 上行路由:(STA TEI, 下一跳 TEI),发现列表 UpRoute 条目(南网/国网)
+    quint16 discover_src_tei = 0;             ///< 发现列表发送方 TEI(0=无)
+    QVector<quint16> neighbor_teis;           ///< 发现列表位图邻居 TEI 列表(发送方见 discover_src_tei)
     QVector<quint64> leaves;                    ///< 离网节点 MAC 列表
     QVector<CommRateInfo> comm_rates;           ///< 成功率上报条目(SuccessRate 事件)
     bool is_rf = false;                         ///< 接入方式:false=PLC 载波;true=HRF 无线

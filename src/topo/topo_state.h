@@ -41,6 +41,8 @@ public:
     QHash<quint64, TopoNode> pending; ///< MAC → 正在入网节点(TEI 未分配,关联请求阶段)
     QHash<quint64, quint16> mac_to_tei; ///< MAC → TEI 快速索引(离线标记按 MAC 查找;与 nodes 双向一致)
     QHash<quint16, CommRateInfo> comm_rates; ///< TEI → 通讯成功率(成功率上报)
+    QHash<quint16, QVector<quint16>> neighbors; ///< TEI → 邻居 TEI 列表(发现列表位图,按帧更新)
+    QHash<quint16, QHash<quint16, int>> neighbor_counts; ///< STA TEI → (邻居 TEI → 发现列表接收数,累计)
     QVector<TopoEvent> events;      ///< 路由变更事件(时间序,供底部表格)
 
     /// @brief 应用一个拓扑事件,增量更新节点/路由/入网状态并记录事件
