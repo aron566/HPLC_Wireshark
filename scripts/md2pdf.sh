@@ -62,6 +62,15 @@ for B in "${BROWSERS[@]}"; do
     echo "md2pdf: $B 未生成 PDF,尝试下一个"
 done
 
+if [ "$OK" != 1 ]; then
+    # 兜底:wkhtmltopdf(不依赖浏览器,CI 专装)。浏览器全灭时最后的机会。
+    if command -v wkhtmltopdf >/dev/null 2>&1; then
+        echo "md2pdf: 浏览器均失败,改用 wkhtmltopdf 兜底"
+        wkhtmltopdf --enable-local-file-access --encoding utf-8 \
+            "$HTML" "$OUT" >/dev/null 2>&1 || true
+        [ -f "$OUT" ] && OK=1 && echo "md2pdf: 成功 (wkhtmltopdf 兜底)"
+    fi
+fi
 rm -f "$HTML"
 if [ "$OK" != 1 ]; then
     echo "错误: md2pdf 打印失败($IN → $OUT)"
@@ -70,7 +79,9 @@ if [ "$OK" != 1 ]; then
         if [ -f "$B" ]; then echo "    - $B (存在,但未生成 PDF)"
         else echo "    - $B (不存在)"; fi
     done
-    echo "  请检查 Chrome/Edge 是否正确安装,或加 --no-sandbox 相关 flag"
+    command -v wkhtmltopdf >/dev/null 2>&1 \
+        && echo "  wkhtmltopdf 已尝试,也未生成" \
+        || echo "  wkhtmltopdf 未安装(建议 CI 加装 choco install wkhtmltopdf)"
     exit 1
 fi
 echo "生成: $OUT"
