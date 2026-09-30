@@ -142,7 +142,11 @@ echo "[test] PASS: 符号化定位到 do_crash"
 run_sentry_win() {
     local SENTRY_ROOT="$ROOT/3rdparty/install/sentry"
     echo "=== compiling crash_test_sentry.exe ==="
-    g++ -std=c++17 -g -O0 -DCRASH_HAVE_SENTRY \
+    # 注意 -DSENTRY_BUILD_STATIC:Windows 上 sentry.h 默认按 DLL 导入(dllimport)
+    # 声明 API,引用 __imp_sentry_*;但 CI 里 sentry-native 以 STATIC 构建,
+    # 静态库的符号没有 __imp_ 前缀,不加这个宏链接时全部 undefined reference
+    # (Linux 上 SENTRY_API 只是 visibility 属性,无此问题)。
+    g++ -std=c++17 -g -O0 -DCRASH_HAVE_SENTRY -DSENTRY_BUILD_STATIC \
         -I"$ROOT/src/crash" \
         -I"$SENTRY_ROOT/include" \
         "$ROOT/src/crash/crash_handler.cpp" \
