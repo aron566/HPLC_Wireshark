@@ -8,9 +8,8 @@
 
 CRASH_CRASHPAD_ROOT = $$PWD/../../3rdparty/install/crashpad
 
-!exists($$CRASH_CRASHPAD_ROOT/include/crashpad/client/crashpad_client.h) {
-    error("crash_crashpad: 找不到 crashpad 头文件,请先跑 3rdparty/build_crash_deps.sh crashpad")
-}
+# 本后端开启即绑定前置顺序:缺依赖时在 qmake 阶段自动构建,失败则中断构建
+crash_ensure_deps(crashpad, $$CRASH_CRASHPAD_ROOT/include/crashpad/client/crashpad_client.h)
 
 DEFINES += CRASH_HAVE_CRASHPAD
 

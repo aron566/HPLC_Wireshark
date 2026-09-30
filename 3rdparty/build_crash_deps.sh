@@ -15,6 +15,8 @@
 # SENTRY_NATIVE_REF(固定提交,保证可复现)浅克隆,并初始化 crashpad 构建所需
 # 的嵌套 submodule。可被环境变量覆盖:
 #   SENTRY_NATIVE_REF / SENTRY_NATIVE_URL
+#   CMAKE_BIN / MAKE_BIN (cmake 与 mingw32-make 的绝对路径;qmake 自动构建用,
+#   避免 Windows 下 bash PATH 的盘符冒号解析问题)
 #
 # Windows(Git Bash + MinGW): crashpad 的 getsentry fork 支持 MinGW 构建
 # (见其 README.getsentry.md "MinGW Changes"),本脚本自动切 -G "MinGW Makefiles"。
@@ -121,7 +123,12 @@ build_sentry() {
         # 这里再调一次(幂等,已存在则跳过下载)。
         ensure_uasm
     fi
-    cmake -S "$(to_win_path "$SRC_SENTRY")" -B "$(to_win_path "$SRC_SENTRY/build")" \
+    # qmake 自动构建可经 MAKE_BIN 传入 mingw32-make 绝对路径(Windows 下
+    # bash 的 PATH 是 : 分隔,盘符路径 C:/... 放进去会被拆错,故不用 PATH 传递)。
+    if [ -n "${MAKE_BIN:-}" ]; then
+        gen_args+=(-DCMAKE_MAKE_PROGRAM="$MAKE_BIN")
+    fi
+    "${CMAKE_BIN:-cmake}" -S "$(to_win_path "$SRC_SENTRY")" -B "$(to_win_path "$SRC_SENTRY/build")" \
         "${gen_args[@]}" \
         "${extra_args[@]}" \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -130,8 +137,8 @@ build_sentry() {
         -DSENTRY_TRANSPORT="$transport" \
         -DSENTRY_BUILD_TESTS=OFF \
         -DSENTRY_BUILD_EXAMPLES=OFF
-    cmake --build "$(to_win_path "$SRC_SENTRY/build")" --parallel "$JOBS"
-    cmake --install "$(to_win_path "$SRC_SENTRY/build")" --prefix "$(to_win_path "$INSTALL/sentry")"
+    "${CMAKE_BIN:-cmake}" --build "$(to_win_path "$SRC_SENTRY/build")" --parallel "$JOBS"
+    "${CMAKE_BIN:-cmake}" --install "$(to_win_path "$SRC_SENTRY/build")" --prefix "$(to_win_path "$INSTALL/sentry")"
     echo "sentry -> $INSTALL/sentry"
 }
 
@@ -173,14 +180,19 @@ build_crashpad() {
         extra_args+=(-DCRASHPAD_ZLIB_SYSTEM=OFF -DCRASHPAD_ENABLE_WER=OFF)
         ensure_uasm
     fi
-    cmake -S "$(to_win_path "$SRC_CRASHPAD")" -B "$(to_win_path "$SRC_CRASHPAD/build")" \
+    # qmake 自动构建可经 MAKE_BIN 传入 mingw32-make 绝对路径(Windows 下
+    # bash 的 PATH 是 : 分隔,盘符路径 C:/... 放进去会被拆错,故不用 PATH 传递)。
+    if [ -n "${MAKE_BIN:-}" ]; then
+        gen_args+=(-DCMAKE_MAKE_PROGRAM="$MAKE_BIN")
+    fi
+    "${CMAKE_BIN:-cmake}" -S "$(to_win_path "$SRC_CRASHPAD")" -B "$(to_win_path "$SRC_CRASHPAD/build")" \
         "${gen_args[@]}" \
         "${extra_args[@]}" \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DCRASHPAD_ENABLE_INSTALL=ON \
         -DCRASHPAD_ENABLE_INSTALL_DEV=ON
-    cmake --build "$(to_win_path "$SRC_CRASHPAD/build")" --parallel "$JOBS"
-    cmake --install "$(to_win_path "$SRC_CRASHPAD/build")" --prefix "$(to_win_path "$INSTALL/crashpad")"
+    "${CMAKE_BIN:-cmake}" --build "$(to_win_path "$SRC_CRASHPAD/build")" --parallel "$JOBS"
+    "${CMAKE_BIN:-cmake}" --install "$(to_win_path "$SRC_CRASHPAD/build")" --prefix "$(to_win_path "$INSTALL/crashpad")"
     echo "crashpad -> $INSTALL/crashpad"
 }
 

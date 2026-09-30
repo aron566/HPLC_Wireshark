@@ -8,9 +8,8 @@
 
 CRASH_SENTRY_ROOT = $$PWD/../../3rdparty/install/sentry
 
-!exists($$CRASH_SENTRY_ROOT/include/sentry.h) {
-    error("crash_sentry: 找不到 $$CRASH_SENTRY_ROOT/include/sentry.h,请先跑 3rdparty/build_crash_deps.sh sentry")
-}
+# 本后端开启即绑定前置顺序:缺依赖时在 qmake 阶段自动构建,失败则中断构建
+crash_ensure_deps(sentry, $$CRASH_SENTRY_ROOT/include/sentry.h)
 
 DEFINES += CRASH_HAVE_SENTRY
 

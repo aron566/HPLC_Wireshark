@@ -152,7 +152,14 @@ build-windows 所有步骤通过:
   找不到 uasm(`build_sentry` 补调 `ensure_uasm`)、sentry 静态库链接需
   `-DSENTRY_BUILD_STATIC` + `-lsynchronization`
 
-- 依赖构建:`bash 3rdparty/build_crash_deps.sh crashpad`
+- 依赖构建:已绑定进 qmake 流程,无需手动执行。开了 crashpad/sentry
+  任一后端,qmake 阶段缺依赖时自动执行
+  `3rdparty/build_crash_deps.sh`(需联网 + CMake,首次约数分钟),
+  失败则 qmake 直接报错中断。前置要求(Windows):Git for Windows
+  (提供 bash;自动找 PATH 或默认安装路径)与 CMake(PATH 或
+  Qt 自带的 `C:/Qt/Tools/CMake_64/bin`),MinGW 随 Qt kit;
+  任一缺失 qmake 会给出明确指引。手动构建仍可用:
+  `bash 3rdparty/build_crash_deps.sh [sentry|crashpad|all]`
   (Git Bash + MinGW;crashpad 的 getsentry fork 支持 MinGW,脚本自动源码自举)
 - 崩溃测试:`bash src/crash/tests/run_crash_tests_win.sh`
   (编译 `crash_test_crashpad.exe`,触发 Access Violation,检查 `db/reports/*.dmp`)
