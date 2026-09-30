@@ -60,8 +60,11 @@ jobs:
           choco install nsis -y --no-progress
           choco install pandoc -y --no-progress
           # Chrome 供 md2pdf.sh 优先使用(headless 打印 PDF 比 Edge 稳定;
-          # 本机 Edge 某版本 --headless --print-to-pdf 静默失败)
-          choco install googlechrome -y --no-progress
+          # 本机 Edge 某版本 --headless --print-to-pdf 静默失败)。
+          # --ignore-checksums:choco 的 googlechrome 包 sha256 常滞后于 Google
+          # 更新,校验失败会中断整个安装步骤;CI 临时环境跳过校验可接受。
+          # 装不上也不中断:md2pdf.sh 会回退 Edge(产物校验失败才会报错)。
+          choco install googlechrome -y --no-progress --ignore-checksums || echo "::warning::Chrome 安装失败,md2pdf 将回退 Edge"
 
       - name: 构建 crashpad 依赖(MinGW)
         shell: bash
