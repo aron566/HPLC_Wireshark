@@ -176,6 +176,7 @@ struct I18nRegTopoWindow {
         trl::register_en("邻居表", "Neighbors");
         trl::register_en("代理 TEI", "Proxy TEI");
         trl::register_en("STA TEI=%1 的邻居表", "Neighbors of STA TEI=%1");
+        trl::register_en("发现列表报文数", "Discover count");
         trl::register_en("在线", "Online");
         trl::register_en("入网中", "Joining");
         trl::register_en("离线", "Offline");
@@ -805,16 +806,18 @@ void TopoWindow::on_teimac_double_clicked(const QModelIndex& idx) {
     auto* lay = new QVBoxLayout(dlg);
     auto* model = new QStandardItemModel(dlg);
     model->setHorizontalHeaderLabels(
-        {trl::L("TEI"), trl::L("MAC"), trl::L("层级")});
+        {trl::L("TEI"), trl::L("MAC"), trl::L("层级"), trl::L("发现列表报文数")});
     for (quint16 nb : nbs) {
         const TopoNode& node = st->nodes.value(nb);
         const QString s_mac = node.mac ? format_mac(node.mac) : QStringLiteral("-");
         const int level = levels.value(nb, -1);
         const QString s_level = level < 0 ? QStringLiteral("-") : QString::number(level);
+        const QString s_count = QString::number(counts.value(nb, 0));
         QList<QStandardItem*> row;
         row << new QStandardItem(QString::number(nb))
             << new QStandardItem(s_mac)
-            << new QStandardItem(s_level);
+            << new QStandardItem(s_level)
+            << new QStandardItem(s_count);
         model->appendRow(row);
     }
     auto* view = new QTableView(dlg);
