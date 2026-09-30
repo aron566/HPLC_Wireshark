@@ -43,5 +43,5 @@ unix: LIBS += -lcurl -lz -ldl -lpthread
 CRASH_SENTRY_HANDLER_SRC = $$CRASH_SENTRY_ROOT/bin/crashpad_handler
 win32: CRASH_SENTRY_HANDLER_SRC = $$CRASH_SENTRY_ROOT/bin/crashpad_handler.exe
 !exists($$CRASH_SENTRY_HANDLER_SRC) {
-    warning("crash_sentry: 找不到 crashpad_handler,运行时崩溃捕获将不可用")
+    warning("crash_sentry: crashpad_handler not found, runtime crash capture will be unavailable")
 }

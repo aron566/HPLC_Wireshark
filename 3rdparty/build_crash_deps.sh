@@ -66,12 +66,12 @@ ensure_source() {
         git -C "$SRC_SENTRY" fetch --depth 1 origin "$SENTRY_NATIVE_REF"
         git -C "$SRC_SENTRY" checkout "$SENTRY_NATIVE_REF"
     else
-        echo "=== sentry-native 源码已存在,跳过拉取 ==="
+        echo "=== sentry-native source already present, skipping fetch ==="
     fi
     # crashpad 独立构建需要的 submodule(幂等,已有则跳过)。
     # 注意:嵌套 submodule 注册在 external/crashpad/.gitmodules,
     # 必须进到 crashpad 仓库里初始化,顶层仓库不认这些路径。
-    echo "=== 初始化 crashpad submodule ==="
+    echo "=== initializing crashpad submodule ==="
     git -C "$SRC_SENTRY" submodule update --init --depth 1 external/crashpad
     git -C "$SRC_CRASHPAD" submodule update --init --depth 1 \
         third_party/mini_chromium/mini_chromium \
@@ -82,33 +82,33 @@ ensure_source() {
              "$SRC_CRASHPAD/third_party/mini_chromium/mini_chromium/base/files/file_path.h" \
              "$SRC_CRASHPAD/third_party/zlib/zlib/zlib.h" \
              "$SRC_CRASHPAD/third_party/lss/lss/linux_syscall_support.h"; do
-        [ -f "$f" ] || { echo "error: 缺失 $f,submodule 初始化失败"; exit 1; }
+        [ -f "$f" ] || { echo "error: missing $f, submodule init failed"; exit 1; }
     done
     # 打上本地 patch(幂等):给 crashpad 加 CRASHPAD_ENABLE_WER 开关,
     # Windows/MinGW 构建时用它跳过 WER 模块(与 MinGW werapi.h 冲突,且不需要)。
     if ! grep -q "CRASHPAD_ENABLE_WER" "$SRC_CRASHPAD/handler/CMakeLists.txt"; then
-        echo "=== 应用 crashpad 本地 patch: disable-wer ==="
+        echo "=== applying local crashpad patch: disable-wer ==="
         # --ignore-whitespace:Windows runner 上 git 默认 autocrlf=true,checkout 出 CRLF
         # 换行,而 patch 是 LF,不加这个上下文匹配失败。
         git -C "$SRC_CRASHPAD" apply --ignore-whitespace "$PWD/patches/crashpad-disable-wer.patch"
     else
-        echo "=== crashpad 本地 patch 已应用,跳过 ==="
+        echo "=== crashpad local patch already applied, skipping ==="
     fi
     # MinGW 垫片 compat/mingw/werapi.h 把 PWER_SUBMIT_RESULT 的补定义写在了
     # #include_next 之后,但老版本 MinGW 系统头自己第 122 行就用了该类型,
     # 导致系统头先编译不过。移到 include 之前(幂等)。
     if ! grep -q "必须在 include 系统头之前补上" "$SRC_CRASHPAD/compat/mingw/werapi.h"; then
-        echo "=== 应用 crashpad 本地 patch: mingw-werapi ==="
+        echo "=== applying local crashpad patch: mingw-werapi ==="
         git -C "$SRC_CRASHPAD" apply --ignore-whitespace "$PWD/patches/crashpad-mingw-werapi.patch"
     else
-        echo "=== crashpad mingw-werapi patch 已应用,跳过 ==="
+        echo "=== crashpad mingw-werapi patch already applied, skipping ==="
     fi
     # MSVC 的 offsetof 接受非常量数组下标,GCC 不接受;改写为等价的算术形式(幂等)。
     if ! grep -q "与原式语义等价" "$SRC_CRASHPAD/snapshot/win/pe_image_reader.cc"; then
-        echo "=== 应用 crashpad 本地 patch: mingw-offsetof ==="
+        echo "=== applying local crashpad patch: mingw-offsetof ==="
         git -C "$SRC_CRASHPAD" apply --ignore-whitespace "$PWD/patches/crashpad-mingw-offsetof.patch"
     else
-        echo "=== crashpad mingw-offsetof patch 已应用,跳过 ==="
+        echo "=== crashpad mingw-offsetof patch already applied, skipping ==="
     fi
 }
 
@@ -158,21 +158,21 @@ ensure_uasm() {
     # 注:不能用 command -v uasm 做存在性校验——Git Bash 下它能命中 uasm.exe,
     # 但 Linux shell 只认无扩展名的 uasm;直接判文件最可靠。
     if command -v uasm >/dev/null 2>&1 || [ -f "$tools_dir/uasm.exe" ]; then
-        echo "=== uasm 已就绪,跳过下载 ==="
+        echo "=== uasm ready, skipping download ==="
     else
         local url="https://github.com/Terraspace/UASM/releases/download/v2.57r/uasm257_x64.zip"
         mkdir -p "$tools_dir"
-        echo "=== 下载 uasm v2.57 (MASM 兼容汇编器,供 crashpad .asm 使用) ==="
+        echo "=== downloading uasm v2.57 (MASM-compatible assembler for crashpad .asm) ==="
         curl -sSL -o "$tools_dir/uasm.zip" "$url"
         ( cd "$tools_dir" && unzip -o -q uasm.zip uasm64.exe && cp -f uasm64.exe uasm.exe )
         rm -f "$tools_dir/uasm.zip"
         chmod +x "$tools_dir/uasm.exe" 2>/dev/null || true
     fi
-    [ -f "$tools_dir/uasm.exe" ] || { echo "error: uasm 安装失败"; exit 1; }
+    [ -f "$tools_dir/uasm.exe" ] || { echo "error: uasm installation failed"; exit 1; }
     # PATH 必须同时给 bash 格式和 Windows 格式:最终调 uasm 的是原生
     # mingw32-make(经 CreateProcess 搜 PATH),认不了 /d/... 这种 bash 路径。
     export PATH="$tools_dir:$(to_win_path "$tools_dir"):$PATH"
-    echo "=== uasm 就绪: $tools_dir/uasm.exe ==="
+    echo "=== uasm ready: $tools_dir/uasm.exe ==="
 }
 
 build_crashpad() {
