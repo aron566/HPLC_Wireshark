@@ -56,6 +56,10 @@ BPLC/HRF(HPLC) 协议 STA 报文监控上位机(Windows,Qt 6 / C++17)。
   偏差大时降级本地时间)
 - **行颜色分系**:管理消息(MMe)暖色、应用数据(APP)冷色、COORD 紫色;
   红色仅保留异常报文(ACK 校验失败 / APP NACK)
+- **崩溃转储**:崩溃时自动生成 minidump(`*.dmp`)到 exe 同级 `crashpad_db/` 下;
+  默认 crashpad 后端,`config.ini` `[crash] dsn` 填 Sentry DSN 后崩溃自动上报,
+  不填只本地落盘;`--self-crash-test` 触发确定性崩溃自测,`symbolize.sh`
+  符号化定位到崩溃函数名与源码行
 
 ## 显示过滤器
 
@@ -113,7 +117,7 @@ mingw32-make -j4
    多 PB 报文每块 Header/Body/CRC24 均逐块可点
 4. **检查更新**:菜单 `帮助 → 检查更新`,更新清单地址见
    `config.ini` 的 `general/update_url`(默认指向 GitHub
-   `aron566/HPLC_Wireshark` 仓库 `main` 分支的 `update.json`,当前版本 1.1.0)
+   `aron566/HPLC_Wireshark` 仓库 `main` 分支的 `update.json`,当前版本 1.3.0)
 5. **配置文件 `config.ini`**(exe 同目录,首次启动自动生成带注释模板):
    更新检查地址、语言、串口参数、过滤条件等均可在其中修改(也可在
    `开始` 对话框修改串口/语言/主题——自动写回)。删除该文件后下次启动
@@ -263,12 +267,12 @@ data = [dlen 2B LE][ts 4B LE][phr_mcs 1B][option 1B][channel 1B][isRF 1B][MPDU..
 python scripts/make_icon.py
 
 # 2.一键打包:全量构建 → windeployqt → NSIS 生成安装包
-bash scripts/package.sh 1.1.0
-#   产物:dist/BPLC_STA_Monitor_Setup_v1.1.0.exe
+bash scripts/package.sh 1.3.0
+#   产物:dist/BPLC_STA_Monitor_Setup_v1.3.0.exe
 
 # 3.安装包验证(静默安装/升级,免 UAC)
-dist/BPLC_STA_Monitor_Setup_v1.1.0.exe /S                 # 静默安装到默认目录
-dist/BPLC_STA_Monitor_Setup_v1.1.0.exe /S /D=C:\my\dir    # 静默装到指定目录
+dist/BPLC_STA_Monitor_Setup_v1.3.0.exe /S                 # 静默安装到默认目录
+dist/BPLC_STA_Monitor_Setup_v1.3.0.exe /S /D=C:\my\dir    # 静默装到指定目录
 "%LOCALAPPDATA%\Programs\BPLC_STA_Monitor\uninstall.exe" /S  # 静默卸载
 ```
 
@@ -280,7 +284,7 @@ dist/BPLC_STA_Monitor_Setup_v1.1.0.exe /S /D=C:\my\dir    # 静默装到指定�
 1. **版本号**:改 `src/app/mainwindow.cpp` 顶部 `kAppVersion` 与
    `BPLC_STA_Monitor.pro` 的 `VERSION`(两者保持一致)
 2. `bash scripts/package.sh <新版本>` 得到安装包
-3. **推代码 + 建 release**:在 GitHub 仓库建 tag/release(如 `v1.1.0`),
+3. **推代码 + 建 release**:在 GitHub 仓库建 tag/release(如 `v1.3.0`),
    上传安装包为 release asset
 4. **改 `update.json`**(仓库根,提交推送):
    `latest-version` 抬高新版本号,`download-url` 指向 release asset 地址
@@ -296,7 +300,7 @@ dist/BPLC_STA_Monitor_Setup_v1.1.0.exe /S /D=C:\my\dir    # 静默装到指定�
 {
   "updates": {
     "windows": {
-      "latest-version": "1.1.0",
+      "latest-version": "1.3.0",
       "download-url": "https://example.com/BPLC_STA_Monitor.exe",
       "changelog": "修复 xxx",
       "mandatory-update": false

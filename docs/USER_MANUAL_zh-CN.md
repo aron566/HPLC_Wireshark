@@ -1,6 +1,6 @@
 # BPLC STA Monitor 使用说明书
 
-适用版本：`v1.1.0`  
+适用版本：`v1.3.0`  
 适用平台：Windows
 
 ## 1. 工具简介
@@ -18,6 +18,7 @@ BPLC STA Monitor 是 BPLC/HRF（HPLC）协议 STA 报文监控上位机。它用
 - 独立 TOPO 拓扑窗口：按 NID 绘制 CCO/STA 拓扑、路由变更记录、TEI→MAC 映射表。
 - 支持拖放导入 `.bin` 或裸 hex 文件。
 - 支持导出 CSV 表格（含本地编码，Excel 可直接打开）。
+- 崩溃时自动生成 minidump 转储（`*.dmp`），可配置上报 Sentry。
 
 ## 2. 安装与启动
 
@@ -26,7 +27,7 @@ BPLC STA Monitor 是 BPLC/HRF（HPLC）协议 STA 报文监控上位机。它用
 安装包位于 `dist/`，文件名类似：
 
 ```text
-BPLC_STA_Monitor_Setup_v1.1.0.exe
+BPLC_STA_Monitor_Setup_v1.3.0.exe
 ```
 
 安装特点：
@@ -103,7 +104,7 @@ BPLC_STA_Monitor.exe
 | 拓扑 | 打开 TOPO 拓扑窗口（按 NID 绘制拓扑、查看路由变更记录） |
 | 显示过滤器 | 输入表达式并按“应用”或回车筛选帧列表 |
 
-注意：在 `v1.1.0` 源码当前状态下，工具栏“设置”按钮没有连接到配置对话框。语言、主题和串口参数仍可在“开始”对话框中修改，也可直接编辑 `config.ini`。
+注意：在 `v1.3.0` 源码当前状态下，工具栏“设置”按钮没有连接到配置对话框。语言、主题和串口参数仍可在“开始”对话框中修改，也可直接编辑 `config.ini`。
 
 ### 4.2 帧列表
 
@@ -351,6 +352,11 @@ com=COM3
 baud=460800
 file_path=
 time_tag=false
+
+[crash]
+backend=auto
+dsn=
+db_path=
 ```
 
 | 配置项 | 取值 |
@@ -365,8 +371,21 @@ time_tag=false
 | `baud` | 波特率 |
 | `file_path` | 回放或导入文件路径 |
 | `time_tag` | 兼容旧配置字段；当前新格式会自动识别 BCD 时间标签 |
+| `backend` | 崩溃转储后端：`auto`（默认，优先 sentry）、`sentry`、`crashpad` |
+| `dsn` | Sentry DSN，填了崩溃自动上报，空=只本地落盘 |
+| `db_path` | 崩溃转储目录，空=exe 同级 `crashpad_db` |
 
 语言和主题在“开始”对话框修改后通常会立即保存；部分窗口框架文本在重启程序后完全生效。
+
+### 8.1 崩溃转储
+
+程序崩溃时自动生成 minidump 转储文件（`*.dmp`），便于定位问题：
+
+- 默认使用 crashpad 后端，崩溃后 dump 落在 exe 同目录 `crashpad_db\pending\` 下（可用 `[crash] db_path` 改路径）。
+- 在 `[crash] dsn` 填入 Sentry DSN（或设环境变量 `SENTRY_DSN`）后，崩溃会自动上报到 Sentry 服务端；不填则只本地落盘，不产生网络流量。
+- `backend` 可选 `auto`（默认，优先 sentry）、`sentry`、`crashpad`；所选后端安装失败时会自动回退，程序照常启动，只是无崩溃捕获。
+- 命令行加 `--self-crash-test` 可触发一次确定性崩溃，用于验证转储功能是否正常（会生成一份 dump）。
+- 拿到 dump 后，用 `scripts/symbolize.sh <dump> --symdir <符号目录>` 可符号化定位到崩溃的函数名与源码行。
 
 ## 9. 检查更新
 
@@ -384,8 +403,8 @@ time_tag=false
 {
   "updates": {
     "windows": {
-      "latest-version": "1.1.0",
-      "download-url": "https://example.com/BPLC_STA_Monitor_Setup_v1.1.0.exe",
+      "latest-version": "1.3.0",
+      "download-url": "https://example.com/BPLC_STA_Monitor_Setup_v1.3.0.exe",
       "changelog": "Release notes",
       "mandatory-update": false
     }
@@ -544,12 +563,12 @@ release/BPLC_STA_Monitor.exe
 打包：
 
 ```bash
-bash scripts/package.sh 1.1.0
+bash scripts/package.sh 1.3.0
 ```
 
 产物：
 
 ```text
-dist/BPLC_STA_Monitor_Setup_v1.1.0.exe
+dist/BPLC_STA_Monitor_Setup_v1.3.0.exe
 ```
 

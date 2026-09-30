@@ -1,6 +1,6 @@
 # BPLC STA Monitor User Manual
 
-Applies to: `v1.1.0`  
+Applies to: `v1.3.0`  
 Platform: Windows
 
 ## 1. Overview
@@ -18,6 +18,7 @@ BPLC STA Monitor is a Windows desktop application for monitoring BPLC/HRF (HPLC)
 - A standalone TOPO topology window: per-NID CCO/STA topology, route-change log, and TEI-to-MAC mapping.
 - Drag-and-drop import of `.bin` or raw hex files.
 - Export CSV tables (locale-aware encoding, opens directly in Excel).
+- Generates a minidump crash dump (`*.dmp`) on crash, with optional Sentry upload.
 
 ## 2. Installation and Startup
 
@@ -26,7 +27,7 @@ BPLC STA Monitor is a Windows desktop application for monitoring BPLC/HRF (HPLC)
 The installer is under `dist/` and has a name similar to:
 
 ```text
-BPLC_STA_Monitor_Setup_v1.1.0.exe
+BPLC_STA_Monitor_Setup_v1.3.0.exe
 ```
 
 Installer behavior:
@@ -101,7 +102,7 @@ BPLC_STA_Monitor.exe
 | Topology | Opens the TOPO topology window (per-NID topology, route-change log) |
 | Display filter | Applies a filter expression to the frame list |
 
-Note: in the current `v1.1.0` source state, the toolbar `Settings` button is not connected to the settings dialog. Language, theme, and serial parameters can still be changed in the `Start` dialog or by editing `config.ini`.
+Note: in the current `v1.3.0` source state, the toolbar `Settings` button is not connected to the settings dialog. Language, theme, and serial parameters can still be changed in the `Start` dialog or by editing `config.ini`.
 
 ### 4.2 Frame List
 
@@ -343,6 +344,11 @@ com=COM3
 baud=460800
 file_path=
 time_tag=false
+
+[crash]
+backend=auto
+dsn=
+db_path=
 ```
 
 | Setting | Values |
@@ -357,8 +363,21 @@ time_tag=false
 | `baud` | Baud rate |
 | `file_path` | Replay/import file path |
 | `time_tag` | Legacy compatibility field; current formats auto-detect BCD time tags |
+| `backend` | Crash backend: `auto` (default, prefers sentry), `sentry`, `crashpad` |
+| `dsn` | Sentry DSN; when set, crashes auto-upload; empty = local only |
+| `db_path` | Crash dump directory; empty = `crashpad_db` next to the exe |
 
 Language and theme changes made in the `Start` dialog are normally saved immediately. Some window-framework text is fully updated after restarting the application.
+
+### 8.1 Crash Dumps
+
+The program generates a minidump crash dump (`*.dmp`) on crash to help diagnose issues:
+
+- By default the crashpad backend writes dumps to `crashpad_db\pending\` next to the executable (change with `[crash] db_path`).
+- Set a Sentry DSN in `[crash] dsn` (or the `SENTRY_DSN` environment variable) to auto-upload crashes to a Sentry server; leave it empty to store locally only, with no network traffic.
+- `backend` accepts `auto` (default, prefers sentry), `sentry`, or `crashpad`; if the selected backend fails to install, it falls back automatically and the program still starts normally, just without crash capture.
+- Run with `--self-crash-test` to trigger a deterministic crash and verify capture works (produces one dump).
+- Symbolize a dump with `scripts/symbolize.sh <dump> --symdir <symbols-dir>` to locate the crashing function and source line.
 
 ## 9. Checking for Updates
 
@@ -376,8 +395,8 @@ Manifest format:
 {
   "updates": {
     "windows": {
-      "latest-version": "1.1.0",
-      "download-url": "https://example.com/BPLC_STA_Monitor_Setup_v1.1.0.exe",
+      "latest-version": "1.3.0",
+      "download-url": "https://example.com/BPLC_STA_Monitor_Setup_v1.3.0.exe",
       "changelog": "Release notes",
       "mandatory-update": false
     }
@@ -536,12 +555,12 @@ release/BPLC_STA_Monitor.exe
 Package:
 
 ```bash
-bash scripts/package.sh 1.1.0
+bash scripts/package.sh 1.3.0
 ```
 
 Output:
 
 ```text
-dist/BPLC_STA_Monitor_Setup_v1.1.0.exe
+dist/BPLC_STA_Monitor_Setup_v1.3.0.exe
 ```
 
