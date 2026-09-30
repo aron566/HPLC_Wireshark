@@ -9,6 +9,7 @@
 
 #include "bplcframe.h"        // PhysicalMeta/BplcFrame/MsduState/MpduInfo/MsduInfo/...
 #include "iprotocolparser.h"  // ParseResult/ParseFilter
+#include "igraphicsplugin.h"  // GraphicsEvent(Phase3)
 
 // ---- PhysicalMeta ----
 QDataStream& operator<<(QDataStream& out, const PhysicalMeta& m);
@@ -53,5 +54,13 @@ QDataStream& operator>>(QDataStream& in, MsduInfo& m);
 // ---- ParseResult ----
 QDataStream& operator<<(QDataStream& out, const ParseResult& r);
 QDataStream& operator>>(QDataStream& in, ParseResult& r);
+
+// ---- GraphicsEvent (Phase3) ----
+QDataStream& operator<<(QDataStream& out, const GraphicsEvent& e);
+QDataStream& operator>>(QDataStream& in, GraphicsEvent& e);
+
+// ---- QImage (Phase3): PNG 压缩字节,限 8MB ----
+QDataStream& operator<<(QDataStream& out, const QImage& img);
+QDataStream& operator>>(QDataStream& in, QImage& img);
 
 #endif // BPLC_PLUGIN_SERIALIZATION_H

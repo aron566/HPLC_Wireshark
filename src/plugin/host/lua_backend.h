@@ -29,6 +29,12 @@ public:
     ParseResult parse(const BplcFrame& frame, MsduState& msdu,
                       const ParseFilter& filter, QString* err) override;
 
+    // ---- 图形(Phase3) ----
+    bool has_graphics() const override;
+    QSize graphics_preferred_size() const override;
+    QImage render_graphics(int w, int h, QString* err) override;
+    bool handle_graphics_event(const GraphicsEvent& e, QString* err) override;
+
 private:
     /// @brief Lua fields 表(数组) → MsduFieldNode 树(递归)。表在栈顶
     bool convert_fields(QVector<MsduFieldNode>* out, QString* err);
@@ -37,6 +43,7 @@ private:
     quint64 table_uint(const char* key, quint64 d = 0);
 
     lua_State* m_lua = nullptr;
+    bool m_has_graphics = false;
     QString m_protocol_id;
     QString m_display_name;
 };

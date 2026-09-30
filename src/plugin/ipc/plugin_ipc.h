@@ -28,6 +28,12 @@ enum class MsgType : quint8 {
     Pong = 21,          ///< host→app: {seq:quint64}
     Shutdown = 30,      ///< app→host: 优雅退出
     Error = 40,         ///< host→app: {seq:quint64, message:QString} 解析异常等
+    // 图形插件(Phase3)
+    RenderRequest = 50,  ///< app→host: {seq:quint64, width:int, height:int} 请求重绘
+    RenderResponse = 51, ///< host→app: {seq:quint64, ok:bool, image:QImage} 图片(PNG 压缩字节经 QDataStream)
+    GraphicsEventMsg = 52, ///< app→host: {seq:quint64, event:GraphicsEvent} 鼠标/滚轮/缩放
+    EventAck = 53,       ///< host→app: {seq:quint64, needs_redraw:bool}
+    RequestRedraw = 54,  ///< host→app: {} 插件主动请求重绘(如动画/数据更新)
 };
 
 /// @brief 本机 socket 名(主程序按插件 id 生成唯一名)

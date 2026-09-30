@@ -1,6 +1,5 @@
 # bplc-plugin-host.pro: 插件宿主进程(独立可执行文件,多 runtime)
-QT       += core network qml
-QT       -= gui
+QT       += core network qml gui
 CONFIG   += c++17 console
 CONFIG   -= app_bundle
 
@@ -35,8 +34,10 @@ HEADERS += \
     native_backend.h \
     js_backend.h \
     lua_backend.h \
+    script_painter.h \
     ../plugin_api/iplugin.h \
     ../plugin_api/iprotocolparserplugin.h \
+    ../plugin_api/igraphicsplugin.h \
     ../plugin_api/plugin_manifest.h \
     ../ipc/plugin_ipc.h \
     ../ipc/plugin_serialization.h
@@ -48,4 +49,5 @@ SOURCES += \
     native_backend.cpp \
     js_backend.cpp \
     lua_backend.cpp \
+    script_painter.cpp \
     ../ipc/plugin_serialization.cpp

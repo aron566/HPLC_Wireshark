@@ -5,9 +5,14 @@
 #ifndef BPLC_PLUGIN_BACKEND_H
 #define BPLC_PLUGIN_BACKEND_H
 
+#include <QImage>
+#include <QSize>
 #include <QString>
 
+#include <functional>
+
 #include "bplcframe.h"
+#include "igraphicsplugin.h"
 #include "iprotocolparser.h"
 #include "plugin_manifest.h"
 
@@ -25,6 +30,30 @@ public:
     /// @brief 解析一帧。err 非空时置错误信息
     virtual ParseResult parse(const BplcFrame& frame, MsduState& msdu,
                               const ParseFilter& filter, QString* err) = 0;
+
+    // ---- 图形能力(Phase3,缺省无) ----
+    /// @brief 是否提供图形能力
+    virtual bool has_graphics() const { return false; }
+    /// @brief 首选初始尺寸
+    virtual QSize graphics_preferred_size() const { return QSize(400, 300); }
+    /// @brief 绘制到 w*h 的 QImage(返回空图=失败)
+    virtual QImage render_graphics(int w, int h, QString* err) {
+        Q_UNUSED(w); Q_UNUSED(h);
+        *err = QStringLiteral("no graphics");
+        return QImage();
+    }
+    /// @brief 处理图形事件,返回 true=需要重绘
+    virtual bool handle_graphics_event(const GraphicsEvent& e, QString* err) {
+        Q_UNUSED(e);
+        *err = QStringLiteral("no graphics");
+        return false;
+    }
+    /// @brief 设置重绘回调(插件主动请求重绘时调)
+    using RedrawCallback = std::function<void()>;
+    virtual void set_redraw_callback(RedrawCallback cb) { m_redraw_cb = cb; }
+
+protected:
+    RedrawCallback m_redraw_cb;  ///< 插件调此请求主进程重绘
 };
 
 /// @brief 按 runtime 创建后端。未知 runtime 返回 nullptr

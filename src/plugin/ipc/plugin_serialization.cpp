@@ -2,6 +2,9 @@
 /// @brief 插件 IPC 用 QDataStream 序列化实现
 #include "plugin_serialization.h"
 
+#include <QBuffer>
+#include <QImage>
+
 // ---- PhysicalMeta ----
 QDataStream& operator<<(QDataStream& out, const PhysicalMeta& m) {
     out << m.timestamp << m.phr_mcs << m.option << m.channel << m.is_rf;
@@ -181,5 +184,42 @@ QDataStream& operator>>(QDataStream& in, ParseResult& r) {
     in >> r.meta >> r.mpdu >> r.msdu_body >> r.msdu
        >> r.msdu_raw_base >> r.beacon >> r.arrival_us
        >> r.raw_wire >> r.accept >> r.reject_reason >> r.payload_for_log;
+    return in;
+}
+
+// ---- GraphicsEvent (Phase3) ----
+QDataStream& operator<<(QDataStream& out, const GraphicsEvent& e) {
+    out << static_cast<quint8>(e.type) << e.x << e.y << e.button
+        << e.modifiers << e.delta_y << e.width << e.height;
+    return out;
+}
+QDataStream& operator>>(QDataStream& in, GraphicsEvent& e) {
+    quint8 t = 0;
+    in >> t >> e.x >> e.y >> e.button >> e.modifiers >> e.delta_y
+       >> e.width >> e.height;
+    e.type = static_cast<GraphicsEventType>(t);
+    return in;
+}
+
+// ---- QImage (Phase3): PNG 压缩,限 8MB ----
+namespace {
+constexpr int kMaxImageBytes = 8 * 1024 * 1024;
+}
+QDataStream& operator<<(QDataStream& out, const QImage& img) {
+    QByteArray png;
+    if (!img.isNull()) {
+        QBuffer buf(&png);
+        buf.open(QIODevice::WriteOnly);
+        img.save(&buf, "PNG");
+    }
+    out << png;
+    return out;
+}
+QDataStream& operator>>(QDataStream& in, QImage& img) {
+    QByteArray png;
+    in >> png;
+    img = QImage();
+    if (!png.isEmpty() && png.size() <= kMaxImageBytes)
+        img.loadFromData(png, "PNG");
     return in;
 }

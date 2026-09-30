@@ -6,6 +6,7 @@
 #include <QPluginLoader>
 
 #include "plugin_backend.h"
+#include "igraphicsplugin.h"
 #include "iprotocolparserplugin.h"
 
 /// @brief native (C++) 插件后端
@@ -20,10 +21,17 @@ public:
     ParseResult parse(const BplcFrame& frame, MsduState& msdu,
                       const ParseFilter& filter, QString* err) override;
 
+    // ---- 图形(Phase3) ----
+    bool has_graphics() const override;
+    QSize graphics_preferred_size() const override;
+    QImage render_graphics(int w, int h, QString* err) override;
+    bool handle_graphics_event(const GraphicsEvent& e, QString* err) override;
+
 private:
     QPluginLoader m_loader;
-    IProtocolParserPlugin* m_plugin = nullptr;  ///< 不拥有
-    IProtocolParser* m_parser = nullptr;        ///< 拥有
+    IProtocolParserPlugin* m_plugin = nullptr;  ///< 不拥有(可空,纯图形插件)
+    IGraphicsPlugin* m_graphics = nullptr;      ///< 不拥有(可空)
+    IProtocolParser* m_parser = nullptr;        ///< 拥有(可空)
     QString m_protocol_id;
 };
 

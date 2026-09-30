@@ -36,6 +36,8 @@ private:
     void send_message(plugin_ipc::MsgType t, const QByteArray& payload);
     void handle_message(plugin_ipc::MsgType t, QDataStream& ds);
     void handle_parse_request(QDataStream& ds);
+    void handle_render_request(QDataStream& ds);
+    void handle_graphics_event(QDataStream& ds);
 
     QString            m_socket_name;
     PluginManifest     m_manifest;

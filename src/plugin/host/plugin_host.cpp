@@ -42,6 +42,11 @@ bool PluginHost::start(QString* err) {
         m_backend = nullptr;
         return false;
     }
+    // 插件主动请求重绘 → 发 RequestRedraw 给主进程
+    PluginHost* self = this;
+    m_backend->set_redraw_callback([self]() {
+        self->send_message(plugin_ipc::MsgType::RequestRedraw, QByteArray());
+    });
     // 后端协议 id 须与清单一致
     if (m_backend->protocol_id() != m_manifest.protocol_id) {
         *err = QStringLiteral("protocolId mismatch: manifest=%1 backend=%2")
@@ -130,6 +135,12 @@ void PluginHost::handle_message(plugin_ipc::MsgType t, QDataStream& ds) {
     case plugin_ipc::MsgType::ParseRequest:
         handle_parse_request(ds);
         break;
+    case plugin_ipc::MsgType::RenderRequest:
+        handle_render_request(ds);
+        break;
+    case plugin_ipc::MsgType::GraphicsEventMsg:
+        handle_graphics_event(ds);
+        break;
     case plugin_ipc::MsgType::Ping: {
         quint64 seq = 0; ds >> seq;
         QByteArray p; QDataStream o(&p, QIODevice::WriteOnly);
@@ -165,4 +176,41 @@ void PluginHost::handle_parse_request(QDataStream& ds) {
         Q_UNUSED(err);
     }
     send_message(plugin_ipc::MsgType::ParseResponse, resp);
+}
+
+void PluginHost::handle_render_request(QDataStream& ds) {
+    quint64 seq = 0; int w = 0, h = 0;
+    ds >> seq >> w >> h;
+
+    QByteArray resp;
+    QDataStream o(&resp, QIODevice::WriteOnly);
+    o.setVersion(plugin_ipc::kStreamVersion);
+    o << seq;
+    if (!m_hello_done || !m_backend || !m_backend->has_graphics()) {
+        o << false << QImage();
+    } else {
+        QString err;
+        const QImage img = m_backend->render_graphics(w, h, &err);
+        o << !img.isNull() << img;
+        Q_UNUSED(err);
+    }
+    send_message(plugin_ipc::MsgType::RenderResponse, resp);
+}
+
+void PluginHost::handle_graphics_event(QDataStream& ds) {
+    quint64 seq = 0; GraphicsEvent e;
+    ds >> seq >> e;
+
+    QByteArray resp;
+    QDataStream o(&resp, QIODevice::WriteOnly);
+    o.setVersion(plugin_ipc::kStreamVersion);
+    o << seq;
+    if (!m_hello_done || !m_backend || !m_backend->has_graphics()) {
+        o << false;
+    } else {
+        QString err;
+        o << m_backend->handle_graphics_event(e, &err);
+        Q_UNUSED(err);
+    }
+    send_message(plugin_ipc::MsgType::EventAck, resp);
 }

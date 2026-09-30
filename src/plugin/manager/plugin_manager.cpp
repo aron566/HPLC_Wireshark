@@ -1,15 +1,20 @@
 /// @file plugin_manager.cpp
 /// @brief PluginManager 实现
 #include "plugin_manager.h"
+#include "plugin_graphics_view.h"
 
 #include <QCoreApplication>
 #include <QDataStream>
 #include <QDateTime>
 #include <QDir>
+#include <QEventLoop>
+#include <QImage>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QMutexLocker>
 #include <QProcess>
+#include <QThread>
+#include <QTimer>
 #include <QThread>
 
 #include "plugin_ipc.h"
@@ -192,6 +197,12 @@ void PluginManager::handle_message(const QString& plugin_id, quint8 type,
         // 解析错误不禁用插件,仅记录(可日志)
         break;
     }
+    case plugin_ipc::MsgType::RequestRedraw: {
+        // 插件主动请求重绘:通知所有注册的视图
+        for (PluginGraphicsView* v : m_graphics_views.value(plugin_id))
+            v->on_plugin_request_redraw();
+        break;
+    }
     default:
         break;
     }
@@ -330,4 +341,125 @@ void PluginManager::checkHeartbeats() {
             disable_plugin(it.key(), QStringLiteral("heartbeat timeout"));
         }
     }
+}
+
+// ---- 图形(Phase3) ----
+
+namespace {
+constexpr int kGraphicsTimeoutMs = 5000;
+/// @brief 同步等待指定 seq 的响应(主线程调用,带事件循环防假死)
+template <typename Handler>
+bool wait_graphics_response(PluginRuntime* rt, quint64 seq,
+                            plugin_ipc::MsgType want, Handler&& on_frame) {
+    QByteArray resp_buf;
+    const qint64 deadline =
+        QDateTime::currentMSecsSinceEpoch() + kGraphicsTimeoutMs;
+    while (QDateTime::currentMSecsSinceEpoch() < deadline) {
+        // 主线程:用事件循环等待,避免界面假死
+        QEventLoop loop;
+        QTimer::singleShot(100, &loop, &QEventLoop::quit);
+        QObject::connect(rt->socket, &QLocalSocket::readyRead,
+                         &loop, &QEventLoop::quit);
+        loop.exec();
+        if (rt->socket->state() != QLocalSocket::ConnectedState) break;
+        resp_buf.append(rt->socket->readAll());
+        while (resp_buf.size() >= 5) {
+            QDataStream hdr(resp_buf);
+            hdr.setVersion(plugin_ipc::kStreamVersion);
+            quint32 len = 0; hdr >> len;
+            if (resp_buf.size() < 4 + static_cast<int>(len)) break;
+            const QByteArray fr = resp_buf.mid(4, len);
+            resp_buf.remove(0, 4 + len);
+            QDataStream ds(fr);
+            ds.setVersion(plugin_ipc::kStreamVersion);
+            quint8 t = 0; ds >> t;
+            const auto mt = static_cast<plugin_ipc::MsgType>(t);
+            if (mt == want) {
+                quint64 rseq = 0; ds >> rseq;
+                if (rseq != seq) continue;
+                on_frame(ds);
+                return true;
+            }
+            if (mt == plugin_ipc::MsgType::Pong)
+                rt->last_pong_ms = QDateTime::currentMSecsSinceEpoch();
+            // RequestRedraw 可能在等待中到达:直接处理
+            if (mt == plugin_ipc::MsgType::RequestRedraw) {
+                // 由外层 handle_message 统一处理,这里只标记
+                // (简化:忽略,视图的定时器会补)
+            }
+        }
+    }
+    return false;
+}
+} // namespace
+
+bool PluginManager::has_graphics(const QString& protocol_id) const {
+    auto it = m_plugins.find(protocol_id);
+    if (it == m_plugins.end()) return false;
+    return (*it)->manifest.graphics;
+}
+
+QImage PluginManager::request_render(const QString& protocol_id,
+                                     int w, int h) {
+    auto it = m_plugins.find(protocol_id);
+    if (it == m_plugins.end()) return QImage();
+    PluginRuntime* rt = *it;
+    if (!rt->ready || rt->disabled || !rt->socket) return QImage();
+    if (!rt->manifest.graphics) return QImage();
+
+    QMutexLocker lock(&rt->ipc_mutex);
+    const quint64 seq = ++rt->seq;
+    QByteArray payload;
+    QDataStream o(&payload, QIODevice::WriteOnly);
+    o.setVersion(plugin_ipc::kStreamVersion);
+    o << seq << w << h;
+    send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::RenderRequest),
+                 payload);
+
+    QImage img;
+    const bool ok = wait_graphics_response(
+        rt, seq, plugin_ipc::MsgType::RenderResponse,
+        [&img](QDataStream& ds) {
+            bool rok = false;
+            ds >> rok >> img;
+            if (!rok) img = QImage();
+        });
+    return ok ? img : QImage();
+}
+
+bool PluginManager::send_graphics_event(const QString& protocol_id,
+                                        const GraphicsEvent& e) {
+    auto it = m_plugins.find(protocol_id);
+    if (it == m_plugins.end()) return false;
+    PluginRuntime* rt = *it;
+    if (!rt->ready || rt->disabled || !rt->socket) return false;
+    if (!rt->manifest.graphics) return false;
+
+    QMutexLocker lock(&rt->ipc_mutex);
+    const quint64 seq = ++rt->seq;
+    QByteArray payload;
+    QDataStream o(&payload, QIODevice::WriteOnly);
+    o.setVersion(plugin_ipc::kStreamVersion);
+    o << seq << e;
+    send_message(rt,
+                 static_cast<quint8>(plugin_ipc::MsgType::GraphicsEventMsg),
+                 payload);
+
+    bool redraw = false;
+    wait_graphics_response(
+        rt, seq, plugin_ipc::MsgType::EventAck,
+        [&redraw](QDataStream& ds) { ds >> redraw; });
+    return redraw;
+}
+
+void PluginManager::register_graphics_view(const QString& protocol_id,
+                                           PluginGraphicsView* view) {
+    m_graphics_views[protocol_id].append(view);
+    connect(view, &QObject::destroyed, this,
+            [this, protocol_id, view]() { unregister_graphics_view(protocol_id, view); });
+}
+
+void PluginManager::unregister_graphics_view(const QString& protocol_id,
+                                             PluginGraphicsView* view) {
+    m_graphics_views[protocol_id].removeAll(view);
 }

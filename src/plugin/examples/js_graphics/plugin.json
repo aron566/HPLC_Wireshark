@@ -1,0 +1,1 @@
+{"api_version":1,"author":"bplc","description":"JS 图形插件示例:绘制可点击的色块","description_en":"JS graphics plugin demo: clickable color blocks","display_name":"JS 图形演示","display_name_en":"JS Graphics Demo","entry":"graphics.js","graphics":true,"id":"js_graphics_demo","name":"js-graphics","protocol_id":"JSGRAPH_2024","runtime":"js","version":"1.0.0"}

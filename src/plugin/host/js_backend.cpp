@@ -3,6 +3,10 @@
 
 #include <QDir>
 #include <QFile>
+#include <QImage>
+#include <QPainter>
+
+#include "script_painter.h"
 
 namespace {
 // QByteArray → JS 数字数组
@@ -50,6 +54,17 @@ bool JsBackend::initialize(const PluginManifest& m, QString* err) {
     const QJSValue r = m_engine.evaluate(code, js_path);
     if (!check_error(r, err, QStringLiteral("evaluate"))) return false;
 
+    // 全局 request_redraw():脚本主动请求重绘(QObject 桥)
+    m_redraw_helper = new RedrawHelper();
+    m_redraw_helper->cb = [this]() {
+        if (m_redraw_cb) m_redraw_cb();
+    };
+    m_engine.globalObject().setProperty(
+        QStringLiteral("__bplc_redraw"),
+        m_engine.newQObject(m_redraw_helper));
+    m_engine.evaluate(
+        QStringLiteral("function request_redraw(){__bplc_redraw.request();}"));
+
     // get_info()
     QJSValue get_info = m_engine.globalObject().property("get_info");
     if (!get_info.isCallable()) {
@@ -76,16 +91,69 @@ bool JsBackend::initialize(const PluginManifest& m, QString* err) {
         *err = QStringLiteral("missing function parse(frame)");
         return false;
     }
+
+    // 图形函数(可选,manifest graphics=true 时必需)
+    m_render_fn = m_engine.globalObject().property("render");
+    m_on_event_fn = m_engine.globalObject().property("on_event");
+    m_has_graphics = m_render_fn.isCallable();
+    if (m.graphics && !m_has_graphics) {
+        *err = QStringLiteral("manifest graphics=true but missing function render(p,w,h)");
+        return false;
+    }
     return true;
 }
 
 void JsBackend::shutdown() {
     m_parse_fn = QJSValue();
+    m_render_fn = QJSValue();
+    m_on_event_fn = QJSValue();
+    m_has_graphics = false;
+    // m_redraw_helper 由 engine 拥有(newQObject),engine 析构时清理
+    m_redraw_helper = nullptr;
     // engine 析构自动清理
 }
 
 QString JsBackend::protocol_id() const {
     return m_protocol_id;
+}
+
+bool JsBackend::has_graphics() const {
+    return m_has_graphics;
+}
+
+QSize JsBackend::graphics_preferred_size() const {
+    return QSize(400, 300);
+}
+
+QImage JsBackend::render_graphics(int w, int h, QString* err) {
+    if (!m_has_graphics) {
+        *err = QStringLiteral("no graphics");
+        return QImage();
+    }
+    if (w <= 0 || h <= 0 || w > 4096 || h > 4096) {
+        *err = QStringLiteral("bad size");
+        return QImage();
+    }
+    QImage img(w, h, QImage::Format_ARGB32);
+    img.fill(Qt::white);
+    QPainter painter(&img);
+    painter.setRenderHint(QPainter::Antialiasing);
+    ScriptPainter bridge(&painter);
+    QJSValue js_painter = m_engine.newQObject(&bridge);
+    const QJSValue r = m_render_fn.call(
+        QJSValueList{js_painter, QJSValue(w), QJSValue(h)});
+    painter.end();
+    if (!check_error(r, err, QStringLiteral("render"))) return QImage();
+    return img;
+}
+
+bool JsBackend::handle_graphics_event(const GraphicsEvent& e, QString* err) {
+    if (!m_has_graphics || !m_on_event_fn.isCallable()) return false;
+    const QJSValue r = m_on_event_fn.call(QJSValueList{
+        QJSValue(static_cast<int>(e.type)), QJSValue(e.x), QJSValue(e.y),
+        QJSValue(e.button), QJSValue(e.modifiers), QJSValue(e.delta_y)});
+    if (!check_error(r, err, QStringLiteral("on_event"))) return false;
+    return r.toBool();
 }
 
 bool JsBackend::convert_fields(const QJSValue& js_fields,

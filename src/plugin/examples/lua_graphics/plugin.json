@@ -1,0 +1,1 @@
+{"api_version":1,"author":"bplc","description":"Lua 图形插件示例:绘制仪表盘","description_en":"Lua graphics plugin demo: gauge dashboard","display_name":"Lua 图形演示","display_name_en":"Lua Graphics Demo","entry":"graphics.lua","graphics":true,"name":"lua-graphics","protocol_id":"LUAGRAPH_2024","runtime":"lua","version":"1.0.0"}

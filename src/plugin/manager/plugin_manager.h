@@ -15,12 +15,14 @@
 #include <QTimer>
 
 #include "bplcframe.h"
+#include "igraphicsplugin.h"
 #include "iprotocolparser.h"
 #include "plugin_manifest.h"
 
 class QLocalServer;
 class QLocalSocket;
 class QProcess;
+class PluginGraphicsView;
 
 /// @brief 单个插件的运行时状态
 struct PluginRuntime {
@@ -56,6 +58,20 @@ public:
                         const BplcFrame& frame, MsduState& msdu,
                         const ParseFilter& filter, ParseResult* result);
 
+    // ---- 图形(Phase3) ----
+    /// @brief 插件是否有图形能力
+    bool has_graphics(const QString& protocol_id) const;
+    /// @brief 请求渲染(阻塞,主线程调用)。返回空图=失败
+    QImage request_render(const QString& protocol_id, int w, int h);
+    /// @brief 发送图形事件(阻塞,主线程调用)。返回 needs_redraw
+    bool send_graphics_event(const QString& protocol_id,
+                             const GraphicsEvent& e);
+    /// @brief 注册图形视图(收 RequestRedraw 时通知重绘)
+    void register_graphics_view(const QString& protocol_id,
+                                PluginGraphicsView* view);
+    void unregister_graphics_view(const QString& protocol_id,
+                                  PluginGraphicsView* view);
+
 signals:
     /// @brief 插件状态变化(崩溃/禁用/就绪),UI 可据此提示
     void plugin_status_changed(const QString& plugin_id, const QString& status);
@@ -75,6 +91,7 @@ private:
     void checkHeartbeats();
 
     QMap<QString, PluginRuntime*> m_plugins;  ///< key: protocol_id
+    QMap<QString, QList<PluginGraphicsView*>> m_graphics_views;  ///< key: protocol_id
     QTimer m_hb_timer;
 };
 

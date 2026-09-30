@@ -12,7 +12,8 @@
 ///     "display_name_en": "My Protocol", // 显示名英文(可选,缺省回退 display_name)
 ///     "description": "...",          // 描述(可选,中文界面用)
 ///     "description_en": "...",       // 描述英文(可选,缺省回退 description)
-///     "author": "..."                // 作者(可选)
+///     "author": "...",               // 作者(可选)
+///     "graphics": false              // 是否提供图形能力(Phase3,可选)
 ///   }
 #ifndef BPLC_PLUGIN_MANIFEST_H
 #define BPLC_PLUGIN_MANIFEST_H
@@ -36,6 +37,7 @@ struct PluginManifest {
     QString description;
     QString description_en;   ///< 英文描述(可选,缺省回退 description)
     QString author;
+    bool    graphics = false;  ///< 是否提供图形能力(Phase3)
     QString dir_path;      ///< 插件目录绝对路径(解析时填充)
     bool    valid = false;
     QString error;         ///< valid=false 时的原因
@@ -69,6 +71,7 @@ inline PluginManifest read_plugin_manifest(const QString& plugin_dir) {
     m.description  = o.value(QStringLiteral("description")).toString();
     m.description_en = o.value(QStringLiteral("description_en")).toString(m.description);
     m.author       = o.value(QStringLiteral("author")).toString();
+    m.graphics     = o.value(QStringLiteral("graphics")).toBool(false);
 
     if (m.name.isEmpty())         { m.error = QStringLiteral("missing 'name'"); return m; }
     if (m.runtime.isEmpty())      { m.error = QStringLiteral("missing 'runtime'"); return m; }
