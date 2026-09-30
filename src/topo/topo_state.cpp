@@ -83,16 +83,28 @@ void TopoState::apply(const TopoEvent& e) {
     bool up_route_changed = false;
     QString up_route_desc;
     if (e.kind == TopoEventKind::DiscoverList && !e.up_routes.isEmpty()) {
+        // 去重:同一 TEI 取最后一个 next_hop(最新值);避免同一帧多条目重复描述
+        QHash<quint16, quint16> dedup;
+        for (const auto& ur : e.up_routes)
+            dedup[ur.first] = ur.second;
         QStringList changes;
-        for (const auto& ur : e.up_routes) {
-            const auto it = nodes.find(ur.first);
-            const quint16 old_parent = (it == nodes.end()) ? 0 : it.value().parent_tei;
-            if (it == nodes.end() || old_parent != ur.second) {
+        for (auto it = dedup.constBegin(); it != dedup.constEnd(); ++it) {
+            const quint16 tei = it.key();
+            const quint16 new_hop = it.value();
+            const auto nit = nodes.find(tei);
+            const quint16 old_parent = (nit == nodes.end()) ? 0 : nit.value().parent_tei;
+            if (nit == nodes.end() || old_parent != new_hop) {
                 up_route_changed = true;
                 changes.append(QStringLiteral("TEI=%1 下一跳%2→%3")
-                    .arg(ur.first)
+                    .arg(tei)
                     .arg(old_parent ? QString::number(old_parent) : QStringLiteral("-"))
-                    .arg(ur.second));
+                    .arg(new_hop));
+                // 更新拓扑:父节点改为新的下一跳
+                TopoNode& node = nodes[tei];
+                node.tei = tei;
+                node.parent_tei = new_hop;
+                node.last_seen_ms = e.epoch_ms;
+                node.status = NodeStatus::Online;
             }
         }
         if (up_route_changed)
