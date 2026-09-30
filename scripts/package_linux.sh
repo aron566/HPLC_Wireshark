@@ -61,6 +61,9 @@ if [ -n "$QT_PLUGINS" ] && [ -d "$QT_PLUGINS/platforms" ]; then
     mkdir -p AppDir/usr/lib/qt6/plugins
     cp -r "$QT_PLUGINS/platforms" AppDir/usr/lib/qt6/plugins/
     cp -r "$QT_PLUGINS/xcbglintegrations" AppDir/usr/lib/qt6/plugins/ 2>/dev/null || true
+    # TLS 后端(更新检查/Sentry 上报走 HTTPS,缺它则 "No functional TLS backend")
+    cp -r "$QT_PLUGINS/tls" AppDir/usr/lib/qt6/plugins/ 2>/dev/null || \
+        echo "::warning::未找到 Qt TLS 插件($QT_PLUGINS/tls),HTTPS 功能将不可用"
 fi
 echo "收集到 $(ls AppDir/usr/lib/*.so* 2>/dev/null | wc -l) 个库"
 
