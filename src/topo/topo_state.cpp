@@ -13,6 +13,7 @@ struct I18nRegTopoState { I18nRegTopoState() {
                      "Warning: STA has rebooted! STA %1 restart count %2→%3");
     trl::register_en("发现列表上行路由变化: %1",
                      "Discover list uplink route change: %1");
+    trl::register_en("TEI=%1 下一跳%2→%3", "TEI=%1 next hop %2→%3");
 } } i18n_reg_topo_state;
 
 /// @brief 48-bit MAC 转冒号分隔小端字符串(与 protocol/common/fieldtools.h:mac_str 同式;
@@ -97,7 +98,7 @@ void TopoState::apply(const TopoEvent& e) {
             const quint16 old_parent = (nit == nodes.end()) ? 0 : nit.value().parent_tei;
             if (nit == nodes.end() || old_parent != new_hop) {
                 up_route_changed = true;
-                changes.append(QStringLiteral("TEI=%1 下一跳%2→%3")
+                changes.append(trl::L("TEI=%1 下一跳%2→%3")
                     .arg(tei)
                     .arg(old_parent ? QString::number(old_parent) : QStringLiteral("-"))
                     .arg(new_hop));
