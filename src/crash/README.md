@@ -140,6 +140,18 @@ sentry 上传链路用 `3rdparty/mock_sentry.py` 本地模拟验证(真服务部
 
 ## Windows(在 CI 验证)
 
+已验证:2026-09-30 CI #35 全绿(run 36655433605,feat/crash-dump@6da9a57),
+build-windows 所有步骤通过:
+- sentry 依赖构建为必需步骤(不再是"实验性,允许失败"):sentry-native 0.17.1
+  在 MinGW 下内嵌编译 crashpad 成功
+- `run_crash_tests_win.sh` 按编译选择验证两个后端,均通过:
+  crashpad(Access Violation -> .dmp -> addr2line 定位到 `do_crash`)与
+  sentry(编译+链接+崩溃捕获+本地落盘)
+- 过程中修了三个 Windows 特有问题:ZLIB 缺失
+  (`-DCRASHPAD_ZLIB_SYSTEM=OFF`)、内嵌 crashpad 编 `capture_context.asm`
+  找不到 uasm(`build_sentry` 补调 `ensure_uasm`)、sentry 静态库链接需
+  `-DSENTRY_BUILD_STATIC` + `-lsynchronization`
+
 - 依赖构建:`bash 3rdparty/build_crash_deps.sh crashpad`
   (Git Bash + MinGW;crashpad 的 getsentry fork 支持 MinGW,脚本自动源码自举)
 - 崩溃测试:`bash src/crash/tests/run_crash_tests_win.sh`
