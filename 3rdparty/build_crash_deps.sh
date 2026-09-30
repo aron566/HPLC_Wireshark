@@ -59,14 +59,28 @@ to_win_path() {
 }
 
 # ---- 源码自举 ----
+# 完整性判定:光目录存在不够,必须是有效仓库且 HEAD 正好是钉死的提交。
+# 中断的 clone/fetch/checkout 会留下 HEAD 缺失或不对的残留目录——若只判文件存在,
+# 下次 git clone 会因"目标已存在"直接报错,或误判"已存在"跳过导致构建失败。
+sentry_source_ok() {
+    [ -d "$SRC_SENTRY/.git" ] || return 1
+    [ "$(git -C "$SRC_SENTRY" rev-parse HEAD 2>/dev/null)" = "$SENTRY_NATIVE_REF" ] || return 1
+    return 0
+}
+
 ensure_source() {
-    if [ ! -f "$SRC_SENTRY/CMakeLists.txt" ]; then
+    if sentry_source_ok; then
+        echo "=== sentry-native source already present, skipping fetch ==="
+    else
+        if [ -e "$SRC_SENTRY" ]; then
+            echo "=== sentry-native source incomplete (interrupted fetch or wrong ref), removing and re-fetching ==="
+        fi
         echo "=== fetching sentry-native @ ${SENTRY_NATIVE_REF:0:12} ==="
+        # 残留的不完整目录必须先删掉,否则 git clone 报 "already exists"
+        rm -rf "${SRC_SENTRY:?}"
         git clone --no-checkout "$SENTRY_NATIVE_URL" "$SRC_SENTRY"
         git -C "$SRC_SENTRY" fetch --depth 1 origin "$SENTRY_NATIVE_REF"
         git -C "$SRC_SENTRY" checkout "$SENTRY_NATIVE_REF"
-    else
-        echo "=== sentry-native source already present, skipping fetch ==="
     fi
     # crashpad 独立构建需要的 submodule(幂等,已有则跳过)。
     # 注意:嵌套 submodule 注册在 external/crashpad/.gitmodules,
