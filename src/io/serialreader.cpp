@@ -14,7 +14,7 @@ ReaderWorker::ReaderWorker(QObject* parent) : QObject(parent),
     m_get3c(false), m_frame_rx_us(0), m_playback_base_ms(-1), m_first_frame(false),
     m_last_ntb(0), m_last_ft(0), m_running(false), m_abort(false), m_active(false),
     m_raw_base_ms(-1),
-    m_hex_seg_first(false), m_last_hex_ts(0), m_last_hex_ft(0),
+    m_hex_seg_first(false), m_hex_seg_base_ts(0), m_hex_seg_base_us(0),
     m_last_local_ms(0), m_pending_seg_start(false), m_file_size(0), m_last_progress(-1) {}
 
 ReaderWorker::~ReaderWorker() {
@@ -351,36 +351,43 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
             }
         }
         // 时间:ts 统一 NTB tick(25kHz,40ns)。段首帧用 TIME 头(m_raw_base_ms)
-        // 作基准,无 TIME 头则用首帧本地时刻作基准(相对时间仍正确);段内
-        // 一律按 NTB 差×40ns 推进(与 bin 回放同构,保证帧间 ms 偏差正确);
-        // 断段(差超阈值/回绕)回退本地时刻。
+        // 作基准,无 TIME 头则用首帧本地时刻作基准;段内按自段首累计 NTB 差
+        // ×40ns 统一换算为 µs(单次除法,避免逐帧 ms 截断累计漂移,µs 级准确);
+        // 断段(差超阈值/回绕)回退本地时刻并重建基准。
         const quint32 ts_le2 = (quint32)(quint8)data[2]
                              | (quint32)(quint8)data[3] << 8
                              | (quint32)(quint8)data[4] << 16
                              | (quint32)(quint8)data[5] << 24;
         const qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
-        qint64 t2;
+        const qint64 now_us = now_ms * 1000;
+        qint64 t2_us;
         bool seg_start = false;
         if (m_hex_seg_first) {
-            t2 = (m_raw_base_ms >= 0) ? m_raw_base_ms : now_ms;
+            const qint64 base_ms = (m_raw_base_ms >= 0) ? m_raw_base_ms : now_ms;
+            t2_us = base_ms * 1000;
+            m_hex_seg_base_ts = ts_le2;
+            m_hex_seg_base_us = t2_us;
             m_hex_seg_first = false;
             seg_start = true;
         } else {
-            const qint64 dn = (qint32)(ts_le2 - m_last_hex_ts);   // NTB 差(tick)
+            const qint64 dn = (qint32)(ts_le2 - m_hex_seg_base_ts);  // 自段首累计 tick
             if (dn > 0 && dn <= playback::kMaxNtbGapTicks)
-                t2 = m_last_hex_ft + playback::ntb_to_us(quint32(dn)) / 1000;
-            else
-                t2 = now_ms;   // 断段:回退本地
+                t2_us = m_hex_seg_base_us + playback::ntb_to_us((quint32)dn);
+            else {
+                // 断段:回退本地,并以本帧重建基准
+                t2_us = now_us;
+                m_hex_seg_base_ts = ts_le2;
+                m_hex_seg_base_us = t2_us;
+            }
         }
-        m_last_hex_ts = ts_le2;
-        m_last_hex_ft = t2;
 
         BplcFrame bf;
         bf.meta.from_raw = false;
         bf.meta.has_time_tag = false;
         bf.meta.frame_ts_is_ntb = true;
         bf.meta.seg_start = seg_start;
-        bf.arrival_ms = t2;
+        bf.arrival_ms = t2_us / 1000;
+        bf.arrival_us = t2_us;
         bf.raw_wire   = raw;   // 0x3C...0x3E 原样
         bf.data       = data;  // 反转义后的 [dlen][ts][media][MPDU]
         emit frame_ready(bf);

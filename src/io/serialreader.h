@@ -93,8 +93,8 @@ private:
     std::atomic<bool> m_active;  ///< 正在采集/回放(串口/文件/裸hex 均置位;供 is_running 查询)
     qint64       m_raw_base_ms;   ///< 裸 hex 文本首帧时间(epoch ms;-1=未给出,回退本地)
     bool         m_hex_seg_first; ///< 裸 hex 当前段首帧标志(段首用 TIME 头时间)
-    quint32      m_last_hex_ts;   ///< 裸 hex 上一帧 ts4(段内差分)
-    qint64       m_last_hex_ft;   ///< 裸 hex 上一帧 frame_time
+    quint32      m_hex_seg_base_ts;  ///< 裸 hex 段首帧 ts4(NTB tick,累计差分基准)
+    qint64       m_hex_seg_base_us;  ///< 裸 hex 段首帧时刻(epoch µs,累计差分基准)
     qint64       m_last_local_ms; ///< 实时串口上一帧本地接收时刻(断段判断)
     bool         m_pending_seg_start; ///< 实时串口新采集段首帧待标 seg_start(停止→恢复/首帧)
     qint64       m_file_size;     ///< 回放文件总大小(字节,算进度用)
