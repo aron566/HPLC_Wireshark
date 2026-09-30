@@ -22,9 +22,6 @@ open(sys.argv[2], 'w', encoding='utf-8').write(
 PY
 fi
 
-# Edge/Chrome headless 打印 pdf(无页眉页脚)
-EDGE="/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
-[ -x "$EDGE" ] || EDGE="/c/Program Files/Google/Chrome/Application/chrome.exe"
 # 路径转 Windows 绝对形式(兼容 MSYS /d/... 与原生 D:/... 与相对路径)
 winpath() {
     case "$1" in
@@ -35,7 +32,22 @@ winpath() {
 }
 HTMLWIN=$(winpath "$HTML")
 OUTWIN=$(winpath "$OUT")
-"$EDGE" --headless --disable-gpu --no-pdf-header-footer \
-    --print-to-pdf="$OUTWIN" "file:///$HTMLWIN"
+
+# 候选浏览器:Chrome 优先(本机 Edge 某版本 headless --print-to-pdf 静默失败:
+# --version 无输出、打印无产物),Edge 回退。逐个尝试并校验产物确实生成,
+# 都失败则报错(不再无条件打印"生成"掩盖失败)。
+BROWSERS=(
+    "/c/Program Files/Google/Chrome/Application/chrome.exe"
+    "/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+)
+OK=0
+for B in "${BROWSERS[@]}"; do
+    [ -x "$B" ] || continue
+    "$B" --headless --disable-gpu --no-pdf-header-footer \
+        --print-to-pdf="$OUTWIN" "file:///$HTMLWIN" >/dev/null 2>&1 || true
+    if [ -f "$OUT" ]; then OK=1; break; fi
+done
+
 rm -f "$HTML"
+[ "$OK" = 1 ] || { echo "错误: md2pdf 打印失败($IN → $OUT),请检查 Chrome/Edge 是否可用"; exit 1; }
 echo "生成: $OUT"
