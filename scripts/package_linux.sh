@@ -44,14 +44,13 @@ else
 # dsn = https://xxx@sentry.io/xxx   ; sentry 上报 DSN(可选,不填则仅本地落盘)
 EOF
 fi
-# 附 Wireshark 解析插件(白名单:只收用户可用的插件与说明,排除测试数据/生成器/开发文档)
+# 附 Wireshark 解析插件:全量复制,仅剔除强平台相关的文件
+# (Windows 批处理 .bat、dissector C 源码 .c 不进 Linux 包,其余 .lua/.py/
+# 测试 pcap/文档等平台中立文件全部保留)
 mkdir -p AppDir/usr/share/bplc_sta_monitor/wireshark_support_plugins
-WS_PLUGINS="wireshark_support_plugins"
-for f in "$WS_PLUGINS"/packet-*.lua "$WS_PLUGINS"/bplc_serial_extcap.py \
-         "$WS_PLUGINS"/bin2pcap.py "$WS_PLUGINS"/serial2pcap.py \
-         "$WS_PLUGINS"/README.md "$WS_PLUGINS"/README_EN.md; do
-    [ -f "$f" ] && cp "$f" AppDir/usr/share/bplc_sta_monitor/wireshark_support_plugins/
-done
+cp -r wireshark_support_plugins/. AppDir/usr/share/bplc_sta_monitor/wireshark_support_plugins/
+rm -f AppDir/usr/share/bplc_sta_monitor/wireshark_support_plugins/*.c \
+      AppDir/usr/share/bplc_sta_monitor/wireshark_support_plugins/*.bat
 # ldd 收集所有 .so 依赖(含 Qt6)
 ldd AppDir/usr/bin/BPLC_STA_Monitor | grep -o '/[^ ]*\.so[^ ]*' | sort -u | while read -r lib; do
     cp -L "$lib" AppDir/usr/lib/ 2>/dev/null || true
