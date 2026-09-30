@@ -129,7 +129,11 @@ ensure_source() {
 build_sentry() {
     echo "=== building sentry-native (backend=crashpad, static) ==="
     # SENTRY_TRANSPORT 可被环境变量覆盖(如无 curl 开发头时用 none 先验证捕获链路)
+    # Windows MinGW 下无 curl 开发库,默认用系统 WinHTTP 传输(无需额外依赖)
     local transport="${SENTRY_TRANSPORT:-curl}"
+    if [ "$ON_WINDOWS" = "1" ] && [ -z "${SENTRY_TRANSPORT:-}" ]; then
+        transport="winhttp"
+    fi
     local gen_args=()
     local extra_args=()
     if [ "$ON_WINDOWS" = "1" ]; then
