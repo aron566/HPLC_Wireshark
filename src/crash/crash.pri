@@ -57,8 +57,12 @@ defineTest(crash_ensure_deps) {
             CRASH_WINPATH = $$(PATH)
             CRASH_BASH_DIRS = $$split(CRASH_WINPATH, ;)
             CRASH_BASH_DIRS += "C:/Program Files/Git/bin" "C:/Program Files (x86)/Git/bin"
+            # 必须是 Git for Windows/MSYS 的 bash:PATH 靠前的 C:\Windows\System32\bash.exe
+            # 是 WSL 存根,会把命令丢进 WSL Linux 里跑,Windows 路径全部失效。用
+            # msys-2.0.dll 做标记识别真正的 MSYS bash(Git 的 bin 或 usr/bin 布局)。
             for(d, CRASH_BASH_DIRS) {
-                isEmpty(CRASH_BASH): exists($$d/bash.exe): CRASH_BASH = $$d/bash.exe
+                isEmpty(CRASH_BASH): exists($$d/bash.exe): exists($$d/msys-2.0.dll): CRASH_BASH = $$d/bash.exe
+                isEmpty(CRASH_BASH): exists($$d/bash.exe): exists($$d/../usr/bin/msys-2.0.dll): CRASH_BASH = $$d/bash.exe
             }
             isEmpty(CRASH_BASH): error("crash: auto-build needs bash; on Windows install Git for Windows (includes Git Bash), or run manually: bash 3rdparty/build_crash_deps.sh $$backend")
         } else {
