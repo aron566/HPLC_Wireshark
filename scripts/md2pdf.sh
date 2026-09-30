@@ -37,18 +37,40 @@ OUTWIN=$(winpath "$OUT")
 # 候选浏览器:Chrome 优先(本机 Edge 某版本 headless --print-to-pdf 静默失败:
 # --version 无输出、打印无产物),Edge 回退。逐个尝试并校验产物确实生成,
 # 都失败则报错(不再无条件打印"生成"掩盖失败)。
+#
+# CI 环境注意:Chrome headless 必须加 --no-sandbox(否则在 CI/容器里静默失败),
+# --disable-dev-shm-usage 避免 /dev/shm 不足导致崩溃。
+CHROME_FLAGS="--headless --no-sandbox --disable-gpu --disable-dev-shm-usage --no-pdf-header-footer"
 BROWSERS=(
     "/c/Program Files/Google/Chrome/Application/chrome.exe"
+    "/c/Program Files (x86)/Google/Chrome/Application/chrome.exe"
+    "/c/Program Files/Microsoft/Edge/Application/msedge.exe"
     "/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
 )
+# 额外:用 where 命令兜底找浏览器(处理 choco 装到非常规路径的情况)
+for exe in chrome.exe msedge.exe; do
+    wpath=$(where "$exe" 2>/dev/null | head -1)
+    [ -n "$wpath" ] && BROWSERS+=("$wpath")
+done
 OK=0
 for B in "${BROWSERS[@]}"; do
-    [ -x "$B" ] || continue
-    "$B" --headless --disable-gpu --no-pdf-header-footer \
+    [ -x "$B" ] || [ -f "$B" ] || continue
+    echo "md2pdf: 尝试浏览器 $B"
+    "$B" $CHROME_FLAGS \
         --print-to-pdf="$OUTWIN" "file:///$HTMLWIN" >/dev/null 2>&1 || true
-    if [ -f "$OUT" ]; then OK=1; break; fi
+    if [ -f "$OUT" ]; then OK=1; echo "md2pdf: 成功 ($B)"; break; fi
+    echo "md2pdf: $B 未生成 PDF,尝试下一个"
 done
 
 rm -f "$HTML"
-[ "$OK" = 1 ] || { echo "错误: md2pdf 打印失败($IN → $OUT),请检查 Chrome/Edge 是否可用"; exit 1; }
+if [ "$OK" != 1 ]; then
+    echo "错误: md2pdf 打印失败($IN → $OUT)"
+    echo "  已尝试的浏览器:"
+    for B in "${BROWSERS[@]}"; do
+        if [ -f "$B" ]; then echo "    - $B (存在,但未生成 PDF)"
+        else echo "    - $B (不存在)"; fi
+    done
+    echo "  请检查 Chrome/Edge 是否正确安装,或加 --no-sandbox 相关 flag"
+    exit 1
+fi
 echo "生成: $OUT"
