@@ -13,6 +13,11 @@ crash_ensure_deps(sentry, $$CRASH_SENTRY_ROOT/include/sentry.h)
 
 DEFINES += CRASH_HAVE_SENTRY
 
+# Windows 上 sentry.h 默认按 DLL 导入(__declspec(dllimport))声明 API,
+# 而我们按 STATIC 编译,需定义 SENTRY_BUILD_STATIC 否则链接报
+# undefined reference to __imp_sentry_*(CI #33 实测)
+win32: DEFINES += SENTRY_BUILD_STATIC
+
 SOURCES += \
     $$PWD/backend_sentry.cpp
 
@@ -34,7 +39,8 @@ win32 {
     LIBS += -lcrashpad_mpack -lcrashpad_snapshot -lcrashpad_tools -lcrashpad_util
     LIBS += -lmini_chromium
     # Windows 下 sentry 静态库依赖
-    LIBS += -lwinhttp -ldbghelp -lversion
+    # (-lsynchronization: sentry 用到 WaitOnAddress/WakeByAddressSingle,CI #34 实测)
+    LIBS += -lwinhttp -ldbghelp -lversion -lsynchronization
 }
 # sentry 的 curl transport(Linux)及通用系统库
 unix: LIBS += -lcurl -lz -ldl -lpthread
