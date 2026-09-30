@@ -65,6 +65,8 @@ jobs:
           # 更新,校验失败会中断整个安装步骤;CI 临时环境跳过校验可接受。
           # 装不上也不中断:md2pdf.sh 会回退 Edge(产物校验失败才会报错)。
           choco install googlechrome -y --no-progress --ignore-checksums || echo "::warning::Chrome 安装失败,md2pdf 将回退 Edge"
+          # wkhtmltopdf:浏览器全灭时的兜底(不依赖 Chrome/Edge,确保 PDF 一定打出)
+          choco install wkhtmltopdf -y --no-progress || echo "::warning::wkhtmltopdf 安装失败,仅剩浏览器链路"
 
       - name: 构建 crashpad 依赖(MinGW)
         shell: bash

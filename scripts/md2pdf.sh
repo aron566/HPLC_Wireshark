@@ -37,18 +37,51 @@ OUTWIN=$(winpath "$OUT")
 # 候选浏览器:Chrome 优先(本机 Edge 某版本 headless --print-to-pdf 静默失败:
 # --version 无输出、打印无产物),Edge 回退。逐个尝试并校验产物确实生成,
 # 都失败则报错(不再无条件打印"生成"掩盖失败)。
+#
+# CI 环境注意:Chrome headless 必须加 --no-sandbox(否则在 CI/容器里静默失败),
+# --disable-dev-shm-usage 避免 /dev/shm 不足导致崩溃。
+CHROME_FLAGS="--headless --no-sandbox --disable-gpu --disable-dev-shm-usage --no-pdf-header-footer"
 BROWSERS=(
     "/c/Program Files/Google/Chrome/Application/chrome.exe"
+    "/c/Program Files (x86)/Google/Chrome/Application/chrome.exe"
+    "/c/Program Files/Microsoft/Edge/Application/msedge.exe"
     "/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
 )
+# 额外:用 where 命令兜底找浏览器(处理 choco 装到非常规路径的情况)
+for exe in chrome.exe msedge.exe; do
+    wpath=$(where "$exe" 2>/dev/null | head -1)
+    [ -n "$wpath" ] && BROWSERS+=("$wpath")
+done
 OK=0
 for B in "${BROWSERS[@]}"; do
-    [ -x "$B" ] || continue
-    "$B" --headless --disable-gpu --no-pdf-header-footer \
+    [ -x "$B" ] || [ -f "$B" ] || continue
+    echo "md2pdf: 尝试浏览器 $B"
+    "$B" $CHROME_FLAGS \
         --print-to-pdf="$OUTWIN" "file:///$HTMLWIN" >/dev/null 2>&1 || true
-    if [ -f "$OUT" ]; then OK=1; break; fi
+    if [ -f "$OUT" ]; then OK=1; echo "md2pdf: 成功 ($B)"; break; fi
+    echo "md2pdf: $B 未生成 PDF,尝试下一个"
 done
 
+if [ "$OK" != 1 ]; then
+    # 兜底:wkhtmltopdf(不依赖浏览器,CI 专装)。浏览器全灭时最后的机会。
+    if command -v wkhtmltopdf >/dev/null 2>&1; then
+        echo "md2pdf: 浏览器均失败,改用 wkhtmltopdf 兜底"
+        wkhtmltopdf --enable-local-file-access --encoding utf-8 \
+            "$HTML" "$OUT" >/dev/null 2>&1 || true
+        [ -f "$OUT" ] && OK=1 && echo "md2pdf: 成功 (wkhtmltopdf 兜底)"
+    fi
+fi
 rm -f "$HTML"
-[ "$OK" = 1 ] || { echo "错误: md2pdf 打印失败($IN → $OUT),请检查 Chrome/Edge 是否可用"; exit 1; }
+if [ "$OK" != 1 ]; then
+    echo "错误: md2pdf 打印失败($IN → $OUT)"
+    echo "  已尝试的浏览器:"
+    for B in "${BROWSERS[@]}"; do
+        if [ -f "$B" ]; then echo "    - $B (存在,但未生成 PDF)"
+        else echo "    - $B (不存在)"; fi
+    done
+    command -v wkhtmltopdf >/dev/null 2>&1 \
+        && echo "  wkhtmltopdf 已尝试,也未生成" \
+        || echo "  wkhtmltopdf 未安装(建议 CI 加装 choco install wkhtmltopdf)"
+    exit 1
+fi
 echo "生成: $OUT"
