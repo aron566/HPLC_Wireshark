@@ -93,7 +93,14 @@ defineTest(crash_ensure_deps) {
             isEmpty(CRASH_MAKE): error("crash: auto-build needs mingw32-make (ships with the MinGW kit, not found on PATH), or run manually: bash 3rdparty/build_crash_deps.sh $$backend")
             # 诊断行:远端排查时一眼看到 qmake 实际用的工具路径
             message("crash: auto-build tools: bash=$$CRASH_BASH cmake=$$CRASH_CMAKE make=$$CRASH_MAKE")
-            CRASH_BUILD_CMD = "$$CRASH_BASH" -c "CMAKE_BIN='$$CRASH_CMAKE' MAKE_BIN='$$CRASH_MAKE' exec '$$CRASH_SCRIPT' $$backend"
+            # cmd /c 解析带空格的 exe 路径会拆错(加引号也救不了,见 cmd 旧引号规则),
+            # 所以 exe 位置只放裸 bash(无空格),其目录先塞进子进程 PATH 再调。
+            # 另:qmake 会把 "..." 和 '...' 都当成分组语法吃掉,字面引号只能用裸 \" /
+            # \' 经变量展开拼入(展开得到的引号不会被二次解析)。
+            CRASH_DQ = \"
+            CRASH_SQ = \'
+            CRASH_BASH_DIR = $$dirname(CRASH_BASH)
+            CRASH_BUILD_CMD = set PATH=$$CRASH_BASH_DIR;%PATH% && bash -c $${CRASH_DQ}CMAKE_BIN=$${CRASH_SQ}$$CRASH_CMAKE$${CRASH_SQ} MAKE_BIN=$${CRASH_SQ}$$CRASH_MAKE$${CRASH_SQ} exec $${CRASH_SQ}$$CRASH_SCRIPT$${CRASH_SQ} $$backend$${CRASH_DQ}
         } else {
             CRASH_BUILD_CMD = "CMAKE_BIN='$$CRASH_CMAKE'" "$$CRASH_BASH" "$$CRASH_SCRIPT" $$backend
         }
