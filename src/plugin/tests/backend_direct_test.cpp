@@ -121,8 +121,10 @@ bool test_plugin(const QString& ex_dir, const QString& plugin_name,
 
 } // namespace
 
-/// @brief 解码帧契约测试:frame.index/epochMs/topoEvent + host.jumpToFrame
+/// @brief 解码帧契约测试:frame.index/epochMs/topoEvent + host.jumpToFrame + 标量透传
 /// @details 用最小内联脚本验证新单入口契约,JS 与 Lua 各一遍。
+///          标量透传部分断言:accepted/mpdu{ok,frameType,srcTei,dstTei,netId,netType,fchCrcOk,pbCrcOk}
+///          msduPresent/msduSummary must fully reach the script side.
 bool test_decoded_frame_contract() {
     printf("\n=== Testing decoded-frame contract ===\n");
     fflush(stdout);
@@ -131,27 +133,43 @@ bool test_decoded_frame_contract() {
 
     const QString probe_js = QStringLiteral(
         "function get_info() { return {name:'probe', protocolId:'PROBE_2024'}; }\n"
-        "var seen = {index:-1, epochMs:-1, topoKind:'?', jumped:-1};\n"
+        "var seen = {index:-1, epochMs:-1, topoKind:'?', accepted:false,\n"
+        "            frameType:-1, srcTei:-1, msduPresent:false, msduSummary:'?'};\n"
         "function parse(frame) {\n"
         "  seen.index = frame.index;\n"
         "  seen.epochMs = frame.epochMs;\n"
         "  seen.topoKind = frame.topoEvent ? frame.topoEvent.kind : 'none';\n"
+        "  seen.accepted = frame.accepted;\n"
+        "  if (frame.mpdu) { seen.frameType = frame.mpdu.frameType;\n"
+        "                    seen.srcTei = frame.mpdu.srcTei; }\n"
+        "  seen.msduPresent = frame.msduPresent;\n"
+        "  seen.msduSummary = frame.msduSummary;\n"
         "  if (frame.topoEvent) host.jumpToFrame(frame.topoEvent.frameIndex);\n"
         "  return {summary:'ok'};\n"
         "}\n"
         "function get_seen() { return JSON.stringify(seen); }\n");
     const QString probe_lua = QStringLiteral(
         "function get_info() return {name='probe', protocolId='PROBE_2024'} end\n"
-        "seen = {index=-1, epochMs=-1, topoKind='?', jumped=-1}\n"
+        "seen = {index=-1, epochMs=-1, topoKind='?', accepted=false,\n"
+        "        frameType=-1, srcTei=-1, msduPresent=false, msduSummary='?'}\n"
         "function parse(frame)\n"
         "  seen.index = frame.index\n"
         "  seen.epochMs = frame.epochMs\n"
         "  seen.topoKind = frame.topoEvent and frame.topoEvent.kind or 'none'\n"
+        "  seen.accepted = frame.accepted\n"
+        "  if frame.mpdu then seen.frameType = frame.mpdu.frameType\n"
+        "                    seen.srcTei = frame.mpdu.srcTei end\n"
+        "  seen.msduPresent = frame.msduPresent\n"
+        "  seen.msduSummary = frame.msduSummary\n"
         "  if frame.topoEvent then host.jumpToFrame(frame.topoEvent.frameIndex) end\n"
         "  return {summary='ok'}\n"
         "end\n"
         "function get_seen()\n"
-        "  return string.format('%d|%d|%s', seen.index, seen.epochMs, seen.topoKind)\n"
+        "  return string.format('%d|%d|%s|%s|%d|%d|%s|%s',\n"
+        "    seen.index, seen.epochMs, seen.topoKind,\n"
+        "    seen.accepted and 'true' or 'false',\n"
+        "    seen.frameType, seen.srcTei,\n"
+        "    seen.msduPresent and 'true' or 'false', seen.msduSummary)\n"
         "end\n");
 
     struct Case { QString runtime; QString entry; QString code; };
@@ -200,6 +218,14 @@ bool test_decoded_frame_contract() {
         BplcFrame frame = make_frame(QByteArray::fromHex("3c000102") + QByteArray(20, '\xAA'), 1000000);
         frame.decoded_index = 42;
         frame.decoded_epoch_ms = 1700000000123LL;
+        // 标量透传测试值
+        frame.accepted = true;
+        frame.mpdu.frame_type = 1;          // SOF
+        frame.mpdu.src_tei = 5;
+        frame.mpdu.dst_tei = 1;
+        frame.mpdu.net_id = 0xCDA1D5;
+        frame.msdu_present = true;
+        frame.msdu_summary = QStringLiteral("MMeDiscoverNodeList");
         TopoEvent te;
         te.kind = TopoEventKind::DiscoverList;
         te.nid = 0xCDA1D5;
@@ -224,6 +250,16 @@ bool test_decoded_frame_contract() {
                                       && seen.contains(QStringLiteral("discoverList"), Qt::CaseInsensitive));
         check(fields_ok, QStringLiteral("contract %1 frame fields").arg(c.runtime), seen);
         mark(fields_ok);
+        // 标量透传:accepted/mpdu 真值/msdu 摘要必须完整到达脚本侧
+        const bool scalar_ok = seen.contains(QStringLiteral("MMeDiscoverNodeList")) && (
+            (c.runtime == QStringLiteral("js"))
+            ? (seen.contains(QStringLiteral("\"accepted\":true"))
+               && seen.contains(QStringLiteral("\"frameType\":1"))
+               && seen.contains(QStringLiteral("\"srcTei\":5"))
+               && seen.contains(QStringLiteral("\"msduPresent\":true")))
+            : seen.contains(QStringLiteral("42|1700000000123|discoverList|true|1|5|true|MMeDiscoverNodeList")));
+        check(scalar_ok, QStringLiteral("contract %1 scalar pass-through").arg(c.runtime), seen);
+        mark(scalar_ok);
         check(jumped == 42, QStringLiteral("contract %1 host.jumpToFrame").arg(c.runtime),
               QStringLiteral("jumped=%1").arg(jumped));
         mark(jumped == 42);

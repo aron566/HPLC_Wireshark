@@ -920,6 +920,12 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
         pf.decoded_epoch_ms = e.epoch_ms;
         if (e.msdu.topo_event.kind != TopoEventKind::Other)
             pf.topo_event = e.msdu.topo_event;
+        // 标量透传:主程序已解析好的单值直接给插件
+        pf.accepted = r.accept;
+        pf.error_reason = r.reject_reason;
+        pf.mpdu = r.mpdu;
+        pf.msdu_present = e.msdu.present;
+        pf.msdu_summary = e.msdu.summary;
         m_plugin_engine->feed_frame(pf);
     }
     return e;

@@ -18,51 +18,6 @@ QJSValue byte_array_to_js(QJSEngine& e, const QByteArray& b) {
     return arr;
 }
 
-// 从 0x3C 帧中提取 MPDU 并解析 TEI
-// 0x3C 帧格式: [0]=0x3C [1-2]=len [3-6]=timestamp [7..]=payload
-// payload: [0]=phr_mcs [1]=option [2]=channel [3]=media_id [4..]=MPDU
-// MPDU: byte0 bits0-2=frame_type, byte8 12bits=src_tei (SOF/BEACON)
-struct MpduQuick {
-    bool ok = false;
-    quint8 frame_type = 0;
-    quint16 src_tei = 0;
-    quint16 dst_tei = 0;
-};
-
-static quint32 get_bits_q(const quint8* p, int byte_off, int bit_off, int nbits) {
-    quint32 v = 0;
-    for (int i = 0; i < nbits; ++i) {
-        int bit = byte_off * 8 + bit_off + i;
-        int b = bit / 8, o = bit % 8;
-        if (p[b] & (1 << o)) v |= (1u << i);
-    }
-    return v;
-}
-
-MpduQuick parse_mpdu_quick(const QByteArray& frame) {
-    MpduQuick r;
-    if (frame.size() < 14) return r;
-    const quint8* d = reinterpret_cast<const quint8*>(frame.constData());
-    if (d[0] != 0x3C) return r;
-
-    // 跳过 0x3C 头: [1-2]=len, [3-6]=timestamp(4B), [7..]=payload
-    // payload[0..3]=媒介头, [4..]=MPDU
-    int mpdu_off = 1 + 2 + 4 + 4;  // =11
-    if (frame.size() < mpdu_off + 16) return r;
-
-    const quint8* p = d + mpdu_off;
-    r.frame_type = (quint8)get_bits_q(p, 0, 0, 3);
-    // SOF(1)/BEACON(0): src_tei 在 byte8 的 12 bits
-    if (r.frame_type == 0 || r.frame_type == 1) {
-        r.src_tei = (quint16)get_bits_q(p, 8, 0, 12);
-        r.ok = true;
-    }
-    // SOF: dst_tei 也在附近 (简化: 尝试 byte10)
-    if (r.frame_type == 1 && frame.size() >= mpdu_off + 12) {
-        r.dst_tei = (quint16)get_bits_q(p, 10, 4, 12);
-    }
-    return r;
-}
 quint16 js_uint16(const QJSValue& o, const char* k, quint16 d = 0) {
     const QJSValue v = o.property(QString::fromLatin1(k));
     return v.isNumber() ? static_cast<quint16>(v.toUInt()) : d;
@@ -286,14 +241,23 @@ ParseResult JsBackend::parse(const BplcFrame& frame, MsduState& msdu,
     js_frame.setProperty("arrivalUs",
                          QJSValue(static_cast<double>(frame.arrival_us)));
 
-    // MPDU 快速解析: 提供准确的 TEI 信息给 JS 插件
-    MpduQuick mq = parse_mpdu_quick(frame.data);
+    // MPDU:主程序解析真值直接透传(插件无需重复解析 raw 字节)
     QJSValue js_mpdu = m_engine.newObject();
-    js_mpdu.setProperty("ok", QJSValue(mq.ok));
-    js_mpdu.setProperty("frameType", QJSValue(mq.frame_type));
-    js_mpdu.setProperty("srcTei", QJSValue(mq.src_tei));
-    js_mpdu.setProperty("dstTei", QJSValue(mq.dst_tei));
+    js_mpdu.setProperty("ok", QJSValue(true));
+    js_mpdu.setProperty("frameType", QJSValue(frame.mpdu.frame_type));
+    js_mpdu.setProperty("srcTei", QJSValue(frame.mpdu.src_tei));
+    js_mpdu.setProperty("dstTei", QJSValue(frame.mpdu.dst_tei));
+    js_mpdu.setProperty("netId", QJSValue(frame.mpdu.net_id));
+    js_mpdu.setProperty("netType", QJSValue(frame.mpdu.net_type));
+    js_mpdu.setProperty("fchCrcOk", QJSValue(frame.mpdu.fch_crc_ok));
+    js_mpdu.setProperty("pbCrcOk", QJSValue(frame.mpdu.pb_crc_ok));
     js_frame.setProperty("mpdu", js_mpdu);
+
+    // 标量透传:接受状态/丢弃原因/MSDU 摘要
+    js_frame.setProperty("accepted", QJSValue(frame.accepted));
+    js_frame.setProperty("rejectReason", QJSValue(frame.error_reason));
+    js_frame.setProperty("msduPresent", QJSValue(frame.msdu_present));
+    js_frame.setProperty("msduSummary", QJSValue(frame.msdu_summary));
 
     // 主程序解码信息(单入口):帧序号/时间戳/本帧拓扑事件(无事件=null)
     js_frame.setProperty("index",

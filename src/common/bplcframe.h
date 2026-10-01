@@ -231,6 +231,11 @@ struct BplcFrame {
     qint64    decoded_index = 0;    ///< 主程序帧序号(1-based;0=原始帧,未解码)
     qint64    decoded_epoch_ms = 0; ///< 解析出的帧时刻(epoch ms;0=未知)
     TopoEvent topo_event;           ///< 本帧携带的拓扑事件(kind=Other 表示无)
+    // ---- 标量透传:主程序已解析好的单值,插件直接取用,无需重解析 ----
+    bool     accepted = true;       ///< 主程序是否接受该帧(false=丢弃,原因见 error_reason)
+    MpduInfo mpdu;                  ///< MPDU 解析结果(主程序真值;替代插件侧重复解析)
+    QString  msdu_summary;          ///< MSDU 概要(如 "MMeDiscoverNodeList";无 MSDU 为空)
+    bool     msdu_present = false;  ///< 本帧是否携带完整 MSDU(重组完成)
 
     BplcFrame() : arrival_ms(0), arrival_us(0) {}
 };

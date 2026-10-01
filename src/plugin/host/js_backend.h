@@ -10,7 +10,14 @@
 ///   frame = { data: [byte...], rawWire: [byte...], arrivalUs: number,
 ///             index: number,        // 主程序帧序号(1-based;0=独立测试无解码)
 ///             epochMs: number,      // 解析出的帧时刻(epoch ms)
-///             topoEvent: evt|null } // 本帧的拓扑事件,无事件时为 null
+///             topoEvent: evt|null,  // 本帧的拓扑事件,无事件时为 null
+///             // 标量透传(主程序解析真值,插件无需重解析):
+///             accepted: bool,       // 主程序是否接受该帧
+///             rejectReason: string,  // 丢弃原因(accepted=false 时)
+///             mpdu: { ok, frameType, srcTei, dstTei, netId, netType,
+///                     fchCrcOk, pbCrcOk },
+///             msduPresent: bool,    // 是否携带完整 MSDU
+///             msduSummary: string }  // MSDU 概要,如 "MMeDiscoverNodeList"
 /// 拓扑事件(主解析器产出,挂在 frame.topoEvent,单入口,无独立侧信道):
 ///   evt = {
 ///     kind: "discoverList"|"assocReq"|"assocCnf"|"assocGatherInd"|"assocInd"|

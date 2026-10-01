@@ -497,6 +497,33 @@ ParseResult LuaBackend::parse(const BplcFrame& frame, MsduState& msdu,
         lua_pushnil(m_lua);
     }
     lua_setfield(m_lua, -2, "topoEvent");
+    // 标量透传:主程序解析真值(接受状态/MPDU/MSDU 摘要)
+    lua_pushboolean(m_lua, frame.accepted);
+    lua_setfield(m_lua, -2, "accepted");
+    lua_pushstring(m_lua, frame.error_reason.toUtf8().constData());
+    lua_setfield(m_lua, -2, "rejectReason");
+    lua_newtable(m_lua);  // mpdu
+    lua_pushboolean(m_lua, true);
+    lua_setfield(m_lua, -2, "ok");
+    lua_pushinteger(m_lua, frame.mpdu.frame_type);
+    lua_setfield(m_lua, -2, "frameType");
+    lua_pushinteger(m_lua, frame.mpdu.src_tei);
+    lua_setfield(m_lua, -2, "srcTei");
+    lua_pushinteger(m_lua, frame.mpdu.dst_tei);
+    lua_setfield(m_lua, -2, "dstTei");
+    lua_pushinteger(m_lua, frame.mpdu.net_id);
+    lua_setfield(m_lua, -2, "netId");
+    lua_pushinteger(m_lua, frame.mpdu.net_type);
+    lua_setfield(m_lua, -2, "netType");
+    lua_pushboolean(m_lua, frame.mpdu.fch_crc_ok);
+    lua_setfield(m_lua, -2, "fchCrcOk");
+    lua_pushboolean(m_lua, frame.mpdu.pb_crc_ok);
+    lua_setfield(m_lua, -2, "pbCrcOk");
+    lua_setfield(m_lua, -2, "mpdu");
+    lua_pushboolean(m_lua, frame.msdu_present);
+    lua_setfield(m_lua, -2, "msduPresent");
+    lua_pushstring(m_lua, frame.msdu_summary.toUtf8().constData());
+    lua_setfield(m_lua, -2, "msduSummary");
 
     if (lua_pcall(m_lua, 1, 1, 0) != LUA_OK) {
         *err = QStringLiteral("parse: %1").arg(pop_lua_error(m_lua));
