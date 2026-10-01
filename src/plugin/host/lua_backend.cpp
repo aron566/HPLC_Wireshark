@@ -398,3 +398,24 @@ ParseResult LuaBackend::parse(const BplcFrame& frame, MsduState& msdu,
     lua_pop(m_lua, 1);  // result 表
     return r;
 }
+
+QString LuaBackend::call_text_function(const char* name, QString* err) {
+    lua_getglobal(m_lua, name);
+    if (!lua_isfunction(m_lua, -1)) {
+        lua_pop(m_lua, 1);
+        *err = QStringLiteral("function %1 not found").arg(QLatin1String(name));
+        return QString();
+    }
+    if (lua_pcall(m_lua, 0, 1, 0) != LUA_OK) {
+        *err = QStringLiteral("%1: %2")
+                   .arg(QLatin1String(name), pop_lua_error(m_lua));
+        return QString();
+    }
+    QString s;
+    if (lua_isstring(m_lua, -1))
+        s = QString::fromUtf8(lua_tostring(m_lua, -1));
+    else
+        *err = QStringLiteral("%1 must return a string").arg(QLatin1String(name));
+    lua_pop(m_lua, 1);
+    return s;
+}

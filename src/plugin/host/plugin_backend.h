@@ -48,6 +48,14 @@ public:
         *err = QStringLiteral("no graphics");
         return false;
     }
+    /// @brief 调用脚本无参全局函数,返回其文本结果(报表/回放数据等)
+    /// @details 函数不存在、调用失败或返回非文本时 err 置原因并返回空串;
+    ///          JS 端若返回数组则按行拼接
+    virtual QString call_text_function(const char* name, QString* err) {
+        Q_UNUSED(name);
+        *err = QStringLiteral("call_text_function not supported");
+        return QString();
+    }
     /// @brief 设置重绘回调(插件主动请求重绘时调)
     using RedrawCallback = std::function<void()>;
     virtual void set_redraw_callback(RedrawCallback cb) { m_redraw_cb = cb; }

@@ -51,6 +51,9 @@ public:
     QImage render_graphics(int w, int h, QString* err) override;
     bool handle_graphics_event(const GraphicsEvent& e, QString* err) override;
 
+    // ---- 脚本函数调用 ----
+    QString call_text_function(const char* name, QString* err) override;
+
 private:
     bool convert_fields(const QJSValue& js_fields, QVector<MsduFieldNode>* out,
                         QString* err);
