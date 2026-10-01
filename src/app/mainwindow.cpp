@@ -1358,7 +1358,8 @@ void MainWindow::autotest_shoot_tabs() {
     QTimer* t = new QTimer(this);
     t->setInterval(1500);
     int* i = new int(-1);
-    connect(t, &QTimer::timeout, this, [this, i, n, t]() {
+    bool* field_shot_done = new bool(false);  // 字段树截图是否已完成
+    connect(t, &QTimer::timeout, this, [this, i, n, t, field_shot_done]() {
         qInfo() << "[autotest] shoot tick i=" << *i << "n=" << n;
         // 先抓上一个 tab(已显示 1.5s,面板刷新完成)
         if (*i >= 0 && *i < m_plugin_tabs->count()) {
@@ -1373,9 +1374,28 @@ void MainWindow::autotest_shoot_tabs() {
         }
         ++(*i);
         if (*i >= n) {
+            // 先选中一帧带 MSDU 的报文,让底部字段树/hex 有内容,下一拍再截 main.png
+            if (!*field_shot_done) {
+                *field_shot_done = true;
+                qint64 target = 0;
+                const qint64 total = m_model ? m_model->total_count() : 0;
+                for (qint64 f = 1; f <= total; ++f) {
+                    PacketEntry e;
+                    if (m_model->entry_at(int(f - 1), e)
+                        && e.msdu.present && !e.msdu.summary.isEmpty()) {
+                        target = f;
+                        break;
+                    }
+                }
+                if (target < 1) target = total;  // 兜底:最后一帧
+                jump_packet_to_frame(target);
+                qInfo() << "[autotest] select frame for field view:" << target;
+                return;
+            }
             t->stop();
             t->deleteLater();
             delete i;
+            delete field_shot_done;
             this->grab().save(QStringLiteral("%1/main.png").arg(m_autotest_shots));
             qApp->quit();
             return;
