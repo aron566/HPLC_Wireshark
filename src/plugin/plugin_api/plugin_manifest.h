@@ -20,9 +20,45 @@
 
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QString>
+#include <QVariant>
+
+/// @brief 插件可配置项(插件独立设置,见 market 对话框"设置"页)
+/// @details plugin.json 可选 "settings" 数组,每项:
+///   { "key": "max_nodes",            // 设置键(唯一,写 settings.json 用)
+///     "type": "integer",             // boolean | integer | number | string
+///     "default": 200,                // 缺省值
+///     "enum": ["a","b"],             // 可选:字符串枚举候选(type=string 时)
+///     "minimum": 1, "maximum": 9999, // 可选:数值范围
+///     "title": "最大节点数", "title_en": "Max nodes",
+///     "description": "...", "description_en": "..." }
+///   脚本侧经 host.getSetting(key, defaultValue) 读取(见 docs/HOST_API.md)。
+struct PluginSetting {
+    QString key;
+    QString type;              ///< boolean | integer | number | string
+    QVariant default_value;
+    QStringList enum_options;  ///< type=string 时的候选项(可空)
+    double minimum = 0;
+    double maximum = 0;
+    bool has_minimum = false;
+    bool has_maximum = false;
+    QString title;
+    QString title_en;
+    QString description;
+    QString description_en;
+
+    QString localized_title(bool english) const {
+        if (english && !title_en.isEmpty()) return title_en;
+        return title.isEmpty() ? key : title;
+    }
+    QString localized_desc(bool english) const {
+        if (english && !description_en.isEmpty()) return description_en;
+        return description;
+    }
+};
 
 /// @brief 插件清单
 struct PluginManifest {
@@ -40,6 +76,7 @@ struct PluginManifest {
     bool    graphics = false;  ///< 是否提供图形能力(Phase3)
     QString panel;           ///< 主界面功能面板类型(可选): topo|replay|diag|report|stats
     QString panel_function;  ///< 文本类面板调用的脚本函数名(可选,如 get_replay_data)
+    QList<PluginSetting> settings; ///< 插件独立可配置项(可选,见 PluginSetting)
     QString dir_path;      ///< 插件目录绝对路径(解析时填充)
     bool    valid = false;
     QString error;         ///< valid=false 时的原因
@@ -76,6 +113,34 @@ inline PluginManifest read_plugin_manifest(const QString& plugin_dir) {
     m.graphics     = o.value(QStringLiteral("graphics")).toBool(false);
     m.panel        = o.value(QStringLiteral("panel")).toString();
     m.panel_function = o.value(QStringLiteral("panel_function")).toString();
+    for (const QJsonValue& sv : o.value(QStringLiteral("settings")).toArray()) {
+        const QJsonObject so = sv.toObject();
+        PluginSetting ps;
+        ps.key = so.value(QStringLiteral("key")).toString();
+        ps.type = so.value(QStringLiteral("type")).toString();
+        if (ps.key.isEmpty()) continue;
+        if (ps.type != QStringLiteral("boolean") &&
+            ps.type != QStringLiteral("integer") &&
+            ps.type != QStringLiteral("number") &&
+            ps.type != QStringLiteral("string"))
+            continue;  // 未知类型:跳过该项
+        ps.default_value = so.value(QStringLiteral("default")).toVariant();
+        for (const QJsonValue& ev : so.value(QStringLiteral("enum")).toArray())
+            ps.enum_options.append(ev.toString());
+        if (so.contains(QStringLiteral("minimum"))) {
+            ps.minimum = so.value(QStringLiteral("minimum")).toDouble();
+            ps.has_minimum = true;
+        }
+        if (so.contains(QStringLiteral("maximum"))) {
+            ps.maximum = so.value(QStringLiteral("maximum")).toDouble();
+            ps.has_maximum = true;
+        }
+        ps.title = so.value(QStringLiteral("title")).toString();
+        ps.title_en = so.value(QStringLiteral("title_en")).toString();
+        ps.description = so.value(QStringLiteral("description")).toString();
+        ps.description_en = so.value(QStringLiteral("description_en")).toString();
+        m.settings.append(ps);
+    }
 
     if (m.name.isEmpty())         { m.error = QStringLiteral("missing 'name'"); return m; }
     if (m.runtime.isEmpty())      { m.error = QStringLiteral("missing 'runtime'"); return m; }

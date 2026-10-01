@@ -1,1 +1,51 @@
-{"api_version": 1, "author": "bplc", "description": "报表插件:统计帧类型计数与 TEI 分布,输出 JSON 报表。", "description_en": "Report plugin: counts frame types and TEI distribution, outputs a JSON report.", "display_name": "Lua 统计报表(测试)", "display_name_en": "Lua Statistics Report (test)", "entry": "report.lua", "name": "lua-report", "protocol_id": "LUAREPORT_2024", "runtime": "lua", "version": "1.0.0", "panel": "report", "panel_function": "get_report"}
+{
+  "api_version": 1,
+  "author": "bplc",
+  "description": "报表插件:统计帧类型计数与 TEI 分布,输出 JSON 报表。",
+  "description_en": "Report plugin: counts frame types and TEI distribution, outputs a JSON report.",
+  "display_name": "Lua 统计报表(测试)",
+  "display_name_en": "Lua Statistics Report (test)",
+  "entry": "report.lua",
+  "name": "lua-report",
+  "protocol_id": "LUAREPORT_2024",
+  "runtime": "lua",
+  "version": "1.0.0",
+  "panel": "report",
+  "panel_function": "get_report",
+  "settings": [
+    {
+      "key": "page_size",
+      "type": "integer",
+      "default": 50,
+      "minimum": 10,
+      "maximum": 500,
+      "title": "每页条数",
+      "title_en": "Rows per page",
+      "description": "报表每页显示的数据行数",
+      "description_en": "Data rows per report page"
+    },
+    {
+      "key": "include_charts",
+      "type": "boolean",
+      "default": true,
+      "title": "包含图表",
+      "title_en": "Include charts",
+      "description": "报表中是否嵌入统计图表",
+      "description_en": "Whether to embed statistics charts in the report"
+    },
+    {
+      "key": "format",
+      "type": "string",
+      "enum": [
+        "pdf",
+        "html",
+        "csv"
+      ],
+      "default": "pdf",
+      "title": "导出格式",
+      "title_en": "Export format",
+      "description": "报表默认导出文件格式",
+      "description_en": "Default report export file format"
+    }
+  ]
+}

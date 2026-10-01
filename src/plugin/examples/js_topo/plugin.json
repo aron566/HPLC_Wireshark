@@ -11,5 +11,41 @@
   "protocol_id": "JSTOPO_2024",
   "runtime": "js",
   "version": "1.0.0",
-  "panel": "topo"
+  "panel": "topo",
+  "settings": [
+    {
+      "key": "max_nodes",
+      "type": "integer",
+      "default": 200,
+      "minimum": 10,
+      "maximum": 2000,
+      "title": "最大节点数",
+      "title_en": "Max nodes",
+      "description": "拓扑图最多绘制的节点数,超出时只显示前 N 个",
+      "description_en": "Max nodes drawn on the topology graph; only the first N are shown when exceeded"
+    },
+    {
+      "key": "show_labels",
+      "type": "boolean",
+      "default": true,
+      "title": "显示节点标签",
+      "title_en": "Show node labels",
+      "description": "是否在节点旁显示 TEI/MAC 标签",
+      "description_en": "Whether to show TEI/MAC labels next to nodes"
+    },
+    {
+      "key": "layout",
+      "type": "string",
+      "enum": [
+        "auto",
+        "circular",
+        "grid"
+      ],
+      "default": "auto",
+      "title": "布局方式",
+      "title_en": "Layout",
+      "description": "拓扑图节点布局算法",
+      "description_en": "Node layout algorithm for the topology graph"
+    }
+  ]
 }

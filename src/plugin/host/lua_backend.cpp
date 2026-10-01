@@ -7,6 +7,7 @@
 #include <QImage>
 #include <QPainter>
 
+#include "plugin_env.h"
 #include "script_painter.h"
 
 extern "C" {
@@ -29,6 +30,24 @@ QString pop_lua_error(lua_State* L) {
     QString e = QString::fromUtf8(lua_tostring(L, -1));
     lua_pop(L, 1);
     return e;
+}
+// QVariant → Lua 值压栈(保留 bool/number/string 类型)
+void push_qvariant(lua_State* L, const QVariant& v) {
+    switch (v.typeId()) {
+    case QMetaType::Bool:
+        lua_pushboolean(L, v.toBool());
+        break;
+    case QMetaType::Int:
+    case QMetaType::UInt:
+    case QMetaType::LongLong:
+    case QMetaType::ULongLong:
+    case QMetaType::Double:
+        lua_pushnumber(L, v.toDouble());
+        break;
+    default:
+        lua_pushstring(L, v.toString().toUtf8().constData());
+        break;
+    }
 }
 
 // TopoEventKind → Lua 可读字符串
@@ -257,6 +276,7 @@ bool LuaBackend::initialize(const PluginManifest& m, QString* err) {
         return false;
     }
     luaL_openlibs(m_lua);
+    m_plugin_dir = m.dir_path;
 
     const QString lua_path = QDir(m.dir_path).filePath(m.entry);
     const QByteArray path_utf8 = lua_path.toUtf8();
@@ -326,6 +346,8 @@ bool LuaBackend::initialize(const PluginManifest& m, QString* err) {
     lua_setglobal(m_lua, "request_redraw");
 
     // host 界面控制表:host.jumpToFrame(frameIndex)
+    // + 插件设置 host.getSetting(key, default)
+    // + 公共环境变量 host.getEnv(name)
     lua_newtable(m_lua);
     lua_pushlightuserdata(m_lua, self);
     lua_pushcclosure(m_lua, [](lua_State* L) -> int {
@@ -335,6 +357,37 @@ bool LuaBackend::initialize(const PluginManifest& m, QString* err) {
         return 0;
     }, 1);
     lua_setfield(m_lua, -2, "jumpToFrame");
+    lua_pushlightuserdata(m_lua, self);
+    lua_pushcclosure(m_lua, [](lua_State* L) -> int {
+        auto* backend = static_cast<LuaBackend*>(lua_touserdata(L, lua_upvalueindex(1)));
+        const QString key =
+            QString::fromUtf8(lua_tostring(L, 1));
+        QVariant def;
+        if (!lua_isnoneornil(L, 2)) {
+            if (lua_isboolean(L, 2))
+                def = QVariant(bool(lua_toboolean(L, 2)));
+            else if (lua_isnumber(L, 2))
+                def = QVariant(lua_tonumber(L, 2));
+            else
+                def = QVariant(QString::fromUtf8(lua_tostring(L, 2)));
+        }
+        const QVariant v =
+            plugin_setting_value(backend->m_plugin_dir, key, def);
+        push_qvariant(L, v.isValid() ? v : def);
+        return 1;
+    }, 1);
+    lua_setfield(m_lua, -2, "getSetting");
+    lua_pushlightuserdata(m_lua, self);
+    lua_pushcclosure(m_lua, [](lua_State* L) -> int {
+        auto* backend = static_cast<LuaBackend*>(lua_touserdata(L, lua_upvalueindex(1)));
+        const QString name =
+            QString::fromUtf8(lua_tostring(L, 1));
+        lua_pushstring(
+            L, plugin_env_value(name, backend->m_plugin_dir,
+                                backend->m_ui_english).toUtf8().constData());
+        return 1;
+    }, 1);
+    lua_setfield(m_lua, -2, "getEnv");
     lua_setglobal(m_lua, "host");
     return true;
 }

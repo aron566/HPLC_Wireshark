@@ -111,6 +111,7 @@ void PluginWorker::start_load(const QString& dir) {
             emit plugin_loaded(info);
             continue;
         }
+        b->set_ui_english(trl::enabled());
         if (m.graphics && !b->has_graphics()) {
             // 声明了图形但后端无图形能力:降级为 stats 面板,保留解析
             info.panel = QStringLiteral("stats");
@@ -235,6 +236,8 @@ void PluginWorker::reset_all() {
         rt->backend->shutdown();
         if (!rt->backend->initialize(rt->manifest, &err)) {
             // reset 失败:保留旧状态,仅清零计数
+        } else {
+            rt->backend->set_ui_english(trl::enabled());
         }
         rt->msdu = MsduState();
         rt->accept = 0;

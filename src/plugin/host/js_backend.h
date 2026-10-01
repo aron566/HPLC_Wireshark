@@ -65,12 +65,24 @@ public slots:
 };
 
 /// @brief host 界面控制对象的 QObject 桥:host.jumpToFrame(frameIndex)
+///        + 插件设置 host.getSetting(key, defaultValue)
+///        + 公共环境变量 host.getEnv(name)
 class HostHelper : public QObject {
     Q_OBJECT
 public:
     std::function<void(qint64)> jump_cb;
+    std::function<QVariant(const QString&, const QVariant&)> setting_cb;
+    std::function<QString(const QString&)> env_cb;
 public slots:
     void jumpToFrame(double index) { if (jump_cb) jump_cb(static_cast<qint64>(index)); }
+    QVariant getSetting(const QString& key, const QVariant& defaultValue = QVariant()) {
+        if (setting_cb) return setting_cb(key, defaultValue);
+        return defaultValue;
+    }
+    QString getEnv(const QString& name) {
+        if (env_cb) return env_cb(name);
+        return QString();
+    }
 };
 
 /// @brief JS 插件后端
@@ -112,6 +124,7 @@ private:
     QJSValue m_on_event_fn;
     RedrawHelper* m_redraw_helper = nullptr;  ///< engine 拥有
     HostHelper* m_host_helper = nullptr;      ///< engine 拥有
+    QString m_plugin_dir;  ///< 插件目录(设置/环境变量用)
     bool m_has_graphics = false;
     QString m_protocol_id;
     QString m_display_name;

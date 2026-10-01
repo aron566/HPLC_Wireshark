@@ -11,6 +11,7 @@
 #include <QtGlobal>
 
 #include "plugin_market.h"
+#include "plugin_env.h"
 
 static int g_fail = 0;
 #define CHECK(cond, msg)                                            \
@@ -45,6 +46,18 @@ int main(int argc, char** argv) {
     CHECK(topo.versions.size() == 2, "topo 2 versions");
     CHECK(topo.latest()->version == "1.1.0", "topo latest 1.1.0");
     CHECK(!topo.display_name_en.isEmpty(), "topo en name");
+    // 新增 feed 字段:readme_url / updated_at / source
+    CHECK(topo.readme_url.endsWith(QStringLiteral("/readme/js-topo.md")),
+          "readme_url");
+    CHECK(topo.versions[0].updated_at == "2026-09-28", "v1 updated_at");
+    CHECK(topo.latest()->updated_at == "2026-10-02", "v2 updated_at");
+    ff.seek(0);
+    const QList<MarketPlugin> feed2 =
+        PluginMarket::parse_feed(ff.readAll(), &perr,
+                                 QStringLiteral("https://feed.example/m.json"));
+    CHECK(perr.isEmpty() && !feed2.isEmpty() &&
+              feed2[0].source == "https://feed.example/m.json",
+          "feed source recorded");
 
     // 版本比较
     CHECK(PluginMarket::compare_version("1.1.0", "1.0.0") > 0, "ver gt");
@@ -74,6 +87,40 @@ int main(int argc, char** argv) {
     const PluginManifest m = read_plugin_manifest(staged);
     CHECK(m.valid && m.name == "js-topo" && m.version == "1.1.0",
           "staged manifest valid");
+    // settings schema 解析
+    CHECK(m.settings.size() == 3, "settings count");
+    CHECK(m.settings[0].key == "max_nodes" &&
+              m.settings[0].type == "integer" &&
+              m.settings[0].default_value.toInt() == 200 &&
+              m.settings[0].has_minimum && m.settings[0].has_maximum,
+          "settings[0] int");
+    CHECK(m.settings[1].type == "boolean" &&
+              m.settings[1].default_value.toBool(),
+          "settings[1] bool");
+    CHECK(m.settings[2].enum_options.size() == 3 &&
+              m.settings[2].default_value.toString() == "auto",
+          "settings[2] enum");
+    // 非法 settings 项被跳过(未知 type / 缺 key)
+    {
+        QTemporaryDir t2;
+        CHECK(t2.isValid(), "tmp dir 2");
+        QFile e2(t2.path() + "/x.js");
+        CHECK(e2.open(QIODevice::WriteOnly), "write entry");
+        e2.write("1");
+        e2.close();
+        QFile j2(t2.path() + "/plugin.json");
+        CHECK(j2.open(QIODevice::WriteOnly), "write manifest");
+        j2.write(R"({"name":"t","version":"1.0.0","runtime":"js","entry":"x.js",
+            "api_version":1,"protocol_id":"T",
+            "settings":[{"key":"ok","type":"boolean","default":true},
+                        {"key":"badtype","type":"weird","default":1},
+                        {"type":"boolean","default":true}]})");
+        j2.close();
+        const PluginManifest m2 = read_plugin_manifest(t2.path());
+        CHECK(m2.valid && m2.settings.size() == 1 &&
+                  m2.settings[0].key == "ok",
+              "bad settings skipped");
+    }
     // zip-slip 防护
     CHECK(!PluginMarket::unzip_to_dir(QStringLiteral("/nope.zip"), staged,
                                       &uerr),
@@ -96,6 +143,32 @@ int main(int argc, char** argv) {
     CHECK(inst.size() == 1 && inst[0].manifest.version == "1.1.0" &&
               inst[0].enabled,
           "installed listed, enabled");
+    // meta.json 记录来源与更新时间(离线安装:source=file)
+    CHECK(inst[0].source == "file", "installed source=file");
+    CHECK(!inst[0].updated_at.isEmpty(), "installed updated_at set");
+
+    // 公共环境变量
+    const QList<PluginEnvVar> envs = plugin_common_env_vars();
+    CHECK(envs.size() == 5, "env count");
+    CHECK(plugin_env_value("BPLC_API_VERSION", QString(), false) == "1",
+          "env api version");
+    CHECK(plugin_env_value("BPLC_LANG", QString(), false) == "zh" &&
+              plugin_env_value("BPLC_LANG", QString(), true) == "en",
+          "env lang");
+    CHECK(plugin_env_value("BPLC_PLUGIN_DIR", "/tmp/x", false) == "/tmp/x",
+          "env plugin dir");
+    CHECK(plugin_env_value("NOPE", QString(), false).isEmpty(),
+          "env unknown empty");
+    // settings.json 读写
+    CHECK(plugin_setting_value(tmp.path(), "k", 7).toInt() == 7,
+          "setting default");
+    QString werr;
+    CHECK(plugin_write_settings(tmp.path(), {{"k", 42}, {"s", "a"}}, &werr),
+          "write settings");
+    CHECK(plugin_setting_value(tmp.path(), "k", 7).toInt() == 42,
+          "setting read back");
+    CHECK(plugin_setting_value(tmp.path(), "missing", 7).toInt() == 7,
+          "setting missing default");
 
     // 更新检查:已装 1.1.0=最新 → 无更新;伪造 1.0.0 → 有更新
     CHECK(PluginMarket::update_for(inst[0], feed) == nullptr,

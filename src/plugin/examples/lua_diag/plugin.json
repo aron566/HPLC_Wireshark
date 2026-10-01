@@ -1,1 +1,47 @@
-{"api_version": 1, "author": "bplc", "description": "诊断插件:检查帧长度异常、TEI 为 0、全零载荷。", "description_en": "Diagnostic plugin: checks abnormal frame length, zero TEI, all-zero payload.", "display_name": "Lua 帧诊断(测试)", "display_name_en": "Lua Frame Diagnostics (test)", "entry": "diag.lua", "name": "lua-diag", "protocol_id": "LUADIAG_2024", "runtime": "lua", "version": "1.0.0", "panel": "diag"}
+{
+  "api_version": 1,
+  "author": "bplc",
+  "description": "诊断插件:检查帧长度异常、TEI 为 0、全零载荷。",
+  "description_en": "Diagnostic plugin: checks abnormal frame length, zero TEI, all-zero payload.",
+  "display_name": "Lua 帧诊断(测试)",
+  "display_name_en": "Lua Frame Diagnostics (test)",
+  "entry": "diag.lua",
+  "name": "lua-diag",
+  "protocol_id": "LUADIAG_2024",
+  "runtime": "lua",
+  "version": "1.0.0",
+  "panel": "diag",
+  "settings": [
+    {
+      "key": "max_alarms",
+      "type": "integer",
+      "default": 100,
+      "minimum": 10,
+      "maximum": 1000,
+      "title": "最大告警数",
+      "title_en": "Max alarms",
+      "description": "诊断面板保留的告警条数上限",
+      "description_en": "Max alarms kept in the diagnosis panel"
+    },
+    {
+      "key": "strict_mode",
+      "type": "boolean",
+      "default": false,
+      "title": "严格模式",
+      "title_en": "Strict mode",
+      "description": "启用后将可疑帧也计入告警",
+      "description_en": "Count suspicious frames as alarms when enabled"
+    },
+    {
+      "key": "warn_rate",
+      "type": "number",
+      "default": 80.0,
+      "minimum": 0,
+      "maximum": 100,
+      "title": "告警成功率阈值(%)",
+      "title_en": "Alarm success-rate threshold (%)",
+      "description": "通信成功率低于该值时产生告警",
+      "description_en": "Raise an alarm when the success rate drops below this value"
+    }
+  ]
+}

@@ -37,19 +37,62 @@ Entry point: **Plugins → Plugin marketplace** menu in the main window.
     "description": "...",  "description_en": "...",
     "category": "diagnosis | report | graphics | protocol",
     "author": "bplc",
+    "readme_url": "https://raw.githubusercontent.com/.../readme/js-topo.md",
     "versions": [{
       "version": "1.1.0",
       "url": "https://.../js-topo-1.1.0.zip",
       "sha256": "<hex>",
       "size": 2400,
-      "min_app_version": "1.3.0"
+      "min_app_version": "1.3.0",
+      "updated_at": "2026-10-02"
     }]
   }]
 }
 ```
 
+- `readme_url`: README markdown rendered in the dialog's *README* tab
+  (markdown via `QTextDocument`). For installed plugins the dialog prefers
+  `<plugin-dir>/README.md` shipped inside the package, then falls back to
+  this URL, then to the plain description.
+- `updated_at`: per-version update date (ISO), shown as 更新时间/Updated.
+- The dialog records the feed URL as the plugin's *source* (来源/Source)
+  in `meta.json` at install time (`"file"` for install-from-file).
+
 Default feed URL: `https://raw.githubusercontent.com/aron566/BPLC_Plugin_Market/main/market.json`.
 Override for dev/test: env var `BPLC_MARKET_FEED_URL` (supports `file://`).
+
+## Plugin settings
+
+`plugin.json` may declare a `"settings"` array; the dialog generates a
+*Settings* tab form from it and persists values to
+`<plugin-dir>/settings.json`. Scripts read them via
+`host.getSetting(key, default)` (see `HOST_API.md`).
+
+```json
+"settings": [
+  {"key": "max_nodes", "type": "integer", "default": 200,
+   "minimum": 10, "maximum": 2000,
+   "title": "最大节点数", "title_en": "Max nodes",
+   "description": "...", "description_en": "..."},
+  {"key": "show_labels", "type": "boolean", "default": true,
+   "title": "显示节点标签", "title_en": "Show node labels"},
+  {"key": "layout", "type": "string", "enum": ["auto", "circular", "grid"],
+   "default": "auto", "title": "布局方式", "title_en": "Layout"}
+]
+```
+
+- `type`: `boolean` | `integer` | `number` | `string`;
+  `type: string` + `"enum"` renders a drop-down.
+- Unknown types or entries without `key` are skipped by the manifest
+  parser.
+
+## Common environment variables
+
+The host exposes a fixed set of environment variables to every script
+plugin via `host.getEnv(name)` (see `HOST_API.md` §2); the dialog's
+*Environment* tab lists them with live values. Defined in
+`plugin_api/plugin_env.h`: `BPLC_APP_VERSION`, `BPLC_API_VERSION`,
+`BPLC_PLUGIN_DIR`, `BPLC_DATA_DIR`, `BPLC_LANG`.
 
 ## Package format
 

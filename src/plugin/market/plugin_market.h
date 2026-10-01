@@ -5,13 +5,16 @@
 ///     { "version": 1, "updated": "...",
 ///       "plugins": [ { "name", "display_name", "display_name_en",
 ///                       "description", "description_en", "category",
-///                       "author", "versions": [
+///                       "author", "readme_url",
+///                       "versions": [
 ///                         { "version", "url", "sha256", "size",
-///                           "min_app_version" } ] } ] }
+///                           "min_app_version", "updated_at" } ] } ] }
 ///   插件包为 zip,内含 plugin.json(清单,见 plugin_api/plugin_manifest.h)
 ///   与入口脚本。安装目录:
 ///     QStandardPaths::AppDataLocation + "/plugins/<name>/"
-///   每个已安装插件目录下有 meta.json: { "enabled": bool, "installed_at": ... }。
+///   每个已安装插件目录下有 meta.json: { "enabled": bool, "installed_at",
+///   "source", "updated_at" }。README 优先读插件目录下 README.md,
+///   其次拉取 feed 的 readme_url。
 ///   校验链(当前):feed 提供的 sha256 校验下载包 + 清单合法性 +
 ///   min_app_version 兼容性。Ed25519 官方签名为后续步骤,见 docs/MARKET.md。
 #ifndef BPLC_PLUGIN_MARKET_H
@@ -31,6 +34,7 @@ struct MarketVersion {
     QString sha256;          ///< 包 sha256 hex(小写)
     qint64  size = 0;
     QString min_app_version; ///< 要求宿主最低版本
+    QString updated_at;      ///< 版本更新时间(ISO 日期,可空)
 };
 
 /// @brief 市场 feed 中的一个插件
@@ -42,6 +46,8 @@ struct MarketPlugin {
     QString description_en;
     QString category;        ///< diagnosis | report | graphics | protocol ...
     QString author;
+    QString readme_url;      ///< README markdown 地址(可空)
+    QString source;          ///< feed 来源 URL(解析时填充)
     QList<MarketVersion> versions;
 
     const MarketVersion* latest() const {
@@ -62,6 +68,9 @@ struct InstalledPlugin {
     PluginManifest manifest;
     bool    enabled = true;
     QString dir;             ///< 插件目录绝对路径
+    QString source;          ///< 安装来源:feed URL | offline | file
+    QString installed_at;    ///< 安装时间(ISO)
+    QString updated_at;      ///< 所装版本的更新时间(ISO,可空)
 };
 
 /// @brief 插件市场后端(网络/文件 IO 均在本类,GUI 线程使用)
@@ -79,7 +88,11 @@ public:
     /// @brief 拉取远端 feed(异步,经 feed_ready/feed_error 回传)
     void fetch_feed(const QString& url);
     /// @brief 解析 feed JSON(静态,便于测试)
-    static QList<MarketPlugin> parse_feed(const QByteArray& json, QString* err);
+    /// @param source_url feed 来源 URL,写入各 MarketPlugin::source
+    static QList<MarketPlugin> parse_feed(const QByteArray& json, QString* err,
+                                          const QString& source_url = QString());
+    /// @brief 拉取任意文本(如 README markdown,异步)
+    void fetch_text(const QString& url);
 
     /// @brief 从市场安装指定版本(异步,经 install_* 信号回传)
     void install_market_plugin(const MarketPlugin& plugin, int version_index);
@@ -111,6 +124,8 @@ public:
 signals:
     void feed_ready(const QList<MarketPlugin>& plugins);
     void feed_error(const QString& error);
+    void text_ready(const QString& url, const QString& text);
+    void text_error(const QString& url, const QString& error);
     void install_progress(const QString& text);
     void install_finished(bool ok, const QString& error, const QString& name);
 
@@ -123,6 +138,8 @@ private:
     QNetworkAccessManager* m_nam = nullptr;
     QString m_pending_name;       ///< 本次安装中的插件名
     QString m_pending_sha256;     ///< 本次安装期望的 sha256(离线安装为空)
+    QString m_pending_source;     ///< 本次安装的来源(feed URL / offline / file)
+    QString m_pending_updated_at; ///< 本次安装版本的更新时间(可空)
 };
 
 #endif // BPLC_PLUGIN_MARKET_H

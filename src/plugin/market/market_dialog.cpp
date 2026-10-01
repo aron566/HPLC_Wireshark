@@ -5,8 +5,15 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QDir>
+#include <QDoubleSpinBox>
+#include <QFile>
 #include <QFileDialog>
+#include <QFormLayout>
 #include <QHBoxLayout>
+#include <QHeaderView>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -14,10 +21,18 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QSpinBox>
 #include <QSplitter>
+#include <QTableWidget>
+#include <QTabWidget>
+#include <QTextBrowser>
 #include <QVBoxLayout>
 
+#include <climits>
+
 #include "../../common/i18n.h"
+#include "../plugin_api/plugin_env.h"
 
 namespace {
 // 中→英注册(文件级)
@@ -59,6 +74,25 @@ struct I18nRegMarket {
         trl::register_en("需要重启插件加载才能生效(重新选择插件目录或重启程序)。",
                          "Takes effect after plugins are reloaded (reselect the plugin dir or restart).");
         trl::register_en("未选择插件", "No plugin selected");
+        trl::register_en("更新时间", "Updated");
+        trl::register_en("来源", "Source");
+        trl::register_en("官方市场", "Official marketplace");
+        trl::register_en("本地文件", "Local file");
+        trl::register_en("未知", "Unknown");
+        trl::register_en("README", "README");
+        trl::register_en("设置", "Settings");
+        trl::register_en("环境变量", "Environment");
+        trl::register_en("正在加载 README...", "Loading README...");
+        trl::register_en("README 加载失败", "README load failed");
+        trl::register_en("暂无 README", "No README available");
+        trl::register_en("安装后可配置该插件的独立设置。", "Install the plugin to configure its settings.");
+        trl::register_en("该插件没有可配置项。", "This plugin has no configurable settings.");
+        trl::register_en("保存", "Save");
+        trl::register_en("设置已保存", "Settings saved");
+        trl::register_en("设置保存失败", "Failed to save settings");
+        trl::register_en("变量", "Variable");
+        trl::register_en("值", "Value");
+        trl::register_en("说明", "Description");
     }
 };
 static I18nRegMarket g_i18n_reg;
@@ -91,6 +125,15 @@ QString elide_one_line(const QString& s, int max_chars = 60) {
     return t.left(max_chars - 1) + QChar(0x2026);
 }
 
+/// @brief 更新时间展示格式:ISO "2026-10-01T22:57:43Z" -> "2026-10-01 22:57"
+QString format_updated_at(const QString& iso) {
+    QString s = iso.trimmed();
+    if (s.endsWith(QLatin1Char('Z'))) s.chop(1);
+    s.replace(QLatin1Char('T'), QLatin1Char(' '));
+    if (s.size() > 16 && s[16] == QLatin1Char(':')) s = s.left(16);
+    return s;
+}
+
 }  // namespace
 
 PluginMarketDialog::PluginMarketDialog(QWidget* parent)
@@ -101,6 +144,10 @@ PluginMarketDialog::PluginMarketDialog(QWidget* parent)
             &PluginMarketDialog::on_feed_ready);
     connect(m_market, &PluginMarket::feed_error, this,
             &PluginMarketDialog::on_feed_error);
+    connect(m_market, &PluginMarket::text_ready, this,
+            &PluginMarketDialog::on_text_ready);
+    connect(m_market, &PluginMarket::text_error, this,
+            &PluginMarketDialog::on_text_error);
     connect(m_market, &PluginMarket::install_progress, this,
             &PluginMarketDialog::on_install_progress);
     connect(m_market, &PluginMarket::install_finished, this,
@@ -179,10 +226,24 @@ void PluginMarketDialog::setup_ui() {
     btns->addWidget(m_chk_enabled);
     btns->addStretch(1);
     dl->addLayout(btns);
-    m_d_desc = new QLabel(detail);
-    m_d_desc->setWordWrap(true);
-    m_d_desc->setAlignment(Qt::AlignTop);
-    dl->addWidget(m_d_desc, 1);
+    // 详情 tab: README(md) / 设置 / 环境变量
+    m_tabs = new QTabWidget(detail);
+    m_readme = new QTextBrowser(m_tabs);
+    m_readme->setOpenExternalLinks(true);
+    m_tabs->addTab(m_readme, trl::L("README"));
+    m_settings_scroll = new QScrollArea(m_tabs);
+    m_settings_scroll->setWidgetResizable(true);
+    m_tabs->addTab(m_settings_scroll, trl::L("设置"));
+    m_env_table = new QTableWidget(m_tabs);
+    m_env_table->setColumnCount(3);
+    m_env_table->setHorizontalHeaderLabels(
+        {trl::L("变量"), trl::L("值"), trl::L("说明")});
+    m_env_table->horizontalHeader()->setSectionResizeMode(
+        2, QHeaderView::Stretch);
+    m_env_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_env_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_tabs->addTab(m_env_table, trl::L("环境变量"));
+    dl->addWidget(m_tabs, 1);
     m_d_versions = new QLabel(detail);
     m_d_versions->setWordWrap(true);
     dl->addWidget(m_d_versions);
@@ -413,6 +474,203 @@ void PluginMarketDialog::on_install_from_file() {
     m_market->install_from_file(zip);
 }
 
+QString PluginMarketDialog::source_label(const QString& source) const {
+    if (source.isEmpty()) return trl::L("未知");
+    if (source == QStringLiteral("file")) return trl::L("本地文件");
+    // 官方市场:固定前缀(不用 default_feed_url(),它会被 BPLC_MARKET_FEED_URL 覆盖)
+    if (source.startsWith(QStringLiteral(
+            "https://raw.githubusercontent.com/aron566/BPLC_Plugin_Market/")))
+        return trl::L("官方市场");
+    return source;
+}
+
+void PluginMarketDialog::on_text_ready(const QString& url,
+                                       const QString& text) {
+    m_readme_cache[url] = text;
+    if (url == m_readme_pending_url && !m_readme_pending_url.isEmpty()) {
+        m_readme_pending_url.clear();
+        m_readme->setMarkdown(text);
+    }
+}
+
+void PluginMarketDialog::on_text_error(const QString& url,
+                                      const QString& error) {
+    Q_UNUSED(error);
+    if (url == m_readme_pending_url && !m_readme_pending_url.isEmpty()) {
+        m_readme_pending_url.clear();
+        m_readme->setPlainText(trl::L("README 加载失败"));
+    }
+}
+
+/// @brief README 解析链:已安装插件目录 README.md → feed readme_url → 描述
+void PluginMarketDialog::update_readme_tab(const InstalledPlugin* ip,
+                                           const MarketPlugin* mp) {
+    m_readme_pending_url.clear();
+    if (ip) {
+        for (const char* fn : {"README.md", "readme.md"}) {
+            QFile f(QDir(ip->dir).filePath(QString::fromLatin1(fn)));
+            if (f.open(QIODevice::ReadOnly)) {
+                m_readme->setMarkdown(QString::fromUtf8(f.readAll()));
+                return;
+            }
+        }
+    }
+    const MarketPlugin* fmp = mp;
+    if (!fmp && ip) {
+        for (const MarketPlugin& p : m_feed) {
+            if (p.name == ip->manifest.name) {
+                fmp = &p;
+                break;
+            }
+        }
+    }
+    if (fmp && !fmp->readme_url.isEmpty()) {
+        const QString url = fmp->readme_url;
+        if (m_readme_cache.contains(url)) {
+            m_readme->setMarkdown(m_readme_cache.value(url));
+        } else {
+            m_readme->setPlainText(trl::L("正在加载 README..."));
+            m_readme_pending_url = url;
+            m_market->fetch_text(url);
+        }
+        return;
+    }
+    QString desc;
+    if (ip)
+        desc = plugin_description(ip->manifest, trl::enabled());
+    else if (mp)
+        desc = mp->localized_desc(trl::enabled());
+    m_readme->setPlainText(
+        desc.isEmpty() ? trl::L("暂无 README") : desc);
+}
+
+QWidget* PluginMarketDialog::make_setting_widget(const PluginSetting& s,
+                                                const QVariant& cur) {
+    if (s.type == QStringLiteral("boolean")) {
+        auto* c = new QCheckBox();
+        c->setChecked(cur.toBool());
+        return c;
+    }
+    if (!s.enum_options.isEmpty()) {
+        auto* cb = new QComboBox();
+        cb->addItems(s.enum_options);
+        const int idx = cb->findText(cur.toString());
+        cb->setCurrentIndex(idx < 0 ? 0 : idx);
+        return cb;
+    }
+    if (s.type == QStringLiteral("integer")) {
+        auto* sp = new QSpinBox();
+        sp->setMinimum(s.has_minimum ? int(s.minimum) : INT_MIN);
+        sp->setMaximum(s.has_maximum ? int(s.maximum) : INT_MAX);
+        sp->setValue(cur.toInt());
+        return sp;
+    }
+    if (s.type == QStringLiteral("number")) {
+        auto* sp = new QDoubleSpinBox();
+        sp->setMinimum(s.has_minimum ? s.minimum : -1e12);
+        sp->setMaximum(s.has_maximum ? s.maximum : 1e12);
+        sp->setValue(cur.toDouble());
+        return sp;
+    }
+    auto* le = new QLineEdit();
+    le->setText(cur.toString());
+    return le;
+}
+
+/// @brief 设置页:按 manifest settings schema 生成表单,值落盘 settings.json
+void PluginMarketDialog::rebuild_settings_tab(const InstalledPlugin* ip) {
+    m_setting_widgets.clear();
+    m_setting_schema.clear();
+    m_settings_dir.clear();
+    delete m_settings_scroll->takeWidget();
+
+    auto* page = new QWidget();
+    auto* vl = new QVBoxLayout(page);
+    if (!ip) {
+        vl->addWidget(
+            new QLabel(trl::L("安装后可配置该插件的独立设置。"), page));
+        vl->addStretch(1);
+    } else if (ip->manifest.settings.isEmpty()) {
+        vl->addWidget(new QLabel(trl::L("该插件没有可配置项。"), page));
+        vl->addStretch(1);
+    } else {
+        m_settings_dir = ip->dir;
+        m_setting_schema = ip->manifest.settings;
+        QVariantMap cur;
+        QFile f(QDir(ip->dir).filePath(QStringLiteral("settings.json")));
+        if (f.open(QIODevice::ReadOnly)) {
+            const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+            if (doc.isObject()) cur = doc.object().toVariantMap();
+        }
+        const bool en = trl::enabled();
+        auto* form = new QFormLayout();
+        for (const PluginSetting& s : m_setting_schema) {
+            QWidget* w =
+                make_setting_widget(s, cur.value(s.key, s.default_value));
+            w->setToolTip(s.localized_desc(en));
+            auto* lab = new QLabel(s.localized_title(en), page);
+            lab->setToolTip(s.localized_desc(en));
+            form->addRow(lab, w);
+            m_setting_widgets[s.key] = w;
+        }
+        vl->addLayout(form);
+        auto* btn_row = new QHBoxLayout();
+        auto* save = new QPushButton(trl::L("保存"), page);
+        connect(save, &QPushButton::clicked, this,
+                &PluginMarketDialog::on_settings_save);
+        btn_row->addStretch(1);
+        btn_row->addWidget(save);
+        vl->addLayout(btn_row);
+        vl->addStretch(1);
+    }
+    m_settings_scroll->setWidget(page);
+}
+
+void PluginMarketDialog::on_settings_save() {
+    if (m_settings_dir.isEmpty()) return;
+    QVariantMap values;
+    for (auto it = m_setting_widgets.constBegin();
+         it != m_setting_widgets.constEnd(); ++it) {
+        QWidget* w = it.value();
+        if (auto* c = qobject_cast<QCheckBox*>(w))
+            values[it.key()] = c->isChecked();
+        else if (auto* cb = qobject_cast<QComboBox*>(w))
+            values[it.key()] = cb->currentText();
+        else if (auto* sp = qobject_cast<QSpinBox*>(w))
+            values[it.key()] = sp->value();
+        else if (auto* dsp = qobject_cast<QDoubleSpinBox*>(w))
+            values[it.key()] = dsp->value();
+        else if (auto* le = qobject_cast<QLineEdit*>(w))
+            values[it.key()] = le->text();
+    }
+    QString err;
+    if (plugin_write_settings(m_settings_dir, values, &err)) {
+        m_status->setText(trl::L("设置已保存"));
+    } else {
+        m_status->setText(trl::L("设置保存失败") + QStringLiteral(": ") + err);
+    }
+}
+
+/// @brief 环境变量页:宿主提供的公共环境变量一览
+void PluginMarketDialog::rebuild_env_tab(const InstalledPlugin* ip) {
+    const bool en = trl::enabled();
+    const QList<PluginEnvVar> vars = plugin_common_env_vars();
+    m_env_table->setRowCount(vars.size());
+    const QString dir = ip ? ip->dir : QString();
+    for (int i = 0; i < vars.size(); ++i) {
+        const PluginEnvVar& v = vars[i];
+        QString val = plugin_env_value(v.name, dir, en);
+        if (v.name == QStringLiteral("BPLC_PLUGIN_DIR") && dir.isEmpty())
+            val = trl::L("未安装");
+        m_env_table->setItem(i, 0, new QTableWidgetItem(v.name));
+        m_env_table->setItem(i, 1, new QTableWidgetItem(val));
+        auto* d = new QTableWidgetItem(v.localized_desc(en));
+        d->setToolTip(v.localized_title(en));
+        m_env_table->setItem(i, 2, d);
+    }
+    m_env_table->resizeColumnsToContents();
+}
+
 void PluginMarketDialog::update_detail() {
     const bool en = trl::enabled();
     QListWidgetItem* cur = m_list->currentItem();
@@ -424,8 +682,10 @@ void PluginMarketDialog::update_detail() {
         m_d_icon->clear();
         m_d_name->setText(trl::L("未选择插件"));
         m_d_meta->clear();
-        m_d_desc->clear();
         m_d_versions->clear();
+        m_readme->clear();
+        rebuild_settings_tab(nullptr);
+        rebuild_env_tab(nullptr);
         m_btn_install->setEnabled(false);
         m_btn_uninstall->setEnabled(false);
         m_chk_enabled->setEnabled(false);
@@ -435,16 +695,23 @@ void PluginMarketDialog::update_detail() {
     m_current_name = e.name;
     m_d_icon->setPixmap(letter_icon(e.name, 56));
 
+    const InstalledPlugin* ip = nullptr;
+    const MarketPlugin* mp = nullptr;
     if (e.is_installed_group) {
-        const InstalledPlugin& ip = m_installed[e.installed_index];
-        m_d_name->setText(plugin_display_name(ip.manifest, en));
+        ip = &m_installed[e.installed_index];
+        const InstalledPlugin& p = *ip;
+        m_d_name->setText(plugin_display_name(p.manifest, en));
+        const QString upd =
+            p.updated_at.isEmpty() ? p.installed_at : p.updated_at;
         m_d_meta->setText(
-            trl::L("作者") + ": " + ip.manifest.author + "\n" +
-            trl::L("已安装版本") + ": " + ip.manifest.version);
-        m_d_desc->setText(plugin_description(ip.manifest, en));
-        const MarketVersion* upd = PluginMarket::update_for(ip, m_feed);
-        if (upd) {
-            m_d_versions->setText(trl::L("可更新到") + ": " + upd->version);
+            trl::L("作者") + ": " + p.manifest.author + "\n" +
+            trl::L("已安装版本") + ": " + p.manifest.version + "\n" +
+            trl::L("更新时间") + ": " +
+                (upd.isEmpty() ? trl::L("未知") : format_updated_at(upd)) + "\n" +
+            trl::L("来源") + ": " + source_label(p.source));
+        const MarketVersion* upd_v = PluginMarket::update_for(p, m_feed);
+        if (upd_v) {
+            m_d_versions->setText(trl::L("可更新到") + ": " + upd_v->version);
             m_btn_install->setText(trl::L("更新"));
             m_btn_install->setEnabled(true);
         } else {
@@ -455,17 +722,22 @@ void PluginMarketDialog::update_detail() {
         m_btn_uninstall->setEnabled(true);
         m_chk_enabled->setEnabled(true);
         m_chk_enabled->blockSignals(true);
-        m_chk_enabled->setChecked(ip.enabled);
+        m_chk_enabled->setChecked(p.enabled);
         m_chk_enabled->blockSignals(false);
     } else {
-        const MarketPlugin& p = m_feed[e.feed_index];
+        mp = &m_feed[e.feed_index];
+        const MarketPlugin& p = *mp;
         const MarketVersion* lat = p.latest();
         m_d_name->setText(p.localized_name(en));
         m_d_meta->setText(
             trl::L("作者") + ": " + p.author + "\n" +
             trl::L("版本") + ": " + (lat ? lat->version : "-") + "\n" +
-            trl::L("分类") + ": " + category_name(p.category));
-        m_d_desc->setText(p.localized_desc(en));
+            trl::L("更新时间") + ": " +
+                ((lat && !lat->updated_at.isEmpty())
+                     ? format_updated_at(lat->updated_at)
+                     : trl::L("未知")) +
+            "\n" + trl::L("分类") + ": " + category_name(p.category) + "\n" +
+            trl::L("来源") + ": " + source_label(p.source));
         QStringList vs;
         for (const MarketVersion& v : p.versions) vs.prepend(v.version);
         m_d_versions->setText(trl::L("可选版本") + ": " + vs.join(", "));
@@ -475,6 +747,9 @@ void PluginMarketDialog::update_detail() {
         m_btn_uninstall->setEnabled(false);
         m_chk_enabled->setEnabled(false);
     }
+    update_readme_tab(ip, mp);
+    rebuild_settings_tab(ip);
+    rebuild_env_tab(ip);
 }
 
 void PluginMarketDialog::on_install_clicked() {

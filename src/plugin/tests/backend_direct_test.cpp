@@ -271,6 +271,118 @@ bool test_decoded_frame_contract() {
     return all_ok;
 }
 
+/// @brief host.getSetting/host.getEnv 契约测试(JS + Lua)
+/// @details 临时插件目录:settings.json 提供 my_int=42/my_bool=true;
+///          parse() 把设置值与环境变量拼进 summary,断言透传正确,
+///          缺失 key 走缺省值,BPLC_LANG 跟随 set_ui_english。
+bool test_settings_env() {
+    printf("\n=== Testing host.getSetting / host.getEnv ===\n");
+    fflush(stdout);
+    bool all_ok = true;
+    auto mark = [&](bool ok, const char* n, const QString& d = {}) {
+        check(ok, QString::fromLatin1(n), d);
+        if (!ok) all_ok = false;
+    };
+
+    QTemporaryDir tmp;
+    if (!tmp.isValid()) {
+        check(false, QStringLiteral("tmp dir"));
+        return false;
+    }
+    const QString dir = tmp.path();
+
+    QFile sj(dir + "/settings.json");
+    mark(sj.open(QIODevice::WriteOnly), "write settings.json");
+    sj.write(R"({"my_int": 42, "my_bool": true})");
+    sj.close();
+
+    // ---- JS ----
+    {
+        QFile mj(dir + "/plugin.json");
+        mj.open(QIODevice::WriteOnly);
+        mj.write(R"({"name":"settest","version":"1.0.0","runtime":"js",
+            "entry":"settest.js","api_version":1,"protocol_id":"SETTEST"})");
+        mj.close();
+        QFile sc(dir + "/settest.js");
+        sc.open(QIODevice::WriteOnly);
+        sc.write(R"(
+function get_info() { return { protocolId: "SETTEST", displayName: "SetTest" }; }
+function parse(frame) {
+    var v = host.getSetting("my_int", 7);
+    var flag = host.getSetting("my_bool", false);
+    var missing = host.getSetting("nope", "dflt");
+    return { accept: true,
+        summary: "v=" + v + " f=" + flag + " m=" + missing +
+                 " api=" + host.getEnv("BPLC_API_VERSION") +
+                 " lang=" + host.getEnv("BPLC_LANG") +
+                 " unk=" + host.getEnv("NOPE") };
+})");
+        sc.close();
+        QString err;
+        PluginManifest m = read_plugin_manifest(dir);
+        mark(m.valid, "js manifest", m.error);
+        JsBackend b;
+        mark(b.initialize(m, &err), "js initialize", err);
+        b.set_ui_english(true);
+        BplcFrame frame = make_frame(QByteArray::fromHex("3c000201"), 1000);
+        MsduState msdu;
+        ParseFilter filter;
+        ParseResult r = b.parse(frame, msdu, filter, &err);
+        mark(err.isEmpty(), "js parse", r.msdu.summary);
+        mark(r.msdu.summary ==
+                 QStringLiteral("v=42 f=true m=dflt api=1 lang=en unk="),
+             "js setting+env",
+             r.msdu.summary);
+        b.set_ui_english(false);
+        r = b.parse(frame, msdu, filter, &err);
+        mark(r.msdu.summary.contains(QStringLiteral("lang=zh")),
+             "js lang zh", r.msdu.summary);
+        b.shutdown();
+    }
+
+    // ---- Lua ----
+    {
+        QFile mj(dir + "/plugin.json");
+        mj.open(QIODevice::WriteOnly);
+        mj.write(R"({"name":"settest","version":"1.0.0","runtime":"lua",
+            "entry":"settest.lua","api_version":1,"protocol_id":"SETTEST"})");
+        mj.close();
+        QFile sc(dir + "/settest.lua");
+        sc.open(QIODevice::WriteOnly);
+        sc.write(R"(
+function get_info() return { protocolId = "SETTEST", displayName = "SetTest" } end
+function parse(frame)
+    local v = host.getSetting("my_int", 7)
+    local missing = host.getSetting("nope", "dflt")
+    return { accept = true,
+        summary = "v=" .. tostring(v) .. " m=" .. tostring(missing) ..
+                  " api=" .. host.getEnv("BPLC_API_VERSION") ..
+                  " lang=" .. host.getEnv("BPLC_LANG") }
+end)");
+        sc.close();
+        QString err;
+        PluginManifest m = read_plugin_manifest(dir);
+        mark(m.valid, "lua manifest", m.error);
+        LuaBackend b;
+        mark(b.initialize(m, &err), "lua initialize", err);
+        b.set_ui_english(true);
+        BplcFrame frame = make_frame(QByteArray::fromHex("3c000201"), 1000);
+        MsduState msdu;
+        ParseFilter filter;
+        ParseResult r = b.parse(frame, msdu, filter, &err);
+        mark(err.isEmpty(), "lua parse", r.msdu.summary);
+        mark(r.msdu.summary ==
+                 QStringLiteral("v=42.0 m=dflt api=1 lang=en"),
+             "lua setting+env",
+             r.msdu.summary);
+        b.shutdown();
+    }
+
+    printf(all_ok ? "  >> ALL PASS\n" : "  >> SOME FAILED\n");
+    fflush(stdout);
+    return all_ok;
+}
+
 int main(int argc, char* argv[]) {
     QGuiApplication app(argc, argv);
     QCommandLineParser cli;
@@ -306,6 +418,7 @@ int main(int argc, char* argv[]) {
     all_ok &= test_plugin(ex_dir, "lua_diag", diag_frames, false);
     all_ok &= test_plugin(ex_dir, "lua_report", std_frames, false);
     all_ok &= test_decoded_frame_contract();
+    all_ok &= test_settings_env();
 
     printf("\n========================================\n");
     printf("Total: %d passed, %d failed\n", g_pass, g_fail);

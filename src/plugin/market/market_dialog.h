@@ -8,6 +8,7 @@
 
 #include <QDialog>
 #include <QList>
+#include <QMap>
 
 #include "plugin_market.h"
 
@@ -18,6 +19,11 @@ class QLineEdit;
 class QListWidget;
 class QListWidgetItem;
 class QPushButton;
+class QScrollArea;
+class QTabWidget;
+class QTableWidget;
+class QTextBrowser;
+class QWidget;
 
 /// @brief 市场对话框
 class PluginMarketDialog : public QDialog {
@@ -29,6 +35,8 @@ public:
 private slots:
     void on_feed_ready(const QList<MarketPlugin>& plugins);
     void on_feed_error(const QString& error);
+    void on_text_ready(const QString& url, const QString& text);
+    void on_text_error(const QString& url, const QString& error);
     void on_install_progress(const QString& text);
     void on_install_finished(bool ok, const QString& error,
                              const QString& name);
@@ -41,6 +49,7 @@ private slots:
     void on_install_clicked();
     void on_uninstall_clicked();
     void on_enabled_toggled(bool on);
+    void on_settings_save();
 
 private:
     struct RowEntry {
@@ -53,8 +62,14 @@ private:
     void setup_ui();
     void refresh_installed();
     QString category_name(const QString& cat) const;
+    QString source_label(const QString& source) const;
     bool    row_matches(const RowEntry& e) const;
     void    update_detail();
+    void    update_readme_tab(const InstalledPlugin* ip,
+                              const MarketPlugin* mp);
+    void    rebuild_settings_tab(const InstalledPlugin* ip);
+    void    rebuild_env_tab(const InstalledPlugin* ip);
+    QWidget* make_setting_widget(const PluginSetting& s, const QVariant& cur);
 
     PluginMarket* m_market = nullptr;
     QList<MarketPlugin>    m_feed;
@@ -70,11 +85,20 @@ private:
     QLabel*      m_d_icon = nullptr;
     QLabel*      m_d_name = nullptr;
     QLabel*      m_d_meta = nullptr;
-    QLabel*      m_d_desc = nullptr;
     QLabel*      m_d_versions = nullptr;
     QPushButton* m_btn_install = nullptr;
     QPushButton* m_btn_uninstall = nullptr;
     QCheckBox*   m_chk_enabled = nullptr;
+    // detail tabs: README / 设置 / 环境变量
+    QTabWidget*   m_tabs = nullptr;
+    QTextBrowser* m_readme = nullptr;
+    QScrollArea*  m_settings_scroll = nullptr;
+    QTableWidget* m_env_table = nullptr;
+    QMap<QString, QString> m_readme_cache;  ///< url -> markdown
+    QString m_readme_pending_url;            ///< 正在拉取的 README url
+    QMap<QString, QWidget*> m_setting_widgets;  ///< key -> 编辑控件
+    QList<PluginSetting> m_setting_schema;      ///< 当前设置页的 schema
+    QString m_settings_dir;  ///< 当前设置页对应的插件目录(未安装为空)
 };
 
 #endif // BPLC_MARKET_DIALOG_H

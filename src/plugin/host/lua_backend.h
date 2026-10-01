@@ -76,6 +76,7 @@ private:
 
     lua_State* m_lua = nullptr;
     bool m_has_graphics = false;
+    QString m_plugin_dir;  ///< 插件目录(设置/环境变量用)
     QString m_protocol_id;
     QString m_display_name;
 };

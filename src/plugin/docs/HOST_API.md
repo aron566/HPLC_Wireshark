@@ -54,6 +54,50 @@ on_dblclick(recordFrame) { host.jumpToFrame(recordFrame); }
 host.jumpToFrame(42)
 ```
 
+### `host.getSetting(key: string, defaultValue?: any): any` — implemented
+
+Read this plugin's own setting, declared in `plugin.json` `"settings"`
+and edited by the user in the Marketplace dialog's *Settings* tab.
+
+- Values are persisted as `<plugin-dir>/settings.json` (`{key: value}`).
+- If the key is absent (or `settings.json` does not exist), `defaultValue`
+  is returned (or `undefined`/`nil` when omitted).
+- Types are preserved: boolean / number / string come back as the same
+  type in JS and Lua.
+- The file is read on every call; edits in the dialog take effect on the
+  next `parse` without reloading the plugin.
+
+```js
+const maxNodes = host.getSetting("max_nodes", 200);   // number
+const showLabels = host.getSetting("show_labels", true); // boolean
+```
+
+```lua
+local fmt = host.getSetting("format", "pdf")  -- string
+```
+
+### `host.getEnv(name: string): string` — implemented
+
+Read a host-provided common environment variable. Unknown names return
+`""`. The full list is shown in the Marketplace dialog's *Environment*
+tab; current variables:
+
+| Name | Meaning |
+|---|---|
+| `BPLC_APP_VERSION` | Host app version, e.g. `1.3.0` |
+| `BPLC_API_VERSION` | Plugin API version, currently `1` |
+| `BPLC_PLUGIN_DIR` | Absolute path of this plugin's directory |
+| `BPLC_DATA_DIR` | Host app-data root (`QStandardPaths::AppDataLocation`) |
+| `BPLC_LANG` | UI language: `zh` or `en` (follows the app's language setting) |
+
+```js
+const lang = host.getEnv("BPLC_LANG");  // "zh" | "en"
+```
+
+```lua
+local dir = host.getEnv("BPLC_PLUGIN_DIR")
+```
+
 ## 3. Host → script (`on_*`)
 
 ### `on_frame_selected(frameIndex: number, forceHistory: boolean): void` — implemented

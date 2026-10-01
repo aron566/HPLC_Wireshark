@@ -41,6 +41,12 @@ public:
         m_host_jump_cb = cb;
     }
 
+    // ---- 界面语言(Phase5) ----
+    /// @brief 设置当前界面语言(供 host.getEnv("BPLC_LANG") 用)
+    /// @details 缺省中文;宿主(LocalPluginEngine)在 initialize 后按
+    ///          trl::enabled() 调用一次
+    virtual void set_ui_english(bool en) { m_ui_english = en; }
+
     // ---- 主界面 → 插件通知 ----
     /// @brief 主界面帧列表选中变化通知(单击/双击帧)
     /// @details force_history=true 时强制进入历史冻结(双击,原版 enter_topo_history
@@ -82,6 +88,7 @@ public:
 protected:
     RedrawCallback m_redraw_cb;  ///< 插件调此请求主进程重绘
     HostJumpCallback m_host_jump_cb;  ///< 插件请求主界面跳帧
+    bool m_ui_english = false;  ///< 界面语言是否为英文(宿主注入)
 };
 
 /// @brief 按 runtime 创建后端。未知 runtime 返回 nullptr

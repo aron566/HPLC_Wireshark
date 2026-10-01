@@ -7,6 +7,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -75,7 +76,7 @@ void PluginMarket::fetch_feed(const QString& url) {
                   QStringLiteral("BPLC_STA_Monitor/") +
                       QCoreApplication::applicationVersion());
     QNetworkReply* rep = m_nam->get(req);
-    connect(rep, &QNetworkReply::finished, this, [this, rep]() {
+    connect(rep, &QNetworkReply::finished, this, [this, rep, url]() {
         rep->deleteLater();
         if (rep->error() != QNetworkReply::NoError) {
             emit feed_error(rep->errorString());
@@ -83,14 +84,28 @@ void PluginMarket::fetch_feed(const QString& url) {
         }
         QString err;
         const QList<MarketPlugin> plugins =
-            parse_feed(rep->readAll(), &err);
+            parse_feed(rep->readAll(), &err, url);
         if (!err.isEmpty()) emit feed_error(err);
         else emit feed_ready(plugins);
     });
 }
 
+/// @brief 拉取任意文本(README markdown 等,异步,经 text_ready/text_error)
+void PluginMarket::fetch_text(const QString& url) {
+    QNetworkReply* rep = m_nam->get(QNetworkRequest(QUrl(url)));
+    connect(rep, &QNetworkReply::finished, this, [this, rep, url]() {
+        rep->deleteLater();
+        if (rep->error() != QNetworkReply::NoError) {
+            emit text_error(url, rep->errorString());
+            return;
+        }
+        emit text_ready(url, QString::fromUtf8(rep->readAll()));
+    });
+}
+
 QList<MarketPlugin> PluginMarket::parse_feed(const QByteArray& json,
-                                             QString* err) {
+                                             QString* err,
+                                             const QString& source_url) {
     QList<MarketPlugin> out;
     QJsonParseError pe;
     const QJsonDocument doc = QJsonDocument::fromJson(json, &pe);
@@ -109,6 +124,8 @@ QList<MarketPlugin> PluginMarket::parse_feed(const QByteArray& json,
         p.description_en = o.value(QStringLiteral("description_en")).toString();
         p.category = o.value(QStringLiteral("category")).toString();
         p.author = o.value(QStringLiteral("author")).toString();
+        p.readme_url = o.value(QStringLiteral("readme_url")).toString();
+        p.source = source_url;
         for (const QJsonValue& vv :
              o.value(QStringLiteral("versions")).toArray()) {
             const QJsonObject vo = vv.toObject();
@@ -119,6 +136,7 @@ QList<MarketPlugin> PluginMarket::parse_feed(const QByteArray& json,
             v.size = qint64(vo.value(QStringLiteral("size")).toDouble());
             v.min_app_version =
                 vo.value(QStringLiteral("min_app_version")).toString();
+            v.updated_at = vo.value(QStringLiteral("updated_at")).toString();
             p.versions.append(v);
         }
         if (!p.name.isEmpty() && !p.versions.isEmpty()) out.append(p);
@@ -145,6 +163,9 @@ void PluginMarket::install_market_plugin(const MarketPlugin& plugin,
     }
     m_pending_name = plugin.name;
     m_pending_sha256 = v.sha256;
+    m_pending_source =
+        plugin.source.isEmpty() ? default_feed_url() : plugin.source;
+    m_pending_updated_at = v.updated_at;
     emit install_progress(QStringLiteral("downloading ") + v.url);
     QNetworkReply* rep = m_nam->get(QNetworkRequest(QUrl(v.url)));
     connect(rep, &QNetworkReply::finished, this, [this, rep]() {
@@ -176,6 +197,9 @@ void PluginMarket::install_market_plugin(const MarketPlugin& plugin,
 void PluginMarket::install_from_file(const QString& zip_path) {
     m_pending_name.clear();
     m_pending_sha256.clear();
+    m_pending_source = QStringLiteral("file");
+    m_pending_updated_at =
+        QFileInfo(zip_path).lastModified().toUTC().toString(Qt::ISODate);
     // 先解包读清单拿到插件名(离线包无 feed,不做 sha256 校验)
     QTemporaryDir tmp;
     if (!tmp.isValid()) {
@@ -249,7 +273,7 @@ bool PluginMarket::deploy_staged(const QString& staged_dir,
         return false;
     }
     if (!copy_dir_recursive(staged_dir, dest, err)) return false;
-    // 写 meta.json(默认启用)
+    // 写 meta.json(默认启用,记录来源与版本更新时间)
     QFile mf(meta_path(dest));
     if (mf.open(QIODevice::WriteOnly)) {
         mf.write(QJsonDocument(QJsonObject{
@@ -257,6 +281,9 @@ bool PluginMarket::deploy_staged(const QString& staged_dir,
                                    {QStringLiteral("installed_at"),
                                     QDateTime::currentDateTimeUtc()
                                         .toString(Qt::ISODate)},
+                                   {QStringLiteral("source"), m_pending_source},
+                                   {QStringLiteral("updated_at"),
+                                    m_pending_updated_at},
                                })
                      .toJson());
     }
@@ -275,6 +302,15 @@ QList<InstalledPlugin> PluginMarket::installed_plugins() const {
         ip.manifest = m;
         ip.enabled = plugin_dir_enabled(pdir);
         ip.dir = pdir;
+        QFile mf(meta_path(pdir));
+        if (mf.open(QIODevice::ReadOnly)) {
+            const QJsonObject mo =
+                QJsonDocument::fromJson(mf.readAll()).object();
+            ip.source = mo.value(QStringLiteral("source")).toString();
+            ip.installed_at =
+                mo.value(QStringLiteral("installed_at")).toString();
+            ip.updated_at = mo.value(QStringLiteral("updated_at")).toString();
+        }
         out.append(ip);
     }
     return out;

@@ -7,6 +7,7 @@
 #include <QImage>
 #include <QPainter>
 
+#include "plugin_env.h"
 #include "script_painter.h"
 
 namespace {
@@ -83,6 +84,7 @@ bool JsBackend::initialize(const PluginManifest& m, QString* err) {
         *err = QStringLiteral("cannot open %1").arg(m.entry);
         return false;
     }
+    m_plugin_dir = m.dir_path;
     const QString code = QString::fromUtf8(f.readAll());
     const QJSValue r = m_engine.evaluate(code, js_path);
     if (!check_error(r, err, QStringLiteral("evaluate"))) return false;
@@ -99,9 +101,18 @@ bool JsBackend::initialize(const PluginManifest& m, QString* err) {
         QStringLiteral("function request_redraw(){__bplc_redraw.request();}"));
 
     // host 界面控制对象:host.jumpToFrame(frameIndex)
+    // + 插件设置 host.getSetting(key, defaultValue)
+    // + 公共环境变量 host.getEnv(name)
     m_host_helper = new HostHelper();
     m_host_helper->jump_cb = [this](qint64 idx) {
         if (m_host_jump_cb) m_host_jump_cb(idx);
+    };
+    m_host_helper->setting_cb = [this](const QString& key,
+                                       const QVariant& def) {
+        return plugin_setting_value(m_plugin_dir, key, def);
+    };
+    m_host_helper->env_cb = [this](const QString& name) {
+        return plugin_env_value(name, m_plugin_dir, m_ui_english);
     };
     m_engine.globalObject().setProperty(
         QStringLiteral("host"),
