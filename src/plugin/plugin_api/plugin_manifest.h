@@ -38,6 +38,8 @@ struct PluginManifest {
     QString description_en;   ///< 英文描述(可选,缺省回退 description)
     QString author;
     bool    graphics = false;  ///< 是否提供图形能力(Phase3)
+    QString panel;           ///< 主界面功能面板类型(可选): topo|replay|diag|report|stats
+    QString panel_function;  ///< 文本类面板调用的脚本函数名(可选,如 get_replay_data)
     QString dir_path;      ///< 插件目录绝对路径(解析时填充)
     bool    valid = false;
     QString error;         ///< valid=false 时的原因
@@ -72,6 +74,8 @@ inline PluginManifest read_plugin_manifest(const QString& plugin_dir) {
     m.description_en = o.value(QStringLiteral("description_en")).toString(m.description);
     m.author       = o.value(QStringLiteral("author")).toString();
     m.graphics     = o.value(QStringLiteral("graphics")).toBool(false);
+    m.panel        = o.value(QStringLiteral("panel")).toString();
+    m.panel_function = o.value(QStringLiteral("panel_function")).toString();
 
     if (m.name.isEmpty())         { m.error = QStringLiteral("missing 'name'"); return m; }
     if (m.runtime.isEmpty())      { m.error = QStringLiteral("missing 'runtime'"); return m; }

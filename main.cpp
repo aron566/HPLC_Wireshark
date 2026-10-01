@@ -11,6 +11,7 @@
 #include "plugin_manager.h"
 #include <QApplication>
 #include <QCoreApplication>
+#include <QDir>
 #include <QLoggingCategory>
 #include <QLocale>
 #include <QStyleHints>
@@ -92,6 +93,34 @@ int main(int argc, char* argv[]) {
     // 插件系统:扫描 plugins/ 并启动插件宿主进程(失败不影响主程序)
     PluginManager::instance().loadAll(
         QCoreApplication::applicationDirPath() + QStringLiteral("/plugins"));
+
+    // 命令行:
+    //   --plugins-dir <dir>  主界面内置插件目录(进程内 JS/Lua 后端,展示功能界面)
+    //   --replay <bin>       启动后自动回放抓包文件
+    //   --plugin-autotest <shot_dir>  (需配合 --replay)回放结束后给各插件面板
+    //                                及主窗口截图,保存到 shot_dir 后退出(自动化测试)
+    QString plugins_dir;
+    QString replay_bin;
+    QString autotest_dir;
+    for (int i = 1; i < argc; ++i) {
+        const QString a = QString::fromLocal8Bit(argv[i]);
+        if (a == QLatin1String("--plugins-dir") && i + 1 < argc)
+            plugins_dir = QString::fromLocal8Bit(argv[++i]);
+        else if (a == QLatin1String("--replay") && i + 1 < argc)
+            replay_bin = QString::fromLocal8Bit(argv[++i]);
+        else if (a == QLatin1String("--plugin-autotest") && i + 1 < argc)
+            autotest_dir = QString::fromLocal8Bit(argv[++i]);
+    }
+    const QString default_plugins =
+        QCoreApplication::applicationDirPath() + QStringLiteral("/plugins");
+    if (plugins_dir.isEmpty() && QDir(default_plugins).exists())
+        plugins_dir = default_plugins;
+    if (!plugins_dir.isEmpty() && autotest_dir.isEmpty() && replay_bin.isEmpty())
+        w.load_plugins(plugins_dir);  // 无回放:仅加载插件展示空面板
+    if (!replay_bin.isEmpty() && autotest_dir.isEmpty())
+        w.start_file_import(replay_bin);
+    if (!replay_bin.isEmpty() && !autotest_dir.isEmpty())
+        w.run_plugin_autotest(plugins_dir, replay_bin, autotest_dir);
 
     const int rc = app.exec();
     CrashHandler::shutdown();

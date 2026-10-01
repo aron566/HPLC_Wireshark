@@ -14,8 +14,12 @@
 #include "packetentry_serialize.h"
 #include "fieldtools.h"
 #include "topo_window.h"
+#include "plugin_panels.h"
 
 #include <QtConcurrent>
+#include <QCoreApplication>
+#include <QDockWidget>
+#include <QTabWidget>
 #include <QDataStream>
 #include <QFutureWatcher>
 #include <QToolBar>
@@ -94,6 +98,8 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_dispatch, &FrameDispatcher::parsed,
             this,       &MainWindow::on_parsed,
             Qt::QueuedConnection);
+    setup_plugin_ui();       // 插件引擎 + 功能面板 dock + 插件菜单
+    connect_plugin_feed();   // m_reader frame_ready → 插件引擎(喂帧)
     connect(m_reader, &SerialReader::status_message,
             this,      &MainWindow::on_status_message);
     connect(m_reader, &SerialReader::error_occurred,
@@ -795,6 +801,7 @@ void MainWindow::reset_dispatcher() {
     connect(m_dispatch, &FrameDispatcher::parsed,
             this,       &MainWindow::on_parsed,
             Qt::QueuedConnection);
+    if (m_plugin_engine) m_plugin_engine->reset_all();  // 新采集/回放:插件状态清零
 }
 
 /// @brief 协议切换立即生效:停止当前采集/回放 → 清空 → 用新协议重建解析器
@@ -1214,3 +1221,162 @@ struct I18nRegMainWindow {
 };
 const I18nRegMainWindow g_i18n_reg_mainwindow;
 }  // namespace
+
+// =====================================================================
+// 插件系统:主界面调用插件,展示各插件功能界面
+// =====================================================================
+void MainWindow::setup_plugin_ui() {
+    register_plugin_panel_i18n();  // 先注册翻译,再 trl::L("插件"...)
+    m_plugin_engine = new LocalPluginEngine(this);
+    connect(m_plugin_engine, &LocalPluginEngine::plugin_loaded,
+            this, &MainWindow::on_plugin_loaded, Qt::QueuedConnection);
+
+    // 插件功能面板 dock(每个插件一个 tab,右置)
+    m_plugin_dock = new QDockWidget(trl::L("插件"), this);
+    m_plugin_dock->setObjectName(QStringLiteral("PluginDock"));
+    m_plugin_tabs = new QTabWidget(m_plugin_dock);
+    m_plugin_dock->setWidget(m_plugin_tabs);
+    m_plugin_dock->setVisible(false);
+    addDockWidget(Qt::RightDockWidgetArea, m_plugin_dock);
+
+    // 插件菜单
+    auto* menu_plugin = menuBar()->addMenu(trl::L("插件(&G)"));
+    auto* act_dir = menu_plugin->addAction(trl::L("插件目录(&D)..."));
+    connect(act_dir, &QAction::triggered, this, &MainWindow::on_choose_plugin_dir);
+    auto* act_show = menu_plugin->addAction(trl::L("显示插件面板"));
+    act_show->setCheckable(true);
+    act_show->setChecked(false);
+    connect(act_show, &QAction::toggled, m_plugin_dock, &QDockWidget::setVisible);
+    connect(m_plugin_dock, &QDockWidget::visibilityChanged,
+            act_show, &QAction::setChecked);
+}
+
+void MainWindow::connect_plugin_feed() {
+    if (!m_reader || !m_plugin_engine) return;
+    // reader 存活期与窗口一致,连接一次即可(reset_dispatcher 不重建 reader)
+    connect(m_reader, &SerialReader::frame_ready,
+            m_plugin_engine, &LocalPluginEngine::feed_frame,
+            Qt::QueuedConnection);
+}
+
+void MainWindow::load_plugins(const QString& dir) {
+    if (!m_plugin_engine || dir.isEmpty()) return;
+    // 清旧面板(重载目录时)
+    while (m_plugin_tabs->count() > 0) {
+        QWidget* w = m_plugin_tabs->widget(0);
+        m_plugin_tabs->removeTab(0);
+        w->deleteLater();
+    }
+    m_plugin_panels.clear();
+    m_plugin_engine->load(dir);
+}
+
+void MainWindow::on_plugin_loaded(const PluginLoadedInfo& info) {
+    if (!info.ok) {
+        m_status_left->setText(
+            QStringLiteral("%1 %2: %3").arg(trl::L("插件加载失败"),
+                                           info.plugin_id, info.error));
+        return;
+    }
+    if (m_plugin_panels.contains(info.plugin_id)) return;
+    PluginPanel* panel = create_plugin_panel(m_plugin_engine, info, m_plugin_tabs);
+    m_plugin_tabs->addTab(panel, info.display_name);
+    m_plugin_panels.insert(info.plugin_id, panel);
+    if (!m_plugin_dock->isVisible())
+        m_plugin_dock->setVisible(true);
+    m_status_left->setText(
+        QStringLiteral("%1: %2").arg(trl::L("插件"), info.display_name));
+}
+
+void MainWindow::on_choose_plugin_dir() {
+    const QString dir = QFileDialog::getExistingDirectory(
+        this, trl::L("插件目录(&D)..."), QCoreApplication::applicationDirPath());
+    if (!dir.isEmpty())
+        load_plugins(dir);
+}
+
+// ---- 自动化测试:回放结束后等插件线程排空,逐 tab 截图后退出 ----
+void MainWindow::run_plugin_autotest(const QString& plugins_dir,
+                                     const QString& bin,
+                                     const QString& shot_dir) {
+    qInfo() << "[autotest] start, bin=" << bin << "shots=" << shot_dir;
+    m_autotest_shots = shot_dir;
+    QDir().mkpath(m_autotest_shots);
+    // 等插件加载完成再开始回放
+    connect(m_plugin_engine, &LocalPluginEngine::load_finished, this,
+            [this, bin]() {
+                qInfo() << "[autotest] load_finished, starting import";
+                disconnect(m_plugin_engine, &LocalPluginEngine::load_finished,
+                           this, nullptr);
+                start_file_import(bin);
+                qInfo() << "[autotest] import started";
+                // 回放结束 → 轮询插件线程排空(只处理一次,finished 可能发多次)
+                QMetaObject::Connection* fconn = new QMetaObject::Connection();
+                *fconn = connect(m_reader, &SerialReader::finished, this,
+                                 [this, fconn]() {
+                    qInfo() << "[autotest] reader finished";
+                    disconnect(*fconn);
+                    delete fconn;
+                    QTimer* poll = new QTimer(this);
+                    poll->setInterval(500);
+                    int* waits = new int(0);
+                    connect(poll, &QTimer::timeout, this,
+                            [this, poll, waits]() {
+                                ++(*waits);
+                                const bool idle = m_plugin_engine->is_idle();
+                                if (idle || *waits > 1200) {  // 排空或 10min 超时
+                                    poll->stop();
+                                    poll->deleteLater();
+                                    const int w = *waits;
+                                    delete waits;
+                                    qInfo() << "[autotest] idle, waits=" << w
+                                            << "tabs=" << m_plugin_tabs->count();
+                                    autotest_shoot_tabs();
+                                }
+                            });
+                    poll->start();
+                });
+            });
+    load_plugins(plugins_dir);
+}
+
+/// @brief 自动化测试:逐 tab 截图(每个 tab 显示 1.5s 等面板刷新后再抓)
+void MainWindow::autotest_shoot_tabs() {
+    if (m_autotest_shooting) return;  // 只跑一次
+    m_autotest_shooting = true;
+    qInfo() << "[autotest] shoot start";
+    const int n = m_plugin_tabs->count();
+    QTimer* t = new QTimer(this);
+    t->setInterval(1500);
+    int* i = new int(-1);
+    connect(t, &QTimer::timeout, this, [this, i, n, t]() {
+        qInfo() << "[autotest] shoot tick i=" << *i << "n=" << n;
+        // 先抓上一个 tab(已显示 1.5s,面板刷新完成)
+        if (*i >= 0 && *i < m_plugin_tabs->count()) {
+            QWidget* tab = m_plugin_tabs->widget(*i);
+            QString pid;
+            for (auto it = m_plugin_panels.begin();
+                 it != m_plugin_panels.end(); ++it) {
+                if (it.value() == tab) { pid = it.key(); break; }
+            }
+            tab->grab().save(QStringLiteral("%1/plugin_%2.png")
+                                 .arg(m_autotest_shots, pid));
+        }
+        ++(*i);
+        if (*i >= n) {
+            t->stop();
+            t->deleteLater();
+            delete i;
+            this->grab().save(QStringLiteral("%1/main.png").arg(m_autotest_shots));
+            qApp->quit();
+            return;
+        }
+        // 显示下一个 tab 并触发一次刷新
+        m_plugin_tabs->setCurrentIndex(*i);
+        QWidget* tab = m_plugin_tabs->widget(*i);
+        if (auto* tp = qobject_cast<TopoPluginPanel*>(tab)) tp->refresh_now();
+        else if (auto* rp = qobject_cast<ReplayPluginPanel*>(tab)) rp->refresh_now();
+        else if (auto* rep = qobject_cast<ReportPluginPanel*>(tab)) rep->generate_now();
+    });
+    t->start();
+}

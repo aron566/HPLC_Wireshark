@@ -47,6 +47,7 @@ include(src/ui/ui.pri)
 include(src/topo/topo.pri)
 include(src/crash/crash.pri)
 include(src/plugin/plugin.pri)
+include(src/plugin/app_integration/app_integration.pri)
 include(src/app/app.pri)
 
 # main.cpp 在工程根目录,不在任何模块里

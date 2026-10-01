@@ -119,6 +119,7 @@ signals:
     void status_message(QString msg);
     void error_occurred(QString err);
     void progress_percent(int percent);
+    void finished();   ///< 采集/回放结束(worker 完成)
 
 private slots:
     void on_frame(BplcFrame f);

@@ -12,6 +12,10 @@
 #include <atomic>
 #include "serialreader.h"
 #include "framedispatcher.h"
+#include "local_plugin_engine.h"
+
+class QDockWidget;
+class QTabWidget;
 #include "iprotocolparser.h"
 #include "commconfigdialog.h"
 #include "topo_state.h"
@@ -49,6 +53,14 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() override;
 
+    /// @brief 加载插件目录:主界面调用插件并展示各插件功能界面
+    void load_plugins(const QString& dir);
+    /// @brief 拖放文件导入(按扩展名判定回放/裸hex)
+    void start_file_import(const QString& path);
+    /// @brief 自动化测试:加载插件→回放 bin→各插件面板截图到 shot_dir→退出
+    void run_plugin_autotest(const QString& plugins_dir, const QString& bin,
+                             const QString& shot_dir);
+
 private slots:
     void on_start();
     void on_stop();
@@ -71,6 +83,8 @@ private slots:
     void on_flush_buffer();
     void refresh_status_bar();
     void on_check_finished(const QString& url);   // 检查更新结束(QSimpleUpdater)
+    void on_plugin_loaded(const PluginLoadedInfo& info);  // 插件就绪 → 建功能面板
+    void on_choose_plugin_dir();                  // 插件菜单:选择插件目录
 
 protected:
     void dragEnterEvent(QDragEnterEvent* event) override;
@@ -85,9 +99,11 @@ private:
     void rebuild_dispatcher();             // 协议切换立即生效:停止+清空+重建解析器
     void reset_dispatcher();               // 停止旧解析+重建 dispatcher(拖放导入/协议切换共用)
     bool confirm_protocol_rebuild();       // 协议变更提示,返回是否立即生效
-    void start_file_import(const QString& path);  // 拖放文件导入(按扩展名判定回放/裸hex)
     void update_selection_delta();  // 选中两行算时间差(NTB 优先,与本地差>3s 时降级本地时间)
     void open_topo_window();        // 打开/聚焦拓扑独立窗口(多 NID 下拉切换)
+    void setup_plugin_ui();         // 插件 dock/菜单/引擎(主界面调用插件展示功能界面)
+    void connect_plugin_feed();     // m_reader frame_ready → 插件引擎(重建 reader 时重连)
+    void autotest_shoot_tabs();     // 自动化测试:逐 tab 截图后退出
 
     QToolBar*      m_toolbar;
     QToolButton*   m_btn_start;
@@ -118,6 +134,12 @@ private:
     SerialReader*    m_reader;
     FrameDispatcher* m_dispatch;
     PacketListModel* m_model;
+    LocalPluginEngine* m_plugin_engine = nullptr; ///< 主界面内置插件引擎(进程内后端)
+    QDockWidget*  m_plugin_dock = nullptr;        ///< 插件功能面板 dock
+    QTabWidget*   m_plugin_tabs = nullptr;        ///< 每个插件一个 tab
+    QMap<QString, QWidget*> m_plugin_panels;      ///< pid → 功能面板
+    QString       m_autotest_shots;               ///< 非空:自动化测试截图目录
+    bool          m_autotest_shooting = false;      ///< 截图序列是否已启动(防重入)
     TopoWindow*    m_topo_window = nullptr;       ///< 拓扑独立窗口(懒创建)
     QHash<quint32, TopoState> m_topo_states;      ///< NID → 拓扑状态(实时累积)
     QVector<TopoLogItem> m_topo_log;              ///< 拓扑事件日志(帧序;供历史回放)

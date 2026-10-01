@@ -435,6 +435,7 @@ SerialReader::SerialReader(QObject* parent) : QObject(parent), m_thread(nullptr)
     connect(m_worker, &ReaderWorker::status_message, this, &SerialReader::on_status);
     connect(m_worker, &ReaderWorker::error_occurred, this, &SerialReader::on_error);
     connect(m_worker, &ReaderWorker::progress_percent, this, &SerialReader::on_progress);
+    connect(m_worker, &ReaderWorker::finished, this, &SerialReader::finished);
 
     m_thread->start();
 }
