@@ -9,8 +9,26 @@
 
 #include "bplcframe.h"
 #include <QDataStream>
+#include <QFile>
+#include <QHash>
+#include <QVector>
 
 namespace pser {
+
+/// @brief 编码侧块内字符串池:千条目间字段名/值海量重复,存索引代替存字符串
+/// @details 块内唯一字符串一般仅数千个;池本身随块一起被 qCompress 压缩。
+struct StrPool {
+    QHash<QString, quint32> idx;
+    QVector<QString>       list;
+    quint32 intern(const QString& s) {
+        auto it = idx.find(s);
+        if (it != idx.end()) return it.value();
+        const quint32 id = quint32(list.size());
+        idx.insert(s, id);
+        list.append(s);
+        return id;
+    }
+};
 
 inline void write_u32(QDataStream& s, quint32 v) { s << v; }
 inline void write_u16(QDataStream& s, quint16 v) { s << v; }
@@ -19,7 +37,7 @@ inline void write_i32(QDataStream& s, qint32 v) { s << v; }
 inline void write_i64(QDataStream& s, qint64 v) { s << v; }
 inline void write_bool(QDataStream& s, bool v)   { s << v; }
 inline void write_bytes(QDataStream& s, const QByteArray& b) { s << b; }
-inline void write_str(QDataStream& s, const QString& v)       { s << v; }
+inline void write_str(QDataStream& s, const QString& v, StrPool& pool) { s << pool.intern(v); }
 
 inline void read_u32(QDataStream& s, quint32& v) { s >> v; }
 inline void read_u16(QDataStream& s, quint16& v) { s >> v; }
@@ -28,7 +46,17 @@ inline void read_i32(QDataStream& s, qint32& v)  { s >> v; }
 inline void read_i64(QDataStream& s, qint64& v)  { s >> v; }
 inline void read_bool(QDataStream& s, bool& v)   { s >> v; }
 inline void read_bytes(QDataStream& s, QByteArray& b) { s >> b; }
-inline void read_str(QDataStream& s, QString& v)       { s >> v; }
+/// @brief 按索引从字符串表取回;索引越界(损坏)时置空并标记流错误
+inline void read_str(QDataStream& s, QString& v, const QVector<QString>& table) {
+    quint32 id = 0;
+    s >> id;
+    if (id < quint32(table.size())) {
+        v = table[int(id)];
+    } else {
+        v.clear();
+        s.setStatus(QDataStream::ReadCorruptData);
+    }
+}
 
 inline void write_meta(QDataStream& s, const PhysicalMeta& m) {
     write_u32(s, m.timestamp);
@@ -184,28 +212,29 @@ inline void read_mpdu(QDataStream& s, MpduInfo& m) {
     read_u16(s, m.ack_sync_tei);
 }
 
-inline void write_field_node(QDataStream& s, const MsduFieldNode& n) {
-    write_str(s, n.name);
-    write_str(s, n.value);
+inline void write_field_node(QDataStream& s, const MsduFieldNode& n, StrPool& pool) {
+    write_str(s, n.name, pool);
+    write_str(s, n.value, pool);
     write_i32(s, n.rel_start);
     write_i32(s, n.rel_len);
     write_u32(s, quint32(n.children.size()));
-    for (const MsduFieldNode& c : n.children) write_field_node(s, c);
+    for (const MsduFieldNode& c : n.children) write_field_node(s, c, pool);
 }
 
-inline void read_field_node(QDataStream& s, MsduFieldNode& n) {
-    read_str(s, n.name);
-    read_str(s, n.value);
+inline void read_field_node(QDataStream& s, MsduFieldNode& n,
+                            const QVector<QString>& table) {
+    read_str(s, n.name, table);
+    read_str(s, n.value, table);
     read_i32(s, n.rel_start);
     read_i32(s, n.rel_len);
     quint32 cnt = 0; read_u32(s, cnt);
     n.children.clear(); n.children.reserve(int(cnt));
     for (quint32 i = 0; i < cnt; ++i) {
-        MsduFieldNode c; read_field_node(s, c); n.children.append(c);
+        MsduFieldNode c; read_field_node(s, c, table); n.children.append(c);
     }
 }
 
-inline void write_topo_event(QDataStream& s, const TopoEvent& t) {
+inline void write_topo_event(QDataStream& s, const TopoEvent& t, StrPool& pool) {
     write_u8(s, static_cast<quint8>(t.kind));
     write_u32(s, t.nid);
     s << t.cco_mac;
@@ -217,11 +246,12 @@ inline void write_topo_event(QDataStream& s, const TopoEvent& t) {
     for (quint64 mac : t.leaves) s << mac;
     write_u32(s, quint32(t.comm_rates.size()));
     for (const CommRateInfo& c : t.comm_rates) { write_u16(s, c.tei); write_u8(s, c.down); write_u8(s, c.up); }
-    write_str(s, t.desc);
+    write_str(s, t.desc, pool);
     write_i64(s, t.epoch_ms);
 }
 
-inline void read_topo_event(QDataStream& s, TopoEvent& t) {
+inline void read_topo_event(QDataStream& s, TopoEvent& t,
+                            const QVector<QString>& table) {
     quint8 k = 0; read_u8(s, k); t.kind = static_cast<TopoEventKind>(k);
     read_u32(s, t.nid);
     s >> t.cco_mac;
@@ -240,11 +270,11 @@ inline void read_topo_event(QDataStream& s, TopoEvent& t) {
         CommRateInfo c; read_u16(s, c.tei); read_u8(s, c.down); read_u8(s, c.up);
         t.comm_rates.append(c);
     }
-    read_str(s, t.desc);
+    read_str(s, t.desc, table);
     read_i64(s, t.epoch_ms);
 }
 
-inline void write_msdu_info(QDataStream& s, const MsduInfo& m) {
+inline void write_msdu_info(QDataStream& s, const MsduInfo& m, StrPool& pool) {
     write_bool(s, m.present);
     write_bool(s, m.simple_head);
     write_u16(s, m.msdu_seq);
@@ -262,15 +292,16 @@ inline void write_msdu_info(QDataStream& s, const MsduInfo& m) {
     write_u8(s, m.app_packet_type);
     write_u16(s, m.mme_type);
     write_i32(s, m.total_len);
-    write_str(s, m.summary);
+    write_str(s, m.summary, pool);
     write_u32(s, quint32(m.tree.size()));
-    for (const MsduFieldNode& n : m.tree) write_field_node(s, n);
+    for (const MsduFieldNode& n : m.tree) write_field_node(s, n, pool);
     write_u32(s, quint32(m.tei_mac_pairs.size()));
     for (const TeiMacPair& p : m.tei_mac_pairs) { write_u16(s, p.tei); s << p.mac; }
-    write_topo_event(s, m.topo_event);
+    write_topo_event(s, m.topo_event, pool);
 }
 
-inline void read_msdu_info(QDataStream& s, MsduInfo& m) {
+inline void read_msdu_info(QDataStream& s, MsduInfo& m,
+                           const QVector<QString>& table) {
     read_bool(s, m.present);
     read_bool(s, m.simple_head);
     read_u16(s, m.msdu_seq);
@@ -288,59 +319,163 @@ inline void read_msdu_info(QDataStream& s, MsduInfo& m) {
     read_u8(s, m.app_packet_type);
     read_u16(s, m.mme_type);
     read_i32(s, m.total_len);
-    read_str(s, m.summary);
+    read_str(s, m.summary, table);
     quint32 cnt = 0; read_u32(s, cnt);
     m.tree.clear(); m.tree.reserve(int(cnt));
     for (quint32 i = 0; i < cnt; ++i) {
-        MsduFieldNode n; read_field_node(s, n); m.tree.append(n);
+        MsduFieldNode n; read_field_node(s, n, table); m.tree.append(n);
     }
     quint32 pc = 0; read_u32(s, pc);
     m.tei_mac_pairs.clear(); m.tei_mac_pairs.reserve(int(pc));
     for (quint32 i = 0; i < pc; ++i) {
         TeiMacPair p; read_u16(s, p.tei); s >> p.mac; m.tei_mac_pairs.append(p);
     }
-    read_topo_event(s, m.topo_event);
+    read_topo_event(s, m.topo_event, table);
 }
 
 /// @brief 序列化一个 PacketEntry 到字节流(不含长度前缀)
-inline QByteArray serialize_entry(const PacketEntry& e) {
+/// @details search_text 是派生字段,不序列化;反序列化时由
+///          make_search_text() 重建(见 deserialize_entry)。
+///          字符串经 pool 去重,调用方(encode_block)负责先写字符串表。
+inline QByteArray serialize_entry(const PacketEntry& e, StrPool& pool) {
     QByteArray buf;
     QDataStream s(&buf, QIODevice::WriteOnly);
     write_i32(s, e.index);
     write_i64(s, e.epoch_ms);
     write_i64(s, e.delta_us);
     write_bool(s, e.accepted);
-    write_str(s, e.reason);
+    write_str(s, e.reason, pool);
     write_bytes(s, e.raw_wire);
     write_meta(s, e.meta);
     write_mpdu(s, e.mpdu);
     write_bytes(s, e.msdu_body);
-    write_msdu_info(s, e.msdu);
-    write_msdu_info(s, e.beacon);
+    write_msdu_info(s, e.msdu, pool);
+    write_msdu_info(s, e.beacon, pool);
     write_i32(s, e.msdu_raw_base);
     write_bytes(s, e.raw_bytes);
-    write_str(s, e.search_text);
     return buf;
 }
 
 /// @brief 反序列化一个 PacketEntry(与 serialize_entry 严格互逆)
-inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e) {
+inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
+                              const QVector<QString>& table) {
     QDataStream s(buf);
     read_i32(s, e.index);
     read_i64(s, e.epoch_ms);
     read_i64(s, e.delta_us);
     read_bool(s, e.accepted);
-    read_str(s, e.reason);
+    read_str(s, e.reason, table);
     read_bytes(s, e.raw_wire);
     read_meta(s, e.meta);
     read_mpdu(s, e.mpdu);
     read_bytes(s, e.msdu_body);
-    read_msdu_info(s, e.msdu);
-    read_msdu_info(s, e.beacon);
+    read_msdu_info(s, e.msdu, table);
+    read_msdu_info(s, e.beacon, table);
     read_i32(s, e.msdu_raw_base);
     read_bytes(s, e.raw_bytes);
-    read_str(s, e.search_text);
-    return s.status() == QDataStream::Ok;
+    if (s.status() != QDataStream::Ok)
+        return false;
+    e.search_text = make_search_text(e);  // 派生字段:加载时重建
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// 块文件格式 v2(字符串池 + 整块压缩,约为原文 1/12)
+// 文件布局: [magic u32]["PBLK"][version u32][zipped u8][count u32][blob]
+//   blob = zipped ? qCompress(raw, 1) : raw
+//   raw  = [str_count u32][str...] [len u32][entry] × count
+//   entry 内字符串以 u32 索引引用 str 表(块内去重)
+// 换页临时文件仅同一进程会话内往返,不做跨版本兼容;魔数/条数/解压校验用于
+// 识别截断文件(磁盘满等),decode_block 失败时调用方不得使用残缺数据。
+// ---------------------------------------------------------------------------
+
+inline quint32 block_magic()   { return 0x50424C4Bu; }  // "PBLK"
+inline quint32 block_version() { return 2u; }
+
+/// @brief 把一整块条目编码为待写入文件的内容
+inline QByteArray encode_block(const QVector<PacketEntry>& entries) {
+    StrPool pool;
+    QVector<QByteArray> bufs;
+    bufs.reserve(entries.size());
+    for (const PacketEntry& e : entries)
+        bufs.append(serialize_entry(e, pool));
+    QByteArray raw;
+    {
+        QDataStream s(&raw, QIODevice::WriteOnly);
+        s << quint32(pool.list.size());
+        for (const QString& str : pool.list) s << str;  // 字符串表
+        for (const QByteArray& b : bufs) {
+            s << quint32(b.size());
+            s.writeRawData(b.constData(), b.size());
+        }
+    }
+    const QByteArray comp = qCompress(raw, 1);  // 1 档:速度优先,压缩率接近默认档
+    const bool use_comp = !comp.isEmpty() && comp.size() < raw.size();
+    QByteArray out;
+    QDataStream s(&out, QIODevice::WriteOnly);
+    s << block_magic() << block_version() << quint8(use_comp ? 1 : 0)
+      << quint32(entries.size());
+    s << (use_comp ? comp : raw);
+    return out;
+}
+
+/// @brief 解码块文件内容;魔数/解压/条数/反序列化任一步失败返回 false
+inline bool decode_block(const QByteArray& data, QVector<PacketEntry>& entries) {
+    entries.clear();
+    QDataStream s(data);
+    quint32 magic = 0, ver = 0, count = 0;
+    quint8 zipped = 0;
+    s >> magic >> ver >> zipped >> count;
+    if (s.status() != QDataStream::Ok || magic != block_magic()
+        || ver != block_version() || count == 0 || count > 100000)
+        return false;
+    QByteArray blob;
+    s >> blob;
+    if (s.status() != QDataStream::Ok || blob.isEmpty())
+        return false;
+    const QByteArray raw = zipped ? qUncompress(blob) : blob;
+    if (raw.isEmpty())
+        return false;  // 解压失败(截断文件)
+    QDataStream rs(raw);
+    quint32 str_count = 0;
+    rs >> str_count;
+    if (rs.status() != QDataStream::Ok || str_count > 1000000)
+        return false;
+    QVector<QString> table;
+    table.reserve(int(str_count));
+    for (quint32 i = 0; i < str_count; ++i) {
+        QString str;
+        rs >> str;
+        if (rs.status() != QDataStream::Ok) return false;
+        table.append(str);
+    }
+    entries.reserve(int(count));
+    for (quint32 i = 0; i < count; ++i) {
+        quint32 len = 0;
+        rs >> len;
+        if (rs.status() != QDataStream::Ok || len == 0 || len > quint32(raw.size()))
+            return false;
+        QByteArray payload(int(len), Qt::Uninitialized);
+        if (rs.readRawData(payload.data(), int(len)) != int(len))
+            return false;
+        PacketEntry e;
+        if (!deserialize_entry(payload, e, table))
+            return false;
+        entries.append(std::move(e));
+    }
+    return entries.size() == int(count) && rs.status() == QDataStream::Ok;
+}
+
+/// @brief 从块文件路径直接读出一整块条目,失败返回 false
+inline bool read_block_file(const QString& path, QVector<PacketEntry>& entries) {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return false;
+    const QByteArray data = f.readAll();
+    f.close();
+    if (data.isEmpty())
+        return false;
+    return decode_block(data, entries);
 }
 
 }  // namespace pser

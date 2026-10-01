@@ -286,21 +286,16 @@ QVector<int> run_filter(const PacketListModel::ExportSnapshot& snap,
     QVector<int> result;
     int g = 0;
     for (const QString& bp : snap.block_paths) {
-        QFile f(bp);
-        if (!f.open(QIODevice::ReadOnly)) { g += PacketListModel::kBlockSize; continue; }
-        QDataStream s(&f);
-        while (!f.atEnd()) {
-            quint32 len = 0;
-            s >> len;
-            if (s.status() != QDataStream::Ok || len == 0) break;
-            QByteArray payload(int(len), Qt::Uninitialized);
-            if (s.readRawData(payload.data(), int(len)) != int(len)) break;
-            PacketEntry e;
-            if (pser::deserialize_entry(payload, e) && filter_match(filter, e))
+        QVector<PacketEntry> block;
+        if (!pser::read_block_file(bp, block)) {
+            g += PacketListModel::kBlockSize;
+            continue;
+        }
+        for (const PacketEntry& e : block) {
+            if (filter_match(filter, e))
                 result.append(g);
             ++g;
         }
-        f.close();
     }
     for (const PacketEntry& e : snap.hot) {
         if (filter_match(filter, e)) result.append(g);
@@ -325,24 +320,11 @@ void PacketListModel::touch_lru(int idx) const {
 
 bool PacketListModel::load_block(int idx) const {
     if (m_block_cache.contains(idx)) { touch_lru(idx); return true; }
-    QFile f(block_path(idx));
-    if (!f.open(QIODevice::ReadOnly)) return false;
     QVector<PacketEntry> block;
-    block.reserve(kBlockSize);
-    QDataStream s(&f);
-    while (!f.atEnd()) {
-        quint32 len = 0;
-        s >> len;
-        if (s.status() != QDataStream::Ok || len == 0) break;
-        QByteArray payload(int(len), Qt::Uninitialized);
-        if (s.readRawData(payload.data(), int(len)) != int(len)) break;
-        PacketEntry e;
-        if (pser::deserialize_entry(payload, e)) block.append(std::move(e));
-    }
-    f.close();
-    // 完整性校验:成功落盘的块必有 kBlockSize 条;截断/损坏的块拒收,
-    // 避免 locate() 从残缺块越界读取(曾导致 data() 野指针崩溃)
-    if (block.size() != kBlockSize)
+    // 整块解码;条数必须 == kBlockSize,否则视为截断/损坏,拒收
+    // (成功落盘的块必为整块;残缺块不进缓存,避免 locate() 越界)
+    if (!pser::read_block_file(block_path(idx), block)
+        || block.size() != kBlockSize)
         return false;
     // LRU 淘汰(先插入再淘汰,保证新块存活)
     m_block_cache.insert(idx, block);
@@ -377,23 +359,18 @@ const PacketEntry& PacketListModel::locate(int g) const {
 void PacketListModel::flush_hot_block() {
     if (m_hot.size() < kBlockSize) return;
     const int idx = m_block_count;
+    // 整块编码(序列化+qCompress),一次写入
+    QVector<PacketEntry> blk;
+    blk.reserve(kBlockSize);
+    for (int i = 0; i < kBlockSize; ++i) blk.append(m_hot[i]);
+    const QByteArray data = pser::encode_block(blk);
     QFile f(block_path(idx));
     if (!f.open(QIODevice::WriteOnly)) return;   // 写失败:保留在热区,不丢弃数据
-    QDataStream s(&f);
-    bool ok = true;
-    for (int i = 0; i < kBlockSize; ++i) {
-        const QByteArray payload = pser::serialize_entry(m_hot[i]);
-        s << quint32(payload.size());
-        if (s.writeRawData(payload.constData(), payload.size()) != payload.size())
-            ok = false;
-        if (s.status() != QDataStream::Ok)
-            ok = false;
-        if (!ok) break;
-    }
+    bool ok = (f.write(data) == data.size());
     f.close();
-    // 只有完整写入 kBlockSize 条且无错误,才提交;否则删除残缺文件,数据保留在热区
+    // 只有完整落盘才提交;否则删除残缺文件,数据保留在热区
     // (磁盘满时若仍提交,会导致 load_block 读到截断块,locate() 越界崩溃)
-    if (!ok || s.status() != QDataStream::Ok || f.error() != QFile::NoError) {
+    if (!ok || f.error() != QFile::NoError) {
         f.remove();
         return;
     }
