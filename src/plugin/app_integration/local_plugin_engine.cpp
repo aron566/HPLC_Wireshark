@@ -3,6 +3,9 @@
 #include "local_plugin_engine.h"
 
 #include <QDir>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMetaType>
 #include <QThread>
 #include <QTimer>
@@ -64,6 +67,17 @@ void PluginWorker::start_load(const QString& dir) {
                                         QDir::Name);
     for (const QString& name : sub) {
         const QString pdir = d.absoluteFilePath(name);
+        // meta.json enabled=false 的插件跳过(静默,不报错)
+        {
+            QFile mf(QDir(pdir).filePath(QStringLiteral("meta.json")));
+            bool enabled = true;
+            if (mf.open(QIODevice::ReadOnly)) {
+                const QJsonObject mo =
+                    QJsonDocument::fromJson(mf.readAll()).object();
+                enabled = mo.value(QStringLiteral("enabled")).toBool(true);
+            }
+            if (!enabled) continue;
+        }
         PluginLoadedInfo info;
         info.plugin_id = name;
         const PluginManifest m = read_plugin_manifest(pdir);
@@ -231,6 +245,21 @@ void PluginWorker::reset_all() {
     m_frame_seq = 0;
 }
 
+/// @brief 卸载全部插件:删除后端并清空列表(重载目录前调用)
+void PluginWorker::unload_all() {
+    for (auto* rt : m_plugins) {
+        if (rt->backend) {
+            QString err;
+            rt->backend->shutdown();
+            delete rt->backend;
+        }
+        delete rt;
+    }
+    m_plugins.clear();
+    m_frame_seq = 0;
+    m_pending.storeRelaxed(0);
+}
+
 // =====================================================================
 // LocalPluginEngine
 // =====================================================================
@@ -309,4 +338,8 @@ void LocalPluginEngine::notify_frame_selected(qint64 frame_index,
 
 void LocalPluginEngine::reset_all() {
     QMetaObject::invokeMethod(m_worker, "reset_all", Qt::QueuedConnection);
+}
+
+void LocalPluginEngine::unload_all() {
+    QMetaObject::invokeMethod(m_worker, "unload_all", Qt::QueuedConnection);
 }

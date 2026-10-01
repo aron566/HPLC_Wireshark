@@ -15,6 +15,8 @@
 #include "fieldtools.h"
 #include "topo_window.h"
 #include "plugin_panels.h"
+#include "market_dialog.h"
+#include "plugin_market.h"
 
 #include <QtConcurrent>
 #include <QCoreApplication>
@@ -1250,6 +1252,9 @@ void MainWindow::setup_plugin_ui() {
     auto* menu_plugin = menuBar()->addMenu(trl::L("插件(&G)"));
     auto* act_dir = menu_plugin->addAction(trl::L("插件目录(&D)..."));
     connect(act_dir, &QAction::triggered, this, &MainWindow::on_choose_plugin_dir);
+    auto* act_market = menu_plugin->addAction(trl::L("插件市场(&M)..."));
+    connect(act_market, &QAction::triggered, this,
+            &MainWindow::on_open_plugin_market);
     auto* act_show = menu_plugin->addAction(trl::L("显示插件面板"));
     act_show->setCheckable(true);
     act_show->setChecked(false);
@@ -1269,7 +1274,12 @@ void MainWindow::connect_plugin_feed() {
 }
 
 void MainWindow::load_plugins(const QString& dir) {
-    if (!m_plugin_engine || dir.isEmpty()) return;
+    load_plugin_dirs(QStringList() << dir);
+}
+
+void MainWindow::load_plugin_dirs(const QStringList& dirs) {
+    if (!m_plugin_engine) return;
+    m_plugin_search_dirs = dirs;
     // 清旧面板(重载目录时)
     while (m_plugin_tabs->count() > 0) {
         QWidget* w = m_plugin_tabs->widget(0);
@@ -1277,7 +1287,18 @@ void MainWindow::load_plugins(const QString& dir) {
         w->deleteLater();
     }
     m_plugin_panels.clear();
-    m_plugin_engine->load(dir);
+    // 先卸载工作线程旧后端(排队),再按序加载各目录(排队,顺序保证)
+    m_plugin_engine->unload_all();
+    for (const QString& dir : dirs) {
+        if (!dir.isEmpty()) m_plugin_engine->load(dir);
+    }
+}
+
+void MainWindow::on_open_plugin_market() {
+    PluginMarketDialog dlg(this);
+    dlg.exec();
+    // 市场内安装/卸载后重新加载全部插件目录,使变更即时生效
+    load_plugin_dirs(m_plugin_search_dirs);
 }
 
 void MainWindow::on_plugin_loaded(const PluginLoadedInfo& info) {
@@ -1300,8 +1321,10 @@ void MainWindow::on_plugin_loaded(const PluginLoadedInfo& info) {
 void MainWindow::on_choose_plugin_dir() {
     const QString dir = QFileDialog::getExistingDirectory(
         this, trl::L("插件目录(&D)..."), QCoreApplication::applicationDirPath());
-    if (!dir.isEmpty())
-        load_plugins(dir);
+    if (dir.isEmpty()) return;
+    // 开发目录 + 市场安装目录一起加载
+    load_plugin_dirs(QStringList() << dir
+                                   << PluginMarket::default_install_dir());
 }
 
 // ---- 自动化测试:回放结束后等插件线程排空,逐 tab 截图后退出 ----
@@ -1346,7 +1369,8 @@ void MainWindow::run_plugin_autotest(const QString& plugins_dir,
                     poll->start();
                 });
             });
-    load_plugins(plugins_dir);
+    load_plugin_dirs(QStringList() << plugins_dir
+                                   << PluginMarket::default_install_dir());
 }
 
 /// @brief 自动化测试:逐 tab 截图(每个 tab 显示 1.5s 等面板刷新后再抓)

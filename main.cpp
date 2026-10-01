@@ -9,6 +9,7 @@
 #include "theme.h"
 #include "crash_handler.h"
 #include "plugin_manager.h"
+#include "plugin_market.h"
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDir>
@@ -115,8 +116,12 @@ int main(int argc, char* argv[]) {
         QCoreApplication::applicationDirPath() + QStringLiteral("/plugins");
     if (plugins_dir.isEmpty() && QDir(default_plugins).exists())
         plugins_dir = default_plugins;
-    if (!plugins_dir.isEmpty() && autotest_dir.isEmpty() && replay_bin.isEmpty())
-        w.load_plugins(plugins_dir);  // 无回放:仅加载插件展示空面板
+    // 插件搜索目录:命令行/默认目录 + 市场安装目录(用户自行安装的插件)
+    QStringList plugin_dirs;
+    if (!plugins_dir.isEmpty()) plugin_dirs << plugins_dir;
+    plugin_dirs << PluginMarket::default_install_dir();
+    if (autotest_dir.isEmpty() && replay_bin.isEmpty())
+        w.load_plugin_dirs(plugin_dirs);  // 无回放:仅加载插件展示空面板
     if (!replay_bin.isEmpty() && autotest_dir.isEmpty())
         w.start_file_import(replay_bin);
     if (!replay_bin.isEmpty() && !autotest_dir.isEmpty())

@@ -23,6 +23,7 @@ void register_plugin_panel_i18n() {
     trl::register_en("插件", "Plugins");
     trl::register_en("插件(&G)", "Plugins(&G)");
     trl::register_en("插件目录(&D)...", "Plugin directory(&D)...");
+    trl::register_en("插件市场(&M)...", "Plugin marketplace(&M)...");
     trl::register_en("显示插件面板", "Show plugin panel");
     trl::register_en("接受", "accept");
     trl::register_en("拒绝", "reject");

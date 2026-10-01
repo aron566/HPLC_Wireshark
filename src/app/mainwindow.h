@@ -55,6 +55,8 @@ public:
 
     /// @brief 加载插件目录:主界面调用插件并展示各插件功能界面
     void load_plugins(const QString& dir);
+    /// @brief 加载多个插件目录(市场安装目录 + 开发/命令行目录,按序叠加)
+    void load_plugin_dirs(const QStringList& dirs);
     /// @brief 拖放文件导入(按扩展名判定回放/裸hex)
     void start_file_import(const QString& path);
     /// @brief 自动化测试:加载插件→回放 bin→各插件面板截图到 shot_dir→退出
@@ -85,6 +87,7 @@ private slots:
     void on_check_finished(const QString& url);   // 检查更新结束(QSimpleUpdater)
     void on_plugin_loaded(const PluginLoadedInfo& info);  // 插件就绪 → 建功能面板
     void on_choose_plugin_dir();                  // 插件菜单:选择插件目录
+    void on_open_plugin_market();                 // 插件菜单:插件市场
 
 protected:
     void dragEnterEvent(QDragEnterEvent* event) override;
@@ -138,6 +141,7 @@ private:
     QDockWidget*  m_plugin_dock = nullptr;        ///< 插件功能面板 dock
     QTabWidget*   m_plugin_tabs = nullptr;        ///< 每个插件一个 tab
     QMap<QString, QWidget*> m_plugin_panels;      ///< pid → 功能面板
+    QStringList   m_plugin_search_dirs;           ///< 插件搜索目录(市场安装目录+命令行目录)
     QString       m_autotest_shots;               ///< 非空:自动化测试截图目录
     bool          m_autotest_shooting = false;      ///< 截图序列是否已启动(防重入)
     TopoWindow*    m_topo_window = nullptr;       ///< 拓扑独立窗口(懒创建)

@@ -68,6 +68,8 @@ public slots:
     /// @brief 主界面帧选中变化(单击/双击),转发给各插件后端
     void on_frame_selected(qint64 frame_index, bool force_history);
     void reset_all();
+    /// @brief 卸载全部插件(删除后端,清空列表;重载目录前调用)
+    void unload_all();
 
 signals:
     void plugin_loaded(const PluginLoadedInfo& info);
@@ -100,6 +102,8 @@ public:
 
     /// @brief 扫描并加载 plugins_dir 下全部插件(异步,经 plugin_loaded 逐个回传)
     void load(const QString& dir);
+    /// @brief 卸载全部插件(删除后端,清空列表;重载目录前调用)
+    void unload_all();
     /// @brief 工作线程是否空闲(无积压帧)
     bool is_idle() const { return m_worker && m_worker->pending_frames() == 0; }
 
