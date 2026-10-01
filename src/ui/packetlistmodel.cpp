@@ -286,21 +286,16 @@ QVector<int> run_filter(const PacketListModel::ExportSnapshot& snap,
     QVector<int> result;
     int g = 0;
     for (const QString& bp : snap.block_paths) {
-        QFile f(bp);
-        if (!f.open(QIODevice::ReadOnly)) { g += PacketListModel::kBlockSize; continue; }
-        QDataStream s(&f);
-        while (!f.atEnd()) {
-            quint32 len = 0;
-            s >> len;
-            if (s.status() != QDataStream::Ok || len == 0) break;
-            QByteArray payload(int(len), Qt::Uninitialized);
-            if (s.readRawData(payload.data(), int(len)) != int(len)) break;
-            PacketEntry e;
-            if (pser::deserialize_entry(payload, e) && filter_match(filter, e))
+        QVector<PacketEntry> block;
+        if (!pser::read_block_file(bp, block)) {
+            g += PacketListModel::kBlockSize;
+            continue;
+        }
+        for (const PacketEntry& e : block) {
+            if (filter_match(filter, e))
                 result.append(g);
             ++g;
         }
-        f.close();
     }
     for (const PacketEntry& e : snap.hot) {
         if (filter_match(filter, e)) result.append(g);
@@ -325,21 +320,12 @@ void PacketListModel::touch_lru(int idx) const {
 
 bool PacketListModel::load_block(int idx) const {
     if (m_block_cache.contains(idx)) { touch_lru(idx); return true; }
-    QFile f(block_path(idx));
-    if (!f.open(QIODevice::ReadOnly)) return false;
     QVector<PacketEntry> block;
-    block.reserve(kBlockSize);
-    QDataStream s(&f);
-    while (!f.atEnd()) {
-        quint32 len = 0;
-        s >> len;
-        if (s.status() != QDataStream::Ok || len == 0) break;
-        QByteArray payload(int(len), Qt::Uninitialized);
-        if (s.readRawData(payload.data(), int(len)) != int(len)) break;
-        PacketEntry e;
-        if (pser::deserialize_entry(payload, e)) block.append(std::move(e));
-    }
-    f.close();
+    // 整块解码;条数必须 == kBlockSize,否则视为截断/损坏,拒收
+    // (成功落盘的块必为整块;残缺块不进缓存,避免 locate() 越界)
+    if (!pser::read_block_file(block_path(idx), block)
+        || block.size() != kBlockSize)
+        return false;
     // LRU 淘汰(先插入再淘汰,保证新块存活)
     m_block_cache.insert(idx, block);
     touch_lru(idx);
@@ -351,27 +337,43 @@ bool PacketListModel::load_block(int idx) const {
 }
 
 const PacketEntry& PacketListModel::locate(int g) const {
+    // 兜底空条目:任何越界/缺块都不返回野引用(只显示空白行,不崩溃)
+    static const PacketEntry kNullEntry;
+    if (g < 0) return kNullEntry;
     const int hot_start = m_block_count * kBlockSize;
-    if (g >= hot_start)
-        return m_hot[g - hot_start];
+    if (g >= hot_start) {
+        const int hi = g - hot_start;
+        if (hi < m_hot.size())
+            return m_hot[hi];
+        return kNullEntry;
+    }
     const int bi = g / kBlockSize;
     const int off = g % kBlockSize;
-    load_block(bi);
-    return m_block_cache[bi].at(off);
+    if (!load_block(bi)) return kNullEntry;
+    auto it = m_block_cache.constFind(bi);
+    if (it == m_block_cache.constEnd() || off < 0 || off >= it->size())
+        return kNullEntry;
+    return it->at(off);
 }
 
 void PacketListModel::flush_hot_block() {
     if (m_hot.size() < kBlockSize) return;
     const int idx = m_block_count;
+    // 整块编码(序列化+qCompress),一次写入
+    QVector<PacketEntry> blk;
+    blk.reserve(kBlockSize);
+    for (int i = 0; i < kBlockSize; ++i) blk.append(m_hot[i]);
+    const QByteArray data = pser::encode_block(blk);
     QFile f(block_path(idx));
     if (!f.open(QIODevice::WriteOnly)) return;   // 写失败:保留在热区,不丢弃数据
-    QDataStream s(&f);
-    for (int i = 0; i < kBlockSize; ++i) {
-        const QByteArray payload = pser::serialize_entry(m_hot[i]);
-        s << quint32(payload.size());
-        s.writeRawData(payload.constData(), payload.size());
-    }
+    bool ok = (f.write(data) == data.size());
     f.close();
+    // 只有完整落盘才提交;否则删除残缺文件,数据保留在热区
+    // (磁盘满时若仍提交,会导致 load_block 读到截断块,locate() 越界崩溃)
+    if (!ok || f.error() != QFile::NoError) {
+        f.remove();
+        return;
+    }
     m_block_count++;
     m_hot.remove(0, kBlockSize);
 }

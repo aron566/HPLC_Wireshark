@@ -475,19 +475,9 @@ namespace {
 /// @brief 从盘块文件逐条反序列化并交给 writer(独立文件句柄,线程安全)
 template <typename Writer>
 void export_block_file(const QString& path, Writer& w) {
-    QFile f(path);
-    if (!f.open(QIODevice::ReadOnly)) return;
-    QDataStream s(&f);
-    while (!f.atEnd()) {
-        quint32 len = 0;
-        s >> len;
-        if (s.status() != QDataStream::Ok || len == 0) break;
-        QByteArray payload(int(len), Qt::Uninitialized);
-        if (s.readRawData(payload.data(), int(len)) != int(len)) break;
-        PacketEntry e;
-        if (pser::deserialize_entry(payload, e)) w.add(e);
-    }
-    f.close();
+    QVector<PacketEntry> block;
+    if (!pser::read_block_file(path, block)) return;
+    for (const PacketEntry& e : block) w.add(e);
 }
 
 /// 导出格式
@@ -678,19 +668,9 @@ void run_export(const PacketListModel::ExportSnapshot& snap,
             ts << '\n';
         };
         for (const QString& bp : snap.block_paths) {
-            QFile f(bp);
-            if (!f.open(QIODevice::ReadOnly)) continue;
-            QDataStream s(&f);
-            while (!f.atEnd()) {
-                quint32 len = 0;
-                s >> len;
-                if (s.status() != QDataStream::Ok || len == 0) break;
-                QByteArray payload(int(len), Qt::Uninitialized);
-                if (s.readRawData(payload.data(), int(len)) != int(len)) break;
-                PacketEntry e;
-                if (pser::deserialize_entry(payload, e)) emit_row(e);
-            }
-            f.close();
+            QVector<PacketEntry> block;
+            if (!pser::read_block_file(bp, block)) continue;
+            for (const PacketEntry& e : block) emit_row(e);
         }
         for (const PacketEntry& e : snap.hot) emit_row(e);
     }
