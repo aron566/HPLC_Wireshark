@@ -39,8 +39,8 @@ int main(int argc, char** argv) {
     QString perr;
     const QList<MarketPlugin> feed =
         PluginMarket::parse_feed(ff.readAll(), &perr);
-    CHECK(perr.isEmpty() && feed.size() == 4, "parse 4 plugins");
-    const MarketPlugin& topo = feed[1];
+    CHECK(perr.isEmpty() && feed.size() == 3, "parse 3 plugins");
+    const MarketPlugin& topo = feed[0];
     CHECK(topo.name == "js-topo", "topo name");
     CHECK(topo.versions.size() == 2, "topo 2 versions");
     CHECK(topo.latest()->version == "1.1.0", "topo latest 1.1.0");

@@ -94,14 +94,9 @@ void replay_gui_register_en() {
     register_en("开始", "Start");
     register_en("停止", "Stop");
     register_en("拓扑", "Topology");
-    register_en("回放", "Replay");
     register_en("诊断", "Diagnostics");
     register_en("报表", "Report");
     register_en("日志", "Log");
-    register_en("序号", "Seq");
-    register_en("长度", "Length");
-    register_en("到达时间(us)", "Arrival time (us)");
-    register_en("摘要", "Summary");
     register_en("帧号", "Frame #");
     register_en("问题", "Problem");
     register_en("详情", "Detail");
@@ -196,13 +191,6 @@ void ReplayWorker::run() {
                         }
                     }
                 }
-                // replay:保留最近 300 行
-                if (pname == QStringLiteral("js_replay")) {
-                    pr.replay_rows.append({pr.accept, frames[i].size(),
-                                           fr.arrival_us, r.msdu.summary});
-                    while (pr.replay_rows.size() > 300)
-                        pr.replay_rows.removeFirst();
-                }
             } else {
                 ++pr.reject;
             }
@@ -232,11 +220,6 @@ void ReplayWorker::run() {
             pr.extra_text = b->call_text_function("get_report", &rerr);
             if (pr.extra_text.isEmpty() && pr.error.isEmpty())
                 pr.error = QStringLiteral("get_report: %1").arg(rerr);
-        } else if (pname == QStringLiteral("js_replay")) {
-            QString rerr;
-            pr.extra_text = b->call_text_function("get_replay_data", &rerr);
-            if (pr.extra_text.isEmpty() && pr.error.isEmpty())
-                pr.error = QStringLiteral("get_replay_data: %1").arg(rerr);
         }
         pr.ok = pr.error.isEmpty();
         emit log_line(QStringLiteral(
@@ -279,11 +262,9 @@ ReplayMainWindow::ReplayMainWindow(QWidget* parent) : QMainWindow(parent) {
 
     // --- 控制行 ---
     auto* row_ctl = new QHBoxLayout();
-    m_ck_replay = new QCheckBox("js_replay"); m_ck_replay->setChecked(true);
     m_ck_topo = new QCheckBox("js_topo");     m_ck_topo->setChecked(true);
     m_ck_diag = new QCheckBox("lua_diag");    m_ck_diag->setChecked(true);
     m_ck_report = new QCheckBox("lua_report"); m_ck_report->setChecked(true);
-    row_ctl->addWidget(m_ck_replay);
     row_ctl->addWidget(m_ck_topo);
     row_ctl->addWidget(m_ck_diag);
     row_ctl->addWidget(m_ck_report);
@@ -325,14 +306,6 @@ ReplayMainWindow::ReplayMainWindow(QWidget* parent) : QMainWindow(parent) {
     m_te_topo_stat->setMaximumHeight(80);
     lay_topo->addWidget(m_te_topo_stat);
     tabs->addTab(w_topo, trl::L("拓扑"));
-
-    // 回放
-    m_tw_replay = new QTableWidget(0, 4);
-    m_tw_replay->setHorizontalHeaderLabels(
-        {trl::L("序号"), trl::L("长度"), trl::L("到达时间(us)"), trl::L("摘要")});
-    m_tw_replay->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
-    m_tw_replay->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    tabs->addTab(m_tw_replay, trl::L("回放"));
 
     // 诊断
     m_tw_diag = new QTableWidget(0, 3);
@@ -440,7 +413,6 @@ void ReplayMainWindow::on_start() {
     if (!note.isEmpty()) log(note);
 
     QStringList plugins;
-    if (m_ck_replay->isChecked()) plugins << "js_replay";
     if (m_ck_topo->isChecked()) plugins << "js_topo";
     if (m_ck_diag->isChecked()) plugins << "lua_diag";
     if (m_ck_report->isChecked()) plugins << "lua_report";
@@ -455,7 +427,6 @@ void ReplayMainWindow::on_start() {
     s.setValue("max_frames", m_sp_max->value());
 
     // 清空旧结果
-    m_tw_replay->setRowCount(0);
     m_tw_diag->setRowCount(0);
     m_te_report->clear();
     m_te_topo_stat->clear();
@@ -527,19 +498,6 @@ void ReplayMainWindow::on_finished(const QVector<PluginReplayResult>& results) {
                 trl::L("共 %1 帧,接受 %2,拒绝 %3,耗时 %4 ms\n最后: %5")
                     .arg(pr.accept + pr.reject).arg(pr.accept).arg(pr.reject)
                     .arg(pr.elapsed_ms).arg(pr.last_summary));
-        } else if (pr.name == QStringLiteral("js_replay")) {
-            m_tw_replay->setRowCount(pr.replay_rows.size());
-            for (int i = 0; i < pr.replay_rows.size(); ++i) {
-                const auto& r = pr.replay_rows[i];
-                m_tw_replay->setItem(i, 0, new QTableWidgetItem(QString::number(r.seq)));
-                m_tw_replay->setItem(i, 1, new QTableWidgetItem(QString::number(r.len)));
-                m_tw_replay->setItem(i, 2,
-                    new QTableWidgetItem(QString::number(r.arrival_us)));
-                m_tw_replay->setItem(i, 3, new QTableWidgetItem(r.summary));
-            }
-            if (!pr.extra_text.isEmpty())
-                log(tr("[js_replay] get_replay_data: %1 lines")
-                        .arg(pr.extra_text.count('\n') + 1));
         } else if (pr.name == QStringLiteral("lua_diag")) {
             m_tw_diag->setRowCount(pr.alarms.size());
             for (int i = 0; i < pr.alarms.size(); ++i) {

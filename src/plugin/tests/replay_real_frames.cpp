@@ -68,7 +68,7 @@ int main(int argc, char** argv) {
     QList<QByteArray> frames = extract_frames(data, max_n);
     printf("提取 %d 帧用于回灌\n\n", frames.size());
 
-    QStringList plugins = {"js_replay", "js_topo", "lua_diag", "lua_report"};
+    QStringList plugins = {"js_topo", "lua_diag", "lua_report"};
     bool all_ok = true;
 
     for (const QString& pname : plugins) {

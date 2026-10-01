@@ -302,7 +302,6 @@ int main(int argc, char* argv[]) {
     };
 
     bool all_ok = true;
-    all_ok &= test_plugin(ex_dir, "js_replay", std_frames, false);
     all_ok &= test_plugin(ex_dir, "js_topo", std_frames, true);
     all_ok &= test_plugin(ex_dir, "lua_diag", diag_frames, false);
     all_ok &= test_plugin(ex_dir, "lua_report", std_frames, false);

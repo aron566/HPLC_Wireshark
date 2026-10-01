@@ -30,11 +30,9 @@ struct PluginReplayResult {
     qint64  elapsed_ms = 0;
     QString last_summary;
     QImage  final_image;   ///< topo 插件最终渲染图
-    QString extra_text;    ///< report JSON / replay 数据文本
+    QString extra_text;    ///< report JSON
     struct Alarm { int frame_no; QString problem; QString detail; };
     QVector<Alarm> alarms; ///< diag 插件告警(上限截断)
-    struct ReplayRow { int seq; int len; qint64 arrival_us; QString summary; };
-    QVector<ReplayRow> replay_rows; ///< replay 插件最近帧(上限保留)
 };
 
 /// @brief 回灌工作线程:拆帧 → 逐插件 parse → 收集结果
@@ -84,7 +82,6 @@ private:
 
     QLineEdit*   m_ed_bin = nullptr;
     QLineEdit*   m_ed_examples = nullptr;
-    QCheckBox*   m_ck_replay = nullptr;
     QCheckBox*   m_ck_topo = nullptr;
     QCheckBox*   m_ck_diag = nullptr;
     QCheckBox*   m_ck_report = nullptr;
@@ -95,7 +92,6 @@ private:
 
     QLabel*      m_lb_topo = nullptr;
     QTextEdit*   m_te_topo_stat = nullptr;
-    QTableWidget* m_tw_replay = nullptr;
     QTableWidget* m_tw_diag = nullptr;
     QTextEdit*   m_te_report = nullptr;
     QTextEdit*   m_te_log = nullptr;

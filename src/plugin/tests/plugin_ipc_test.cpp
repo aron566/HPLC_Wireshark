@@ -1,7 +1,7 @@
 /// @file plugin_ipc_test.cpp
-/// @brief 插件 IPC 集成测试:启动 bplc-plugin-host,验证 4 种新插件
+/// @brief 插件 IPC 集成测试:启动 bplc-plugin-host,验证 3 种新插件
 /// @details 用法: plugin_ipc_test --host <path-to-bplc-plugin-host> --examples <dir>
-///          测试 js_replay/js_topo/lua_diag/lua_report 的解析、图形渲染、事件
+///          测试 js_topo/lua_diag/lua_report 的解析、图形渲染、事件
 #include <QCoreApplication>
 #include <QCommandLineParser>
 #include <QLocalServer>
@@ -358,7 +358,6 @@ int main(int argc, char* argv[]) {
     log() << "Examples: " << ex_dir << "\n";
 
     bool all_ok = true;
-    all_ok &= test_plugin(host_bin, ex_dir + "/js_replay", QStringLiteral("js_replay"), false);
     all_ok &= test_plugin(host_bin, ex_dir + "/js_topo", QStringLiteral("js_topo"), true);
     all_ok &= test_plugin(host_bin, ex_dir + "/lua_diag", QStringLiteral("lua_diag"), false);
     all_ok &= test_plugin(host_bin, ex_dir + "/lua_report", QStringLiteral("lua_report"), false);
