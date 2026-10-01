@@ -340,6 +340,10 @@ bool PacketListModel::load_block(int idx) const {
         if (pser::deserialize_entry(payload, e)) block.append(std::move(e));
     }
     f.close();
+    // 完整性校验:成功落盘的块必有 kBlockSize 条;截断/损坏的块拒收,
+    // 避免 locate() 从残缺块越界读取(曾导致 data() 野指针崩溃)
+    if (block.size() != kBlockSize)
+        return false;
     // LRU 淘汰(先插入再淘汰,保证新块存活)
     m_block_cache.insert(idx, block);
     touch_lru(idx);
@@ -351,13 +355,23 @@ bool PacketListModel::load_block(int idx) const {
 }
 
 const PacketEntry& PacketListModel::locate(int g) const {
+    // 兜底空条目:任何越界/缺块都不返回野引用(只显示空白行,不崩溃)
+    static const PacketEntry kNullEntry;
+    if (g < 0) return kNullEntry;
     const int hot_start = m_block_count * kBlockSize;
-    if (g >= hot_start)
-        return m_hot[g - hot_start];
+    if (g >= hot_start) {
+        const int hi = g - hot_start;
+        if (hi < m_hot.size())
+            return m_hot[hi];
+        return kNullEntry;
+    }
     const int bi = g / kBlockSize;
     const int off = g % kBlockSize;
-    load_block(bi);
-    return m_block_cache[bi].at(off);
+    if (!load_block(bi)) return kNullEntry;
+    auto it = m_block_cache.constFind(bi);
+    if (it == m_block_cache.constEnd() || off < 0 || off >= it->size())
+        return kNullEntry;
+    return it->at(off);
 }
 
 void PacketListModel::flush_hot_block() {
@@ -366,12 +380,23 @@ void PacketListModel::flush_hot_block() {
     QFile f(block_path(idx));
     if (!f.open(QIODevice::WriteOnly)) return;   // 写失败:保留在热区,不丢弃数据
     QDataStream s(&f);
+    bool ok = true;
     for (int i = 0; i < kBlockSize; ++i) {
         const QByteArray payload = pser::serialize_entry(m_hot[i]);
         s << quint32(payload.size());
-        s.writeRawData(payload.constData(), payload.size());
+        if (s.writeRawData(payload.constData(), payload.size()) != payload.size())
+            ok = false;
+        if (s.status() != QDataStream::Ok)
+            ok = false;
+        if (!ok) break;
     }
     f.close();
+    // 只有完整写入 kBlockSize 条且无错误,才提交;否则删除残缺文件,数据保留在热区
+    // (磁盘满时若仍提交,会导致 load_block 读到截断块,locate() 越界崩溃)
+    if (!ok || s.status() != QDataStream::Ok || f.error() != QFile::NoError) {
+        f.remove();
+        return;
+    }
     m_block_count++;
     m_hot.remove(0, kBlockSize);
 }
