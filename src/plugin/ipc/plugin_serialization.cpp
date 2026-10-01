@@ -18,12 +18,14 @@ QDataStream& operator>>(QDataStream& in, PhysicalMeta& m) {
 // ---- BplcFrame ----
 QDataStream& operator<<(QDataStream& out, const BplcFrame& f) {
     out << f.meta << f.data << f.error_reason
-        << f.arrival_ms << f.arrival_us << f.raw_wire;
+        << f.arrival_ms << f.arrival_us << f.raw_wire
+        << f.decoded_index << f.decoded_epoch_ms << f.topo_event;
     return out;
 }
 QDataStream& operator>>(QDataStream& in, BplcFrame& f) {
     in >> f.meta >> f.data >> f.error_reason
-       >> f.arrival_ms >> f.arrival_us >> f.raw_wire;
+       >> f.arrival_ms >> f.arrival_us >> f.raw_wire
+       >> f.decoded_index >> f.decoded_epoch_ms >> f.topo_event;
     return in;
 }
 

@@ -6,6 +6,7 @@
 #include <QTextStream>
 #include <QDir>
 #include <QImage>
+#include <QTemporaryDir>
 #include <cstdio>
 
 #include "plugin_backend.h"
@@ -120,6 +121,120 @@ bool test_plugin(const QString& ex_dir, const QString& plugin_name,
 
 } // namespace
 
+/// @brief 解码帧契约测试:frame.index/epochMs/topoEvent + host.jumpToFrame
+/// @details 用最小内联脚本验证新单入口契约,JS 与 Lua 各一遍。
+bool test_decoded_frame_contract() {
+    printf("\n=== Testing decoded-frame contract ===\n");
+    fflush(stdout);
+    bool all_ok = true;
+    auto mark = [&](bool ok) { if (!ok) all_ok = false; };
+
+    const QString probe_js = QStringLiteral(
+        "function get_info() { return {name:'probe', protocolId:'PROBE_2024'}; }\n"
+        "var seen = {index:-1, epochMs:-1, topoKind:'?', jumped:-1};\n"
+        "function parse(frame) {\n"
+        "  seen.index = frame.index;\n"
+        "  seen.epochMs = frame.epochMs;\n"
+        "  seen.topoKind = frame.topoEvent ? frame.topoEvent.kind : 'none';\n"
+        "  if (frame.topoEvent) host.jumpToFrame(frame.topoEvent.frameIndex);\n"
+        "  return {summary:'ok'};\n"
+        "}\n"
+        "function get_seen() { return JSON.stringify(seen); }\n");
+    const QString probe_lua = QStringLiteral(
+        "function get_info() return {name='probe', protocolId='PROBE_2024'} end\n"
+        "seen = {index=-1, epochMs=-1, topoKind='?', jumped=-1}\n"
+        "function parse(frame)\n"
+        "  seen.index = frame.index\n"
+        "  seen.epochMs = frame.epochMs\n"
+        "  seen.topoKind = frame.topoEvent and frame.topoEvent.kind or 'none'\n"
+        "  if frame.topoEvent then host.jumpToFrame(frame.topoEvent.frameIndex) end\n"
+        "  return {summary='ok'}\n"
+        "end\n"
+        "function get_seen()\n"
+        "  return string.format('%d|%d|%s', seen.index, seen.epochMs, seen.topoKind)\n"
+        "end\n");
+
+    struct Case { QString runtime; QString entry; QString code; };
+    const QList<Case> cases = {
+        { QStringLiteral("js"),  QStringLiteral("probe.js"),  probe_js  },
+        { QStringLiteral("lua"), QStringLiteral("probe.lua"), probe_lua },
+    };
+
+    for (const Case& c : cases) {
+        QTemporaryDir tmp;
+        check(tmp.isValid(), QStringLiteral("contract %1 temp dir").arg(c.runtime));
+        mark(tmp.isValid());
+        if (!tmp.isValid()) continue;
+
+        QFile jf(tmp.path() + "/plugin.json");
+        const QString manifest_json = QStringLiteral(
+            "{\"name\":\"probe\",\"version\":\"1.0.0\",\"runtime\":\"%1\","
+            "\"entry\":\"%2\",\"api_version\":1,\"protocol_id\":\"PROBE_2024\","
+            "\"display_name\":\"probe\",\"display_name_en\":\"probe\"}")
+            .arg(c.runtime, c.entry);
+        bool wok = jf.open(QIODevice::WriteOnly | QIODevice::Text)
+                   && jf.write(manifest_json.toUtf8()) > 0;
+        jf.close();
+        QFile sf(tmp.path() + "/" + c.entry);
+        wok = wok && sf.open(QIODevice::WriteOnly | QIODevice::Text)
+              && sf.write(c.code.toUtf8()) > 0;
+        sf.close();
+        check(wok, QStringLiteral("contract %1 write probe").arg(c.runtime));
+        mark(wok);
+        if (!wok) continue;
+
+        QString err;
+        PluginManifest m = read_plugin_manifest(tmp.path());
+        check(m.error.isEmpty(), QStringLiteral("contract %1 manifest").arg(c.runtime), m.error);
+        mark(m.error.isEmpty());
+        if (!m.error.isEmpty()) continue;
+
+        IPluginBackend* backend = create_backend(m, &err);
+        check(backend != nullptr, QStringLiteral("contract %1 backend").arg(c.runtime), err);
+        mark(backend != nullptr);
+        if (!backend) continue;
+
+        qint64 jumped = -1;
+        backend->set_host_jump_callback([&](qint64 idx) { jumped = idx; });
+
+        BplcFrame frame = make_frame(QByteArray::fromHex("3c000102") + QByteArray(20, '\xAA'), 1000000);
+        frame.decoded_index = 42;
+        frame.decoded_epoch_ms = 1700000000123LL;
+        TopoEvent te;
+        te.kind = TopoEventKind::DiscoverList;
+        te.nid = 0xCDA1D5;
+        te.frame_index = 42;
+        te.epoch_ms = 1700000000123LL;
+        te.desc = QStringLiteral("Discover list from STA-2: 2 node(s)");
+        frame.topo_event = te;
+
+        MsduState msdu; ParseFilter filter; QString perr;
+        ParseResult r = backend->parse(frame, msdu, filter, &perr);
+        check(perr.isEmpty(), QStringLiteral("contract %1 parse").arg(c.runtime), perr);
+        mark(perr.isEmpty());
+
+        QString cerr;
+        const QString seen = backend->call_text_function("get_seen", &cerr);
+        check(cerr.isEmpty(), QStringLiteral("contract %1 get_seen").arg(c.runtime), cerr);
+        mark(cerr.isEmpty());
+        const bool fields_ok = seen.contains(QStringLiteral("42|1700000000123|discoverList"))
+                               || seen.contains(QStringLiteral("\"index\":42"))
+                                  || (seen.contains(QStringLiteral("42"))
+                                      && seen.contains(QStringLiteral("1700000000123"))
+                                      && seen.contains(QStringLiteral("discoverList"), Qt::CaseInsensitive));
+        check(fields_ok, QStringLiteral("contract %1 frame fields").arg(c.runtime), seen);
+        mark(fields_ok);
+        check(jumped == 42, QStringLiteral("contract %1 host.jumpToFrame").arg(c.runtime),
+              QStringLiteral("jumped=%1").arg(jumped));
+        mark(jumped == 42);
+
+        delete backend;
+    }
+    printf(all_ok ? "  >> ALL PASS\n" : "  >> SOME FAILED\n");
+    fflush(stdout);
+    return all_ok;
+}
+
 int main(int argc, char* argv[]) {
     QGuiApplication app(argc, argv);
     QCommandLineParser cli;
@@ -155,6 +270,7 @@ int main(int argc, char* argv[]) {
     all_ok &= test_plugin(ex_dir, "js_topo", std_frames, true);
     all_ok &= test_plugin(ex_dir, "lua_diag", diag_frames, false);
     all_ok &= test_plugin(ex_dir, "lua_report", std_frames, false);
+    all_ok &= test_decoded_frame_contract();
 
     printf("\n========================================\n");
     printf("Total: %d passed, %d failed\n", g_pass, g_fail);

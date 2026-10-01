@@ -8,7 +8,31 @@
 ///     fields = { { name="..", value="..", relStart=0, relLen=1,
 ///                   children = { ... } }, ... }
 ///   }
-///   frame = { data = {byte,...}, rawWire = {byte,...}, arrivalUs = number }
+///   frame = { data = {byte,...}, rawWire = {byte,...}, arrivalUs = number,
+///             index = number,     -- 主程序帧序号(1-based;0=独立测试无解码)
+///             epochMs = number,    -- 解析出的帧时刻(epoch ms)
+///             topoEvent = evt/nil } -- 本帧的拓扑事件,无事件时为 nil
+/// 拓扑事件(主解析器产出,挂在 frame.topoEvent,单入口,无独立侧信道):
+///   evt = {
+///     kind = "discoverList"|"assocReq"|"assocCnf"|"assocGatherInd"|"assocInd"|
+///            "changeProxyReq"|"changeProxyCnf"|"leaveInd"|"successRate"|
+///            "ccoRestart"|"staRestart"|"other",
+///     nid = number, ccoMac = "aa:bb:cc:dd:ee:ff" 或 nil,  -- nil=本事件不带 CCO
+///     nodes = { { tei, mac }, ... },
+///     routes = { { child, parent }, ... },
+///     upRoutes = { { sta, nextHop }, ... },  -- 仅 RouteType=3 代理主路径
+///     discoverSrcTei = number, neighborTeis = { tei, ... },
+///     leaves = { "aa:bb:..", ... },
+///     commRates = { { tei, down, up }, ... },
+///     isRf = bool, restartCount = number,  -- -1=未知
+///     desc = string, epochMs = number, frameIndex = number
+///   }
+/// 主界面控制(Phase4):
+///   host.jumpToFrame(frameIndex)  -- 主帧列表定位到指定帧(选中+居中)
+/// 主界面 → 插件通知:
+///   on_frame_selected(frameIndex, forceHistory)  -- 主帧列表选中变化;
+///     forceHistory=true 时强制历史冻结(双击),否则插件按是否为最新帧
+///     自行决定 live/历史;未定义时静默忽略
 /// @note 安全边界是进程隔离;Lua 标准库全开(含 io/os),插件崩溃不影响主程序。
 #ifndef BPLC_LUA_BACKEND_H
 #define BPLC_LUA_BACKEND_H
@@ -28,6 +52,7 @@ public:
     QString protocol_id() const override;
     ParseResult parse(const BplcFrame& frame, MsduState& msdu,
                       const ParseFilter& filter, QString* err) override;
+    // topoEvent 挂在 parse(frame) 的 frame.topoEvent 上(单入口,无独立侧信道)
 
     // ---- 图形(Phase3) ----
     bool has_graphics() const override;
@@ -37,6 +62,10 @@ public:
 
     // ---- 脚本函数调用 ----
     QString call_text_function(const char* name, QString* err) override;
+
+    // ---- 主界面 → 插件通知 ----
+    /// @brief 调用脚本全局函数 on_frame_selected(frameIndex, forceHistory)
+    void notify_frame_selected(qint64 frameIndex, bool force_history) override;
 
 private:
     /// @brief Lua fields 表(数组) → MsduFieldNode 树(递归)。表在栈顶

@@ -1,6 +1,7 @@
 /// @file js_backend.cpp
 #include "js_backend.h"
 
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QImage>
@@ -74,7 +75,38 @@ quint32 js_uint32(const QJSValue& o, const char* k, quint32 d = 0) {
     const QJSValue v = o.property(QString::fromLatin1(k));
     return v.isNumber() ? static_cast<quint32>(v.toUInt()) : d;
 }
+
+// TopoEventKind → JS 可读字符串
+QString topo_kind_name(TopoEventKind k) {
+    switch (k) {
+    case TopoEventKind::DiscoverList:  return QStringLiteral("discoverList");
+    case TopoEventKind::AssocReq:      return QStringLiteral("assocReq");
+    case TopoEventKind::AssocCnf:      return QStringLiteral("assocCnf");
+    case TopoEventKind::AssocGatherInd:return QStringLiteral("assocGatherInd");
+    case TopoEventKind::AssocInd:      return QStringLiteral("assocInd");
+    case TopoEventKind::ChangeProxyReq:return QStringLiteral("changeProxyReq");
+    case TopoEventKind::ChangeProxyCnf:return QStringLiteral("changeProxyCnf");
+    case TopoEventKind::LeaveInd:      return QStringLiteral("leaveInd");
+    case TopoEventKind::SuccessRate:   return QStringLiteral("successRate");
+    case TopoEventKind::CcoRestart:    return QStringLiteral("ccoRestart");
+    case TopoEventKind::StaRestart:    return QStringLiteral("staRestart");
+    default:                          return QStringLiteral("other");
+    }
+}
+
+// MAC 48-bit → "aa:bb:cc:dd:ee:ff"(帧内字节序,与原版 TopoWindow 一致)
+QString format_mac_evt(quint64 v) {
+    QString s;
+    for (int i = 0; i < 6; ++i) {
+        s += QStringLiteral("%1").arg((v >> (8 * i)) & 0xFF, 2, 16, QChar('0'));
+        if (i < 5) s += QLatin1Char(':');
+    }
+    return s;
+}
 } // namespace
+
+// TopoEvent → JS 对象(供 frame.topoEvent)。定义在 namespace 外,parse 先用。
+static QJSValue build_topo_event_object(QJSEngine& eng, const TopoEvent& e);
 
 bool JsBackend::check_error(const QJSValue& v, QString* err,
                            const QString& ctx) {
@@ -110,6 +142,15 @@ bool JsBackend::initialize(const PluginManifest& m, QString* err) {
         m_engine.newQObject(m_redraw_helper));
     m_engine.evaluate(
         QStringLiteral("function request_redraw(){__bplc_redraw.request();}"));
+
+    // host 界面控制对象:host.jumpToFrame(frameIndex)
+    m_host_helper = new HostHelper();
+    m_host_helper->jump_cb = [this](qint64 idx) {
+        if (m_host_jump_cb) m_host_jump_cb(idx);
+    };
+    m_engine.globalObject().setProperty(
+        QStringLiteral("host"),
+        m_engine.newQObject(m_host_helper));
 
     // get_info()
     QJSValue get_info = m_engine.globalObject().property("get_info");
@@ -154,8 +195,9 @@ void JsBackend::shutdown() {
     m_render_fn = QJSValue();
     m_on_event_fn = QJSValue();
     m_has_graphics = false;
-    // m_redraw_helper 由 engine 拥有(newQObject),engine 析构时清理
+    // m_redraw_helper/m_host_helper 由 engine 拥有(newQObject),engine 析构时清理
     m_redraw_helper = nullptr;
+    m_host_helper = nullptr;
     // engine 析构自动清理
 }
 
@@ -253,6 +295,18 @@ ParseResult JsBackend::parse(const BplcFrame& frame, MsduState& msdu,
     js_mpdu.setProperty("dstTei", QJSValue(mq.dst_tei));
     js_frame.setProperty("mpdu", js_mpdu);
 
+    // 主程序解码信息(单入口):帧序号/时间戳/本帧拓扑事件(无事件=null)
+    js_frame.setProperty("index",
+                         QJSValue(static_cast<double>(frame.decoded_index)));
+    js_frame.setProperty("epochMs",
+                         QJSValue(static_cast<double>(frame.decoded_epoch_ms)));
+    if (frame.topo_event.kind != TopoEventKind::Other)
+        js_frame.setProperty("topoEvent",
+                             build_topo_event_object(m_engine, frame.topo_event));
+    else
+        js_frame.setProperty("topoEvent",
+                             QJSValue(QJSValue::NullValue));
+
     const QJSValue res = m_parse_fn.call(QJSValueList{js_frame});
     if (!check_error(res, err, QStringLiteral("parse"))) {
         r.accept = false;
@@ -300,6 +354,74 @@ ParseResult JsBackend::parse(const BplcFrame& frame, MsduState& msdu,
     return r;
 }
 
+/// @brief TopoEvent → JS 对象(供 frame.topoEvent)
+static QJSValue build_topo_event_object(QJSEngine& eng, const TopoEvent& e) {
+    QJSValue evt = eng.newObject();
+    evt.setProperty(QStringLiteral("kind"), QJSValue(topo_kind_name(e.kind)));
+    evt.setProperty(QStringLiteral("nid"), QJSValue(e.nid));
+    // ccoMac:只有携带 CCO 的事件(discoverList 类)才有值,无 CCO 时为 null
+    // (零 MAC 发 "00:.." 空字符串会误触发脚本侧 if(evt.ccoMac) 守卫)
+    if (e.cco_mac != 0)
+        evt.setProperty(QStringLiteral("ccoMac"),
+                        QJSValue(format_mac_evt(e.cco_mac)));
+    else
+        evt.setProperty(QStringLiteral("ccoMac"),
+                        QJSValue(QJSValue::NullValue));
+    QJSValue js_nodes = eng.newArray(e.nodes.size());
+    for (int i = 0; i < e.nodes.size(); ++i) {
+        QJSValue n = eng.newObject();
+        n.setProperty(QStringLiteral("tei"), QJSValue(e.nodes[i].tei));
+        n.setProperty(QStringLiteral("mac"),
+                      QJSValue(format_mac_evt(e.nodes[i].mac)));
+        js_nodes.setProperty(i, n);
+    }
+    evt.setProperty(QStringLiteral("nodes"), js_nodes);
+    QJSValue js_routes = eng.newArray(e.routes.size());
+    for (int i = 0; i < e.routes.size(); ++i) {
+        QJSValue r = eng.newObject();
+        r.setProperty(QStringLiteral("child"), QJSValue(e.routes[i].first));
+        r.setProperty(QStringLiteral("parent"), QJSValue(e.routes[i].second));
+        js_routes.setProperty(i, r);
+    }
+    evt.setProperty(QStringLiteral("routes"), js_routes);
+    // upRoutes:发现列表上行路由,解析层已只保留 RouteType=3(代理主路径)
+    QJSValue js_up = eng.newArray(e.up_routes.size());
+    for (int i = 0; i < e.up_routes.size(); ++i) {
+        QJSValue r = eng.newObject();
+        r.setProperty(QStringLiteral("sta"), QJSValue(e.up_routes[i].first));
+        r.setProperty(QStringLiteral("nextHop"), QJSValue(e.up_routes[i].second));
+        js_up.setProperty(i, r);
+    }
+    evt.setProperty(QStringLiteral("upRoutes"), js_up);
+    evt.setProperty(QStringLiteral("discoverSrcTei"),
+                    QJSValue(e.discover_src_tei));
+    QJSValue js_nb = eng.newArray(e.neighbor_teis.size());
+    for (int i = 0; i < e.neighbor_teis.size(); ++i)
+        js_nb.setProperty(i, QJSValue(e.neighbor_teis[i]));
+    evt.setProperty(QStringLiteral("neighborTeis"), js_nb);
+    QJSValue js_leaves = eng.newArray(e.leaves.size());
+    for (int i = 0; i < e.leaves.size(); ++i)
+        js_leaves.setProperty(i, QJSValue(format_mac_evt(e.leaves[i])));
+    evt.setProperty(QStringLiteral("leaves"), js_leaves);
+    QJSValue js_cr = eng.newArray(e.comm_rates.size());
+    for (int i = 0; i < e.comm_rates.size(); ++i) {
+        QJSValue c = eng.newObject();
+        c.setProperty(QStringLiteral("tei"), QJSValue(e.comm_rates[i].tei));
+        c.setProperty(QStringLiteral("down"), QJSValue(e.comm_rates[i].down));
+        c.setProperty(QStringLiteral("up"), QJSValue(e.comm_rates[i].up));
+        js_cr.setProperty(i, c);
+    }
+    evt.setProperty(QStringLiteral("commRates"), js_cr);
+    evt.setProperty(QStringLiteral("isRf"), QJSValue(e.is_rf));
+    evt.setProperty(QStringLiteral("restartCount"), QJSValue(e.restart_count));
+    evt.setProperty(QStringLiteral("desc"), QJSValue(e.desc));
+    evt.setProperty(QStringLiteral("epochMs"),
+                    QJSValue(static_cast<double>(e.epoch_ms)));
+    evt.setProperty(QStringLiteral("frameIndex"),
+                    QJSValue(static_cast<double>(e.frame_index)));
+    return evt;
+}
+
 QString JsBackend::call_text_function(const char* name, QString* err) {
     const QJSValue fn =
         m_engine.globalObject().property(QString::fromLatin1(name));
@@ -317,4 +439,15 @@ QString JsBackend::call_text_function(const char* name, QString* err) {
         return parts.join(QLatin1Char('\n'));
     }
     return r.toString();
+}
+
+void JsBackend::notify_frame_selected(qint64 frameIndex, bool force_history) {
+    const QJSValue fn =
+        m_engine.globalObject().property(QStringLiteral("on_frame_selected"));
+    if (!fn.isCallable()) return;  // 脚本不关心帧选中:静默忽略
+    const QJSValue r = fn.call(QJSValueList{
+        QJSValue(static_cast<double>(frameIndex)), QJSValue(force_history)});
+    QString err;
+    if (!check_error(r, &err, QStringLiteral("on_frame_selected")))
+        qWarning() << "JsBackend::notify_frame_selected:" << err;
 }

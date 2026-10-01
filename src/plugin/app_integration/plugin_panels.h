@@ -56,13 +56,23 @@ public:
                     QWidget* parent = nullptr);
     void refresh_now();  ///< 立即请求一帧渲染(自动化测试用)
 
+protected:
+    /// @brief 转发 m_view 的鼠标/滚轮事件给插件(hover/点击交互)
+    bool eventFilter(QObject* obj, QEvent* ev) override;
+
 private slots:
     void on_refresh_tick();
     void on_render_ready(const QString& pid, const QImage& img);
 
 private:
+    /// @brief 视图坐标 → 插件渲染图像坐标(KeepAspectRatio 映射)
+    QPoint to_image_pos(const QPoint& view_pt) const;
+    void forward_graphics_event(GraphicsEventType type, const QPoint& view_pt,
+                                int button, int delta_y);
+
     QLabel* m_view = nullptr;
     QTimer* m_timer = nullptr;
+    QSize   m_img_size;  ///< 最近一次渲染图的原始尺寸(坐标映射用)
 };
 
 /// @brief 回放数据面板(文本)

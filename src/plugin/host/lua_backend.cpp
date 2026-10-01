@@ -1,6 +1,7 @@
 /// @file lua_backend.cpp
 #include "lua_backend.h"
 
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QImage>
@@ -28,6 +29,122 @@ QString pop_lua_error(lua_State* L) {
     QString e = QString::fromUtf8(lua_tostring(L, -1));
     lua_pop(L, 1);
     return e;
+}
+
+// TopoEventKind → Lua 可读字符串
+const char* topo_kind_name_lua(TopoEventKind k) {
+    switch (k) {
+    case TopoEventKind::DiscoverList:   return "discoverList";
+    case TopoEventKind::AssocReq:       return "assocReq";
+    case TopoEventKind::AssocCnf:       return "assocCnf";
+    case TopoEventKind::AssocGatherInd: return "assocGatherInd";
+    case TopoEventKind::AssocInd:       return "assocInd";
+    case TopoEventKind::ChangeProxyReq: return "changeProxyReq";
+    case TopoEventKind::ChangeProxyCnf: return "changeProxyCnf";
+    case TopoEventKind::LeaveInd:      return "leaveInd";
+    case TopoEventKind::SuccessRate:    return "successRate";
+    case TopoEventKind::CcoRestart:     return "ccoRestart";
+    case TopoEventKind::StaRestart:     return "staRestart";
+    default:                           return "other";
+    }
+}
+
+// MAC 48-bit → "aa:bb:cc:dd:ee:ff"(帧内字节序,与原版 TopoWindow 一致)
+QString format_mac_lua(quint64 v) {
+    QString s;
+    for (int i = 0; i < 6; ++i) {
+        s += QStringLiteral("%1").arg((v >> (8 * i)) & 0xFF, 2, 16, QChar('0'));
+        if (i < 5) s += QLatin1Char(':');
+    }
+    return s;
+}
+inline void push_mac_field(lua_State* L, quint64 mac, const char* key) {
+    const QByteArray m = format_mac_lua(mac).toUtf8();
+    lua_pushlstring(L, m.constData(), m.size());
+    lua_setfield(L, -2, key);
+}
+
+// TopoEvent → Lua evt 表,留在栈顶
+void push_topo_event_table(lua_State* L, const TopoEvent& e) {
+    lua_newtable(L);
+    lua_pushstring(L, topo_kind_name_lua(e.kind));
+    lua_setfield(L, -2, "kind");
+    lua_pushinteger(L, e.nid);
+    lua_setfield(L, -2, "nid");
+    // ccoMac:无 CCO 的事件置 nil(零 MAC 不发 "00:.." 字符串,避免脚本误判)
+    if (e.cco_mac != 0)
+        push_mac_field(L, e.cco_mac, "ccoMac");
+    else {
+        lua_pushnil(L);
+        lua_setfield(L, -2, "ccoMac");
+    }
+    lua_newtable(L);  // nodes: {{tei, mac}...}
+    for (int i = 0; i < e.nodes.size(); ++i) {
+        lua_newtable(L);
+        lua_pushinteger(L, e.nodes[i].tei);
+        lua_setfield(L, -2, "tei");
+        push_mac_field(L, e.nodes[i].mac, "mac");
+        lua_seti(L, -2, i + 1);
+    }
+    lua_setfield(L, -2, "nodes");
+    lua_newtable(L);  // routes: {{child, parent}...}
+    for (int i = 0; i < e.routes.size(); ++i) {
+        lua_newtable(L);
+        lua_pushinteger(L, e.routes[i].first);
+        lua_setfield(L, -2, "child");
+        lua_pushinteger(L, e.routes[i].second);
+        lua_setfield(L, -2, "parent");
+        lua_seti(L, -2, i + 1);
+    }
+    lua_setfield(L, -2, "routes");
+    lua_newtable(L);  // upRoutes: {{sta, nextHop}...},仅 RouteType=3
+    for (int i = 0; i < e.up_routes.size(); ++i) {
+        lua_newtable(L);
+        lua_pushinteger(L, e.up_routes[i].first);
+        lua_setfield(L, -2, "sta");
+        lua_pushinteger(L, e.up_routes[i].second);
+        lua_setfield(L, -2, "nextHop");
+        lua_seti(L, -2, i + 1);
+    }
+    lua_setfield(L, -2, "upRoutes");
+    lua_pushinteger(L, e.discover_src_tei);
+    lua_setfield(L, -2, "discoverSrcTei");
+    lua_newtable(L);  // neighborTeis
+    for (int i = 0; i < e.neighbor_teis.size(); ++i) {
+        lua_pushinteger(L, e.neighbor_teis[i]);
+        lua_seti(L, -2, i + 1);
+    }
+    lua_setfield(L, -2, "neighborTeis");
+    lua_newtable(L);  // leaves: {"aa:bb:.."...}
+    for (int i = 0; i < e.leaves.size(); ++i) {
+        const QByteArray m = format_mac_lua(e.leaves[i]).toUtf8();
+        lua_pushlstring(L, m.constData(), m.size());
+        lua_seti(L, -2, i + 1);
+    }
+    lua_setfield(L, -2, "leaves");
+    lua_newtable(L);  // commRates: {{tei, down, up}...}
+    for (int i = 0; i < e.comm_rates.size(); ++i) {
+        lua_newtable(L);
+        lua_pushinteger(L, e.comm_rates[i].tei);
+        lua_setfield(L, -2, "tei");
+        lua_pushinteger(L, e.comm_rates[i].down);
+        lua_setfield(L, -2, "down");
+        lua_pushinteger(L, e.comm_rates[i].up);
+        lua_setfield(L, -2, "up");
+        lua_seti(L, -2, i + 1);
+    }
+    lua_setfield(L, -2, "commRates");
+    lua_pushboolean(L, e.is_rf);
+    lua_setfield(L, -2, "isRf");
+    lua_pushinteger(L, e.restart_count);
+    lua_setfield(L, -2, "restartCount");
+    const QByteArray desc = e.desc.toUtf8();
+    lua_pushlstring(L, desc.constData(), desc.size());
+    lua_setfield(L, -2, "desc");
+    lua_pushnumber(L, static_cast<lua_Number>(e.epoch_ms));
+    lua_setfield(L, -2, "epochMs");
+    lua_pushnumber(L, static_cast<lua_Number>(e.frame_index));
+    lua_setfield(L, -2, "frameIndex");
 }
 
 // ---- Lua 绘图绑定: p 表的 C 函数,QPainter* 经 upvalue 传入 ----
@@ -92,6 +209,12 @@ int l_draw_point(lua_State* L) {
     painter_upvalue(L)->draw_point(luaL_checknumber(L, 1), luaL_checknumber(L, 2));
     return 0;
 }
+int l_draw_icon(lua_State* L) {
+    painter_upvalue(L)->draw_icon(QString::fromUtf8(luaL_checkstring(L, 1)),
+                                  luaL_checknumber(L, 2), luaL_checknumber(L, 3),
+                                  luaL_checknumber(L, 4), luaL_checknumber(L, 5));
+    return 0;
+}
 const luaL_Reg kPainterFuncs[] = {
     {"set_pen", l_set_pen}, {"set_brush", l_set_brush},
     {"no_brush", l_no_brush}, {"no_pen", l_no_pen},
@@ -99,6 +222,7 @@ const luaL_Reg kPainterFuncs[] = {
     {"draw_line", l_draw_line}, {"draw_rect", l_draw_rect},
     {"fill_rect", l_fill_rect}, {"draw_ellipse", l_draw_ellipse},
     {"draw_text", l_draw_text}, {"draw_point", l_draw_point},
+    {"draw_icon", l_draw_icon},
     {nullptr, nullptr}
 };
 /// @brief 压入绘图 p 表(函数 upvalue 绑定 bridge)
@@ -194,6 +318,18 @@ bool LuaBackend::initialize(const PluginManifest& m, QString* err) {
         return 0;
     }, 1);
     lua_setglobal(m_lua, "request_redraw");
+
+    // host 界面控制表:host.jumpToFrame(frameIndex)
+    lua_newtable(m_lua);
+    lua_pushlightuserdata(m_lua, self);
+    lua_pushcclosure(m_lua, [](lua_State* L) -> int {
+        auto* backend = static_cast<LuaBackend*>(lua_touserdata(L, lua_upvalueindex(1)));
+        const qint64 idx = static_cast<qint64>(lua_tonumber(L, 1));
+        if (backend->m_host_jump_cb) backend->m_host_jump_cb(idx);
+        return 0;
+    }, 1);
+    lua_setfield(m_lua, -2, "jumpToFrame");
+    lua_setglobal(m_lua, "host");
     return true;
 }
 
@@ -350,6 +486,17 @@ ParseResult LuaBackend::parse(const BplcFrame& frame, MsduState& msdu,
     lua_setfield(m_lua, -2, "rawWire");
     lua_pushnumber(m_lua, static_cast<lua_Number>(frame.arrival_us));
     lua_setfield(m_lua, -2, "arrivalUs");
+    // 主程序解码信息(单入口):帧序号/时间戳/本帧拓扑事件(无事件=nil)
+    lua_pushnumber(m_lua, static_cast<lua_Number>(frame.decoded_index));
+    lua_setfield(m_lua, -2, "index");
+    lua_pushnumber(m_lua, static_cast<lua_Number>(frame.decoded_epoch_ms));
+    lua_setfield(m_lua, -2, "epochMs");
+    if (frame.topo_event.kind != TopoEventKind::Other) {
+        push_topo_event_table(m_lua, frame.topo_event);
+    } else {
+        lua_pushnil(m_lua);
+    }
+    lua_setfield(m_lua, -2, "topoEvent");
 
     if (lua_pcall(m_lua, 1, 1, 0) != LUA_OK) {
         *err = QStringLiteral("parse: %1").arg(pop_lua_error(m_lua));
@@ -418,4 +565,18 @@ QString LuaBackend::call_text_function(const char* name, QString* err) {
         *err = QStringLiteral("%1 must return a string").arg(QLatin1String(name));
     lua_pop(m_lua, 1);
     return s;
+}
+
+void LuaBackend::notify_frame_selected(qint64 frameIndex, bool force_history) {
+    lua_getglobal(m_lua, "on_frame_selected");
+    if (!lua_isfunction(m_lua, -1)) {
+        lua_pop(m_lua, 1);
+        return;  // 脚本不关心帧选中:静默忽略
+    }
+    lua_pushinteger(m_lua, static_cast<lua_Integer>(frameIndex));
+    lua_pushboolean(m_lua, force_history);
+    if (lua_pcall(m_lua, 2, 0, 0) != LUA_OK) {
+        qWarning() << "LuaBackend::notify_frame_selected:"
+                   << pop_lua_error(m_lua);
+    }
 }

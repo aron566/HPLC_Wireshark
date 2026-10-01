@@ -3,8 +3,10 @@
 
 #include <QColor>
 #include <QFont>
+#include <QHash>
 #include <QPainter>
 #include <QPen>
+#include <QPixmap>
 
 ScriptPainter::ScriptPainter(QPainter* p, QObject* parent)
     : QObject(parent), m_p(p) {}
@@ -23,7 +25,9 @@ void ScriptPainter::no_pen() {
 }
 void ScriptPainter::set_font(const QString& family, int point_size,
                              bool bold) {
-    QFont f(family, point_size);
+    // Empty family = "default font". QFont("") can resolve to a symbol font
+    // on systems with odd fontconfig ordering, so pin a real default.
+    QFont f(family.isEmpty() ? QStringLiteral("Sans") : family, point_size);
     f.setBold(bold);
     m_p->setFont(f);
 }
@@ -48,4 +52,42 @@ void ScriptPainter::draw_text(double x, double y, const QString& text) {
 }
 void ScriptPainter::draw_point(double x, double y) {
     m_p->drawPoint(QPointF(x, y));
+}
+
+/// @brief 绘制内置节点图标(与原版 TopoWindow 同源: :/icons/*.png)。
+/// 资源缺失(如宿主进程未打包图标)时退化为彩色圆点,保证脚本不崩。
+void ScriptPainter::draw_icon(const QString& name, double x, double y,
+                              double w, double h) {
+    static QHash<QString, QPixmap> cache;
+    static const QHash<QString, QString> kRes = {
+        {QStringLiteral("cco"),           QStringLiteral(":/icons/cco-router.png")},
+        {QStringLiteral("meter_online"),  QStringLiteral(":/icons/electric-meter_online.png")},
+        {QStringLiteral("meter_joining"), QStringLiteral(":/icons/electric-meter _online_going.png")},
+        {QStringLiteral("meter_offline"), QStringLiteral(":/icons/electric-meter _offline.png")},
+    };
+    QPixmap pm;
+    auto cit = cache.constFind(name);
+    if (cit != cache.constEnd()) {
+        pm = cit.value();
+    } else {
+        const QString res = kRes.value(name);
+        if (!res.isEmpty())
+            pm = QPixmap(res);
+        cache.insert(name, pm);  // 失败也缓存(空 pixmap),避免重复 IO
+    }
+    const QRectF r(x, y, w, h);
+    if (!pm.isNull()) {
+        m_p->drawPixmap(r, pm, QRectF(QPointF(0, 0), QSizeF(pm.size())));
+        return;
+    }
+    // 退化:彩色圆点(cco 蓝 / 在线绿 / 入网中黄 / 离线灰)
+    QColor c = Qt::gray;
+    if (name == QLatin1String("cco")) c = QColor(86, 156, 214);
+    else if (name == QLatin1String("meter_online")) c = QColor(46, 160, 67);
+    else if (name == QLatin1String("meter_joining")) c = QColor(210, 153, 34);
+    m_p->save();
+    m_p->setPen(Qt::NoPen);
+    m_p->setBrush(c);
+    m_p->drawEllipse(r);
+    m_p->restore();
 }

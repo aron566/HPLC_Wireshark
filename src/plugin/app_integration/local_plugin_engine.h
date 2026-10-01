@@ -19,6 +19,8 @@
 #include "bplcframe.h"
 #include "plugin_manifest.h"
 
+#include "../plugin_api/igraphicsplugin.h"
+
 class IPluginBackend;
 class QThread;
 class QTimer;
@@ -57,9 +59,14 @@ public:
 
 public slots:
     void start_load(const QString& dir);
+    /// @brief 喂一帧(解析好的帧,带帧序号/时间戳/topoEvent)
     void on_frame(const BplcFrame& f);
     void request_render(const QString& pid, int w, int h);
     void request_text(const QString& pid, const QString& func);
+    /// @brief 图形事件(鼠标/滚轮,GUI 线程经 send_graphics_event 投递)
+    void on_graphics_event(const QString& pid, const GraphicsEvent& e);
+    /// @brief 主界面帧选中变化(单击/双击),转发给各插件后端
+    void on_frame_selected(qint64 frame_index, bool force_history);
     void reset_all();
 
 signals:
@@ -69,6 +76,8 @@ signals:
     void diag_alarms(const QString& pid, const QList<PluginDiagAlarm>& alarms);
     void render_ready(const QString& pid, const QImage& img);
     void text_ready(const QString& pid, const QString& func, const QString& text);
+    /// @brief 插件请求主界面跳转到指定帧(host.jumpToFrame)
+    void host_jump_to_frame(qint64 frame_index);
 
 private slots:
     void flush_periodic();
@@ -95,10 +104,14 @@ public:
     bool is_idle() const { return m_worker && m_worker->pending_frames() == 0; }
 
 public slots:
-    /// @brief 喂一帧(供 SerialReader::frame_ready 直连,QueuedConnection)
+    /// @brief 喂一帧(主程序 make_entry 解析完成后调用,帧带帧序号/时间戳/topoEvent)
     void feed_frame(const BplcFrame& f);
     void request_render(const QString& pid, int w, int h);
     void request_text(const QString& pid, const QString& func);
+    /// @brief 转发图形事件到工作线程(供插件面板鼠标/滚轮交互)
+    void send_graphics_event(const QString& pid, const GraphicsEvent& e);
+    /// @brief 主界面帧选中变化(单击/双击),GUI 线程调用,排队到工作线程
+    void notify_frame_selected(qint64 frame_index, bool force_history = false);
     void reset_all();
 
 signals:
@@ -108,6 +121,8 @@ signals:
     void diag_alarms(const QString& pid, const QList<PluginDiagAlarm>& alarms);
     void render_ready(const QString& pid, const QImage& img);
     void text_ready(const QString& pid, const QString& func, const QString& text);
+    /// @brief 插件请求主界面跳转到指定帧(供 MainWindow::jump_packet_to_frame)
+    void host_jump_to_frame(qint64 frame_index);
 
 private:
     QThread*      m_thread = nullptr;

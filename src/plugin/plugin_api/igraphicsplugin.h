@@ -22,7 +22,8 @@ enum class GraphicsEventType : quint8 {
     MouseMove = 2,      ///< 悬停/拖动
     Wheel = 3,          ///< delta_y: 滚轮增量(1/8 度)
     Resize = 4,         ///< 视图尺寸变化(插件可忽略,render 会带新尺寸)
-    Leave = 5           ///< 鼠标离开视图
+    Leave = 5,          ///< 鼠标离开视图
+    MouseDblClick = 6   ///< 鼠标双击(供帧记录双击联动主界面等)
 };
 
 /// @brief 图形事件(可 IPC 序列化,见 plugin_serialization)
@@ -58,5 +59,8 @@ public:
 
 #define BplcGraphicsPlugin_iid "com.bplc.BplcGraphicsPlugin/1.0"
 Q_DECLARE_INTERFACE(IGraphicsPlugin, BplcGraphicsPlugin_iid)
+
+#include <QMetaType>
+Q_DECLARE_METATYPE(GraphicsEvent)
 
 #endif // BPLC_IGRAPHICSPLUGIN_H

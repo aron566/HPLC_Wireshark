@@ -31,6 +31,25 @@ public:
     virtual ParseResult parse(const BplcFrame& frame, MsduState& msdu,
                               const ParseFilter& filter, QString* err) = 0;
 
+    // ---- 主界面控制(Phase4) ----
+    /// @brief 插件请求主界面跳转到指定帧的回调类型(host.jumpToFrame)
+    /// @details 后端在脚本侧暴露 host 对象;脚本调用 host.jumpToFrame(idx)
+    ///          时触发此回调(工作线程),经 PluginWorker/LocalPluginEngine
+    ///          转发到 MainWindow::jump_packet_to_frame(GUI 线程)。
+    using HostJumpCallback = std::function<void(qint64)>;
+    virtual void set_host_jump_callback(HostJumpCallback cb) {
+        m_host_jump_cb = cb;
+    }
+
+    // ---- 主界面 → 插件通知 ----
+    /// @brief 主界面帧列表选中变化通知(单击/双击帧)
+    /// @details force_history=true 时强制进入历史冻结(双击,原版 enter_topo_history
+    ///          语义);false 时插件按 frameIndex 是否为最新帧自行决定 live/历史
+    ///          (原版 update_topo_history 语义:点到最新帧=回到实时)。
+    ///          缺省无操作,脚本未定义 on_frame_selected 时静默忽略。
+    virtual void notify_frame_selected(qint64 /*frameIndex*/,
+                                       bool /*force_history*/) {}
+
     // ---- 图形能力(Phase3,缺省无) ----
     /// @brief 是否提供图形能力
     virtual bool has_graphics() const { return false; }
@@ -62,6 +81,7 @@ public:
 
 protected:
     RedrawCallback m_redraw_cb;  ///< 插件调此请求主进程重绘
+    HostJumpCallback m_host_jump_cb;  ///< 插件请求主界面跳帧
 };
 
 /// @brief 按 runtime 创建后端。未知 runtime 返回 nullptr

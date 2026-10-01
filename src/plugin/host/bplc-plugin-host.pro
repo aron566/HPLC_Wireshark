@@ -42,6 +42,9 @@ HEADERS += \
     ../ipc/plugin_ipc.h \
     ../ipc/plugin_serialization.h
 
+# 节点图标(与主程序 TopoWindow 同源),供 ScriptPainter::draw_icon
+RESOURCES += plugin_icons.qrc
+
 SOURCES += \
     main.cpp \
     plugin_host.cpp \

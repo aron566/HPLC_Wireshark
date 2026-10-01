@@ -4,6 +4,7 @@
 
 #include <QHeaderView>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollBar>
@@ -11,6 +12,7 @@
 #include <QTextEdit>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 
 #include "i18n.h"
 
@@ -72,6 +74,8 @@ TopoPluginPanel::TopoPluginPanel(LocalPluginEngine* engine,
     m_view->setMinimumSize(200, 150);
     m_view->setText(trl::L("等待插件数据..."));
     m_view->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_view->setMouseTracking(true);  // hover 悬浮需要
+    m_view->installEventFilter(this);
     body_layout()->addWidget(m_view, 1);
 
     connect(m_engine, &LocalPluginEngine::render_ready,
@@ -104,8 +108,79 @@ void TopoPluginPanel::on_render_ready(const QString& pid, const QImage& img) {
             on_refresh_tick();  // 已有旧图:主动拉一帧新的
         return;
     }
+    m_img_size = img.size();
     m_view->setPixmap(QPixmap::fromImage(img).scaled(
         m_view->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+}
+
+/// @brief 视图坐标 → 插件渲染图像坐标(与 setPixmap 的 KeepAspectRatio 一致)
+QPoint TopoPluginPanel::to_image_pos(const QPoint& view_pt) const {
+    if (m_img_size.isEmpty() || m_view->pixmap().isNull())
+        return QPoint(-1, -1);
+    const QSize vs = m_view->size();
+    const QSize ps = m_img_size.scaled(vs, Qt::KeepAspectRatio);
+    const int ox = (vs.width() - ps.width()) / 2;
+    const int oy = (vs.height() - ps.height()) / 2;
+    const int px = view_pt.x() - ox;
+    const int py = view_pt.y() - oy;
+    if (px < 0 || py < 0 || px >= ps.width() || py >= ps.height())
+        return QPoint(-1, -1);  // 落在留白区
+    return QPoint(px * m_img_size.width() / ps.width(),
+                  py * m_img_size.height() / ps.height());
+}
+
+void TopoPluginPanel::forward_graphics_event(GraphicsEventType type,
+                                             const QPoint& view_pt,
+                                             int button, int delta_y) {
+    GraphicsEvent e;
+    e.type = type;
+    const QPoint ip = to_image_pos(view_pt);
+    e.x = ip.x();
+    e.y = ip.y();
+    e.button = button;
+    e.delta_y = delta_y;
+    e.width = m_img_size.width();
+    e.height = m_img_size.height();
+    m_engine->send_graphics_event(m_info.plugin_id, e);
+}
+
+bool TopoPluginPanel::eventFilter(QObject* obj, QEvent* ev) {
+    if (obj == m_view && m_engine) {
+        switch (ev->type()) {
+        case QEvent::MouseMove: {
+            const auto* me = static_cast<QMouseEvent*>(ev);
+            forward_graphics_event(GraphicsEventType::MouseMove, me->pos(),
+                                   0, 0);
+            break;
+        }
+        case QEvent::MouseButtonPress: {
+            const auto* me = static_cast<QMouseEvent*>(ev);
+            forward_graphics_event(GraphicsEventType::MousePress, me->pos(),
+                                   static_cast<int>(me->button()), 0);
+            break;
+        }
+        case QEvent::MouseButtonDblClick: {
+            const auto* me = static_cast<QMouseEvent*>(ev);
+            forward_graphics_event(GraphicsEventType::MouseDblClick, me->pos(),
+                                   static_cast<int>(me->button()), 0);
+            break;
+        }
+        case QEvent::Wheel: {
+            const auto* we = static_cast<QWheelEvent*>(ev);
+            forward_graphics_event(GraphicsEventType::Wheel,
+                                   we->position().toPoint(), 0,
+                                   we->angleDelta().y());
+            break;
+        }
+        case QEvent::Leave:
+            forward_graphics_event(GraphicsEventType::Leave, QPoint(-1, -1),
+                                   0, 0);
+            break;
+        default:
+            break;
+        }
+    }
+    return PluginPanel::eventFilter(obj, ev);
 }
 
 // =====================================================================

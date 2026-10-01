@@ -42,6 +42,7 @@ PluginWorker::PluginWorker(QObject* parent) : QObject(parent) {
     qRegisterMetaType<PluginDiagAlarm>("PluginDiagAlarm");
     qRegisterMetaType<QList<PluginDiagAlarm>>("QList<PluginDiagAlarm>");
     qRegisterMetaType<BplcFrame>("BplcFrame");
+    qRegisterMetaType<TopoEvent>("TopoEvent");
 }
 
 PluginWorker::~PluginWorker() {
@@ -113,6 +114,10 @@ void PluginWorker::start_load(const QString& dir) {
         b->set_redraw_callback([this, pid = m.name]() {
             emit render_ready(pid, QImage());  // 空图=仅提示刷新
         });
+        // 插件界面控制:host.jumpToFrame(idx) → 主界面跳帧
+        b->set_host_jump_callback([this](qint64 frame_index) {
+            emit host_jump_to_frame(frame_index);
+        });
         m_plugins.insert(m.name, rt);
         info.ok = true;
         emit plugin_loaded(info);
@@ -183,6 +188,22 @@ void PluginWorker::request_render(const QString& pid, int w, int h) {
     emit render_ready(pid, img);
 }
 
+/// @brief 图形事件透传:后端返回 true=需要重绘,发空图触发面板刷新
+void PluginWorker::on_graphics_event(const QString& pid, const GraphicsEvent& e) {
+    auto* rt = m_plugins.value(pid, nullptr);
+    if (!rt || !rt->backend || !rt->backend->has_graphics()) return;
+    QString err;
+    if (rt->backend->handle_graphics_event(e, &err))
+        emit render_ready(pid, QImage());  // 空图=刷新提示,面板按需重绘
+}
+
+void PluginWorker::on_frame_selected(qint64 frame_index, bool force_history) {
+    for (auto* rt : m_plugins) {
+        if (!rt->backend) continue;
+        rt->backend->notify_frame_selected(frame_index, force_history);
+    }
+}
+
 void PluginWorker::request_text(const QString& pid, const QString& func) {
     auto* rt = m_plugins.value(pid, nullptr);
     if (!rt || !rt->backend) return;
@@ -218,6 +239,7 @@ LocalPluginEngine::LocalPluginEngine(QObject* parent) : QObject(parent) {
     qRegisterMetaType<PluginDiagAlarm>("PluginDiagAlarm");
     qRegisterMetaType<QList<PluginDiagAlarm>>("QList<PluginDiagAlarm>");
     qRegisterMetaType<BplcFrame>("BplcFrame");
+    qRegisterMetaType<TopoEvent>("TopoEvent");
 
     m_thread = new QThread(this);
     m_thread->setObjectName(QStringLiteral("PluginWorker"));
@@ -237,6 +259,10 @@ LocalPluginEngine::LocalPluginEngine(QObject* parent) : QObject(parent) {
             this, &LocalPluginEngine::render_ready, Qt::QueuedConnection);
     connect(m_worker, &PluginWorker::text_ready,
             this, &LocalPluginEngine::text_ready, Qt::QueuedConnection);
+    // 插件请求主界面跳帧:工作线程 → GUI 线程
+    connect(m_worker, &PluginWorker::host_jump_to_frame,
+            this, &LocalPluginEngine::host_jump_to_frame,
+            Qt::QueuedConnection);
     connect(m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
 
     m_thread->start();
@@ -265,6 +291,20 @@ void LocalPluginEngine::request_render(const QString& pid, int w, int h) {
 void LocalPluginEngine::request_text(const QString& pid, const QString& func) {
     QMetaObject::invokeMethod(m_worker, "request_text", Qt::QueuedConnection,
                               Q_ARG(QString, pid), Q_ARG(QString, func));
+}
+
+void LocalPluginEngine::send_graphics_event(const QString& pid,
+                                            const GraphicsEvent& e) {
+    QMetaObject::invokeMethod(m_worker, "on_graphics_event",
+                              Qt::QueuedConnection,
+                              Q_ARG(QString, pid), Q_ARG(GraphicsEvent, e));
+}
+
+void LocalPluginEngine::notify_frame_selected(qint64 frame_index,
+                                              bool force_history) {
+    QMetaObject::invokeMethod(m_worker, "on_frame_selected",
+                              Qt::QueuedConnection,
+                              Q_ARG(qint64, frame_index), Q_ARG(bool, force_history));
 }
 
 void LocalPluginEngine::reset_all() {

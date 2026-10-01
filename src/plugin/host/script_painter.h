@@ -5,7 +5,10 @@
 ///   set_font(family, point_size, bold),
 ///   draw_line(x1,y1,x2,y2), draw_rect(x,y,w,h), fill_rect(x,y,w,h,color),
 ///   draw_ellipse(x,y,w,h), draw_text(x,y,text),
-///   draw_point(x,y), clear(color)
+///   draw_point(x,y), clear(color),
+///   draw_icon(name, x, y, w, h):绘制内置节点图标,与原版 TopoWindow 同源;
+///     name: "cco" | "meter_online" | "meter_joining" | "meter_offline";
+///     资源缺失时退化为彩色圆点,不抛错
 #ifndef BPLC_SCRIPT_PAINTER_H
 #define BPLC_SCRIPT_PAINTER_H
 
@@ -34,6 +37,8 @@ public:
     Q_INVOKABLE void draw_ellipse(double x, double y, double w, double h);
     Q_INVOKABLE void draw_text(double x, double y, const QString& text);
     Q_INVOKABLE void draw_point(double x, double y);
+    Q_INVOKABLE void draw_icon(const QString& name, double x, double y,
+                               double w, double h);
 
     QPainter* painter() const { return m_p; }
 

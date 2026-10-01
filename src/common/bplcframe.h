@@ -48,19 +48,8 @@ struct PhysicalMeta {
           frame_ts_is_ntb(false), seg_start(false) {}
 };
 
-/// @brief 一帧完整载荷(经哨兵切分 + 0x3D 反转义后)
-struct BplcFrame {
-    PhysicalMeta meta;            ///< 物理层元信息(由 SerialReader 填充部分)
-    QByteArray   data;            ///< 反转义 + 去哨兵后的净荷(含 isRF 字节 + PDU)
-    QString      error_reason;    ///< 非空:该帧被丢弃时附带原因
-    qint64       arrival_ms;      ///< PC 接收时刻(epoch ms),用于 UI 节流
-    qint64       arrival_us;      ///< PC 收到帧起始分节符(0x3C)的单调高精度时刻
-                                  ///< (µs;仅实时串口填充,文件回放=0 → Delta 用文件时间戳)
-    QByteArray   raw_wire;        ///< 原始串口帧(0x3C...0x3E 含哨兵与 0x3D 转义,原样)
-
-    BplcFrame() : arrival_ms(0), arrival_us(0) {}
-};
-Q_DECLARE_METATYPE(BplcFrame)
+/// @brief 一帧完整载荷(经哨兵切分 + 0x3D 反转义后),完整定义见 TopoEvent 之后
+struct BplcFrame;
 
 /// @brief MPDU 控制头解析结果(展示层使用)
 struct MpduInfo {
@@ -224,6 +213,28 @@ struct TopoEvent {
     qint64 epoch_ms = 0;                        ///< 时间点(epoch ms)
     qint64 frame_index = -1;                    ///< 来源帧序号(PacketEntry::index;路由表显示与双击追溯用)
 };
+
+/// @brief 送入解析器/插件的一帧
+/// @details SerialReader 只填充 meta/data/raw_wire 等原始字段;主程序
+///          MainWindow::make_entry 完成协议解析后补 decoded_* 与 topo_event,
+///          再喂给插件引擎 —— 插件拿到的永远是"解析好的帧"(单入口 parse)。
+struct BplcFrame {
+    PhysicalMeta meta;            ///< 物理层元信息(由 SerialReader 填充部分)
+    QByteArray   data;            ///< 反转义 + 去哨兵后的净荷(含 isRF 字节 + PDU)
+    QString      error_reason;    ///< 非空:该帧被丢弃时附带原因
+    qint64       arrival_ms;      ///< PC 接收时刻(epoch ms),用于 UI 节流
+    qint64       arrival_us;      ///< PC 收到帧起始分节符(0x3C)的单调高精度时刻
+                                  ///< (µs;仅实时串口填充,文件回放=0 → Delta 用文件时间戳)
+    QByteArray   raw_wire;        ///< 原始串口帧(0x3C...0x3E 含哨兵与 0x3D 转义,原样)
+
+    // ---- 主程序解析后填充(插件可见) ----
+    qint64    decoded_index = 0;    ///< 主程序帧序号(1-based;0=原始帧,未解码)
+    qint64    decoded_epoch_ms = 0; ///< 解析出的帧时刻(epoch ms;0=未知)
+    TopoEvent topo_event;           ///< 本帧携带的拓扑事件(kind=Other 表示无)
+
+    BplcFrame() : arrival_ms(0), arrival_us(0) {}
+};
+Q_DECLARE_METATYPE(BplcFrame)
 
 /// @brief MSDU 解析结果(由 GW_2022_MsduParser 填充)
 struct MsduInfo {

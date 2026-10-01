@@ -369,8 +369,12 @@ void MainWindow::wire_signals() {
                 m_model->activate_row(idx.row());  // 照常展示报文详情
                 // 双击 → 强制历史追溯(冻结在该帧);即使是最新帧也不跟随实时
                 PacketEntry e;
-                if (m_model->entry_at(idx.row(), e))
+                if (m_model->entry_at(idx.row(), e)) {
                     enter_topo_history(e.index, e.epoch_ms);
+                    // 插件 TOPO 联动:双击强制历史冻结(即使是最新帧)
+                    if (m_plugin_engine)
+                        m_plugin_engine->notify_frame_selected(e.index, true);
+                }
             });
     connect(m_table_packets->selectionModel(), &QItemSelectionModel::currentRowChanged,
             this, [this](const QModelIndex& cur, const QModelIndex&) {
@@ -904,6 +908,20 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
             m_topo_window->mark_dirty();
     }
     e.search_text = make_search_text(e);   // 缓存可搜索全文,过滤匹配复用
+    // 插件:喂"解析好的帧"(单入口 parse)——帧序号/时间戳/topoEvent 均已就绪,
+    // 插件 topo 与原版共享同一份解码数据,不再走独立事件侧信道
+    if (m_plugin_engine) {
+        BplcFrame pf;
+        pf.meta = r.meta;
+        pf.raw_wire = r.raw_wire;
+        pf.data = r.raw_wire.isEmpty() ? r.payload_for_log : r.raw_wire;
+        pf.arrival_us = r.arrival_us;
+        pf.decoded_index = e.index;
+        pf.decoded_epoch_ms = e.epoch_ms;
+        if (e.msdu.topo_event.kind != TopoEventKind::Other)
+            pf.topo_event = e.msdu.topo_event;
+        m_plugin_engine->feed_frame(pf);
+    }
     return e;
 }
 
@@ -970,6 +988,9 @@ void MainWindow::on_row_activated(const PacketEntry& e) {
     }
     // TOPO 历史回放调试:路由状态冻结,只更新到当前点击的帧
     update_topo_history(e.index, e.epoch_ms);
+    // 插件 TOPO 联动:单击选中帧,插件按是否为最新帧决定 live/历史
+    if (m_plugin_engine)
+        m_plugin_engine->notify_frame_selected(e.index, false);
 }
 
 /// @brief 双击帧 → 强制进入历史追溯(冻结在该帧,不跟随实时)
@@ -1233,9 +1254,11 @@ void MainWindow::setup_plugin_ui() {
 
 void MainWindow::connect_plugin_feed() {
     if (!m_reader || !m_plugin_engine) return;
-    // reader 存活期与窗口一致,连接一次即可(reset_dispatcher 不重建 reader)
-    connect(m_reader, &SerialReader::frame_ready,
-            m_plugin_engine, &LocalPluginEngine::feed_frame,
+    // 插件帧流:不再直连 SerialReader::frame_ready(原始帧,早于解析);
+    // 改由 make_entry 在协议解析完成后喂"解析好的帧"(带帧序号/时间戳/topoEvent)
+    // 插件请求的主界面跳帧:host.jumpToFrame(idx) → 定位帧列表对应行
+    connect(m_plugin_engine, &LocalPluginEngine::host_jump_to_frame,
+            this, &MainWindow::jump_packet_to_frame,
             Qt::QueuedConnection);
 }
 
