@@ -205,6 +205,11 @@ int l_draw_text(lua_State* L) {
                                   QString::fromUtf8(luaL_checkstring(L, 3)));
     return 0;
 }
+int l_text_width(lua_State* L) {
+    lua_pushnumber(L, painter_upvalue(L)->text_width(
+                          QString::fromUtf8(luaL_checkstring(L, 1))));
+    return 1;
+}
 int l_draw_point(lua_State* L) {
     painter_upvalue(L)->draw_point(luaL_checknumber(L, 1), luaL_checknumber(L, 2));
     return 0;
@@ -221,7 +226,8 @@ const luaL_Reg kPainterFuncs[] = {
     {"set_font", l_set_font}, {"clear", l_clear},
     {"draw_line", l_draw_line}, {"draw_rect", l_draw_rect},
     {"fill_rect", l_fill_rect}, {"draw_ellipse", l_draw_ellipse},
-    {"draw_text", l_draw_text}, {"draw_point", l_draw_point},
+    {"draw_text", l_draw_text}, {"text_width", l_text_width},
+    {"draw_point", l_draw_point},
     {"draw_icon", l_draw_icon},
     {nullptr, nullptr}
 };

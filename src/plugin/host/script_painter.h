@@ -5,6 +5,7 @@
 ///   set_font(family, point_size, bold),
 ///   draw_line(x1,y1,x2,y2), draw_rect(x,y,w,h), fill_rect(x,y,w,h,color),
 ///   draw_ellipse(x,y,w,h), draw_text(x,y,text),
+///   text_width(text): 当前字体下文本像素宽度(布局用),
 ///   draw_point(x,y), clear(color),
 ///   draw_icon(name, x, y, w, h):绘制内置节点图标,与原版 TopoWindow 同源;
 ///     name: "cco" | "meter_online" | "meter_joining" | "meter_offline";
@@ -36,6 +37,8 @@ public:
                                const QString& color);
     Q_INVOKABLE void draw_ellipse(double x, double y, double w, double h);
     Q_INVOKABLE void draw_text(double x, double y, const QString& text);
+    /// @brief 当前字体下文本的像素宽度(布局用,如 tooltip 自动撑宽)
+    Q_INVOKABLE double text_width(const QString& text);
     Q_INVOKABLE void draw_point(double x, double y);
     Q_INVOKABLE void draw_icon(const QString& name, double x, double y,
                                double w, double h);

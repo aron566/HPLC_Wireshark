@@ -50,6 +50,9 @@ void ScriptPainter::draw_ellipse(double x, double y, double w, double h) {
 void ScriptPainter::draw_text(double x, double y, const QString& text) {
     m_p->drawText(QPointF(x, y), text);
 }
+double ScriptPainter::text_width(const QString& text) {
+    return m_p ? m_p->fontMetrics().horizontalAdvance(text) : 0.0;
+}
 void ScriptPainter::draw_point(double x, double y) {
     m_p->drawPoint(QPointF(x, y));
 }

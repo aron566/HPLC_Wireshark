@@ -798,10 +798,14 @@ function draw_tooltip(p, net, w, h) {
     }
     if (!found) return;
     p.set_font("", 9, false);
-    var maxlen = tip.title.length;
-    for (i = 0; i < tip.lines.length; i++)
-        if (tip.lines[i].length > maxlen) maxlen = tip.lines[i].length;
-    var tw = maxlen * 5.6 + 16, th = (tip.lines.length + 1) * 16 + 10;
+    // 用真实文本宽度撑开提示框(字符数估算对比例字体不准,如 "Down: 98% Up: 95%"
+    // 比同字符数的 MAC 行宽 14px)
+    var maxw = p.text_width(tip.title);
+    for (i = 0; i < tip.lines.length; i++) {
+        var lw = p.text_width(tip.lines[i]);
+        if (lw > maxw) maxw = lw;
+    }
+    var tw = maxw + 20, th = (tip.lines.length + 1) * 16 + 12;
     if (ax + tw > w) ax = w - tw - 4;
     if (ay + th > h) ay = h - th - 4;
     if (ax < 0) ax = 4;
