@@ -256,8 +256,13 @@ public:
         }
 
         for (int i = 0; i < n1; ++i) {
+            // 内圈半径按成功率:信号越好离中心越近
+            // (100%→0.55R, 0%→R 落在覆盖边界上, 未知→0.9R)
+            const int rate = m_model.nodes[nbrs[i]].avg_rate();
+            const double rr =
+                R * (rate < 0 ? 0.9 : 1.0 - 0.45 * rate / 100.0);
             const double ang = -kPi / 2.0 + i * 2.0 * kPi / n1;
-            m_node_pos[nbrs[i]] = C + QPointF(R * qCos(ang), R * qSin(ang));
+            m_node_pos[nbrs[i]] = C + QPointF(rr * qCos(ang), rr * qSin(ang));
         }
         // 外圈整体旋转:与内圈节点角距离最大化,避免径向重叠
         double outer_rot = 0;
@@ -380,8 +385,8 @@ public:
         f.setPixelSize(10);
         p->setFont(f);
         p->drawText(QRect(0, h - 28, w, 20), Qt::AlignCenter,
-                    QStringLiteral("点击节点设为覆盖中心 · "
-                                   "Click a node to recenter · "
+                    QStringLiteral("离中心越近信号越好 Closer = better · "
+                                   "点击节点切换 Click to recenter · "
                                    "示意布局 Schematic"));
     }
 
