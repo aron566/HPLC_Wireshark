@@ -40,12 +40,40 @@ int main(int argc, char** argv) {
     QString perr;
     const QList<MarketPlugin> feed =
         PluginMarket::parse_feed(ff.readAll(), &perr);
-    CHECK(perr.isEmpty() && feed.size() == 3, "parse 3 plugins");
+    CHECK(perr.isEmpty() && feed.size() == 4, "parse 4 plugins");
     const MarketPlugin& topo = feed[0];
     CHECK(topo.name == "js-topo", "topo name");
     CHECK(topo.versions.size() == 2, "topo 2 versions");
     CHECK(topo.latest()->version == "1.1.0", "topo latest 1.1.0");
     CHECK(!topo.display_name_en.isEmpty(), "topo en name");
+    // 脚本插件:platforms 为空=全平台
+    CHECK(topo.latest()->platforms.isEmpty(), "script plugin all platforms");
+    CHECK(PluginMarket::version_platform_ok(*topo.latest()),
+          "script version platform ok");
+    CHECK(topo.latest_compatible() != nullptr, "script latest_compatible");
+    // native 插件:cpp-coverage 带 platforms 标注
+    const MarketPlugin& cov = feed[3];
+    CHECK(cov.name == "cpp-coverage", "cov name");
+    CHECK(cov.versions.size() == 1, "cov 1 version");
+    CHECK(cov.latest()->platforms.contains(
+              PluginMarket::current_platform()),
+          "cov platforms has current");
+    CHECK(PluginMarket::version_platform_ok(*cov.latest()),
+          "cov version platform ok");
+    CHECK(cov.latest_compatible() != nullptr &&
+              cov.latest_compatible()->version == "1.0.0",
+          "cov latest_compatible 1.0.0");
+    // 不兼容平台被过滤
+    MarketVersion win_only = *cov.latest();
+    win_only.platforms = QStringList{"windows-x86_64"};
+    MarketPlugin cov_win = cov;
+    cov_win.versions = QList<MarketVersion>{win_only};
+    CHECK(!PluginMarket::version_platform_ok(win_only) ||
+              PluginMarket::current_platform() == "windows-x86_64",
+          "win-only filtered on linux");
+    if (PluginMarket::current_platform() != "windows-x86_64")
+        CHECK(cov_win.latest_compatible() == nullptr,
+              "win-only latest_compatible null on linux");
     // 新增 feed 字段:readme_url / updated_at / source
     CHECK(topo.readme_url.endsWith(QStringLiteral("/readme/js-topo.md")),
           "readme_url");

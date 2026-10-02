@@ -137,6 +137,9 @@ QList<MarketPlugin> PluginMarket::parse_feed(const QByteArray& json,
             v.min_app_version =
                 vo.value(QStringLiteral("min_app_version")).toString();
             v.updated_at = vo.value(QStringLiteral("updated_at")).toString();
+            for (const QJsonValue& pv :
+                 vo.value(QStringLiteral("platforms")).toArray())
+                v.platforms.append(pv.toString());
             p.versions.append(v);
         }
         if (!p.name.isEmpty() && !p.versions.isEmpty()) out.append(p);
@@ -152,6 +155,14 @@ void PluginMarket::install_market_plugin(const MarketPlugin& plugin,
         return;
     }
     const MarketVersion& v = plugin.versions[version_index];
+    if (!version_platform_ok(v)) {
+        emit install_finished(
+            false,
+            QStringLiteral("version %1 does not support this platform (%2)")
+                .arg(v.version, current_platform()),
+            plugin.name);
+        return;
+    }
     if (!app_version_ok(v.min_app_version)) {
         emit install_finished(
             false,
@@ -354,7 +365,7 @@ const MarketVersion* PluginMarket::update_for(
     const InstalledPlugin& inst, const QList<MarketPlugin>& feed) {
     for (const MarketPlugin& p : feed) {
         if (p.name != inst.manifest.name) continue;
-        const MarketVersion* lat = p.latest();
+        const MarketVersion* lat = p.latest_compatible();
         if (lat && compare_version(lat->version, inst.manifest.version) > 0)
             return lat;
         return nullptr;
@@ -439,4 +450,30 @@ bool PluginMarket::plugin_dir_enabled(const QString& plugin_dir) {
     if (!mf.open(QIODevice::ReadOnly)) return true;  // 无 meta.json=启用
     const QJsonObject o = QJsonDocument::fromJson(mf.readAll()).object();
     return o.value(QStringLiteral("enabled")).toBool(true);
+}
+
+QString PluginMarket::current_platform() {
+#if defined(Q_OS_WIN)
+    return QStringLiteral("windows-x86_64");
+#elif defined(Q_OS_MACOS)
+#if defined(Q_PROCESSOR_ARM_64)
+    return QStringLiteral("macos-arm64");
+#else
+    return QStringLiteral("macos-x86_64");
+#endif
+#else
+    return QStringLiteral("linux-x86_64");
+#endif
+}
+
+bool PluginMarket::version_platform_ok(const MarketVersion& v) {
+    if (v.platforms.isEmpty()) return true;  // 未标注=全平台(脚本插件)
+    return v.platforms.contains(current_platform());
+}
+
+const MarketVersion* MarketPlugin::latest_compatible() const {
+    for (int i = versions.size() - 1; i >= 0; --i) {
+        if (PluginMarket::version_platform_ok(versions[i])) return &versions[i];
+    }
+    return nullptr;
 }

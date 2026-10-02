@@ -13,7 +13,7 @@ bool NativeBackend::initialize(const PluginManifest& m, QString* err) {
         *err = QStringLiteral("api_version mismatch");
         return false;
     }
-    const QString lib_path = QDir(m.dir_path).filePath(m.entry);
+    const QString lib_path = plugin_resolve_native_entry(m.dir_path, m.entry);
     m_loader.setFileName(lib_path);
     QObject* inst = m_loader.instance();
     if (!inst) {

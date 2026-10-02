@@ -57,6 +57,9 @@ struct I18nRegMarket {
         trl::register_en("版本", "Version");
         trl::register_en("作者", "Author");
         trl::register_en("分类", "Category");
+        trl::register_en("平台", "Platforms");
+        trl::register_en("全平台", "All platforms");
+        trl::register_en("当前平台不支持", "Not supported on this platform");
         trl::register_en("可选版本", "Available versions");
         trl::register_en("已安装版本", "Installed version");
         trl::register_en("可更新到", "Update available");
@@ -424,7 +427,7 @@ void PluginMarketDialog::rebuild_list() {
         add_header(trl::L("市场分组"));
         for (const RowEntry& e : mkt_rows) {
             const MarketPlugin& p = m_feed[e.feed_index];
-            const MarketVersion* lat = p.latest();
+            const MarketVersion* lat = p.latest_compatible();
             auto* card = make_card(
                 p.name, p.localized_name(en),
                 trl::L("作者") + ": " + p.author + "  " +
@@ -727,8 +730,12 @@ void PluginMarketDialog::update_detail() {
     } else {
         mp = &m_feed[e.feed_index];
         const MarketPlugin& p = *mp;
-        const MarketVersion* lat = p.latest();
+        const MarketVersion* lat = p.latest_compatible();
         m_d_name->setText(p.localized_name(en));
+        const QString plat_txt =
+            lat ? (lat->platforms.isEmpty() ? trl::L("全平台")
+                                            : lat->platforms.join(", "))
+                : trl::L("当前平台不支持");
         m_d_meta->setText(
             trl::L("作者") + ": " + p.author + "\n" +
             trl::L("版本") + ": " + (lat ? lat->version : "-") + "\n" +
@@ -737,6 +744,7 @@ void PluginMarketDialog::update_detail() {
                      ? format_updated_at(lat->updated_at)
                      : trl::L("未知")) +
             "\n" + trl::L("分类") + ": " + category_name(p.category) + "\n" +
+            trl::L("平台") + ": " + plat_txt + "\n" +
             trl::L("来源") + ": " + source_label(p.source));
         QStringList vs;
         for (const MarketVersion& v : p.versions) vs.prepend(v.version);
@@ -754,12 +762,17 @@ void PluginMarketDialog::update_detail() {
 
 void PluginMarketDialog::on_install_clicked() {
     if (m_current_name.isEmpty()) return;
-    // 已安装且有更新 → 装最新版;未安装 → 装最新版
+    // 已安装且有更新 → 装最新兼容版;未安装 → 装最新兼容版
     for (const MarketPlugin& p : m_feed) {
         if (p.name != m_current_name) continue;
-        const MarketVersion* lat = p.latest();
+        const MarketVersion* lat = p.latest_compatible();
         if (!lat) return;
-        m_market->install_market_plugin(p, p.versions.size() - 1);
+        int idx = -1;
+        for (int i = 0; i < p.versions.size(); ++i) {
+            if (p.versions[i].version == lat->version) { idx = i; break; }
+        }
+        if (idx < 0) return;
+        m_market->install_market_plugin(p, idx);
         return;
     }
 }

@@ -44,7 +44,8 @@ Entry point: **Plugins → Plugin marketplace** menu in the main window.
       "sha256": "<hex>",
       "size": 2400,
       "min_app_version": "1.3.0",
-      "updated_at": "2026-10-02"
+      "updated_at": "2026-10-02",
+      "platforms": ["linux-x86_64"]
     }]
   }]
 }
@@ -55,6 +56,16 @@ Entry point: **Plugins → Plugin marketplace** menu in the main window.
   `<plugin-dir>/README.md` shipped inside the package, then falls back to
   this URL, then to the plain description.
 - `updated_at`: per-version update date (ISO), shown as 更新时间/Updated.
+- `platforms`: optional list of platform IDs this version supports
+  (`linux-x86_64`, `windows-x86_64`, `macos-arm64`, `macos-x86_64`).
+  Absent or empty = all platforms (script plugins). The client only
+  offers/installs the newest version compatible with the running
+  platform, and shows the platform list in the detail panel.
+  Native plugins ship one binary per platform inside the zip and use a
+  platform-neutral manifest `entry` (bare library name); the native
+  backend resolves it to `lib<entry>.so` (Unix) or `<entry>.dll`
+  (Windows). An explicit filename entry (`*.so`/`*.dll`) still works
+  as before.
 - The dialog records the feed URL as the plugin's *source* (来源/Source)
   in `meta.json` at install time (`"file"` for install-from-file).
 
@@ -108,7 +119,8 @@ plugin.json   # manifest, see plugin_api/plugin_manifest.h
 1. Market install: download zip → verify **sha256** against the feed value
    (mismatch = rejected) → unzip to temp dir → validate `plugin.json`
    (manifest + entry file must exist) → check `min_app_version` against the
-   running app version → copy to the install dir.
+   running app version → check `platforms` against the running platform
+   → copy to the install dir.
 2. Offline install (`Install from file...`): same chain minus sha256
    (no feed to compare against) — manifest validity and entry-file
    existence are still enforced.
@@ -132,6 +144,7 @@ plugin dirs).
 - sha256 of the downloaded package vs the feed (market installs).
 - Manifest + entry-file validation for every install.
 - `min_app_version` compatibility check before market installs.
+- `platforms` compatibility check before market installs.
 
 **Not yet implemented:** Ed25519 official-signature verification of
 packages (per the plugin-system interface draft). The feed and the

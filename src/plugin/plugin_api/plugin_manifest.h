@@ -82,6 +82,26 @@ struct PluginManifest {
     QString error;         ///< valid=false 时的原因
 };
 
+/// @brief native 插件 entry 平台解析
+/// entry 为显式文件名(含 .so/.dll/.dylib 后缀)时直接使用(向后兼容);
+/// 否则视为裸库名,按平台补全:Windows→<entry>.dll,Unix→lib<entry>.so
+inline QString plugin_resolve_native_entry(const QString& plugin_dir,
+                                           const QString& entry) {
+    const QString e = entry.trimmed();
+    if (e.endsWith(QStringLiteral(".so"), Qt::CaseInsensitive) ||
+        e.endsWith(QStringLiteral(".dll"), Qt::CaseInsensitive) ||
+        e.endsWith(QStringLiteral(".dylib"), Qt::CaseInsensitive))
+        return QDir(plugin_dir).filePath(e);
+#ifdef Q_OS_WIN
+    return QDir(plugin_dir).filePath(e + QStringLiteral(".dll"));
+#else
+    const QString with_lib = QDir(plugin_dir).filePath(
+        QStringLiteral("lib") + e + QStringLiteral(".so"));
+    if (QFile::exists(with_lib)) return with_lib;
+    return QDir(plugin_dir).filePath(e + QStringLiteral(".so"));
+#endif
+}
+
 /// @brief 从插件目录读取并校验 plugin.json
 inline PluginManifest read_plugin_manifest(const QString& plugin_dir) {
     PluginManifest m;
@@ -147,7 +167,12 @@ inline PluginManifest read_plugin_manifest(const QString& plugin_dir) {
     if (m.entry.isEmpty())        { m.error = QStringLiteral("missing 'entry'"); return m; }
     if (m.api_version <= 0)       { m.error = QStringLiteral("missing/invalid 'api_version'"); return m; }
     if (m.protocol_id.isEmpty())  { m.error = QStringLiteral("missing 'protocol_id'"); return m; }
-    if (!QFile::exists(QDir(plugin_dir).filePath(m.entry))) {
+    // native 插件允许 entry 为裸库名(按平台解析);脚本插件 entry 必须为确切文件名
+    const QString entry_path =
+        (m.runtime == QStringLiteral("native"))
+            ? plugin_resolve_native_entry(plugin_dir, m.entry)
+            : QDir(plugin_dir).filePath(m.entry);
+    if (!QFile::exists(entry_path)) {
         m.error = QStringLiteral("entry file not found: %1").arg(m.entry);
         return m;
     }

@@ -35,6 +35,7 @@ struct MarketVersion {
     qint64  size = 0;
     QString min_app_version; ///< 要求宿主最低版本
     QString updated_at;      ///< 版本更新时间(ISO 日期,可空)
+    QStringList platforms;   ///< 适用平台(如 linux-x86_64);空=全平台(脚本插件)
 };
 
 /// @brief 市场 feed 中的一个插件
@@ -53,6 +54,8 @@ struct MarketPlugin {
     const MarketVersion* latest() const {
         return versions.isEmpty() ? nullptr : &versions.last();
     }
+    /// @brief 最新且当前平台可安装的版本(无则 nullptr)
+    const MarketVersion* latest_compatible() const;
     QString localized_name(bool english) const {
         if (english && !display_name_en.isEmpty()) return display_name_en;
         return display_name.isEmpty() ? name : display_name;
@@ -118,6 +121,10 @@ public:
     static int compare_version(const QString& a, const QString& b);
     /// @brief 当前宿主版本是否满足 min_app_version
     static bool app_version_ok(const QString& min_app_version);
+    /// @brief 当前运行平台标识,如 linux-x86_64 / windows-x86_64
+    static QString current_platform();
+    /// @brief 该版本是否可在当前平台安装(platforms 为空=全平台)
+    static bool version_platform_ok(const MarketVersion& v);
     /// @brief 插件目录是否被禁用(meta.json enabled==false)
     static bool plugin_dir_enabled(const QString& plugin_dir);
 
