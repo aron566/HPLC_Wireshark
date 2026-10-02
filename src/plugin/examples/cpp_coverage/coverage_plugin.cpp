@@ -300,26 +300,20 @@ public:
 
         const int n1 = nbrs.size();
         const QSet<quint16> in_ring1(nbrs.begin(), nbrs.end());
-        QVector<quint16> outer;
+        QVector<quint16> rest;
         for (auto it = m_model.nodes.constBegin();
              it != m_model.nodes.constEnd(); ++it) {
             if (it.key() != center && !in_ring1.contains(it.key()))
-                outer.append(it.key());
+                rest.append(it.key());
         }
-        std::sort(outer.begin(), outer.end());
+        std::sort(rest.begin(), rest.end());
 
         // 各节点覆盖圈半径(按环上间距钳制,避免互相吞没)
         double r1 = 0.38 * R;
         if (n1 > 1) r1 = qMin(r1, 0.42 * 2 * R * qSin(kPi / n1));
-        // 外圈用椭圆布局,吃满横向空间(纵向给标题/提示留边)
-        const double R2x = w / 2.0 - r1 - 24;
-        const double R2y = h * 0.5 - r1 - 40;
-        double r2 = 0.38 * R;
-        if (!outer.isEmpty()) {
-            const double spacing = qMin(2 * R2x * qSin(kPi / outer.size()),
-                                       2 * R2y * qSin(kPi / outer.size()));
-            r2 = qMax(16.0, qMin(r2, 0.42 * spacing));
-        }
+        // 嵌套子节点圈半径(放得进父圈 r1 内)
+        const double rn = qMin(18.0, r1 * 0.32);
+        const double nest_d = r1 * 0.55;  // 子节点距父节点圆心距离
 
         for (int i = 0; i < n1; ++i) {
             // 内圈半径按链路质量:信号越好离中心越近
@@ -329,6 +323,51 @@ public:
                 R * (lr < 0 ? 0.9 : 1.0 - 0.45 * lr / 100.0);
             const double ang = -kPi / 2.0 + i * 2.0 * kPi / n1;
             m_node_pos[nbrs[i]] = C + QPointF(rr * qCos(ang), rr * qSin(ang));
+        }
+        // 子节点归位:父节点在中心/内圈的其余节点,放进父节点的圈内
+        // (兄弟间以朝向中心方向为基准 spread;更深层级走外圈椭圆)
+        QVector<quint16> nested_order;
+        QSet<quint16> nested;
+        {
+            QMap<quint16, QVector<quint16>> kids;  // parent -> children
+            QVector<quint16> outer;
+            for (quint16 t : rest) {
+                const quint16 p = m_model.parent_of.value(t, 0);
+                if (p && p != t && (p == center || in_ring1.contains(p)))
+                    kids[p].append(t);
+                else
+                    outer.append(t);
+            }
+            for (auto it = kids.constBegin(); it != kids.constEnd(); ++it) {
+                const quint16 p = it.key();
+                const QVector<quint16>& ch = it.value();
+                // 嵌套方向:与父→中心连线垂直,既避开径向父子箭头,
+                // 又避开父节点圆点下方的百分比标签
+                const QPointF inward = C - m_node_pos[p];
+                const double base =
+                    std::atan2(inward.y(), inward.x()) - kPi / 2.0;
+                for (int i = 0; i < ch.size(); ++i) {
+                    // 兄弟节点在整圆上均匀分布(单节点时取 base 方向)
+                    const double ang =
+                        base + i * 2.0 * kPi / ch.size();
+                    m_node_pos[ch[i]] =
+                        m_node_pos[p] +
+                        QPointF(nest_d * qCos(ang), nest_d * qSin(ang));
+                    nested.insert(ch[i]);
+                    nested_order.append(ch[i]);
+                }
+            }
+            rest.swap(outer);
+        }
+        // 外圈用椭圆布局,吃满横向空间(纵向给标题/提示留边)
+        const double R2x = w / 2.0 - r1 - 24;
+        const double R2y = h * 0.5 - r1 - 40;
+        double r2 = 0.38 * R;
+        const QVector<quint16>& outer = rest;
+        if (!outer.isEmpty()) {
+            const double spacing = qMin(2 * R2x * qSin(kPi / outer.size()),
+                                       2 * R2y * qSin(kPi / outer.size()));
+            r2 = qMax(16.0, qMin(r2, 0.42 * spacing));
         }
         // 外圈整体旋转:与内圈节点角距离最大化,避免径向重叠
         double outer_rot = 0;
@@ -364,6 +403,7 @@ public:
         auto dot_r = [&](quint16 t) -> double {
             if (t == center) return 13.0;
             if (nbrs.contains(t)) return 10.0;
+            if (nested.contains(t)) return 6.0;
             return 7.0;
         };
         const QColor faint(0x9a, 0xa3, 0xb5, 200);
@@ -372,14 +412,21 @@ public:
             const quint16 ch = it.key(), pa = it.value();
             if (ch == pa) continue;
             if (!m_node_pos.contains(ch) || !m_node_pos.contains(pa)) continue;
+            // 嵌套子节点用小箭头(距离短)
+            const double hl = nested.contains(ch) ? 8.0 : 12.0;
             draw_arrow(p, m_node_pos[ch], m_node_pos[pa], dot_r(ch), dot_r(pa),
-                       faint, 2.0, 12.0);
+                       faint, 2.0, hl);
         }
 
-        // 各自的覆盖圈:外圈细实线 / 内圈按信号质量着色 / 中心虚线大圈
+        // 各自的覆盖圈:外圈细实线 / 嵌套子节点细圈 / 内圈按上行质量着色 /
+        // 中心虚线大圈
         for (quint16 t : outer) {
             p->setPen(QPen(QColor(0x2e, 0x33, 0x3d), 1));
             p->drawEllipse(m_node_pos[t], r2, r2);
+        }
+        for (quint16 t : nested_order) {
+            p->setPen(QPen(QColor(0x2e, 0x33, 0x3d), 1));
+            p->drawEllipse(m_node_pos[t], rn, rn);
         }
         for (quint16 t : nbrs) {   // 内圈:按节点自身上行质量着色的圈
             QColor c = rate_color(m_model.circle_rate(t));
@@ -410,13 +457,40 @@ public:
                 draw_arrow(p, C, m_node_pos[t], 13.0, 10.0, c, 3.0, 16.0);
         }
 
-        // 节点:外圈小点 → 中心 → 内圈
+        // 节点:外圈小点 → 嵌套子节点 → 中心 → 内圈
         f.setPixelSize(10);
         p->setFont(f);
         for (quint16 t : outer) {
             QColor fc = rate_color(m_model.nodes[t].avg_rate());
             fc.setAlpha(170);
             draw_node(p, t, 7, fc, t == m_hover_tei, false, true);
+        }
+        for (quint16 t : nested_order) {
+            // 嵌套子节点:小圆点 + TEI 标签放在远离父节点的一侧,避开父节点标签
+            const QPointF pos = m_node_pos[t];
+            QColor fc = rate_color(m_model.nodes[t].avg_rate());
+            fc.setAlpha(190);
+            if (t == m_hover_tei) {
+                p->setPen(QPen(QColor(0xff, 0xff, 0xff, 220), 1.5));
+                p->setBrush(Qt::NoBrush);
+                p->drawEllipse(pos, 9, 9);
+            }
+            p->setPen(Qt::NoPen);
+            p->setBrush(fc);
+            p->drawEllipse(pos, 6, 6);
+            QPointF away(0, -1);
+            const quint16 par = m_model.parent_of.value(t, 0);
+            if (par && par != t && m_node_pos.contains(par)) {
+                const QPointF d = pos - m_node_pos[par];
+                const double dl = std::hypot(d.x(), d.y());
+                if (dl > 1.0) away = d / dl;
+            }
+            p->setPen(QColor(0xe8, 0xea, 0xed));
+            p->setFont(cov_font(10, true));
+            const QPointF lp = pos + away * 15.0;
+            p->drawText(QRectF(lp.x() - 20, lp.y() - 8, 40, 16),
+                        Qt::AlignCenter, QString::number(t));
+            p->setFont(f);
         }
         draw_node(p, center, 13, QColor(0x42, 0xa5, 0xf5), true, true);
         for (quint16 t : nbrs) {
