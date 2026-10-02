@@ -366,14 +366,14 @@ public:
             if (nbrs.contains(t)) return 10.0;
             return 7.0;
         };
-        const QColor faint(0x8a, 0x93, 0xa3, 80);
+        const QColor faint(0x8a, 0x93, 0xa3, 130);
         for (auto it = m_model.parent_of.constBegin();
              it != m_model.parent_of.constEnd(); ++it) {
             const quint16 ch = it.key(), pa = it.value();
             if (ch == pa) continue;
             if (!m_node_pos.contains(ch) || !m_node_pos.contains(pa)) continue;
             draw_arrow(p, m_node_pos[ch], m_node_pos[pa], dot_r(ch), dot_r(pa),
-                       faint, 1.25, 6.0);
+                       faint, 1.5, 9.0);
         }
 
         // 各自的覆盖圈:外圈细实线 / 内圈按信号质量着色 / 中心虚线大圈
@@ -401,13 +401,13 @@ public:
             if (!m_model.is_parent_child(center, t)) continue;
             const int r = m_model.link_rate(center, t);
             QColor c = rate_color(r);
-            c.setAlpha(130);
+            c.setAlpha(210);
             const bool center_is_parent =
                 m_model.parent_of.value(t, 0) == center;
             if (center_is_parent)
-                draw_arrow(p, m_node_pos[t], C, 10.0, 13.0, c, 2.0, 8.0);
+                draw_arrow(p, m_node_pos[t], C, 10.0, 13.0, c, 2.5, 12.0);
             else
-                draw_arrow(p, C, m_node_pos[t], 13.0, 10.0, c, 2.0, 8.0);
+                draw_arrow(p, C, m_node_pos[t], 13.0, 10.0, c, 2.5, 12.0);
         }
 
         // 节点:外圈小点 → 中心 → 内圈
@@ -536,7 +536,7 @@ private:
         const QPointF a = from + u * (from_r + 2.0);
         const QPointF tip = to - u * (to_r + 1.5);
         const QPointF bc = tip - u * head_len;  // 箭头底边中心
-        const double hw = head_len * 0.42;
+        const double hw = head_len * 0.5;       // 半宽:宽箭头更醒目
         p->setPen(QPen(color, width));
         p->drawLine(a, bc + u);
         QPolygonF poly;
