@@ -359,15 +359,21 @@ public:
                 C + QPointF(R2x * qCos(ang), R2y * qSin(ang));
         }
 
-        // 父子连线:全网父子关系细线(中心连线稍后高亮重画)
+        // 父子连线:全网父子关系箭头(子→父),中心连线稍后高亮重画
         p->setBrush(Qt::NoBrush);
-        p->setPen(QPen(QColor(0x8a, 0x93, 0xa3, 80), 1.25));
+        auto dot_r = [&](quint16 t) -> double {
+            if (t == center) return 13.0;
+            if (nbrs.contains(t)) return 10.0;
+            return 7.0;
+        };
+        const QColor faint(0x8a, 0x93, 0xa3, 80);
         for (auto it = m_model.parent_of.constBegin();
              it != m_model.parent_of.constEnd(); ++it) {
             const quint16 ch = it.key(), pa = it.value();
             if (ch == pa) continue;
             if (!m_node_pos.contains(ch) || !m_node_pos.contains(pa)) continue;
-            p->drawLine(m_node_pos[ch], m_node_pos[pa]);
+            draw_arrow(p, m_node_pos[ch], m_node_pos[pa], dot_r(ch), dot_r(pa),
+                       faint, 1.25, 6.0);
         }
 
         // 各自的覆盖圈:外圈细实线 / 内圈按信号质量着色 / 中心虚线大圈
@@ -390,14 +396,18 @@ public:
         p->drawText(QPointF(C.x() - R * 0.78 - 110, C.y() + R * 0.78),
                     QStringLiteral("覆盖范围 Coverage"));
 
-        // 中心↔内圈父子连线(高亮,颜色=中心→邻居传输质量)
+        // 中心↔内圈父子连线(高亮箭头,子→父,颜色=中心→邻居传输质量)
         for (quint16 t : nbrs) {
             if (!m_model.is_parent_child(center, t)) continue;
             const int r = m_model.link_rate(center, t);
             QColor c = rate_color(r);
-            c.setAlpha(110);
-            p->setPen(QPen(c, 2));
-            p->drawLine(C, m_node_pos[t]);
+            c.setAlpha(130);
+            const bool center_is_parent =
+                m_model.parent_of.value(t, 0) == center;
+            if (center_is_parent)
+                draw_arrow(p, m_node_pos[t], C, 10.0, 13.0, c, 2.0, 8.0);
+            else
+                draw_arrow(p, C, m_node_pos[t], 13.0, 10.0, c, 2.0, 8.0);
         }
 
         // 节点:外圈小点 → 中心 → 内圈
@@ -512,6 +522,30 @@ private:
                         rate >= 0 ? QStringLiteral("%1%").arg(rate)
                                   : QStringLiteral("?"));
         }
+    }
+
+    /// @brief 画子→父方向箭头:线段起止避开两端圆点,箭尖指向父节点边缘
+    static void draw_arrow(QPainter* p, const QPointF& from, const QPointF& to,
+                           double from_r, double to_r, const QColor& color,
+                           double width, double head_len = 7.0) {
+        const QPointF d = to - from;
+        const double len = std::hypot(d.x(), d.y());
+        if (len < from_r + to_r + head_len + 4.0) return;  // 太近不画
+        const QPointF u(d.x() / len, d.y() / len);
+        const QPointF n(-u.y(), u.x());
+        const QPointF a = from + u * (from_r + 2.0);
+        const QPointF tip = to - u * (to_r + 1.5);
+        const QPointF bc = tip - u * head_len;  // 箭头底边中心
+        const double hw = head_len * 0.42;
+        p->setPen(QPen(color, width));
+        p->drawLine(a, bc + u);
+        QPolygonF poly;
+        poly << tip << (bc + n * hw) << (bc - n * hw);
+        const QBrush old_brush = p->brush();
+        p->setPen(Qt::NoPen);
+        p->setBrush(color);
+        p->drawPolygon(poly);
+        p->setBrush(old_brush);
     }
 
     void draw_hover_box(QPainter* p, int w, int h) {
