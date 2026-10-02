@@ -10,6 +10,7 @@
 #include <QMutexLocker>
 #include <QPainter>
 #include <QFont>
+#include <QFontDatabase>
 #include <QPen>
 #include <QBrush>
 #include <QSet>
@@ -100,6 +101,27 @@ struct CoverageModel {
     }
 };
 
+/// @brief 取中西文都可靠的字体(容器 fontconfig 对 "Sans" 的 CJK 回退不稳定)
+QFont cov_font(int pixel_size, bool bold = false) {
+    static const QString family = [] {
+        const QStringList cands = {
+            QStringLiteral("Noto Sans CJK SC"),
+            QStringLiteral("WenQuanYi Micro Hei"),
+            QStringLiteral("Microsoft YaHei"),
+            QStringLiteral("Sans"),
+        };
+        const QStringList avail =
+            QFontDatabase::families(QFontDatabase::Any);
+        for (const QString& c : cands)
+            if (avail.contains(c, Qt::CaseInsensitive)) return c;
+        return QStringLiteral("Sans");
+    }();
+    QFont f(family);
+    f.setPixelSize(pixel_size);
+    f.setBold(bold);
+    return f;
+}
+
 /// @brief 成功率配色:优/中/差/未知
 QColor rate_color(int rate) {
     if (rate < 0) return QColor(0x8a, 0x8f, 0x98);
@@ -163,9 +185,7 @@ public:
     void render(QPainter* p, int w, int h) override {
         QMutexLocker lk(&m_model.mutex);
         p->fillRect(0, 0, w, h, QColor(0x17, 0x19, 0x1e));
-        QFont f(QStringLiteral("Sans"));
-        f.setPixelSize(13);
-        f.setBold(true);
+        QFont f = cov_font(13, true);
         p->setFont(f);
 
         const quint16 center = m_model.center_tei;
@@ -176,9 +196,9 @@ public:
 
         // 标题
         p->setPen(QColor(0xe8, 0xea, 0xed));
-        p->drawText(14, 26, QStringLiteral("信号覆盖 Coverage · 中心 TEI %1")
-                                   .arg(center ? QString::number(center)
-                                               : QStringLiteral("-")));
+        p->drawText(14, 26,
+                    QStringLiteral("信号覆盖 Coverage · 共 %1 个节点 Nodes")
+                        .arg(m_model.nodes.size()));
         f.setPixelSize(10);
         f.setBold(false);
         p->setFont(f);
@@ -190,7 +210,9 @@ public:
         }
         if (known) avg = sum / known;
         p->drawText(14, 44,
-                    QStringLiteral("邻居 Neighbors: %1 · 平均成功率 Avg rate: %2")
+                    QStringLiteral("选中 Selected TEI %1 · 邻居 Neighbors: %2 · "
+                                   "平均成功率 Avg rate: %3")
+                        .arg(center)
                         .arg(nbrs.size())
                         .arg(avg >= 0 ? QStringLiteral("%1%").arg(avg)
                                       : QStringLiteral("?")));
@@ -204,29 +226,101 @@ public:
             return;
         }
 
-        // 布局
-        const QPointF C(w / 2.0, h * 0.56);
-        const double R = 0.34 * qMin(w, h);
+        // 布局:选中节点居中,一跳邻居在内圈,其余节点在外圈,每节点自带覆盖圈
+        const QPointF C(w / 2.0, h * 0.52);
+        const double R = 0.30 * qMin(w, h);  // 中心覆盖圈半径
         m_node_pos.clear();
         m_node_pos[center] = C;
-        const int n = nbrs.size();
-        for (int i = 0; i < n; ++i) {
-            const double ang = -kPi / 2.0 + i * 2.0 * kPi / qMax(n, 1);
-            m_node_pos[nbrs[i]] =
-                C + QPointF(R * qCos(ang), R * qSin(ang));
+
+        const int n1 = nbrs.size();
+        const QSet<quint16> in_ring1(nbrs.begin(), nbrs.end());
+        QVector<quint16> outer;
+        for (auto it = m_model.nodes.constBegin();
+             it != m_model.nodes.constEnd(); ++it) {
+            if (it.key() != center && !in_ring1.contains(it.key()))
+                outer.append(it.key());
+        }
+        std::sort(outer.begin(), outer.end());
+
+        // 各节点覆盖圈半径(按环上间距钳制,避免互相吞没)
+        double r1 = 0.38 * R;
+        if (n1 > 1) r1 = qMin(r1, 0.42 * 2 * R * qSin(kPi / n1));
+        // 外圈用椭圆布局,吃满横向空间(纵向给标题/提示留边)
+        const double R2x = w / 2.0 - r1 - 24;
+        const double R2y = h * 0.5 - r1 - 40;
+        double r2 = 0.38 * R;
+        if (!outer.isEmpty()) {
+            const double spacing = qMin(2 * R2x * qSin(kPi / outer.size()),
+                                       2 * R2y * qSin(kPi / outer.size()));
+            r2 = qMax(16.0, qMin(r2, 0.42 * spacing));
         }
 
-        // 覆盖圆圈
-        p->setPen(QPen(QColor(0x3a, 0x41, 0x50), 1.5, Qt::DashLine));
+        for (int i = 0; i < n1; ++i) {
+            const double ang = -kPi / 2.0 + i * 2.0 * kPi / n1;
+            m_node_pos[nbrs[i]] = C + QPointF(R * qCos(ang), R * qSin(ang));
+        }
+        // 外圈整体旋转:与内圈节点角距离最大化,避免径向重叠
+        double outer_rot = 0;
+        if (n1 > 0 && !outer.isEmpty()) {
+            QVector<double> a1;
+            for (int i = 0; i < n1; ++i)
+                a1.append(-kPi / 2.0 + i * 2.0 * kPi / n1);
+            double best = -1;
+            for (int k = 0; k < 36; ++k) {
+                const double rot = k * 2.0 * kPi / 36;
+                double score = 1e9;
+                for (int i = 0; i < outer.size(); ++i) {
+                    const double a = -kPi / 2.0 + rot +
+                                     (i + 0.5) * 2.0 * kPi / outer.size();
+                    for (double b : a1) {
+                        double d = qAbs(a - b);
+                        d = qMin(d, 2 * kPi - d);
+                        score = qMin(score, d);
+                    }
+                }
+                if (score > best) { best = score; outer_rot = rot; }
+            }
+        }
+        for (int i = 0; i < outer.size(); ++i) {
+            const double ang = -kPi / 2.0 + outer_rot +
+                               (i + 0.5) * 2.0 * kPi / outer.size();
+            m_node_pos[outer[i]] =
+                C + QPointF(R2x * qCos(ang), R2y * qSin(ang));
+        }
+
+        // 淡边:所有已知有向邻居关系(中心连线稍后高亮重画)
         p->setBrush(Qt::NoBrush);
+        for (auto it = m_model.nodes.constBegin();
+             it != m_model.nodes.constEnd(); ++it) {
+            if (it.key() == center || !m_node_pos.contains(it.key())) continue;
+            for (quint16 nb : it->neighbors) {
+                if (nb == it.key() || !m_node_pos.contains(nb)) continue;
+                p->setPen(QPen(QColor(0x3a, 0x41, 0x50, 90), 1));
+                p->drawLine(m_node_pos[it.key()], m_node_pos[nb]);
+            }
+        }
+
+        // 各自的覆盖圈:外圈细实线 / 内圈按信号质量着色 / 中心虚线大圈
+        for (quint16 t : outer) {
+            p->setPen(QPen(QColor(0x2e, 0x33, 0x3d), 1));
+            p->drawEllipse(m_node_pos[t], r2, r2);
+        }
+        for (quint16 t : nbrs) {
+            QColor c = rate_color(m_model.nodes[t].avg_rate());
+            c.setAlpha(120);
+            p->setPen(QPen(c, 1.2));
+            p->drawEllipse(m_node_pos[t], r1, r1);
+        }
+        p->setPen(QPen(QColor(0x3a, 0x41, 0x50), 1.5, Qt::DashLine));
         p->drawEllipse(C, R, R);
         p->setPen(QColor(0x8b, 0x93, 0xa3));
         f.setPixelSize(10);
         p->setFont(f);
-        p->drawText(QPointF(C.x() + R * 0.72, C.y() - R * 0.72),
+        // 标签放在圆圈左下方外侧,避开内圈节点
+        p->drawText(QPointF(C.x() - R * 0.78 - 110, C.y() + R * 0.78),
                     QStringLiteral("覆盖范围 Coverage"));
 
-        // 连线
+        // 中心→内圈连线(高亮)
         for (quint16 t : nbrs) {
             const int r = m_model.nodes[t].avg_rate();
             QColor c = rate_color(r);
@@ -235,9 +329,14 @@ public:
             p->drawLine(C, m_node_pos[t]);
         }
 
-        // 节点
+        // 节点:外圈小点 → 中心 → 内圈
         f.setPixelSize(10);
         p->setFont(f);
+        for (quint16 t : outer) {
+            QColor fc = rate_color(m_model.nodes[t].avg_rate());
+            fc.setAlpha(170);
+            draw_node(p, t, 7, fc, t == m_hover_tei, false, true);
+        }
         draw_node(p, center, 13, QColor(0x42, 0xa5, 0xf5), true, true);
         for (quint16 t : nbrs)
             draw_node(p, t, 10, rate_color(m_model.nodes[t].avg_rate()),
@@ -282,7 +381,8 @@ public:
         p->setFont(f);
         p->drawText(QRect(0, h - 28, w, 20), Qt::AlignCenter,
                     QStringLiteral("点击节点设为覆盖中心 · "
-                                   "Click a node to set as coverage center"));
+                                   "Click a node to recenter · "
+                                   "示意布局 Schematic"));
     }
 
     bool handle_event(const GraphicsEvent& e) override {
@@ -309,7 +409,8 @@ public:
 
 private:
     void draw_node(QPainter* p, quint16 tei, int radius, const QColor& fill,
-                   bool highlight, bool is_center = false) {
+                   bool highlight, bool is_center = false,
+                   bool dim = false) {
         const QPointF pos = m_node_pos.value(tei);
         if (highlight) {
             p->setPen(QPen(Qt::white, 2));
@@ -321,13 +422,11 @@ private:
         p->drawEllipse(pos, radius, radius);
         // TEI 编号画在点上方(浅色,深背景可读)
         p->setPen(QColor(0xe8, 0xea, 0xed));
-        QFont f(QStringLiteral("Sans"));
-        f.setPixelSize(10);
-        f.setBold(true);
+        QFont f = cov_font(10, true);
         p->setFont(f);
         p->drawText(QRectF(pos.x() - 20, pos.y() - radius - 20, 40, 16),
                     Qt::AlignCenter, QString::number(tei));
-        if (!is_center) {
+        if (!is_center && !dim) {
             const int rate = m_model.nodes[tei].avg_rate();
             f.setBold(false);
             p->setFont(f);
@@ -352,8 +451,7 @@ private:
                      .arg(nd.down_rate >= 0
                               ? QStringLiteral("%1%").arg(nd.down_rate)
                               : QStringLiteral("?"));
-        QFont f(QStringLiteral("Sans"));
-        f.setPixelSize(10);
+        QFont f = cov_font(10);
         p->setFont(f);
         const QFontMetrics fm(f);
         int bw = 0;
