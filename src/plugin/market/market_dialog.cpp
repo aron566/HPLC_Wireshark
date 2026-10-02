@@ -288,8 +288,7 @@ QString PluginMarketDialog::category_name(const QString& cat) const {
 
 void PluginMarketDialog::on_feed_ready(const QList<MarketPlugin>& plugins) {
     m_feed = plugins;
-    m_status->setText(trl::L("%1 个插件").arg(plugins.size()));
-    rebuild_list();
+    rebuild_list();  // 末尾按实际列表行数更新计数(含平台过滤)
 }
 
 void PluginMarketDialog::on_feed_error(const QString& error) {
@@ -417,6 +416,8 @@ void PluginMarketDialog::rebuild_list() {
     QList<RowEntry> mkt_rows;
     for (int i = 0; i < m_feed.size(); ++i) {
         if (installed_names.contains(m_feed[i].name)) continue;
+        // 平台过滤:当前运行平台无可用版本的插件不在市场中展示
+        if (!m_feed[i].latest_compatible()) continue;
         RowEntry e;
         e.is_installed_group = false;
         e.feed_index = i;
@@ -451,6 +452,7 @@ void PluginMarketDialog::rebuild_list() {
             }
         }
     }
+    m_status->setText(trl::L("%1 个插件").arg(m_rows.size()));
     update_detail();
 }
 

@@ -60,7 +60,9 @@ Entry point: **Plugins → Plugin marketplace** menu in the main window.
   (`linux-x86_64`, `windows-x86_64`, `macos-arm64`, `macos-x86_64`).
   Absent or empty = all platforms (script plugins). The client only
   offers/installs the newest version compatible with the running
-  platform, and shows the platform list in the detail panel.
+  platform, shows the platform list in the detail panel, and hides
+  market entries that have no compatible version at all. The plugin
+  count reflects the filtered list.
   Native plugins ship one binary per platform inside the zip and use a
   platform-neutral manifest `entry` (bare library name); the native
   backend resolves it to `lib<entry>.so` (Unix) or `<entry>.dll`
