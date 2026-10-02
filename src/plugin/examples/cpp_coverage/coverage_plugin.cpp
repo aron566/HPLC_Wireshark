@@ -50,6 +50,7 @@ struct CoverageNode {
 struct CoverageModel {
     QMutex mutex;
     QMap<quint16, CoverageNode> nodes;
+    QMap<quint16, quint16> parent_of;  ///< child -> 父/代理 TEI(来自 routes)
     quint16 center_tei = 0;
 
     void on_topo_event(const TopoEvent& ev) {
@@ -72,10 +73,28 @@ struct CoverageModel {
             n.up_rate = cr.up;
             n.down_rate = cr.down;
         }
+        for (const auto& rp : ev.routes) {
+            if (rp.first && rp.second) {
+                parent_of[rp.first] = rp.second;
+                nodes[rp.first].tei = rp.first;
+            }
+        }
+        QSet<quint16> gone;
         for (quint64 mac : ev.leaves) {
             for (auto it = nodes.begin(); it != nodes.end();) {
-                if (it->mac && it->mac == mac)
+                if (it->mac && it->mac == mac) {
+                    gone.insert(it.key());
                     it = nodes.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+        for (quint16 t : gone) {
+            parent_of.remove(t);
+            for (auto it = parent_of.begin(); it != parent_of.end();) {
+                if (it.value() == t)
+                    it = parent_of.erase(it);
                 else
                     ++it;
             }
@@ -98,6 +117,22 @@ struct CoverageModel {
         }
         std::sort(v.begin(), v.end());
         return v;
+    }
+
+    /// @brief 中心 X 覆盖邻居 Y 的链路质量(0-100;-1=未知)
+    /// @details 方向语义:X→Y。X 是 Y 的父节点(或 X 为 CCO)时用 Y 的下行
+    ///          成功率;Y 是 X 的父节点(含 Y=CCO)时用 X 的上行成功率;
+    ///          都未知则回退 Y 自身平均成功率。
+    int link_rate(quint16 x, quint16 y) const {
+        int r = -1;
+        if (parent_of.value(y, 0) == x)
+            r = nodes.value(y).down_rate;       // X→Y 下行
+        else if (parent_of.value(x, 0) == y || y == 1)
+            r = nodes.value(x).up_rate;         // X→Y 经上级,用 X 上行
+        else if (x == 1)
+            r = nodes.value(y).down_rate;       // CCO 覆盖 Y:用 Y 下行
+        if (r < 0) r = nodes.value(y).avg_rate();
+        return r;
     }
 };
 
@@ -205,7 +240,7 @@ public:
         p->setPen(QColor(0x9a, 0xa0, 0xa8));
         int avg = -1, known = 0, sum = 0;
         for (quint16 t : nbrs) {
-            const int r = m_model.nodes[t].avg_rate();
+            const int r = m_model.link_rate(center, t);
             if (r >= 0) { sum += r; ++known; }
         }
         if (known) avg = sum / known;
@@ -256,11 +291,11 @@ public:
         }
 
         for (int i = 0; i < n1; ++i) {
-            // 内圈半径按成功率:信号越好离中心越近
+            // 内圈半径按链路质量:信号越好离中心越近
             // (100%→0.55R, 0%→R 落在覆盖边界上, 未知→0.9R)
-            const int rate = m_model.nodes[nbrs[i]].avg_rate();
+            const int lr = m_model.link_rate(center, nbrs[i]);
             const double rr =
-                R * (rate < 0 ? 0.9 : 1.0 - 0.45 * rate / 100.0);
+                R * (lr < 0 ? 0.9 : 1.0 - 0.45 * lr / 100.0);
             const double ang = -kPi / 2.0 + i * 2.0 * kPi / n1;
             m_node_pos[nbrs[i]] = C + QPointF(rr * qCos(ang), rr * qSin(ang));
         }
@@ -310,8 +345,8 @@ public:
             p->setPen(QPen(QColor(0x2e, 0x33, 0x3d), 1));
             p->drawEllipse(m_node_pos[t], r2, r2);
         }
-        for (quint16 t : nbrs) {
-            QColor c = rate_color(m_model.nodes[t].avg_rate());
+        for (quint16 t : nbrs) {   // 内圈:按链路质量着色的圈
+            QColor c = rate_color(m_model.link_rate(center, t));
             c.setAlpha(120);
             p->setPen(QPen(c, 1.2));
             p->drawEllipse(m_node_pos[t], r1, r1);
@@ -325,9 +360,9 @@ public:
         p->drawText(QPointF(C.x() - R * 0.78 - 110, C.y() + R * 0.78),
                     QStringLiteral("覆盖范围 Coverage"));
 
-        // 中心→内圈连线(高亮)
+        // 中心→内圈连线(高亮,颜色=链路质量)
         for (quint16 t : nbrs) {
-            const int r = m_model.nodes[t].avg_rate();
+            const int r = m_model.link_rate(center, t);
             QColor c = rate_color(r);
             c.setAlpha(110);
             p->setPen(QPen(c, 2));
@@ -343,9 +378,11 @@ public:
             draw_node(p, t, 7, fc, t == m_hover_tei, false, true);
         }
         draw_node(p, center, 13, QColor(0x42, 0xa5, 0xf5), true, true);
-        for (quint16 t : nbrs)
-            draw_node(p, t, 10, rate_color(m_model.nodes[t].avg_rate()),
-                      t == m_hover_tei);
+        for (quint16 t : nbrs) {
+            const int lr = m_model.link_rate(center, t);
+            draw_node(p, t, 10, rate_color(lr), t == m_hover_tei,
+                      false, false, lr);
+        }
 
         // 图例(右上角,避免与底部提示重叠)
         const struct { QColor c; const char* zh; const char* en; } legend[] = {
@@ -415,7 +452,7 @@ public:
 private:
     void draw_node(QPainter* p, quint16 tei, int radius, const QColor& fill,
                    bool highlight, bool is_center = false,
-                   bool dim = false) {
+                   bool dim = false, int label_rate = -2) {
         const QPointF pos = m_node_pos.value(tei);
         if (highlight) {
             p->setPen(QPen(Qt::white, 2));
@@ -432,7 +469,10 @@ private:
         p->drawText(QRectF(pos.x() - 20, pos.y() - radius - 20, 40, 16),
                     Qt::AlignCenter, QString::number(tei));
         if (!is_center && !dim) {
-            const int rate = m_model.nodes[tei].avg_rate();
+            // label_rate=-2:用节点自身平均;调用方可传入链路质量
+            const int rate = (label_rate <= -2)
+                                 ? m_model.nodes[tei].avg_rate()
+                                 : label_rate;
             f.setBold(false);
             p->setFont(f);
             p->drawText(QRectF(pos.x() - 20, pos.y() + radius + 4, 40, 16),
