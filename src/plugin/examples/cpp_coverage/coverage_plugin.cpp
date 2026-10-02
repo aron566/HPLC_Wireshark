@@ -51,6 +51,7 @@ struct CoverageModel {
     QMutex mutex;
     QMap<quint16, CoverageNode> nodes;
     QMap<quint16, quint16> parent_of;  ///< child -> 父/代理 TEI(来自 routes)
+    QMap<QPair<quint16, quint16>, int> discover_cnt;  ///< (src,邻居)->发现帧计数
     quint16 center_tei = 0;
 
     void on_topo_event(const TopoEvent& ev) {
@@ -63,9 +64,15 @@ struct CoverageModel {
         if (ev.kind == TopoEventKind::DiscoverList && ev.discover_src_tei) {
             CoverageNode& src = nodes[ev.discover_src_tei];
             src.tei = ev.discover_src_tei;
-            src.neighbors =
-                QSet<quint16>(ev.neighbor_teis.begin(), ev.neighbor_teis.end());
-            for (quint16 t : ev.neighbor_teis) nodes[t].tei = t;
+            // 邻居表累积(并集):多次发现帧共同决定覆盖全集,
+            // 邻居在圈中的角度位置按发现帧计数排序(越常被发现越靠上)
+            src.neighbors.unite(
+                QSet<quint16>(ev.neighbor_teis.begin(), ev.neighbor_teis.end()));
+            for (quint16 t : ev.neighbor_teis) {
+                nodes[t].tei = t;
+                if (t != ev.discover_src_tei)
+                    discover_cnt[qMakePair(ev.discover_src_tei, t)]++;
+            }
         }
         for (const CommRateInfo& cr : ev.comm_rates) {
             CoverageNode& n = nodes[cr.tei];
@@ -98,13 +105,20 @@ struct CoverageModel {
                 else
                     ++it;
             }
+            for (auto it = discover_cnt.begin(); it != discover_cnt.end();) {
+                if (it.key().first == t || it.key().second == t)
+                    it = discover_cnt.erase(it);
+                else
+                    ++it;
+            }
         }
         if (!nodes.contains(center_tei))
             center_tei = nodes.contains(1) ? quint16(1)
                          : nodes.isEmpty() ? quint16(0) : nodes.firstKey();
     }
 
-    /// @brief 中心节点的展示邻居:优先其自身邻居表,为空则回退反向边
+    /// @brief 中心节点的展示邻居:优先其自身邻居表,为空则回退反向边;
+    ///        按该中心发现此邻居的帧个数降序(越常被发现越靠上),TEI  tie-break
     QVector<quint16> display_neighbors() const {
         QVector<quint16> v;
         auto it = nodes.find(center_tei);
@@ -115,14 +129,19 @@ struct CoverageModel {
                 if (i.key() != center_tei && i->neighbors.contains(center_tei))
                     v.append(i.key());
         }
-        std::sort(v.begin(), v.end());
+        const quint16 c = center_tei;
+        std::sort(v.begin(), v.end(), [&](quint16 a, quint16 b) {
+            const int ca = discover_cnt.value(qMakePair(c, a), 0);
+            const int cb = discover_cnt.value(qMakePair(c, b), 0);
+            return ca != cb ? ca > cb : a < b;
+        });
         return v;
     }
 
-    /// @brief 中心 X 覆盖邻居 Y 的链路质量(0-100;-1=未知)
-    /// @details 方向语义:X→Y。X 是 Y 的父节点(或 X 为 CCO)时用 Y 的下行
-    ///          成功率;Y 是 X 的父节点(含 Y=CCO)时用 X 的上行成功率;
-    ///          都未知则回退 Y 自身平均成功率。
+    /// @brief 中心 X→邻居 Y 的传输质量(0-100;-1=未知):决定 Y 在 X 圈中的距离
+    /// @details X 是 Y 的父节点(或 X 为 CCO)时用 Y 的下行成功率;
+    ///          Y 是 X 的父节点(含 Y=CCO)时用 X 的上行成功率;
+    ///          未知则回退 Y 自身平均成功率。
     int link_rate(quint16 x, quint16 y) const {
         int r = -1;
         if (parent_of.value(y, 0) == x)
@@ -133,6 +152,18 @@ struct CoverageModel {
             r = nodes.value(y).down_rate;       // CCO 覆盖 Y:用 Y 下行
         if (r < 0) r = nodes.value(y).avg_rate();
         return r;
+    }
+
+    /// @brief 节点自身覆盖圈的质量:该节点的上行成功率(回退自身平均);-1=未知
+    int circle_rate(quint16 t) const {
+        int r = nodes.value(t).up_rate;
+        if (r < 0) r = nodes.value(t).avg_rate();
+        return r;
+    }
+
+    /// @brief 是否父子关系(严格按 routes,不含 CCO 推定)
+    bool is_parent_child(quint16 a, quint16 b) const {
+        return parent_of.value(a, 0) == b || parent_of.value(b, 0) == a;
     }
 };
 
@@ -240,7 +271,7 @@ public:
         p->setPen(QColor(0x9a, 0xa0, 0xa8));
         int avg = -1, known = 0, sum = 0;
         for (quint16 t : nbrs) {
-            const int r = m_model.link_rate(center, t);
+            const int r = m_model.circle_rate(t);
             if (r >= 0) { sum += r; ++known; }
         }
         if (known) avg = sum / known;
@@ -328,16 +359,15 @@ public:
                 C + QPointF(R2x * qCos(ang), R2y * qSin(ang));
         }
 
-        // 淡边:所有已知有向邻居关系(中心连线稍后高亮重画)
+        // 父子连线:全网父子关系细线(中心连线稍后高亮重画)
         p->setBrush(Qt::NoBrush);
-        for (auto it = m_model.nodes.constBegin();
-             it != m_model.nodes.constEnd(); ++it) {
-            if (it.key() == center || !m_node_pos.contains(it.key())) continue;
-            for (quint16 nb : it->neighbors) {
-                if (nb == it.key() || !m_node_pos.contains(nb)) continue;
-                p->setPen(QPen(QColor(0x3a, 0x41, 0x50, 90), 1));
-                p->drawLine(m_node_pos[it.key()], m_node_pos[nb]);
-            }
+        p->setPen(QPen(QColor(0x8a, 0x93, 0xa3, 80), 1.25));
+        for (auto it = m_model.parent_of.constBegin();
+             it != m_model.parent_of.constEnd(); ++it) {
+            const quint16 ch = it.key(), pa = it.value();
+            if (ch == pa) continue;
+            if (!m_node_pos.contains(ch) || !m_node_pos.contains(pa)) continue;
+            p->drawLine(m_node_pos[ch], m_node_pos[pa]);
         }
 
         // 各自的覆盖圈:外圈细实线 / 内圈按信号质量着色 / 中心虚线大圈
@@ -345,8 +375,8 @@ public:
             p->setPen(QPen(QColor(0x2e, 0x33, 0x3d), 1));
             p->drawEllipse(m_node_pos[t], r2, r2);
         }
-        for (quint16 t : nbrs) {   // 内圈:按链路质量着色的圈
-            QColor c = rate_color(m_model.link_rate(center, t));
+        for (quint16 t : nbrs) {   // 内圈:按节点自身上行质量着色的圈
+            QColor c = rate_color(m_model.circle_rate(t));
             c.setAlpha(120);
             p->setPen(QPen(c, 1.2));
             p->drawEllipse(m_node_pos[t], r1, r1);
@@ -360,8 +390,9 @@ public:
         p->drawText(QPointF(C.x() - R * 0.78 - 110, C.y() + R * 0.78),
                     QStringLiteral("覆盖范围 Coverage"));
 
-        // 中心→内圈连线(高亮,颜色=链路质量)
+        // 中心↔内圈父子连线(高亮,颜色=中心→邻居传输质量)
         for (quint16 t : nbrs) {
+            if (!m_model.is_parent_child(center, t)) continue;
             const int r = m_model.link_rate(center, t);
             QColor c = rate_color(r);
             c.setAlpha(110);
@@ -379,9 +410,9 @@ public:
         }
         draw_node(p, center, 13, QColor(0x42, 0xa5, 0xf5), true, true);
         for (quint16 t : nbrs) {
-            const int lr = m_model.link_rate(center, t);
-            draw_node(p, t, 10, rate_color(lr), t == m_hover_tei,
-                      false, false, lr);
+            const int cr = m_model.circle_rate(t);
+            draw_node(p, t, 10, rate_color(cr), t == m_hover_tei,
+                      false, false, cr);
         }
 
         // 图例(右上角,避免与底部提示重叠)
@@ -423,6 +454,7 @@ public:
         p->setFont(f);
         p->drawText(QRect(0, h - 28, w, 20), Qt::AlignCenter,
                     QStringLiteral("离中心越近信号越好 Closer = better · "
+                                   "连线为父子关系 Lines = parent-child · "
                                    "点击节点切换 Click to recenter · "
                                    "示意布局 Schematic"));
     }
