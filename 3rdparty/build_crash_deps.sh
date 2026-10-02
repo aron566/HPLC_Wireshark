@@ -124,6 +124,15 @@ ensure_source() {
     else
         echo "=== crashpad mingw-offsetof patch already applied, skipping ==="
     fi
+    # 老版本 MinGW (mingw-w64 < 11.0,如早期 Qt Tools 自带的 MinGW 13.1.0)
+    # 的 winnt.h 缺少 SDK 10.0.22621+ 的 CET XSAVE 定义(XSAVE_CET_U_FORMAT /
+    # CONTEXT_XSTATE),在 cpu_context_win.h 补 SDK 布局兼容的 fallback(幂等)。
+    if ! grep -q "mingw-xsave-compat" "$SRC_CRASHPAD/snapshot/win/cpu_context_win.h"; then
+        echo "=== applying local crashpad patch: mingw-xsave-compat ==="
+        git -C "$SRC_CRASHPAD" apply --ignore-whitespace "$PWD/patches/crashpad-mingw-xsave-compat.patch"
+    else
+        echo "=== crashpad mingw-xsave-compat patch already applied, skipping ==="
+    fi
 }
 
 build_sentry() {

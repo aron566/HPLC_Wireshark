@@ -1,0 +1,32 @@
+diff --git a/snapshot/win/cpu_context_win.h b/snapshot/win/cpu_context_win.h
+--- a/snapshot/win/cpu_context_win.h
++++ b/snapshot/win/cpu_context_win.h
+@@ -20,6 +20,28 @@
+ 
+ #include "build/build_config.h"
+ 
++// MinGW-w64 < 11.0 (older Qt Tools MinGW 13.1.0 bundles) 的 winnt.h 缺少
++// Windows SDK 10.0.22621+ / mingw-w64 11.0 引入的 CET XSAVE 定义:
++// XSAVE_CET_U_FORMAT、CONTEXT_XSTATE。新工具链不受影响。
++// (hplc_wireshark 本地补丁: mingw-xsave-compat)
++#ifndef CONTEXT_XSTATE
++#define CONTEXT_XSTATE (CONTEXT_AMD64 | 0x40)
++#endif
++#ifndef XSTATE_CET_U
++#define XSTATE_CET_U (11)
++#endif
++#ifndef XSTATE_MASK_CET_U
++#define XSTATE_MASK_CET_U (1ull << XSTATE_CET_U)
++#endif
++#if defined(__MINGW64_VERSION_MAJOR) && (__MINGW64_VERSION_MAJOR < 11)
++// 此处 winnt.h 没有 XSAVE_CET_U_FORMAT typedef(mingw-w64 11.0 才引入),
++// 按 SDK 定义补上,布局与 SDK 一致。
++typedef struct _XSAVE_CET_U_FORMAT {
++  DWORD64 Ia32CetUMsr;
++  DWORD64 Ia32Pl3SspMsr;
++} XSAVE_CET_U_FORMAT, *PXSAVE_CET_U_FORMAT;
++#endif
++
+ namespace crashpad {
+ 
+ struct CPUContextX86;
