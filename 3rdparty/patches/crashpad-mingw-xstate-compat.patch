@@ -1,0 +1,21 @@
+diff --git a/minidump/minidump_context_writer.h b/minidump/minidump_context_writer.h
+--- a/minidump/minidump_context_writer.h
++++ b/minidump/minidump_context_writer.h
+@@ -22,6 +22,17 @@
+ #include "minidump/minidump_context.h"
+ #include "minidump/minidump_writable.h"
+ 
++// MinGW-w64 < 11.0 的 winnt.h 缺少 XSTATE_COMPACTION_ENABLE(_MASK) 定义
++// (Windows SDK 10.0.22621+ / mingw-w64 11.0 引入)。拼写与 SDK 逐 token 一致,
++// 因此即使本头文件先于 <windows.h> 被包含,后续的重复定义也不会产生警告。
++// (hplc_wireshark 本地补丁: mingw-xstate-compat)
++#ifndef XSTATE_COMPACTION_ENABLE
++#define XSTATE_COMPACTION_ENABLE (63)
++#endif
++#ifndef XSTATE_COMPACTION_ENABLE_MASK
++#define XSTATE_COMPACTION_ENABLE_MASK (1ULL << (XSTATE_COMPACTION_ENABLE))
++#endif
++
+ namespace crashpad {
+ 
+ struct CPUContext;

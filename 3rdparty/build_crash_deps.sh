@@ -133,6 +133,14 @@ ensure_source() {
     else
         echo "=== crashpad mingw-xsave-compat patch already applied, skipping ==="
     fi
+    # 同上:XSTATE_COMPACTION_ENABLE(_MASK) 也是 mingw-w64 11.0 才引入,
+    # minidump 的两个 writer 用到,在 minidump_context_writer.h 补(幂等)。
+    if ! grep -q "mingw-xstate-compat" "$SRC_CRASHPAD/minidump/minidump_context_writer.h"; then
+        echo "=== applying local crashpad patch: mingw-xstate-compat ==="
+        git -C "$SRC_CRASHPAD" apply --ignore-whitespace "$PWD/patches/crashpad-mingw-xstate-compat.patch"
+    else
+        echo "=== crashpad mingw-xstate-compat patch already applied, skipping ==="
+    fi
 }
 
 build_sentry() {
