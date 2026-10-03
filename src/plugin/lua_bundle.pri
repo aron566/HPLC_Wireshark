@@ -17,28 +17,28 @@ LUA_LIB = $$LUA_SRC/liblua.a
 LUA_TARBALL = $$_LUA_THIRDPARTY/lua-5.4.6.tar.gz
 LUA_URL = https://www.lua.org/ftp/lua-5.4.6.tar.gz
 
-# --- 1. 源码目录缺失时获取 ---
-# tarball 已进版本库(3rdparty/lua-5.4.6.tar.gz),只需解压;万一缺失才尝试下载。
-# 注意:先 cd 进 3rdparty 再用相对路径——Git 自带的 MSYS tar 常抢在系统 tar
-# 前面,它对 "C:\..." 绝对路径的转换会失败("Failed to open '/C/...'"),相对
-# 路径无此问题。curl 同理。
-!exists($$LUA_DIR) {
-    message("lua: lua-5.4.6 source missing, bootstrapping ...")
-    LUA_BOOTDIR = $$shell_path($$clean_path($$_LUA_THIRDPARTY))
-    !exists($$LUA_TARBALL): LUA_DL = curl -sSL -o lua-5.4.6.tar.gz $$LUA_URL &&
-    LUA_BOOT = cd "$$LUA_BOOTDIR" && $$LUA_DL tar -xzf lua-5.4.6.tar.gz
-    system($$LUA_BOOT)
-    !exists($$LUA_TARBALL): error("lua: download failed; manually download $$LUA_URL into 3rdparty/ and re-run qmake")
-    !exists($$LUA_DIR): error("lua: failed to unpack $$LUA_TARBALL")
-}
-
-# --- 2. 静态库缺失时编译 ---
+# --- 1+2. 源码缺失时获取、静态库缺失时编译 ---
 !exists($$LUA_LIB) {
-    message("lua: building bundled lua-5.4.6 ...")
-    win32-g++: LUA_MAKE = mingw32-make
-    else: LUA_MAKE = make
-    LUA_BUILD = cd "$$shell_path($$clean_path($$LUA_DIR))" && $$LUA_MAKE -C src liblua.a MYCFLAGS="-fPIC"
-    system($$LUA_BUILD): message("lua: built OK")
+    message("lua: bootstrapping bundled lua-5.4.6 ...")
+    win32 {
+        # qmake 的 system() 在 Windows 下实际跑的是 cmd /v:off /s /c "<command>",
+        # /s 会剥掉首尾引号,命令里不能再嵌套双引号——因此逻辑收进
+        # 3rdparty/bootstrap_lua.bat,这里只调 bat(路径无空格,不加引号)。
+        # Windows 下统一用 mingw32-make(各 MinGW 套件都带,含 llvm-mingw)。
+        LUA_BOOT = $$shell_path($$clean_path($$_LUA_THIRDPARTY)/bootstrap_lua.bat) mingw32-make
+        system($$LUA_BOOT)
+    } else {
+        # unix:走 /bin/sh -c,引号无此问题
+        !exists($$LUA_DIR) {
+            !exists($$LUA_TARBALL): LUA_DL = curl -sSL -o lua-5.4.6.tar.gz $$LUA_URL &&
+            LUA_UNPACK = cd "$$clean_path($$_LUA_THIRDPARTY)" && $$LUA_DL tar -xzf lua-5.4.6.tar.gz
+            system($$LUA_UNPACK)
+        }
+        !exists($$LUA_LIB) {
+            LUA_BUILD = cd "$$clean_path($$LUA_DIR)" && make -C src liblua.a MYCFLAGS="-fPIC"
+            system($$LUA_BUILD)
+        }
+    }
     !exists($$LUA_LIB): error("lua: failed to build $$LUA_LIB")
 }
 
