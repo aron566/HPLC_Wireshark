@@ -1,1 +1,15 @@
-{"api_version": 1, "author": "BPLC Team", "description": "信号覆盖插件:全网节点在一张图上展示,每节点自带覆盖圈,圈内为其邻居表覆盖范围,节点颜色表示通信成功率。点击节点可切换选中。", "description_en": "Signal coverage plugin: all nodes on one map, each with its own coverage circle from its neighbor table; node colors show comm success rates. Click a node to select.", "display_name": "C++ 信号覆盖", "display_name_en": "C++ Signal Coverage", "entry": "cpp_coverage", "graphics": true, "name": "cpp-coverage", "panel": "topo", "protocol_id": "COVERAGE", "runtime": "native", "version": "1.0.0"}
+{
+  "api_version": 1,
+  "author": "BPLC Team",
+  "description": "信号覆盖插件:全网节点在一张图上展示,每节点自带覆盖圈,圈内为其邻居表覆盖范围,节点颜色表示通信成功率。点击节点可切换选中。",
+  "description_en": "Signal coverage plugin: all nodes on one map, each with its own coverage circle from its neighbor table; node colors show comm success rates. Click a node to select.",
+  "display_name": "C++ 信号覆盖",
+  "display_name_en": "C++ Signal Coverage",
+  "entry": "cpp_coverage",
+  "graphics": true,
+  "name": "cpp-coverage",
+  "panel": "topo",
+  "protocol_id": "COVERAGE",
+  "runtime": "native",
+  "version": "1.1.0"
+}
