@@ -18,11 +18,12 @@ LUA_TARBALL = $$_LUA_THIRDPARTY/lua-5.4.6.tar.gz
 LUA_URL = https://www.lua.org/ftp/lua-5.4.6.tar.gz
 
 # --- 1. 源码目录缺失时获取 ---
-# (Windows 10 1803+ 自带 curl/tar,无需 bash;与 crash 依赖自动构建一样需要联网)
+# tarball 已进版本库(3rdparty/lua-5.4.6.tar.gz),只需解压;万一缺失才尝试下载
+# (Windows 10 1803+ 自带 curl/tar,无需 bash)。
 !exists($$LUA_DIR) {
     message("lua: lua-5.4.6 source missing, bootstrapping ...")
     !exists($$LUA_TARBALL): system(curl -sSL -o "$$shell_path($$LUA_TARBALL)" $$LUA_URL)
-    !exists($$LUA_TARBALL): error("lua: download failed; manually download $$LUA_URL into 3rdparty/ and re-run qmake")
+    !exists($$LUA_TARBALL): error("lua: $$LUA_TARBALL missing and download failed; manually download $$LUA_URL into 3rdparty/ and re-run qmake")
     system(tar -xzf "$$shell_path($$LUA_TARBALL)" -C "$$shell_path($$_LUA_THIRDPARTY)")
     !exists($$LUA_DIR): error("lua: failed to unpack $$LUA_TARBALL")
 }

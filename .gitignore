@@ -51,4 +51,3 @@ src/crash/tests/build_switch/
 *.dmp
 *.dmp.bak
 3rdparty/lua-5.4.6/
-3rdparty/lua-5.4.6.tar.gz
