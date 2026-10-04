@@ -148,14 +148,23 @@ version + compiler toolchain. Their binary ABI must match the host app's;
 a mismatch (plugin built with a different Qt version, or MSVC vs MinGW)
 corrupts the QMetaObject layout and **crashes the host on load**.
 
-Each native plugin declares its ABI in `plugin.json`:
+Each native plugin declares its ABI in `plugin.json`, either as a single
+string (single-platform package) or per-platform (multi-platform package):
 
-    "abi": "qt6.10.1-mingw-x64"
+    "abi": {
+        "windows-x86_64": "qt6.10.1-mingw-x64",
+        "linux-x86_64": "qt6.4.2-gcc-x64"
+    }
 
 The host computes its own ABI at startup as `qt<version>-<compiler>-<arch>`
+(`plugin_host_abi()` in `plugin_api/plugin_manifest.h`; compiler is
+`msvc`/`mingw`/`gcc`/`clang` — note Linux GCC reports `gcc`, not `mingw`)
 and filters native plugins whose `abi` is missing or differs — marked
-incompatible in the market and skipped at load. Script plugins (js/lua)
-are ABI-independent and need no `abi` field.
+incompatible in the market and skipped at load. The market feed carries
+the same per-version `abi`; `update_market_json.py` copies it from the
+package's `plugin.json`, and the packager (`make_packages.sh`) injects the
+build's ABI at package time. Script plugins (js/lua) are ABI-independent
+and need no `abi` field.
 
 ## Verification chain (current)
 

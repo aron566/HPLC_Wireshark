@@ -11,6 +11,9 @@
   "panel": "topo",
   "protocol_id": "COVERAGE",
   "runtime": "native",
-  "abi": "qt6.10.1-mingw-x64",
+  "abi": {
+    "windows-x86_64": "qt6.10.1-mingw-x64",
+    "linux-x86_64": "qt6.4.2-gcc-x64"
+  },
   "version": "1.1.0"
 }

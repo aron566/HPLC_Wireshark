@@ -140,7 +140,17 @@ QList<MarketPlugin> PluginMarket::parse_feed(const QByteArray& json,
             for (const QJsonValue& pv :
                  vo.value(QStringLiteral("platforms")).toArray())
                 v.platforms.append(pv.toString());
-            v.abi = vo.value(QStringLiteral("abi")).toString();
+            // feed 的 abi 可为字符串(单平台)或按平台对象,与 plugin.json 一致;
+            // 解析为当前平台的值
+            {
+                const QJsonValue abi_v = vo.value(QStringLiteral("abi"));
+                if (abi_v.isObject())
+                    v.abi = abi_v.toObject()
+                                .value(current_platform())
+                                .toString();
+                else
+                    v.abi = abi_v.toString();
+            }
             p.versions.append(v);
         }
         if (!p.name.isEmpty() && !p.versions.isEmpty()) out.append(p);

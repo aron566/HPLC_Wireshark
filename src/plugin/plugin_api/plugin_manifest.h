@@ -91,8 +91,10 @@ inline QString plugin_host_abi() {
     const char* comp =
 #if defined(Q_CC_MSVC)
         "msvc";
+#elif defined(Q_OS_WIN) && defined(Q_CC_GNU)
+        "mingw";   // Windows MinGW (GCC-based, Q_CC_GNU also defined)
 #elif defined(Q_CC_GNU)
-        "mingw";
+        "gcc";     // Linux GCC
 #elif defined(Q_CC_CLANG)
         "clang";
 #else
@@ -157,7 +159,25 @@ inline PluginManifest read_plugin_manifest(const QString& plugin_dir) {
     m.name         = o.value(QStringLiteral("name")).toString();
     m.version      = o.value(QStringLiteral("version")).toString();
     m.runtime      = o.value(QStringLiteral("runtime")).toString();
-    m.abi          = o.value(QStringLiteral("abi")).toString();
+    // abi 支持两种写法:字符串(单平台包,向后兼容)或按平台的对象
+    // {"linux-x86_64": "qt6.4.2-gcc-x64", "windows-x86_64": "qt6.10.1-mingw-x64"};
+    // 解析为当前平台的值,存入 m.abi。
+    {
+        const QJsonValue abi_v = o.value(QStringLiteral("abi"));
+        if (abi_v.isObject()) {
+            const char* plat =
+#if defined(Q_OS_WIN)
+                "windows-x86_64";
+#elif defined(Q_OS_MACOS)
+                "macos-x86_64";
+#else
+                "linux-x86_64";
+#endif
+            m.abi = abi_v.toObject().value(QString::fromLatin1(plat)).toString();
+        } else {
+            m.abi = abi_v.toString();
+        }
+    }
     m.entry        = o.value(QStringLiteral("entry")).toString();
     m.api_version  = o.value(QStringLiteral("api_version")).toInt(0);
     m.protocol_id  = o.value(QStringLiteral("protocol_id")).toString();
