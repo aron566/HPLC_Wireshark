@@ -152,15 +152,16 @@ Each native plugin declares its ABI in `plugin.json`, either as a single
 string (single-platform package) or per-platform (multi-platform package):
 
     "abi": {
-        "windows-x86_64": "qt6.10.1-mingw-x64",
-        "linux-x86_64": "qt6.4.2-gcc-x64"
+        "windows-x86_64": "qt6-mingw-x64",
+        "linux-x86_64": "qt6-gcc-x64"
     }
 
-The host computes its own ABI at startup as `qt<version>-<compiler>-<arch>`
+The host computes its own ABI at startup as `qt<major>-<compiler>-<arch>`
 (`plugin_host_abi()` in `plugin_api/plugin_manifest.h`; compiler is
-`msvc`/`mingw`/`gcc`/`clang` — note Linux GCC reports `gcc`, not `mingw`)
-and filters native plugins whose `abi` is missing or differs — marked
-incompatible in the market and skipped at load. The market feed carries
+`msvc`/`mingw`/`gcc`/`clang` — note Linux GCC reports `gcc`, not `mingw`;
+Qt 6.x ABI is stable, so only the major version is checked — 6.10 and 6.11
+are compatible) and filters native plugins whose `abi` is missing or differs —
+marked incompatible in the market and skipped at load. The market feed carries
 the same per-version `abi`; `update_market_json.py` copies it from the
 package's `plugin.json`, and the packager (`make_packages.sh`) injects the
 build's ABI at package time. Script plugins (js/lua) are ABI-independent

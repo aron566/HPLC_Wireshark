@@ -83,10 +83,10 @@ struct PluginManifest {
     QString error;         ///< valid=false 时的原因
 };
 
-/// @brief 主程序 native 插件 ABI 标识(编译器 + Qt 版本 + 架构)
-/// @details native 插件是编译产物,链接特定 Qt 版本与编译器工具链,其二进制
-///   ABI 必须与主程序一致,否则 QMetaObject 布局/符号修饰可能不兼容,加载时
-///   可能崩溃。插件 plugin.json 的 "abi" 字段须与此值一致(见 docs/MARKET.md)。
+/// @brief 主程序 native 插件 ABI 标识(编译器 + Qt 大版本 + 架构)
+/// @details native 插件是编译产物,其二进制 ABI 由「Qt 大版本 + 编译器 + 架构」决定。
+///   Qt 6.x 系列保证二进制兼容(6.10 与 6.11 可互载),故只用大版本号;5↔6 或
+///   MinGW↔MSVC 才真正不兼容。插件 plugin.json 的 "abi" 字段须与此值一致。
 inline QString plugin_host_abi() {
     const char* comp =
 #if defined(Q_CC_MSVC)
@@ -109,7 +109,7 @@ inline QString plugin_host_abi() {
         "unknown";
 #endif
     return QStringLiteral("qt%1-%2-%3")
-        .arg(QString::fromLatin1(QT_VERSION_STR),
+        .arg(QString::number(QT_VERSION_MAJOR),
              QString::fromLatin1(comp), QString::fromLatin1(arch));
 }
 

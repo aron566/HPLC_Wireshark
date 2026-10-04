@@ -1,8 +1,8 @@
 {
   "api_version": 1,
   "author": "BPLC Team",
-  "description": "信号覆盖插件:全网节点在一张图上展示,每节点自带覆盖圈,圈内为其邻居表覆盖范围,节点颜色表示通信成功率。点击节点可切换选中。",
-  "description_en": "Signal coverage plugin: all nodes on one map, each with its own coverage circle from its neighbor table; node colors show comm success rates. Click a node to select.",
+  "description": "信号覆盖插件:全网节点在一张图上展示,每节点自带覆盖圈,圈内为其有向邻居(发现列表声称能听到的,TEI1 能听到 TEI2 不代表反向);邻居按信号强度/发现帧数由近及远排序。节点颜色表示通信成功率。点击切换选中,滚轮缩放,拖拽平移,主题跟随主界面。",
+  "description_en": "Signal coverage plugin: all nodes on one map, each with a coverage circle of its directed neighbors (from its own discover bitmap); neighbors sorted near-to-far by link rate / discover-frame count. Node colors show comm success rates. Click to recenter, wheel to zoom, drag to pan, theme follows the host.",
   "display_name": "C++ 信号覆盖",
   "display_name_en": "C++ Signal Coverage",
   "entry": "cpp_coverage",
@@ -12,8 +12,8 @@
   "protocol_id": "COVERAGE",
   "runtime": "native",
   "abi": {
-    "windows-x86_64": "qt6.10.1-mingw-x64",
-    "linux-x86_64": "qt6.4.2-gcc-x64"
+    "windows-x86_64": "qt6-mingw-x64",
+    "linux-x86_64": "qt6-gcc-x64"
   },
   "version": "1.1.0"
 }
