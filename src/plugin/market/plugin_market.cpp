@@ -140,6 +140,7 @@ QList<MarketPlugin> PluginMarket::parse_feed(const QByteArray& json,
             for (const QJsonValue& pv :
                  vo.value(QStringLiteral("platforms")).toArray())
                 v.platforms.append(pv.toString());
+            v.abi = vo.value(QStringLiteral("abi")).toString();
             p.versions.append(v);
         }
         if (!p.name.isEmpty() && !p.versions.isEmpty()) out.append(p);
@@ -172,6 +173,15 @@ void PluginMarket::install_market_plugin(const MarketPlugin& plugin,
             plugin.name);
         return;
     }
+    if (!version_abi_ok(v)) {
+        emit install_finished(
+            false,
+            QStringLiteral("ABI mismatch: plugin %1, host %2")
+                .arg(v.abi.isEmpty() ? QStringLiteral("(none)") : v.abi,
+                     plugin_host_abi()),
+            plugin.name);
+        return;
+    }
     m_pending_name = plugin.name;
     m_pending_sha256 = v.sha256;
     m_pending_source =
@@ -193,9 +203,13 @@ void PluginMarket::install_market_plugin(const MarketPlugin& plugin,
         }
         const QString zip_path =
             tmp.path() + QStringLiteral("/pkg.zip");
+        const QByteArray data = rep->readAll();
         QFile f(zip_path);
-        if (!f.open(QIODevice::WriteOnly) ||
-            f.write(rep->readAll()) != rep->size()) {
+        // 用 data.size()(实际读到的字节数)而非 rep->size()(Content-Length):
+        // QNAM 自动解压 gzip 后,readAll() 大小与 Content-Length 可能不等,
+        // 且 chunked 响应 size() 为 -1,都会导致误判 write temp failed。
+        if (data.isEmpty() || !f.open(QIODevice::WriteOnly) ||
+            f.write(data) != data.size()) {
             emit install_finished(false, QStringLiteral("write temp failed"),
                                   m_pending_name);
             return;
@@ -279,9 +293,13 @@ bool PluginMarket::deploy_staged(const QString& staged_dir,
         QDir(default_install_dir()).absoluteFilePath(plugin_name);
     // 备份旧版:先删目标再拷贝(同名覆盖=升级)
     QDir d(dest);
-    if (d.exists() && !d.removeRecursively()) {
-        if (err) *err = QStringLiteral("cannot remove old version: ") + dest;
-        return false;
+    if (d.exists()) {
+        // 先卸载插件释放 native DLL 文件锁(Windows 删不掉被加载的 dll)
+        if (unload_cb) unload_cb();
+        if (!d.removeRecursively()) {
+            if (err) *err = QStringLiteral("cannot remove old version: ") + dest;
+            return false;
+        }
     }
     if (!copy_dir_recursive(staged_dir, dest, err)) return false;
     // 写 meta.json(默认启用,记录来源与版本更新时间)
@@ -358,6 +376,8 @@ bool PluginMarket::uninstall(const QString& name) {
     const QString pdir = QDir(base).absoluteFilePath(name);
     if (!pdir.startsWith(base + QLatin1Char('/'))) return false;
     if (!QDir(pdir).exists()) return false;
+    // 先卸载插件释放 native DLL 文件锁(Windows 删不掉被加载的 dll)
+    if (unload_cb) unload_cb();
     return QDir(pdir).removeRecursively();
 }
 
@@ -471,9 +491,16 @@ bool PluginMarket::version_platform_ok(const MarketVersion& v) {
     return v.platforms.contains(current_platform());
 }
 
+bool PluginMarket::version_abi_ok(const MarketVersion& v) {
+    if (v.abi.isEmpty()) return true;  // 未标注=脚本插件(ABI 无关)
+    return v.abi == plugin_host_abi();
+}
+
 const MarketVersion* MarketPlugin::latest_compatible() const {
     for (int i = versions.size() - 1; i >= 0; --i) {
-        if (PluginMarket::version_platform_ok(versions[i])) return &versions[i];
+        if (PluginMarket::version_platform_ok(versions[i]) &&
+            PluginMarket::version_abi_ok(versions[i]))
+            return &versions[i];
     }
     return nullptr;
 }

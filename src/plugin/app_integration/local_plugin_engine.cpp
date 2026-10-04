@@ -12,6 +12,8 @@
 
 #include "i18n.h"
 #include "plugin_backend.h"
+#include "appconfig.h"
+#include "theme.h"
 
 namespace {
 
@@ -88,6 +90,15 @@ void PluginWorker::start_load(const QString& dir) {
             emit plugin_loaded(info);
             continue;
         }
+        // native 插件 ABI 与主程序不一致(不同 Qt 版本/编译器)会崩,加载前过滤
+        if (!plugin_abi_ok(m)) {
+            info.ok = false;
+            info.error = QStringLiteral("ABI mismatch: plugin %1, host %2")
+                             .arg(m.abi.isEmpty() ? QStringLiteral("(none)") : m.abi,
+                                  plugin_host_abi());
+            emit plugin_loaded(info);
+            continue;
+        }
         info.plugin_id = m.name;
         info.protocol_id = m.protocol_id;
         info.display_name = localized(m.display_name, m.display_name_en);
@@ -112,6 +123,15 @@ void PluginWorker::start_load(const QString& dir) {
             continue;
         }
         b->set_ui_english(trl::enabled());
+        // 界面主题:按 appcfg::theme 解析后是否深色注入(供 host.getEnv("BPLC_THEME"))
+        {
+            const QString t = appcfg::theme();
+            const bool dark =
+                (t == QLatin1String("dark")) ||
+                (t != QLatin1String("light") &&
+                 theme::resolve_auto() == QLatin1String("dark"));
+            b->set_ui_dark(dark);
+        }
         if (m.graphics && !b->has_graphics()) {
             // 声明了图形但后端无图形能力:降级为 stats 面板,保留解析
             info.panel = QStringLiteral("stats");
@@ -132,6 +152,12 @@ void PluginWorker::start_load(const QString& dir) {
         // 插件界面控制:host.jumpToFrame(idx) → 主界面跳帧
         b->set_host_jump_callback([this](qint64 frame_index) {
             emit host_jump_to_frame(frame_index);
+        });
+        // 插件请求弹表格窗口:host.showTable(title, columns, rows) → 主界面弹 QDialog
+        b->set_host_table_callback([this](const QString& title,
+                                          const QStringList& columns,
+                                          const QList<QStringList>& rows) {
+            emit host_show_table(title, columns, rows);
         });
         m_plugins.insert(m.name, rt);
         info.ok = true;
@@ -216,6 +242,12 @@ void PluginWorker::on_frame_selected(qint64 frame_index, bool force_history) {
     for (auto* rt : m_plugins) {
         if (!rt->backend) continue;
         rt->backend->notify_frame_selected(frame_index, force_history);
+    }
+}
+
+void PluginWorker::on_theme_changed(bool dark) {
+    for (auto* rt : m_plugins) {
+        if (rt->backend) rt->backend->set_ui_dark(dark);
     }
 }
 
@@ -339,10 +371,22 @@ void LocalPluginEngine::notify_frame_selected(qint64 frame_index,
                               Q_ARG(qint64, frame_index), Q_ARG(bool, force_history));
 }
 
+void LocalPluginEngine::notify_theme_changed(bool dark) {
+    QMetaObject::invokeMethod(m_worker, "on_theme_changed",
+                              Qt::QueuedConnection, Q_ARG(bool, dark));
+}
+
 void LocalPluginEngine::reset_all() {
     QMetaObject::invokeMethod(m_worker, "reset_all", Qt::QueuedConnection);
 }
 
 void LocalPluginEngine::unload_all() {
     QMetaObject::invokeMethod(m_worker, "unload_all", Qt::QueuedConnection);
+}
+
+void LocalPluginEngine::unload_all_sync() {
+    // BlockingQueuedConnection:阻塞 GUI 线程等工作线程完成 unload_all
+    // (native 后端析构时 QPluginLoader::unload 释放 DLL 文件锁)。
+    QMetaObject::invokeMethod(m_worker, "unload_all",
+                              Qt::BlockingQueuedConnection);
 }

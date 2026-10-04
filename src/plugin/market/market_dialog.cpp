@@ -60,6 +60,7 @@ struct I18nRegMarket {
         trl::register_en("平台", "Platforms");
         trl::register_en("全平台", "All platforms");
         trl::register_en("当前平台不支持", "Not supported on this platform");
+        trl::register_en("ABI 不兼容", "ABI incompatible");
         trl::register_en("可选版本", "Available versions");
         trl::register_en("已安装版本", "Installed version");
         trl::register_en("可更新到", "Update available");
@@ -160,6 +161,10 @@ PluginMarketDialog::PluginMarketDialog(QWidget* parent)
     rebuild_list();
 }
 
+void PluginMarketDialog::set_unload_cb(std::function<void()> cb) {
+    if (m_market) m_market->unload_cb = std::move(cb);
+}
+
 PluginMarketDialog::~PluginMarketDialog() = default;
 
 void PluginMarketDialog::setup_ui() {
@@ -189,6 +194,7 @@ void PluginMarketDialog::setup_ui() {
     auto* split = new QSplitter(Qt::Horizontal, this);
     m_list = new QListWidget(split);
     m_list->setUniformItemSizes(false);
+    m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     connect(m_list, &QListWidget::currentItemChanged, this,
             [this](QListWidgetItem*, QListWidgetItem*) {
                 on_selection_changed();
@@ -332,35 +338,54 @@ bool PluginMarketDialog::row_matches(const RowEntry& e) const {
            p.author.toLower().contains(q);
 }
 
-/// @brief 列表卡片:图标 + 名称/作者/描述 + 右侧状态徽标
+/// @brief 列表卡片:图标 + 名称/作者/描述 + 右侧状态徽标/更新按钮
 QWidget* make_card(const QString& icon_key, const QString& title,
                    const QString& sub, const QString& desc,
-                   const QString& badge) {
+                   const QString& badge, bool badge_update = false,
+                   QPushButton** update_btn_out = nullptr) {
     auto* w = new QWidget();
     auto* h = new QHBoxLayout(w);
     h->setContentsMargins(6, 6, 6, 6);
+    h->setSpacing(8);
     auto* icon = new QLabel(w);
     icon->setPixmap(letter_icon(icon_key, 40));
     icon->setFixedSize(40, 40);
-    h->addWidget(icon);
+    h->addWidget(icon, 0, Qt::AlignTop);
     auto* v = new QVBoxLayout();
-    auto* l1 = new QHBoxLayout();
+    v->setSpacing(2);
+    // 文本列:可收缩(Ignored),保证右侧按钮始终可见
     auto* t = new QLabel(QStringLiteral("<b>%1</b>").arg(title.toHtmlEscaped()), w);
-    l1->addWidget(t, 1);
-    if (!badge.isEmpty()) {
-        auto* b = new QLabel(
-            QStringLiteral("<font color=\"#2e7d32\">%1</font>")
-                .arg(badge.toHtmlEscaped()),
-            w);
-        l1->addWidget(b);
-    }
-    v->addLayout(l1);
+    t->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    v->addWidget(t);
     auto* s = new QLabel(sub.toHtmlEscaped(), w);
     s->setEnabled(false);
-    auto* d = new QLabel(elide_one_line(desc).toHtmlEscaped(), w);
+    s->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     v->addWidget(s);
+    auto* d = new QLabel(elide_one_line(desc).toHtmlEscaped(), w);
+    d->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     v->addWidget(d);
     h->addLayout(v, 1);
+    // 状态/更新:固定在卡片最右侧,不被长文本挤出
+    if (badge_update && update_btn_out) {
+        auto* btn = new QPushButton(trl::L("更新"), w);
+        btn->setStyleSheet(QStringLiteral(
+            "QPushButton { background-color: #1a72bb; color: #ffffff; "
+            "border: none; border-radius: 3px; padding: 3px 14px; "
+            "font-weight: bold; }"
+            "QPushButton:hover { background-color: #259ae9; }"
+            "QPushButton:pressed { background-color: #0f5a99; }"));
+        btn->setCursor(Qt::PointingHandCursor);
+        btn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        h->addWidget(btn, 0, Qt::AlignVCenter);
+        *update_btn_out = btn;
+    } else if (!badge.isEmpty()) {
+        auto* b = new QLabel(badge.toHtmlEscaped(), w);
+        b->setStyleSheet(QStringLiteral(
+            "QLabel { background-color: #6a6a6a; color: #ffffff; "
+            "border-radius: 9px; padding: 2px 8px; "
+            "font-weight: bold; font-size: 11px; }"));
+        h->addWidget(b, 0, Qt::AlignVCenter);
+    }
     return w;
 }
 
@@ -393,16 +418,33 @@ void PluginMarketDialog::rebuild_list() {
             const InstalledPlugin& ip = m_installed[e.installed_index];
             const MarketVersion* upd =
                 PluginMarket::update_for(ip, m_feed);
-            QString badge = ip.enabled ? QString() : trl::L("已禁用");
-            if (upd) badge = trl::L("可更新到") + " " + upd->version;
+            bool badge_update = false;
+            QString badge;
+            if (upd) {
+                badge_update = true;  // 左侧直接显示「更新」按钮
+            } else if (!ip.enabled) {
+                badge = trl::L("已禁用");
+            }
+            QPushButton* upd_btn = nullptr;
             auto* card = make_card(
                 ip.manifest.name,
                 plugin_display_name(ip.manifest, en),
                 trl::L("作者") + ": " + ip.manifest.author + "  " +
                     trl::L("版本") + ": " + ip.manifest.version,
-                plugin_description(ip.manifest, en), badge);
+                plugin_description(ip.manifest, en), badge, badge_update,
+                &upd_btn);
+            if (upd_btn) {
+                const QString name = ip.manifest.name;
+                connect(upd_btn, &QPushButton::clicked, this,
+                        [this, name]() {
+                            m_current_name = name;
+                            on_install_clicked();
+                        });
+            }
             auto* it = new QListWidgetItem(m_list);
-            it->setSizeHint(card->sizeHint());
+            QSize _sh = card->sizeHint();
+            _sh.setWidth(qMax(240, m_list->viewport()->width() - 4));
+            it->setSizeHint(_sh);
             m_list->setItemWidget(it, card);
             m_rows.append(e);
             it->setData(Qt::UserRole, m_rows.size() - 1);
@@ -437,7 +479,9 @@ void PluginMarketDialog::rebuild_list() {
                     trl::L("分类") + ": " + category_name(p.category),
                 p.localized_desc(en), QString());
             auto* it = new QListWidgetItem(m_list);
-            it->setSizeHint(card->sizeHint());
+            QSize _sh = card->sizeHint();
+            _sh.setWidth(qMax(240, m_list->viewport()->width() - 4));
+            it->setSizeHint(_sh);
             m_list->setItemWidget(it, card);
             m_rows.append(e);
             it->setData(Qt::UserRole, m_rows.size() - 1);
@@ -734,10 +778,18 @@ void PluginMarketDialog::update_detail() {
         const MarketPlugin& p = *mp;
         const MarketVersion* lat = p.latest_compatible();
         m_d_name->setText(p.localized_name(en));
+        // 区分「平台不支持」与「native ABI 不兼容」的提示
+        const MarketVersion* lat_platform = nullptr;
+        for (int i = p.versions.size() - 1; i >= 0; --i)
+            if (PluginMarket::version_platform_ok(p.versions[i])) {
+                lat_platform = &p.versions[i];
+                break;
+            }
         const QString plat_txt =
             lat ? (lat->platforms.isEmpty() ? trl::L("全平台")
                                             : lat->platforms.join(", "))
-                : trl::L("当前平台不支持");
+                : (lat_platform ? trl::L("ABI 不兼容")
+                                : trl::L("当前平台不支持"));
         m_d_meta->setText(
             trl::L("作者") + ": " + p.author + "\n" +
             trl::L("版本") + ": " + (lat ? lat->version : "-") + "\n" +

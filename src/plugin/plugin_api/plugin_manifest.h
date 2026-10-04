@@ -65,6 +65,7 @@ struct PluginManifest {
     QString name;
     QString version;
     QString runtime;       ///< native | lua | js
+    QString abi;           ///< native 插件的 ABI 标识(如 qt6.10.1-mingw-x64),须与主程序 plugin_host_abi() 一致
     QString entry;         ///< 入口文件名(相对插件目录)
     int     api_version = 0;
     QString protocol_id;   ///< 解析器插件的协议标识
@@ -81,6 +82,40 @@ struct PluginManifest {
     bool    valid = false;
     QString error;         ///< valid=false 时的原因
 };
+
+/// @brief 主程序 native 插件 ABI 标识(编译器 + Qt 版本 + 架构)
+/// @details native 插件是编译产物,链接特定 Qt 版本与编译器工具链,其二进制
+///   ABI 必须与主程序一致,否则 QMetaObject 布局/符号修饰可能不兼容,加载时
+///   可能崩溃。插件 plugin.json 的 "abi" 字段须与此值一致(见 docs/MARKET.md)。
+inline QString plugin_host_abi() {
+    const char* comp =
+#if defined(Q_CC_MSVC)
+        "msvc";
+#elif defined(Q_CC_GNU)
+        "mingw";
+#elif defined(Q_CC_CLANG)
+        "clang";
+#else
+        "unknown";
+#endif
+    const char* arch =
+#if defined(Q_PROCESSOR_X86_64)
+        "x64";
+#elif defined(Q_PROCESSOR_ARM_64)
+        "arm64";
+#else
+        "unknown";
+#endif
+    return QStringLiteral("qt%1-%2-%3")
+        .arg(QString::fromLatin1(QT_VERSION_STR),
+             QString::fromLatin1(comp), QString::fromLatin1(arch));
+}
+
+/// @brief native 插件 ABI 是否与主程序匹配(脚本插件无需 ABI,恒 true)
+inline bool plugin_abi_ok(const PluginManifest& m) {
+    if (m.runtime != QStringLiteral("native")) return true;
+    return !m.abi.isEmpty() && m.abi == plugin_host_abi();
+}
 
 /// @brief native 插件 entry 平台解析
 /// entry 为显式文件名(含 .so/.dll/.dylib 后缀)时直接使用(向后兼容);
@@ -122,6 +157,7 @@ inline PluginManifest read_plugin_manifest(const QString& plugin_dir) {
     m.name         = o.value(QStringLiteral("name")).toString();
     m.version      = o.value(QStringLiteral("version")).toString();
     m.runtime      = o.value(QStringLiteral("runtime")).toString();
+    m.abi          = o.value(QStringLiteral("abi")).toString();
     m.entry        = o.value(QStringLiteral("entry")).toString();
     m.api_version  = o.value(QStringLiteral("api_version")).toInt(0);
     m.protocol_id  = o.value(QStringLiteral("protocol_id")).toString();

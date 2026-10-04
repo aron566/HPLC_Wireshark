@@ -15,6 +15,7 @@
 #include "fieldtools.h"
 #include "topo_window.h"
 #include "plugin_panels.h"
+#include "plugin_manager.h"
 #include "market_dialog.h"
 #include "plugin_market.h"
 
@@ -31,6 +32,8 @@
 #include <QLabel>
 #include <QTableView>
 #include <QHeaderView>
+#include <QDialog>
+#include <QStandardItemModel>
 #include <QScrollBar>
 #include <QSplitter>
 #include <QStatusBar>
@@ -429,6 +432,9 @@ void MainWindow::on_start() {
     ReaderConfig init = load_config_from_settings();
     const QString old_proto = appcfg::protocol();
     CommConfigDialog dlg(this, init);
+    if (m_plugin_engine)
+        connect(&dlg, &CommConfigDialog::theme_changed,
+                m_plugin_engine, &LocalPluginEngine::notify_theme_changed);
     if (dlg.exec() != QDialog::Accepted) return;
 
     ReaderConfig cfg = dlg.config();
@@ -750,6 +756,9 @@ void MainWindow::on_settings() {
     ReaderConfig init = load_config_from_settings();
     const QString old_proto = appcfg::protocol();
     CommConfigDialog dlg(this, init);
+    if (m_plugin_engine)
+        connect(&dlg, &CommConfigDialog::theme_changed,
+                m_plugin_engine, &LocalPluginEngine::notify_theme_changed);
     if (dlg.exec() != QDialog::Accepted) return;
     save_config_to_settings(dlg.config());
     if (appcfg::protocol() != old_proto && confirm_protocol_rebuild())
@@ -1271,6 +1280,36 @@ void MainWindow::connect_plugin_feed() {
     connect(m_plugin_engine, &LocalPluginEngine::host_jump_to_frame,
             this, &MainWindow::jump_packet_to_frame,
             Qt::QueuedConnection);
+    // 插件请求弹表格窗口:host.showTable(title, columns, rows)
+    connect(m_plugin_engine, &LocalPluginEngine::host_show_table,
+            this, &MainWindow::show_plugin_table,
+            Qt::QueuedConnection);
+}
+
+void MainWindow::show_plugin_table(const QString& title,
+                                   const QStringList& columns,
+                                   const QList<QStringList>& rows) {
+    auto* dlg = new QDialog(this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setWindowTitle(title);
+    dlg->resize(480, 360);
+    auto* lay = new QVBoxLayout(dlg);
+    auto* model = new QStandardItemModel(dlg);
+    model->setHorizontalHeaderLabels(columns);
+    for (const QStringList& row : rows) {
+        QList<QStandardItem*> items;
+        for (const QString& cell : row)
+            items << new QStandardItem(cell);
+        model->appendRow(items);
+    }
+    auto* view = new QTableView(dlg);
+    view->setModel(model);
+    view->setSelectionBehavior(QAbstractItemView::SelectRows);
+    view->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    view->horizontalHeader()->setStretchLastSection(true);
+    view->verticalHeader()->setVisible(false);
+    lay->addWidget(view);
+    dlg->show();
 }
 
 void MainWindow::load_plugins(const QString& dir) {
@@ -1296,6 +1335,10 @@ void MainWindow::load_plugin_dirs(const QStringList& dirs) {
 
 void MainWindow::on_open_plugin_market() {
     PluginMarketDialog dlg(this);
+    // 更新/卸载删除旧目录前,先同步卸载插件释放 native DLL 文件锁
+    dlg.set_unload_cb([this]() {
+        if (m_plugin_engine) m_plugin_engine->unload_all_sync();
+    });
     dlg.exec();
     // 市场内安装/卸载后重新加载全部插件目录,使变更即时生效
     load_plugin_dirs(m_plugin_search_dirs);

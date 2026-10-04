@@ -67,6 +67,8 @@ public slots:
     void on_graphics_event(const QString& pid, const GraphicsEvent& e);
     /// @brief 主界面帧选中变化(单击/双击),转发给各插件后端
     void on_frame_selected(qint64 frame_index, bool force_history);
+    /// @brief 主界面主题切换(深色?)→ 更新各后端 ui_dark(host.getEnv BPLC_THEME)
+    void on_theme_changed(bool dark);
     void reset_all();
     /// @brief 卸载全部插件(删除后端,清空列表;重载目录前调用)
     void unload_all();
@@ -80,6 +82,9 @@ signals:
     void text_ready(const QString& pid, const QString& func, const QString& text);
     /// @brief 插件请求主界面跳转到指定帧(host.jumpToFrame)
     void host_jump_to_frame(qint64 frame_index);
+    /// @brief 插件请求主界面弹出独立表格窗口(host.showTable)
+    void host_show_table(const QString& title, const QStringList& columns,
+                         const QList<QStringList>& rows);
 
 private slots:
     void flush_periodic();
@@ -104,6 +109,9 @@ public:
     void load(const QString& dir);
     /// @brief 卸载全部插件(删除后端,清空列表;重载目录前调用)
     void unload_all();
+    /// @brief 同步卸载全部插件(阻塞等工作线程完成;市场删除旧目录前调用,
+    ///        释放 native DLL 文件锁,否则 Windows 删不掉被加载的 dll)
+    void unload_all_sync();
     /// @brief 工作线程是否空闲(无积压帧)
     bool is_idle() const { return m_worker && m_worker->pending_frames() == 0; }
 
@@ -116,6 +124,8 @@ public slots:
     void send_graphics_event(const QString& pid, const GraphicsEvent& e);
     /// @brief 主界面帧选中变化(单击/双击),GUI 线程调用,排队到工作线程
     void notify_frame_selected(qint64 frame_index, bool force_history = false);
+    /// @brief 主界面主题切换(GUI 线程调用,排队到工作线程更新各后端 ui_dark)
+    void notify_theme_changed(bool dark);
     void reset_all();
 
 signals:
@@ -127,6 +137,9 @@ signals:
     void text_ready(const QString& pid, const QString& func, const QString& text);
     /// @brief 插件请求主界面跳转到指定帧(供 MainWindow::jump_packet_to_frame)
     void host_jump_to_frame(qint64 frame_index);
+    /// @brief 插件请求主界面弹表格窗口(供 MainWindow 弹 QDialog)
+    void host_show_table(const QString& title, const QStringList& columns,
+                         const QList<QStringList>& rows);
 
 private:
     QThread*      m_thread = nullptr;

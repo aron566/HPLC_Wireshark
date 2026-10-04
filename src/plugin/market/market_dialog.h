@@ -9,6 +9,7 @@
 #include <QDialog>
 #include <QList>
 #include <QMap>
+#include <functional>
 
 #include "plugin_market.h"
 
@@ -31,6 +32,9 @@ class PluginMarketDialog : public QDialog {
 public:
     explicit PluginMarketDialog(QWidget* parent = nullptr);
     ~PluginMarketDialog() override;
+
+    /// @brief 注入「卸载插件」回调(删除旧目录前调用,同步释放 native DLL)
+    void set_unload_cb(std::function<void()> cb);
 
 private slots:
     void on_feed_ready(const QList<MarketPlugin>& plugins);

@@ -141,6 +141,22 @@ deletes the dir; name is restricted to a single path segment
 effect after plugins are reloaded (dialog close triggers a reload of all
 plugin dirs).
 
+## Native (C++) plugin ABI compatibility
+
+Native (C++) plugins are compiled binaries linked against a specific Qt
+version + compiler toolchain. Their binary ABI must match the host app's;
+a mismatch (plugin built with a different Qt version, or MSVC vs MinGW)
+corrupts the QMetaObject layout and **crashes the host on load**.
+
+Each native plugin declares its ABI in `plugin.json`:
+
+    "abi": "qt6.10.1-mingw-x64"
+
+The host computes its own ABI at startup as `qt<version>-<compiler>-<arch>`
+and filters native plugins whose `abi` is missing or differs — marked
+incompatible in the market and skipped at load. Script plugins (js/lua)
+are ABI-independent and need no `abi` field.
+
 ## Verification chain (current)
 
 - sha256 of the downloaded package vs the feed (market installs).

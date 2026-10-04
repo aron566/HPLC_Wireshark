@@ -24,6 +24,7 @@
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QString>
+#include <functional>
 
 #include "../plugin_api/plugin_manifest.h"
 
@@ -36,6 +37,7 @@ struct MarketVersion {
     QString min_app_version; ///< 要求宿主最低版本
     QString updated_at;      ///< 版本更新时间(ISO 日期,可空)
     QStringList platforms;   ///< 适用平台(如 linux-x86_64);空=全平台(脚本插件)
+    QString abi;             ///< native 插件 ABI(如 qt6.10.1-mingw-x64);脚本插件为空
 };
 
 /// @brief 市场 feed 中的一个插件
@@ -102,6 +104,10 @@ public:
     /// @brief 离线安装本地 zip 包(异步,经 install_* 信号回传)
     void install_from_file(const QString& zip_path);
 
+    /// @brief 部署/卸载前卸载插件的回调(删除旧目录前调用,需同步等待
+    ///        native DLL 释放文件锁;由主界面注入 unload_all_sync)
+    std::function<void()> unload_cb;
+
     /// @brief 扫描安装目录,返回已安装插件
     QList<InstalledPlugin> installed_plugins() const;
     /// @brief 启用/禁用(写 meta.json,下次加载生效)
@@ -125,6 +131,8 @@ public:
     static QString current_platform();
     /// @brief 该版本是否可在当前平台安装(platforms 为空=全平台)
     static bool version_platform_ok(const MarketVersion& v);
+    /// @brief native 版本 ABI 是否与主程序匹配(abi 空=脚本插件,恒 true)
+    static bool version_abi_ok(const MarketVersion& v);
     /// @brief 插件目录是否被禁用(meta.json enabled==false)
     static bool plugin_dir_enabled(const QString& plugin_dir);
 
