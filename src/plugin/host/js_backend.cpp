@@ -274,12 +274,15 @@ ParseResult JsBackend::parse(const BplcFrame& frame, MsduState& msdu,
     ParseResult r;
     r.meta = frame.meta;
     r.raw_wire = frame.raw_wire;
+    r.arrival_us = frame.arrival_us;
     r.payload_for_log = frame.data;
 
     // 构造 frame 对象
     QJSValue js_frame = m_engine.newObject();
     js_frame.setProperty("data", byte_array_to_js(m_engine, frame.data));
     js_frame.setProperty("rawWire", byte_array_to_js(m_engine, frame.raw_wire));
+    js_frame.setProperty("arrivalUs",
+                         QJSValue(static_cast<double>(frame.arrival_us)));
 
     // MPDU:主程序解析真值直接透传(插件无需重复解析 raw 字节)
     QJSValue js_mpdu = m_engine.newObject();

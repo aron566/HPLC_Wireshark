@@ -34,6 +34,7 @@ GW_2022_Parser::GW_2022_Parser() {}
 // 剥物理层头
 bool GW_2022_Parser::decode_envelope(const BplcFrame& in, Result& r) {
     r.meta = in.meta;
+    r.arrival_us = in.arrival_us;   // 实时串口帧起始 0x3C 高精度接收时刻
     r.raw_wire   = in.raw_wire;     // 原始串口帧原样(调试复制)
     const QByteArray& d = in.data;
 
@@ -42,9 +43,7 @@ bool GW_2022_Parser::decode_envelope(const BplcFrame& in, Result& r) {
         if (d.size() < 2) { r.reject_reason = trl::L("空帧"); return false; }
         r.meta.is_rf = (quint8(d[0]) != 0);
         r.payload_for_log = d.mid(1);
-        // 文本头给出首帧时间(无则回退本地):frame_time 从 arrival 恢复,
-        // 使 Time/Delta/再导出以文件头时间为基准
-        r.meta.frame_time = QDateTime::fromMSecsSinceEpoch(in.arrival_ms);
+        // frame_time 已由 SerialReader 从文本头时间填充(r.meta 已拷贝)
         return true;
     }
 
@@ -72,10 +71,8 @@ bool GW_2022_Parser::decode_envelope(const BplcFrame& in, Result& r) {
             r.meta.epoch_ms = r.meta.frame_time.toMSecsSinceEpoch();
         }
     } else {
-        // 无时间标签:串口/回放帧 arrival=now(等价本地时间);
-        // 裸数据回放帧 arrival=ts 还原的捕获时刻 → 以此恢复 frame_time
-        r.meta.frame_time = QDateTime::fromMSecsSinceEpoch(in.arrival_ms);
-        r.meta.epoch_ms = in.arrival_ms;   // O(1):arrival_ms 即 epoch ms
+        // 无时间标签:frame_time 已由 SerialReader 填充(回放时间轴/本地接收时刻)
+        r.meta.epoch_ms = r.meta.frame_time.toMSecsSinceEpoch();  // 补 epoch_ms 缓存
     }
 
     int offset = hdr;

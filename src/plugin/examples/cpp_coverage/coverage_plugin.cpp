@@ -215,6 +215,7 @@ public:
         ParseResult r;
         r.meta = in.meta;
         r.raw_wire = in.raw_wire;
+        r.arrival_us = in.arrival_us;
         r.accept = true;
         r.msdu.present = false;
         r.msdu.summary = QStringLiteral("COVERAGE");

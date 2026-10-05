@@ -27,6 +27,7 @@ NW_2021_Parser::NW_2021_Parser() {}
 // 剥物理层头(与国网一致:[dlen2][ts4][phr_mcs][option][channel][isRF])
 bool NW_2021_Parser::decode_envelope(const BplcFrame& in, Result& r) {
     r.meta = in.meta;
+    r.arrival_us = in.arrival_us;
     r.raw_wire   = in.raw_wire;
     const QByteArray& d = in.data;
 
@@ -34,8 +35,8 @@ bool NW_2021_Parser::decode_envelope(const BplcFrame& in, Result& r) {
         if (d.size() < 2) { r.reject_reason = trl::L("空帧"); return false; }
         r.meta.is_rf = (quint8(d[0]) != 0);
         r.payload_for_log = d.mid(1);
-        r.meta.frame_time = QDateTime::fromMSecsSinceEpoch(in.arrival_ms);
-        r.meta.epoch_ms = in.arrival_ms;
+        // frame_time 已由 SerialReader 从文本头时间填充(r.meta 已拷贝)
+        r.meta.epoch_ms = r.meta.frame_time.toMSecsSinceEpoch();
         return true;
     }
 
@@ -63,8 +64,8 @@ bool NW_2021_Parser::decode_envelope(const BplcFrame& in, Result& r) {
             r.meta.epoch_ms = r.meta.frame_time.toMSecsSinceEpoch();
         }
     } else {
-        r.meta.frame_time = QDateTime::fromMSecsSinceEpoch(in.arrival_ms);
-        r.meta.epoch_ms = in.arrival_ms;
+        // 无时间标签:frame_time 已由 SerialReader 填充
+        r.meta.epoch_ms = r.meta.frame_time.toMSecsSinceEpoch();
     }
 
     int offset = hdr;

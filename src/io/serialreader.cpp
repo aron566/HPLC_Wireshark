@@ -13,7 +13,7 @@
 
 ReaderWorker::ReaderWorker(QObject* parent) : QObject(parent),
     m_serial(nullptr), m_file(nullptr),
-    m_get3c(false), m_playback_base_ms(-1), m_first_frame(false),
+    m_get3c(false), m_frame_rx_us(0), m_playback_base_ms(-1), m_first_frame(false),
     m_last_ntb(0), m_last_ft(0), m_running(false), m_abort(false), m_active(false),
     m_raw_base_ms(-1),
     m_hex_seg_first(false), m_hex_seg_base_ts(0), m_hex_seg_base_us(0),
@@ -149,6 +149,11 @@ void ReaderWorker::on_serial_ready_read() {
     if (!m_serial) return;
     QByteArray chunk = m_serial->readAll();
     if (chunk.isEmpty()) return;
+    // “读到第一个字符是 0x3C”即帧起始到达:缓冲无残留(上一帧已收完)且
+    // 新数据首字节为 0x3C 时,此刻就是该帧起点;后续同批内的帧起点由
+    // try_extract_frame 逐 0x3C 发现打点
+    if (!m_get3c && m_in_buf.isEmpty() && quint8(chunk[0]) == 0x3C)
+        m_frame_rx_us = steady_us();
     m_in_buf.append(chunk);
     try_extract_frame();
 }
@@ -207,6 +212,10 @@ void ReaderWorker::try_extract_frame() {
             }
             m_in_buf.remove(0, 1);
             m_get3c = true;
+            // 帧起始分节符 0x3C 的本地接收时刻(单调 µs):
+            // 批内后续帧/缓冲中发现的起点在此打点(实时串口);文件回放不填
+            if (m_cfg.mode == ReaderMode::SerialPort)
+                m_frame_rx_us = steady_us();
             continue;
         }
         int idx = m_in_buf.indexOf(char(0x3E));
@@ -260,7 +269,7 @@ void ReaderWorker::try_extract_frame() {
                               | ((quint32)(quint8)unesc[4] << 16)
                               | ((quint32)(quint8)unesc[5] << 24);
             if (m_first_frame) {
-                bf.arrival_ms = m_playback_base_ms;
+                bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(m_playback_base_ms);
                 m_last_ft = m_playback_base_ms;
                 m_last_ntb = ntb;
                 m_first_frame = false;
@@ -268,18 +277,20 @@ void ReaderWorker::try_extract_frame() {
             } else {
                 const qint64 dn = (qint32)(ntb - m_last_ntb);   // 回绕安全
                 if (dn > 0 && dn <= playback::kMaxNtbGapTicks) {
-                    bf.arrival_ms = m_last_ft + playback::ntb_to_us(quint32(dn)) / 1000;
+                    const qint64 ft_ms = m_last_ft + playback::ntb_to_us(quint32(dn)) / 1000;
+                    bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(ft_ms);
+                    m_last_ft = ft_ms;
                 } else {
-                    bf.arrival_ms = QDateTime::currentMSecsSinceEpoch();  // 断点:本地时刻
+                    bf.meta.frame_time = QDateTime::currentDateTime();  // 断点:本地时刻
+                    m_last_ft = bf.meta.frame_time.toMSecsSinceEpoch();
                 }
-                m_last_ft = bf.arrival_ms;
                 m_last_ntb = ntb;
             }
         } else {
             // 实时串口:无 8B 标注,arrival=本地时刻;断段判断用本地接收时间差
             // (超过 NTB u32 回绕周期 ≈171.8s 视为断段,标 seg_start)
             const qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
-            bf.arrival_ms = now_ms;
+            bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(now_ms);
             if (m_cfg.mode == ReaderMode::SerialPort) {
                 // 帧内 NTB(实时串口也读取,用于 NTB 差 vs 本地时间差一致性判段)
                 const quint32 ntb = (unesc.size() >= 6)
@@ -306,6 +317,7 @@ void ReaderWorker::try_extract_frame() {
                 m_last_ntb = ntb;
             }
         }
+        bf.arrival_us = m_frame_rx_us;   // 0x3C 起始高精度接收时刻(实时)
         bf.raw_wire   = wire;            // 原始串口帧原样(调试复制)
         // 帧 ts 域语义(2026-09 统一):ts 一律为 NTB tick(25kHz,40ns),
         // 无论实时串口(设备填)还是文件回放(bin/裸 hex 导出均写 NTB)
@@ -399,7 +411,8 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
         bf.meta.has_time_tag = false;
         bf.meta.frame_ts_is_ntb = true;
         bf.meta.seg_start = seg_start;
-        bf.arrival_ms = t2_us / 1000;
+        bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(t2_us / 1000);
+        bf.arrival_us = t2_us;
         bf.raw_wire   = raw;   // 0x3C...0x3E 原样
         bf.data       = data;  // 反转义后的 [dlen][ts][media][MPDU]
         emit frame_ready(bf);

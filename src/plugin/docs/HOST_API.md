@@ -120,6 +120,7 @@ Notified when the user selects a frame in the main window's packet list.
 |---|---|---|
 | `data` | bytes | unescaped payload |
 | `rawWire` | bytes | original on-wire bytes |
+| `arrivalUs` | number | capture timestamp (µs) |
 | `index` | number | 1-based decoded frame number (0 = raw, undecodable) |
 | `epochMs` | number | decoded frame time (epoch ms) |
 | `topoEvent` | object\|null | topology event carried by this frame (null = none) |

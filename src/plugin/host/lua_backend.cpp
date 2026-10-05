@@ -527,6 +527,7 @@ ParseResult LuaBackend::parse(const BplcFrame& frame, MsduState& msdu,
     ParseResult r;
     r.meta = frame.meta;
     r.raw_wire = frame.raw_wire;
+    r.arrival_us = frame.arrival_us;
     r.payload_for_log = frame.data;
 
     lua_getglobal(m_lua, "parse");
@@ -542,6 +543,8 @@ ParseResult LuaBackend::parse(const BplcFrame& frame, MsduState& msdu,
     lua_setfield(m_lua, -2, "data");
     push_byte_table(m_lua, frame.raw_wire);
     lua_setfield(m_lua, -2, "rawWire");
+    lua_pushnumber(m_lua, static_cast<lua_Number>(frame.arrival_us));
+    lua_setfield(m_lua, -2, "arrivalUs");
     // 主程序解码信息(单入口):帧序号/时间戳/本帧拓扑事件(无事件=nil)
     lua_pushnumber(m_lua, static_cast<lua_Number>(frame.decoded_index));
     lua_setfield(m_lua, -2, "index");

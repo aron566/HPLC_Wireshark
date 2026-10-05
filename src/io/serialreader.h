@@ -83,6 +83,7 @@ private:
     QFile*       m_file;
     QByteArray   m_in_buf;
     bool         m_get3c;
+    qint64       m_frame_rx_us;   ///< 当前帧起始 0x3C 的单调 µs 接收时刻(实时)
     qint64       m_playback_base_ms;  ///< 回放 bin 当前段 8B BCD 标注(首帧/断段本地时刻;-1=无)
     bool         m_first_frame;   ///< 回放首帧标志(首帧用标注时间)
     quint32      m_last_ntb;      ///< 上一帧帧内 NTB(回放时间轴 tick 差)

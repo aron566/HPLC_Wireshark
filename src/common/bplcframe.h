@@ -223,7 +223,8 @@ struct BplcFrame {
     PhysicalMeta meta;            ///< 物理层元信息(由 SerialReader 填充部分)
     QByteArray   data;            ///< 反转义 + 去哨兵后的净荷(含 isRF 字节 + PDU)
     QString      error_reason;    ///< 非空:该帧被丢弃时附带原因
-    qint64       arrival_ms;      ///< PC 接收时刻(epoch ms),用于 UI 节流
+    qint64       arrival_us;      ///< PC 收到帧起始分节符(0x3C)的单调高精度时刻
+                                  ///< (µs;仅实时串口填充,文件回放=0 → Delta 用文件时间戳)
     QByteArray   raw_wire;        ///< 原始串口帧(0x3C...0x3E 含哨兵与 0x3D 转义,原样)
 
     // ---- 主程序解析后填充(插件可见) ----
@@ -236,7 +237,7 @@ struct BplcFrame {
     QString  msdu_summary;          ///< MSDU 概要(如 "MMeDiscoverNodeList";无 MSDU 为空)
     bool     msdu_present = false;  ///< 本帧是否携带完整 MSDU(重组完成)
 
-    BplcFrame() : arrival_ms(0) {}
+    BplcFrame() : arrival_us(0) {}
 };
 Q_DECLARE_METATYPE(BplcFrame)
 

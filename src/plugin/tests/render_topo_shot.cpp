@@ -52,7 +52,7 @@ int main(int argc, char** argv) {
     for (int i = 0; i < frames.size(); ++i) {
         BplcFrame fr;
         fr.data = frames[i];
-        fr.arrival_ms = 1700000000000LL;
+        fr.arrival_us = i * 1000LL;
         MsduState msdu;
         ParseFilter filter;
         QString perr;

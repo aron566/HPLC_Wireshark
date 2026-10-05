@@ -174,6 +174,7 @@ void ReplayWorker::run() {
             if (m_stop.load()) break;
             BplcFrame fr;
             fr.data = frames[i];
+            fr.arrival_us = static_cast<qint64>(i) * 1000LL;
             MsduState msdu;
             ParseFilter filter;
             QString perr;

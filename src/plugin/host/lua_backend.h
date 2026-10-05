@@ -8,7 +8,7 @@
 ///     fields = { { name="..", value="..", relStart=0, relLen=1,
 ///                   children = { ... } }, ... }
 ///   }
-///   frame = { data = {byte,...}, rawWire = {byte,...},
+///   frame = { data = {byte,...}, rawWire = {byte,...}, arrivalUs = number,
 ///             index = number,     -- 主程序帧序号(1-based;0=独立测试无解码)
 ///             epochMs = number,    -- 解析出的帧时刻(epoch ms)
 ///             topoEvent = evt/nil } -- 本帧的拓扑事件,无事件时为 nil
