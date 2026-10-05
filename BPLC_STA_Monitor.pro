@@ -53,6 +53,11 @@ CONFIG(crash_crashpad)|CONFIG(crash_sentry) {
         # qmake release 默认 QMAKE_LFLAGS_RELEASE=-Wl,-s 会剥掉 DWARF,去掉它
         QMAKE_LFLAGS_RELEASE -= -Wl,-s
     }
+    else:unix {
+        # Linux:恢复 622fb9c 之前的行为,release 保留 -g 供 crashpad 符号化
+        QMAKE_CXXFLAGS_RELEASE += -g
+        QMAKE_CFLAGS_RELEASE += -g
+    }
 }
 # QsLog 轻量日志库(3rdparty,文件轮转 + 调试输出)
 include(3rdparty/qslog/QsLog.pri)
