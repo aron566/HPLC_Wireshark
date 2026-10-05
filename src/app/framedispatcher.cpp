@@ -32,7 +32,7 @@ void DispatcherWorker::on_frame(const BplcFrame& frame) {
     const quint64 n = m_frame_count.fetch_add(1) + 1;
     m_parse_us.fetch_add(quint64(t.nsecsElapsed() / 1000));
     if (n % 50000 == 0) {
-        QLOG_INFO() << "解析进度:" << n << "帧, 累计 parse+节流"
+        QLOG_INFO() << "parse progress:" << n << "frames, cumulative parse+throttle"
                     << (m_parse_us.load() / 1000) << "ms";
     }
 }

@@ -71,7 +71,7 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
             m_file->seek(8);
         }
         emit status_message(trl::L("文件回放: %1").arg(cfg.file_path));
-        QLOG_INFO() << "回放开始:" << cfg.file_path << m_file_size << "字节";
+        QLOG_INFO() << "replay start:" << cfg.file_path << m_file_size << "bytes";
         QElapsedTimer replay_t;
         replay_t.start();
         m_frame_count = 0;
@@ -92,7 +92,7 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
             }
         }
         m_file->close();
-        QLOG_INFO() << "回放结束:" << m_frame_count << "帧, 读文件+切帧耗时"
+        QLOG_INFO() << "replay end:" << m_frame_count << "frames, read+split elapsed"
                     << replay_t.elapsed() << "ms";
         emit progress_percent(100);
         emit status_message(trl::L("文件回放结束"));
