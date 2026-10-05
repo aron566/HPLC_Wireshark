@@ -992,11 +992,12 @@ void MainWindow::on_flush_buffer() {
     ++flush_n;
     append_us_total += append_us;
     scroll_us_total += scroll_us;
-    if (flush_n % 10 == 0)
+    if (flush_n % 10 == 0) {
         QLOG_DEBUG() << "flush" << flush_n << "批: append累计"
                      << append_us_total / 1000 << "ms, scroll累计"
                      << scroll_us_total / 1000 << "ms, 本批"
                      << batch_size << "帧";
+    }
 }
 
 namespace {

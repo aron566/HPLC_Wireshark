@@ -230,10 +230,11 @@ GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msd
     env_us.fetch_add(quint64(us_env));
     mpdu_us.fetch_add(quint64(us_mpdu));
     body_us.fetch_add(quint64(us_body));
-    if (c % 50000 == 0)
+    if (c % 50000 == 0) {
         QLOG_DEBUG() << "parse细分:" << c << "帧: env累计" << env_us.load() / 1000
                      << "ms, mpdu累计" << mpdu_us.load() / 1000
                      << "ms, body累计" << body_us.load() / 1000 << "ms";
+    }
     r.accept = true;
     return r;
 }
