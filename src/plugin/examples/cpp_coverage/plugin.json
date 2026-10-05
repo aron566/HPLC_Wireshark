@@ -2,7 +2,7 @@
   "api_version": 1,
   "author": "BPLC Team",
   "description": "信号覆盖插件:由发现列表还原全网组网布局(MDS 多维标度 + 加权 stress 迭代),每个节点自带覆盖圈,圈内为其有向邻居;邻居距离由成功率/发现帧数估算。左侧布局画布 + 右侧邻居列表面板(选中节点信息/邻居表格/单向节点说明)+ 底部说明条,完整还原网页版布局。节点颜色表示通信成功率。点击节点或右侧表格切换选中,滚轮缩放,拖拽平移,主题跟随主界面。",
-  "description_en": "Signal coverage plugin: all nodes on one map, each with a coverage circle of its directed neighbors (from its own discover bitmap); neighbors sorted near-to-far by link rate / discover-frame count. Node colors show comm success rates. Click to recenter, wheel to zoom, drag to pan, theme follows the host.",
+  "description_en": "Signal coverage plugin: restores network topology layout from discover lists (MDS multidimensional scaling + weighted stress iteration), matching the hplc-coverage.html layout with left canvas + right neighbor panel + bottom notes. Each node has a coverage circle of its directed neighbors; neighbor distances estimated by success rate / discover-frame count. Node colors show comm success rates. Click to recenter, wheel to zoom, drag to pan, theme follows the host.",
   "display_name": "C++ 信号覆盖",
   "display_name_en": "C++ Signal Coverage",
   "entry": "cpp_coverage",

@@ -65,6 +65,45 @@ struct CoverageModel {
     mutable CoverageLayout m_layout_cache;  ///< 布局缓存(数据变化时重算)
     mutable bool m_layout_dirty = true;     ///< 布局脏标记
 
+    /// @brief 布局计算快照:持锁拷贝,锁外做 O(n³) MDS 计算,不阻塞 parse 线程
+    struct LayoutSnapshot {
+        QMap<quint16, CoverageNode> nodes;
+        QMap<quint16, quint16> parent_of;
+        QMap<QPair<quint16, quint16>, int> discover_cnt;
+    };
+    LayoutSnapshot snapshot_for_layout() const {
+        LayoutSnapshot s;
+        s.nodes = nodes;
+        s.parent_of = parent_of;
+        s.discover_cnt = discover_cnt;
+        return s;
+    }
+
+    static int link_rate_from(const LayoutSnapshot& s, quint16 x, quint16 y) {
+        int r = -1;
+        if (s.parent_of.value(y, 0) == x)
+            r = s.nodes.value(y).down_rate;
+        else if (s.parent_of.value(x, 0) == y || y == 1)
+            r = s.nodes.value(x).up_rate;
+        else if (x == 1)
+            r = s.nodes.value(y).down_rate;
+        if (r < 0) r = s.nodes.value(y).avg_rate();
+        return r;
+    }
+
+    static double est_distance_from(const LayoutSnapshot& s, quint16 x, quint16 y) {
+        const int rate = link_rate_from(s, x, y);
+        const int cnt = s.discover_cnt.value(qMakePair(x, y), 0);
+        const double D0 = 10.0, K = 2.3;
+        if (rate >= 0)
+            return D0 * std::exp(K * (1.0 - rate / 100.0));
+        if (cnt > 0) {
+            const double f = double(qMin(cnt, 8)) / 8.0;
+            return D0 * std::exp(K * (1.0 - 0.6 * f));
+        }
+        return 120.0;
+    }
+
     void on_topo_event(const TopoEvent& ev) {
         QMutexLocker lk(&mutex);
         for (const TeiMacPair& p : ev.nodes) {
@@ -206,15 +245,16 @@ struct CoverageModel {
             const double f = double(qMin(cnt, 8)) / 8.0;  // 发现帧越多越近
             return D0 * std::exp(K * (1.0 - 0.6 * f));
         }
-        return D0 * std::exp(K * 0.6);  // 未知:中间距离
+        // 未知:比单帧目击(cnt=1 → 约83.8)更远,取 120
+        return 120.0;
     }
 
     /// @brief MDS 布局还原(参考 hplc-coverage.html layoutNet):
     ///        发现列表估算成对距离 → 最短路补全 → 经典 MDS 初值 → 加权 stress 迭代。
-    CoverageLayout compute_layout() const {
+    static CoverageLayout compute_layout_from(const LayoutSnapshot& s) {
         CoverageLayout out;
         QVector<quint16> ids;
-        for (auto it = nodes.begin(); it != nodes.end(); ++it)
+        for (auto it = s.nodes.begin(); it != s.nodes.end(); ++it)
             ids.append(it.key());
         const int n = ids.size();
         if (n == 0) return out;
@@ -223,13 +263,13 @@ struct CoverageModel {
         QMap<QPair<int, int>, double> logsum;
         QMap<QPair<int, int>, int> pcnt;
         for (int i = 0; i < n; ++i) {
-            auto nit = nodes.find(ids[i]);
-            if (nit == nodes.end()) continue;
+            auto nit = s.nodes.find(ids[i]);
+            if (nit == s.nodes.end()) continue;
             for (quint16 b : nit->neighbors) {
                 const int j = ids.indexOf(b);
                 if (j < 0 || i == j) continue;
                 const auto key = qMakePair(qMin(i, j), qMax(i, j));
-                logsum[key] += std::log(qMax(1.0, est_distance(ids[i], b)));
+                logsum[key] += std::log(qMax(1.0, est_distance_from(s, ids[i], b)));
                 pcnt[key]++;
             }
         }
@@ -347,8 +387,8 @@ struct CoverageModel {
             out.pos[ids[i]] = QPointF(X[i], Y[i]);
         for (int i = 0; i < n; ++i) {
             double r = 0.0;
-            auto nit = nodes.find(ids[i]);
-            if (nit != nodes.end()) {
+            auto nit = s.nodes.find(ids[i]);
+            if (nit != s.nodes.end()) {
                 for (quint16 b : nit->neighbors) {
                     auto pit = out.pos.find(b);
                     if (pit == out.pos.end()) continue;
@@ -362,14 +402,6 @@ struct CoverageModel {
         return out;
     }
 
-    /// @brief 取布局(数据变化时重算一次,缓存供 render 反复用)
-    const CoverageLayout& layout() const {
-        if (m_layout_dirty) {
-            m_layout_cache = compute_layout();
-            m_layout_dirty = false;
-        }
-        return m_layout_cache;
-    }
 };
 
 /// @brief 取中西文都可靠的字体(容器 fontconfig 对 "Sans" 的 CJK 回退不稳定)
@@ -523,8 +555,18 @@ public:
             return;
         }
 
-        // MDS 布局还原(缓存):由发现列表估算成对距离,还原全网二维布局
-        const CoverageLayout& layout = m_model.layout();
+        // MDS 布局还原:脏时快照+锁外 O(n³) 计算,不阻塞 parse 线程
+        CoverageLayout layout;
+        if (m_model.m_layout_dirty) {
+            auto snap = m_model.snapshot_for_layout();
+            lk.unlock();
+            layout = CoverageModel::compute_layout_from(snap);
+            lk.relock();
+            m_model.m_layout_cache = layout;
+            m_model.m_layout_dirty = false;
+        } else {
+            layout = m_model.m_layout_cache;
+        }
         if (layout.pos.isEmpty() || !layout.pos.contains(center)) {
             p->setPen(c_dim());
             f.setPixelSize(12);
@@ -537,13 +579,19 @@ public:
         // fit:布局包围盒适配画布,叠加用户缩放/平移
         double minx = 1e18, miny = 1e18, maxx = -1e18, maxy = -1e18;
         for (auto it = layout.pos.constBegin(); it != layout.pos.constEnd(); ++it) {
-            minx = qMin(minx, it->x());
-            miny = qMin(miny, it->y());
-            maxx = qMax(maxx, it->x());
-            maxy = qMax(maxy, it->y());
+            const double r = layout.radius.value(it.key(), 0.0);
+            minx = qMin(minx, it->x() - r);
+            miny = qMin(miny, it->y() - r);
+            maxx = qMax(maxx, it->x() + r);
+            maxy = qMax(maxy, it->y() + r);
         }
-        const double bw = qMax(maxx - minx, 1.0);
-        const double bh = qMax(maxy - miny, 1.0);
+        double bw = maxx - minx;
+        double bh = maxy - miny;
+        // 单节点(或极小包围盒):不用 1x1 盒去 fit(会铺满画布),给合理默认尺寸
+        if (layout.pos.size() <= 1 || bw < 20.0 || bh < 20.0) {
+            bw = qMax(bw, 200.0);
+            bh = qMax(bh, 200.0);
+        }
         const int map_h = h - header_h - footer_h;
         const double pad = 40.0;
         const double fit_k =
@@ -573,6 +621,24 @@ public:
             if (!m_node_pos.contains(ch) || !m_node_pos.contains(pa)) continue;
             draw_arrow(p, m_node_pos[ch], m_node_pos[pa],
                        6.0 * m_zoom, 8.0 * m_zoom, faint, 1.5, 9.0);
+        }
+
+        // 1b. 选中中心父子连线高亮(颜色=中心→邻居传输质量,盖在 faint 上)
+        for (quint16 t : nbrs) {
+            const quint16 pa = m_model.parent_of.value(t, 0);
+            const bool t_is_child = (pa == center);
+            const bool t_is_parent = (m_model.parent_of.value(center, 0) == t);
+            if (!t_is_child && !t_is_parent) continue;
+            if (!m_node_pos.contains(t)) continue;
+            const int r = m_model.link_rate(center, t);
+            QColor c = rate_color(r);
+            c.setAlpha(255);
+            if (t_is_child)
+                draw_arrow(p, m_node_pos[t], m_node_pos[center],
+                           10.0 * m_zoom, 13.0 * m_zoom, c, 3.0, 16.0);
+            else
+                draw_arrow(p, m_node_pos[center], m_node_pos[t],
+                           13.0 * m_zoom, 10.0 * m_zoom, c, 3.0, 16.0);
         }
 
         // 2. 各节点覆盖圈(半径 = MDS 还原的最远邻居距离)
