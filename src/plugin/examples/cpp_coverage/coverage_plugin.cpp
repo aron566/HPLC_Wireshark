@@ -146,6 +146,28 @@ struct CoverageModel {
         return v;
     }
 
+    /// @brief 双向:sel 的发现列表里有 y,且 y 的发现列表里也有 sel
+    bool is_bidirectional(quint16 sel, quint16 y) const {
+        auto it = nodes.find(y);
+        if (it == nodes.end()) return false;
+        return it->neighbors.contains(sel);
+    }
+
+    /// @brief 单向节点:能听到 sel 但 sel 没听到它的节点(网页右侧 inbound 说明)
+    QVector<quint16> inbound_neighbors(quint16 sel) const {
+        QVector<quint16> only;
+        auto sit = nodes.find(sel);
+        if (sit == nodes.end()) return only;
+        for (auto it = nodes.constBegin(); it != nodes.constEnd(); ++it) {
+            const quint16 i = it.key();
+            if (i == sel) continue;
+            if (it->neighbors.contains(sel) && !sit->neighbors.contains(i))
+                only.append(i);
+        }
+        std::sort(only.begin(), only.end());
+        return only;
+    }
+
     /// @brief 中心 X→邻居 Y 的传输质量(0-100;-1=未知):决定 Y 在 X 圈中的距离
     /// @details X 是 Y 的父节点(或 X 为 CCO)时用 Y 的下行成功率;
     ///          Y 是 X 的父节点(含 Y=CCO)时用 X 的上行成功率;
@@ -441,8 +463,17 @@ public:
         const quint16 center = m_model.center_tei;
         const QVector<quint16> nbrs =
             center ? m_model.display_neighbors() : QVector<quint16>();
+        const QVector<quint16> inbound =
+            center ? m_model.inbound_neighbors(center) : QVector<quint16>();
 
-        // 标题
+        // 布局划分:右侧面板 + 底部说明 + 左侧画布
+        // 面板宽度随总宽自适应,窄窗口时保证左侧画布至少 ~118px 可画
+        const int panel_w = qMin(300, qMax(150, int(w * 0.34)));
+        const int map_w = w - panel_w;
+        const int header_h = 52;
+        const int footer_h = 32;
+
+        // 标题(顶部横跨)
         p->setPen(c_text());
         p->drawText(14, 26,
                     QStringLiteral("信号覆盖 Coverage · 共 %1 个节点 Nodes")
@@ -451,19 +482,15 @@ public:
         f.setBold(false);
         p->setFont(f);
         p->setPen(c_dim());
-        int avg = -1, known = 0, sum = 0;
-        for (quint16 t : nbrs) {
-            const int r = m_model.circle_rate(t);
-            if (r >= 0) { sum += r; ++known; }
-        }
-        if (known) avg = sum / known;
+        int both = 0;
+        for (quint16 t : nbrs)
+            if (m_model.is_bidirectional(center, t)) ++both;
         p->drawText(14, 44,
-                    QStringLiteral("选中 Selected TEI %1 · 邻居 Neighbors: %2 · "
-                                   "平均成功率 Avg rate: %3")
+                    QStringLiteral("选中 Selected TEI %1 · 邻居 %2 · 双向 %3 · 单向 %4")
                         .arg(center)
                         .arg(nbrs.size())
-                        .arg(avg >= 0 ? QStringLiteral("%1%").arg(avg)
-                                      : QStringLiteral("?")));
+                        .arg(both)
+                        .arg(inbound.size()));
 
         if (!center) {
             p->setPen(c_dim());
@@ -495,17 +522,20 @@ public:
         }
         const double bw = qMax(maxx - minx, 1.0);
         const double bh = qMax(maxy - miny, 1.0);
-        const double pad = 44.0;
+        const int map_h = h - header_h - footer_h;
+        const double pad = 40.0;
         const double fit_k =
-            qMin((w - 2 * pad) / bw, (h - 2 * pad) / bh) * m_zoom;
+            qMin((map_w - 2 * pad) / bw, (map_h - 2 * pad) / bh) * m_zoom;
         const double lcx = (minx + maxx) / 2.0;
         const double lcy = (miny + maxy) / 2.0;
+        const double map_cx = map_w / 2.0;
+        const double map_cy = header_h + map_h / 2.0;
 
         m_node_pos.clear();
         for (auto it = layout.pos.constBegin(); it != layout.pos.constEnd(); ++it) {
             m_node_pos[it.key()] =
-                QPointF((it->x() - lcx) * fit_k + w / 2.0 + m_pan_x,
-                        (it->y() - lcy) * fit_k + h / 2.0 + m_pan_y);
+                QPointF((it->x() - lcx) * fit_k + map_cx + m_pan_x,
+                        (it->y() - lcy) * fit_k + map_cy + m_pan_y);
         }
         auto scr_r = [&](quint16 t) {
             return layout.radius.value(t, 0.0) * fit_k;
@@ -560,48 +590,43 @@ public:
         }
         draw_node(p, center, 13 * m_zoom, c_accent(), true, true);
 
-        // 图例(右上角,避免与底部提示重叠)
+        // 图例(画布左上角,横排)
         const struct { QColor c; const char* zh; const char* en; } legend[] = {
             { rate_color(95), "≥90 优", "good" },
             { rate_color(80), "70–89 中", "fair" },
             { rate_color(50), "<70 差", "poor" },
             { rate_color(-1), "未知", "unknown" },
         };
-        f.setPixelSize(10);
+        f.setPixelSize(9);
         p->setFont(f);
         const QFontMetrics lfm(f);
-        int total = 0;
         QStringList ltexts;
         for (const auto& e : legend) {
-            const QString s =
-                QString::fromUtf8(e.zh) + QStringLiteral(" ") +
-                QString::fromUtf8(e.en);
-            ltexts << s;
-            total += 14 + lfm.horizontalAdvance(s) + 18;
+            ltexts << QString::fromUtf8(e.zh) + QStringLiteral(" ") +
+                          QString::fromUtf8(e.en);
         }
-        int lx = w - total - 14, ly = 26;
-        for (int i = 0; i < 4; ++i) {
-            p->setBrush(legend[i].c);
-            p->setPen(Qt::NoPen);
-            p->drawEllipse(QPoint(lx + 5, ly - 4), 5, 5);
-            p->setPen(c_dim());
-            p->drawText(lx + 14, ly, ltexts[i]);
-            lx += 14 + lfm.horizontalAdvance(ltexts[i]) + 18;
+        {
+            int lx = 14, ly = header_h + 14;
+            for (int i = 0; i < 4; ++i) {
+                p->setBrush(legend[i].c);
+                p->setPen(Qt::NoPen);
+                p->drawEllipse(QPoint(lx + 4, ly - 3), 4, 4);
+                p->setPen(c_dim());
+                p->drawText(lx + 12, ly, ltexts[i]);
+                lx += 12 + lfm.horizontalAdvance(ltexts[i]) + 14;
+            }
         }
 
-        // 悬停信息框
+        // 悬停信息框(仅画布区域)
         if (m_hover_tei && m_model.nodes.contains(m_hover_tei))
-            draw_hover_box(p, w, h);
+            draw_hover_box(p, map_w, h);
 
-        // 底部提示
-        p->setPen(c_dim());
-        f.setPixelSize(10);
-        p->setFont(f);
-        p->drawText(QRect(0, h - 28, w, 20), Qt::AlignCenter,
-                    QStringLiteral("MDS 布局还原 MDS layout · "
-                                   "连线为父子关系 Lines = parent-child · "
-                                   "点击节点切换 Click to recenter · "
-                                   "滚轮缩放 / 拖拽平移 Zoom / Pan"));
+        // 右侧面板:选中节点信息 + 邻居表格 + 单向说明
+        draw_side_panel(p, panel_w, map_w, header_h, h - footer_h,
+                        center, nbrs, inbound, layout);
+
+        // 底部说明
+        draw_footer(p, w, h, footer_h);
     }
 
     bool handle_event(const GraphicsEvent& e) override {
@@ -632,6 +657,17 @@ public:
             return false;
         }
         if (e.type == GraphicsEventType::MousePress && e.button == 1) {
+            // 先命中右侧面板的邻居表格行(点击切换选中)
+            for (const auto& row : m_table_rows) {
+                if (row.second.contains(QPointF(e.x, e.y))) {
+                    if (row.first != m_model.center_tei) {
+                        m_model.center_tei = row.first;
+                        return true;
+                    }
+                    return false;
+                }
+            }
+            // 再命中画布节点
             const quint16 hit = hit_test(QPointF(e.x, e.y));
             if (hit && hit != m_model.center_tei) {
                 m_model.center_tei = hit;
@@ -666,6 +702,10 @@ private:
     QColor c_border2() const { return m_dark ? QColor(0x37,0x41,0x4f) : QColor(0xd8,0xd8,0xd8); }
     QColor c_hover_bg() const { return m_dark ? QColor(0x22,0x30,0x3c) : QColor(0xff,0xff,0xff); }
     QColor c_accent() const { return m_dark ? QColor(0x34,0x67,0x92) : QColor(0x3d,0x6f,0x9f); }
+    QColor c_panel() const { return m_dark ? QColor(0x15,0x21,0x2b) : QColor(0xf8,0xfa,0xfb); }
+    QColor c_footer_bg() const { return m_dark ? QColor(0x11,0x1c,0x25) : QColor(0xe8,0xea,0xeb); }
+    QColor c_good() const { return m_dark ? QColor(0x3f,0xcd,0xbb) : QColor(0x0a,0x7c,0x73); }
+    QColor c_warn() const { return m_dark ? QColor(0xe3,0xa6,0x50) : QColor(0xa3,0x5f,0x0a); }
 
     void draw_node(QPainter* p, quint16 tei, double radius, const QColor& fill,
                    bool highlight, bool is_center = false,
@@ -756,6 +796,153 @@ private:
             p->drawText(QPointF(bx + 10, by + 20 + i * 18), lines[i]);
     }
 
+    /// @brief 右侧面板:选中节点信息 + 邻居表格 + 单向节点说明(还原网页 aside)
+    void draw_side_panel(QPainter* p, int panel_w, int px, int py, int pb,
+                         quint16 center, const QVector<quint16>& nbrs,
+                         const QVector<quint16>& inbound,
+                         const CoverageLayout& layout) {
+        // 面板背景 + 左边分隔线
+        p->fillRect(px, py, panel_w, pb - py, c_panel());
+        p->setPen(c_border());
+        p->drawLine(px, py, px, pb);
+
+        QFont f = cov_font(11);
+        p->setFont(f);
+        int y = py + 16;
+
+        // 选中节点信息
+        const CoverageNode& nd = m_model.nodes[center];
+        p->setPen(c_text());
+        f.setBold(true);
+        f.setPixelSize(14);
+        p->setFont(f);
+        p->drawText(px + 14, y,
+                    QStringLiteral("TEI %1%2")
+                        .arg(center)
+                        .arg(center == 1 ? QStringLiteral(" (CCO)")
+                                         : QStringLiteral(" (STA)")));
+        y += 20;
+
+        f.setBold(false);
+        f.setPixelSize(10);
+        p->setFont(f);
+        p->setPen(c_dim());
+        p->drawText(px + 14, y,
+                    QStringLiteral("MAC %1").arg(nd.mac ? format_mac(nd.mac)
+                                                        : QStringLiteral("-")));
+        y += 18;
+
+        // kv:邻居数 / 圈半径 / 双向
+        const double radius = layout.radius.value(center, 0.0);
+        int both = 0;
+        for (quint16 t : nbrs)
+            if (m_model.is_bidirectional(center, t)) ++both;
+        p->setPen(c_text());
+        p->drawText(px + 14, y,
+                    QStringLiteral("邻居 %1 · 圈半径 %2 · 双向 %3/%4")
+                        .arg(nbrs.size())
+                        .arg(int(radius))
+                        .arg(both)
+                        .arg(nbrs.size()));
+        y += 24;
+
+        // 表格标题
+        p->setPen(c_dim());
+        f.setBold(true);
+        f.setPixelSize(9);
+        p->setFont(f);
+        p->drawText(px + 12, y, QStringLiteral("邻居列表 Neighbors"));
+        y += 4;
+        p->drawLine(px + 10, y, px + panel_w - 10, y);
+        y += 12;
+
+        // 表头
+        const int cx1 = px + 10;    // TEI
+        const int cx2 = px + 64;    // 帧数
+        const int cx3 = px + 104;   // 成功率
+        const int cx4 = px + 152;   // 距离
+        const int cx5 = px + 192;   // 关系
+        p->drawText(cx1, y, QStringLiteral("TEI"));
+        p->drawText(cx2, y, QStringLiteral("帧"));
+        p->drawText(cx3, y, QStringLiteral("成功率"));
+        p->drawText(cx4, y, QStringLiteral("距离"));
+        p->drawText(cx5, y, QStringLiteral("关系"));
+        y += 4;
+        p->drawLine(px + 10, y, px + panel_w - 10, y);
+        y += 11;
+
+        // 表格行(按估算距离由近及远)
+        QVector<quint16> sorted = nbrs;
+        std::sort(sorted.begin(), sorted.end(), [&](quint16 a, quint16 b) {
+            return m_model.est_distance(center, a) <
+                   m_model.est_distance(center, b);
+        });
+        f.setBold(false);
+        f.setPixelSize(9);
+        p->setFont(f);
+        m_table_rows.clear();
+        const int row_h = 15;
+        for (quint16 t : sorted) {
+            const int cnt = m_model.discover_cnt.value(qMakePair(center, t), 0);
+            const int rate = m_model.link_rate(center, t);
+            const double d = m_model.est_distance(center, t);
+            const bool mutual = m_model.is_bidirectional(center, t);
+            p->setPen(c_text());
+            p->drawText(cx1, y, QStringLiteral("#%1").arg(t));
+            p->setPen(c_dim());
+            p->drawText(cx2, y, QString::number(cnt));
+            p->setPen(rate >= 0 ? rate_color(rate) : c_dim());
+            p->drawText(cx3, y,
+                        rate >= 0 ? QStringLiteral("%1%").arg(rate)
+                                  : QStringLiteral("?"));
+            p->drawText(cx4, y, QStringLiteral("%1m").arg(int(d)));
+            p->setPen(mutual ? c_good() : c_warn());
+            p->drawText(cx5, y, mutual ? QStringLiteral("↔ 双向")
+                                       : QStringLiteral("→ 单向"));
+            m_table_rows.append(
+                qMakePair(t, QRectF(px + 8, y - 11, panel_w - 16, row_h)));
+            y += row_h;
+        }
+        if (sorted.isEmpty()) {
+            p->setPen(c_dim());
+            p->drawText(px + 12, y, QStringLiteral("该节点没有发现任何邻居"));
+            y += 16;
+        }
+
+        // 单向节点说明
+        y += 8;
+        p->setPen(c_dim());
+        f.setPixelSize(9);
+        p->setFont(f);
+        const QString inb_text =
+            inbound.isEmpty()
+                ? QStringLiteral("所有听到我的节点也都在我的发现列表里")
+                : QStringLiteral("听到我但我没听到的节点(单向):%1")
+                      .arg([&]() {
+                          QStringList s;
+                          for (quint16 t : inbound)
+                              s << QStringLiteral("#%1").arg(t);
+                          return s.join(QStringLiteral("、"));
+                      }());
+        p->drawText(QRectF(px + 12, y, panel_w - 24, pb - y - 8),
+                    Qt::TextWordWrap, inb_text);
+    }
+
+    /// @brief 底部说明条(还原网页底部 note)
+    void draw_footer(QPainter* p, int w, int h, int footer_h) {
+        const int fy = h - footer_h;
+        p->fillRect(0, fy, w, footer_h, c_footer_bg());
+        p->setPen(c_border());
+        p->drawLine(0, fy, w, fy);
+        p->setPen(c_dim());
+        QFont f = cov_font(9);
+        p->setFont(f);
+        p->drawText(QRect(0, fy + 2, w, footer_h - 4), Qt::AlignCenter,
+                    QStringLiteral("MDS 布局还原 · 圈内为该节点能听到的邻居 · "
+                                   "实线=双向 / 虚线=单向 · 点击节点或右侧表格切换选中 · "
+                                   "滚轮缩放 / 拖拽平移"));
+    }
+
     quint16 hit_test(const QPointF& pt) const {
         const double r = 18.0 * m_zoom;
         for (auto it = m_node_pos.constBegin();
@@ -769,6 +956,7 @@ private:
 
     CoverageModel m_model;
     QMap<quint16, QPointF> m_node_pos;  ///< 本次 render 的节点屏幕坐标(命中测试用)
+    QVector<QPair<quint16, QRectF>> m_table_rows;  ///< 右侧邻居表格行矩形(点击切换选中)
     quint16 m_hover_tei = 0;
     QPointF m_hover_pos;
 
