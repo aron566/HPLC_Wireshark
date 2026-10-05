@@ -287,16 +287,16 @@ void ReaderWorker::try_extract_frame() {
                 m_last_ntb = ntb;
             }
         } else {
-            // 实时串口:无 8B 标注,arrival=本地时刻;断段判断用本地接收时间差
-            // (超过 NTB u32 回绕周期 ≈171.8s 视为断段,标 seg_start)
+            // 实时串口:frame_time 以帧内 NTB 差推进(与回放一致,统一时间轴);
+            // 首帧/断点(长时间无报文或 NTB 跳变)以本地接收时刻为基准重置
             const qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
-            bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(now_ms);
             if (m_cfg.mode == ReaderMode::SerialPort) {
                 // 帧内 NTB(实时串口也读取,用于 NTB 差 vs 本地时间差一致性判段)
                 const quint32 ntb = (unesc.size() >= 6)
                     ? (quint32)(quint8)unesc[2] | ((quint32)(quint8)unesc[3] << 8)
                       | ((quint32)(quint8)unesc[4] << 16) | ((quint32)(quint8)unesc[5] << 24)
                     : 0;
+                const qint64 dn = (qint32)(ntb - m_last_ntb);   // 回绕安全
                 if (m_pending_seg_start) {          // 新采集段首帧(停止→恢复/首帧)
                     bf.meta.seg_start = true;
                     m_pending_seg_start = false;
@@ -307,14 +307,28 @@ void ReaderWorker::try_extract_frame() {
                     } else {
                         // NTB 差 vs 本地时间差一致性:两者差 ≥3s 视为断段
                         // (设备 NTB 回绕/跳变,而本地接收时间仍连续时)
-                        const qint64 ntb_delta_ms =
-                            (qint64)(qint32)(ntb - m_last_ntb) * 40 / 1000000;  // tick→ms
+                        const qint64 ntb_delta_ms = dn * 40 / 1000000;  // tick→ms
                         if (qAbs(local_delta_ms - ntb_delta_ms) >= 3000)
                             bf.meta.seg_start = true;
                     }
                 }
+                // frame_time 推进:非首帧、NTB 差有效、非断点 → 上一帧 + NTB 差;
+                // 否则(首帧/断点/NTB 异常)以本地接收时刻重置时间链
+                const bool advance = (m_last_local_ms != 0)
+                                     && (dn > 0 && dn <= playback::kMaxNtbGapTicks)
+                                     && !bf.meta.seg_start;
+                if (advance) {
+                    const qint64 ft_ms = m_last_ft + playback::ntb_to_us(quint32(dn)) / 1000;
+                    bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(ft_ms);
+                    m_last_ft = ft_ms;
+                } else {
+                    bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(now_ms);
+                    m_last_ft = now_ms;
+                }
                 m_last_local_ms = now_ms;
                 m_last_ntb = ntb;
+            } else {
+                bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(now_ms);
             }
         }
         bf.arrival_us = m_frame_rx_us;   // 0x3C 起始高精度接收时刻(实时)
