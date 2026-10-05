@@ -25,6 +25,23 @@
 #include <QJsonObject>
 #include <QString>
 #include <QVariant>
+#include <cstdint>
+
+// 结构体布局指纹:native 插件 parse 接口涉及的公共结构体(PhysicalMeta/
+// BplcFrame/ParseResult/MsduInfo)若字段增删或类型变化,sizeof 随之改变,
+// 纳入 plugin_host_abi() 以便主程序在加载前拦截 ABI 不匹配的旧 DLL。
+// __has_include 兜底:无这些头文件的编译单元(纯 Qt 工具)退回基础 ABI。
+#if defined(__has_include)
+#  if __has_include("bplcframe.h") && __has_include("iprotocolparser.h")
+#    include "bplcframe.h"
+#    include "iprotocolparser.h"
+#    define BPLC_ABI_HAS_LAYOUT 1
+#  else
+#    define BPLC_ABI_HAS_LAYOUT 0
+#  endif
+#else
+#  define BPLC_ABI_HAS_LAYOUT 0
+#endif
 
 /// @brief 插件可配置项(插件独立设置,见 market 对话框"设置"页)
 /// @details plugin.json 可选 "settings" 数组,每项:
@@ -108,9 +125,20 @@ inline QString plugin_host_abi() {
 #else
         "unknown";
 #endif
-    return QStringLiteral("qt%1-%2-%3")
+    QString abi = QStringLiteral("qt%1-%2-%3")
         .arg(QString::number(QT_VERSION_MAJOR),
              QString::fromLatin1(comp), QString::fromLatin1(arch));
+#if BPLC_ABI_HAS_LAYOUT
+    // 结构体布局指纹(sizeof 十六进制拼接):字段增删/类型变化 → sizeof 变 → ABI 变,
+    // 主程序加载 native 插件前用 plugin_abi_ok() 比对,布局不一致的旧 DLL 直接拒绝。
+    const quint64 layout =
+        (static_cast<quint64>(sizeof(BplcFrame)) << 48) |
+        (static_cast<quint64>(sizeof(ParseResult)) << 32) |
+        (static_cast<quint64>(sizeof(PhysicalMeta)) << 16) |
+        (static_cast<quint64>(sizeof(MsduInfo)));
+    abi += QStringLiteral("-l%1").arg(QString::number(layout, 16));
+#endif
+    return abi;
 }
 
 /// @brief native 插件 ABI 是否与主程序匹配(脚本插件无需 ABI,恒 true)
