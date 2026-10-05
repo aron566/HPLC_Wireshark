@@ -45,8 +45,8 @@ struct PhysicalMeta {
 
     PhysicalMeta()
         : timestamp(0), phr_mcs(0), option(0), channel(0),
-          is_rf(false), has_time_tag(false), from_raw(false),
-          frame_ts_is_ntb(false), seg_start(false), epoch_ms(0) {}
+          is_rf(false), has_time_tag(false), epoch_ms(0),
+          from_raw(false), frame_ts_is_ntb(false), seg_start(false) {}
 };
 
 /// @brief 一帧完整载荷(经哨兵切分 + 0x3D 反转义后),完整定义见 TopoEvent 之后
