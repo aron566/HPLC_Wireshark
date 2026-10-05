@@ -47,6 +47,22 @@ public:
     ///          trl::enabled() 调用一次
     virtual void set_ui_english(bool en) { m_ui_english = en; }
 
+    // ---- 界面主题(供 host.getEnv("BPLC_THEME") 用) ----
+    /// @brief 设置当前界面是否深色(缺省深色;宿主在 initialize 后按
+    ///        theme::apply 解析后的主题调用一次)
+    virtual void set_ui_dark(bool dark) { m_ui_dark = dark; }
+
+    // ---- 主界面弹表格窗口(host.showTable) ----
+    /// @brief 脚本请求主界面弹出独立表格窗口的回调类型
+    /// @details 脚本侧 host.showTable(title, columns, rows);后端转成
+    ///          QStringList 经此回调转发,宿主在 GUI 线程弹 QDialog。
+    using HostTableCallback = std::function<void(const QString& title,
+                                                 const QStringList& columns,
+                                                 const QList<QStringList>& rows)>;
+    virtual void set_host_table_callback(HostTableCallback cb) {
+        m_host_table_cb = cb;
+    }
+
     // ---- 主界面 → 插件通知 ----
     /// @brief 主界面帧列表选中变化通知(单击/双击帧)
     /// @details force_history=true 时强制进入历史冻结(双击,原版 enter_topo_history
@@ -88,7 +104,9 @@ public:
 protected:
     RedrawCallback m_redraw_cb;  ///< 插件调此请求主进程重绘
     HostJumpCallback m_host_jump_cb;  ///< 插件请求主界面跳帧
+    HostTableCallback m_host_table_cb;  ///< 插件请求主界面弹表格窗口
     bool m_ui_english = false;  ///< 界面语言是否为英文(宿主注入)
+    bool m_ui_dark = true;  ///< 界面是否深色(宿主注入,缺省深色)
 };
 
 /// @brief 按 runtime 创建后端。未知 runtime 返回 nullptr

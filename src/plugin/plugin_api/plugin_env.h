@@ -59,14 +59,20 @@ inline QList<PluginEnvVar> plugin_common_env_vars() {
          QStringLiteral("界面语言"), QStringLiteral("UI language"),
          QStringLiteral("当前界面语言: zh 或 en"),
          QStringLiteral("Current UI language: zh or en")},
+        {QStringLiteral("BPLC_THEME"),
+         QStringLiteral("界面主题"), QStringLiteral("UI theme"),
+         QStringLiteral("当前界面主题: dark 或 light"),
+         QStringLiteral("Current UI theme: dark or light")},
     };
 }
 
 /// @brief 取公共环境变量的值(未知变量返回空串)
 /// @param plugin_dir 当前插件目录(BPLC_PLUGIN_DIR 用)
 /// @param english 界面是否为英文(BPLC_LANG 用,调用方传 trl::enabled())
+/// @param dark 界面是否深色(BPLC_THEME 用)
 inline QString plugin_env_value(const QString& name,
-                                const QString& plugin_dir, bool english) {
+                                const QString& plugin_dir, bool english,
+                                bool dark = true) {
     if (name == QStringLiteral("BPLC_APP_VERSION"))
         return QCoreApplication::applicationVersion();
     if (name == QStringLiteral("BPLC_API_VERSION"))
@@ -78,6 +84,8 @@ inline QString plugin_env_value(const QString& name,
             QStandardPaths::AppDataLocation);
     if (name == QStringLiteral("BPLC_LANG"))
         return english ? QStringLiteral("en") : QStringLiteral("zh");
+    if (name == QStringLiteral("BPLC_THEME"))
+        return dark ? QStringLiteral("dark") : QStringLiteral("light");
     return QString();
 }
 

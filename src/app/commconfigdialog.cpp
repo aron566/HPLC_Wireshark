@@ -181,10 +181,15 @@ void CommConfigDialog::build_ui() {
     const int theme_idx = cmb_theme->findData(saved_theme);
     if (theme_idx >= 0) cmb_theme->setCurrentIndex(theme_idx);
     connect(cmb_theme, qOverload<int>(&QComboBox::currentIndexChanged), this,
-            [cmb_theme](int) {
+            [this, cmb_theme](int) {
         const QString v = cmb_theme->currentData().toString();
         appcfg::set_theme(v);
         theme::apply(v);        // 样式表全局应用,即时生效
+        // 通知主界面/插件跟随主题(与 local_plugin_engine 的 ui_dark 判断一致)
+        const bool dark = (v == QLatin1String("dark")) ||
+                          (v != QLatin1String("light") &&
+                           theme::resolve_auto() == QLatin1String("dark"));
+        emit theme_changed(dark);
     });
 
     // 恢复已保存语言并放在 connect 之前(避免打开对话框即弹提示);

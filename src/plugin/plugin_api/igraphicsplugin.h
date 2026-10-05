@@ -55,6 +55,8 @@ public:
     virtual void set_redraw_callback(std::function<void()> cb) {
         Q_UNUSED(cb);
     }
+    /// @brief 主界面主题切换(深色?)→ 插件跟随。缺省忽略
+    virtual void set_dark(bool dark) { Q_UNUSED(dark); }
 };
 
 #define BplcGraphicsPlugin_iid "com.bplc.BplcGraphicsPlugin/1.0"

@@ -42,6 +42,10 @@ public:
     Q_INVOKABLE void draw_point(double x, double y);
     Q_INVOKABLE void draw_icon(const QString& name, double x, double y,
                                double w, double h);
+    /// @brief 裁剪到指定矩形(拓扑图缩放/平移后防止画出图区)
+    Q_INVOKABLE void set_clip(double x, double y, double w, double h);
+    /// @brief 取消裁剪
+    Q_INVOKABLE void reset_clip();
 
     QPainter* painter() const { return m_p; }
 

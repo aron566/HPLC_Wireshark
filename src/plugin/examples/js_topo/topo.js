@@ -11,10 +11,49 @@
 // All UI strings are English.
 
 var EVT_PRESS = 0;
+var EVT_RELEASE = 1;
 var EVT_MOVE  = 2;
 var EVT_WHEEL = 3;
 var EVT_LEAVE = 5;
 var EVT_DBLCLICK = 6;
+
+// ---- theme palette (follows host BPLC_THEME: dark/light) ----
+var g_theme = "dark";
+try {
+    if (typeof host !== "undefined" && host.getEnv) {
+        var _t = host.getEnv("BPLC_THEME");
+        if (_t === "light") g_theme = "light";
+    }
+} catch (e) {}
+var PALETTE = {
+    // 深色:对齐主界面 QDarkStyleSheet 色系(theme.cpp dark_palette)
+    dark: {
+        bg: "#19232D", top: "#19232D", table_bg: "#19232D",
+        border: "#455364", border2: "#37414F", border3: "#788D9C",
+        text: "#DFE1E2", text_dim: "#9DA9B5", text_dim2: "#A9B7C0",
+        text_bright: "#E6E9EB", text_muted: "#788D9C", text_head: "#9DA9B5",
+        sel: "#346792", hover: "#2C5C84", nid_bg: "#37414F",
+        nid_bg_open: "#455364",
+        accent: "#1A72BB", accent2: "#259AE9", green: "#3BA55D",
+        warn: "#D1B36A", warn_bg: "#4A3B20", warn_border: "#8A7A4A",
+        warn_text: "#E6C384",
+        line: "#455364", misc: "#788D9C", misc2: "#2C3B4A"
+    },
+    // 浅色:对齐主界面 light_palette
+    light: {
+        bg: "#f0f0f0", top: "#e4e4e4", table_bg: "#ffffff",
+        border: "#c0c0c0", border2: "#d8d8d8", border3: "#909090",
+        text: "#202020", text_dim: "#606060", text_dim2: "#505050",
+        text_bright: "#303030", text_muted: "#909090", text_head: "#505050",
+        sel: "#3d6f9f", hover: "#5a8ab5", nid_bg: "#e0e0e0",
+        nid_bg_open: "#d0d0d0",
+        accent: "#3d6f9f", accent2: "#2f7fbf", green: "#3a9a4a",
+        warn: "#a08020", warn_bg: "#f0e8c0", warn_border: "#c0a040",
+        warn_text: "#806010",
+        line: "#c0c0c0", misc: "#909090", misc2: "#dde7f0"
+    }
+};
+var C = PALETTE[g_theme];
 
 // ---- state ---------------------------------------------------------------
 var g_nets = {};        // nid -> net
@@ -28,6 +67,16 @@ var g_layout = [];      // node boxes from last render (hit test)
 var g_nid_box = null;   // NID selector rect
 var g_nid_items = [];   // dropdown item rects
 var g_record_rows = []; // frame record row rects from last render (dblclick)
+var g_map_rows = [];    // map table "Neighbors" cell rects + tei (dblclick → showTable)
+
+// ---- view transform (wheel zoom + drag pan, only for the node graph) ----
+var g_zoom = 1.0;       // user zoom factor (wheel)
+var g_pan_x = 0;        // graph pan offset X (drag)
+var g_pan_y = 0;        // graph pan offset Y (drag)
+var g_drag = null;      // active drag {sx, sy, px, py, moved} or null
+var g_graph_rect = null; // node-graph viewport rect {x,y,w,h} (drag/zoom region)
+var g_rec_rect = null;   // frame-record viewport rect {x,y,w,h} (wheel scroll region)
+var g_rec_scroll = 0;    // frame-record scroll offset (0=latest, >0 scroll up to older)
 
 // ---- history mode (mirrors native TopoWindow show_history/show_live) ----
 var g_event_log = [];   // {frameIndex, epochMs, evt} full topo events, frame order
@@ -71,7 +120,7 @@ function new_net(nid) {
     return {
         nid: nid, cco_mac: "", cco_restart: -1,
         nodes: {}, order: [], pending: {},
-        neighbors: {}, events: [], sta_restart: {},
+        neighbors: {}, neighbor_counts: {}, events: [], sta_restart: {},
         first_ms: 0, first_frame: 0, frame_count: 0
     };
 }
@@ -173,9 +222,9 @@ function build_desc(evt) {
     return evt.desc || k;
 }
 
-function push_event(net, kind, frameIndex, epochMs, desc) {
+function push_event(net, kind, frameIndex, epochMs, desc, nid) {
     net.events.push({ frameIndex: frameIndex, epochMs: epochMs,
-                      kind: kind, desc: desc });
+                      kind: kind, desc: desc, nid: nid });
     if (net.events.length > 500) net.events.shift();
     if (net.first_frame === 0 && frameIndex > 0) {
         net.first_frame = frameIndex;
@@ -193,6 +242,7 @@ function apply_topo_event(evt, skip_log) {
     var net = ensure_net(evt.nid);
     var k = evt.kind;
     var i, n, r, nd;
+    var up_route_changed = false, up_route_desc = "";
 
     // CCO node (TEI=1): root, always online
     if (evt.ccoMac) {
@@ -219,20 +269,38 @@ function apply_topo_event(evt, skip_log) {
             if (nd.status === "unknown") nd.status = "online";
         }
         // upRoutes: parser already kept only RouteType=3 (proxy main path)
+        // 检测下一跳变化(与主界面 up_route_changed 一致):变化才入路由变更表
+        var up_changes = [];
         for (i = 0; i < (evt.upRoutes || []).length; i++) {
             r = evt.upRoutes[i];
             nd = ensure_node(net, r.sta);
+            if (nd.parent !== r.nextHop) {
+                up_route_changed = true;
+                up_changes.push("TEI=" + r.sta + " 下一跳" +
+                    (nd.parent === 0xFFFF ? "-" : String(nd.parent)) +
+                    "->" + r.nextHop);
+            }
             nd.parent = r.nextHop;
             if (nd.status === "unknown") nd.status = "online";
         }
-        if (evt.discoverSrcTei && evt.neighborTeis)
+        if (up_route_changed)
+            up_route_desc = "发现列表上行路由变化: " + up_changes.join("; ");
+        if (evt.discoverSrcTei && evt.neighborTeis) {
             net.neighbors[evt.discoverSrcTei] = evt.neighborTeis.slice();
+            // 累计各邻居出现次数(与主界面 neighbor_counts 一致,供排序/信号强度)
+            var cnts = net.neighbor_counts[evt.discoverSrcTei];
+            if (!cnts) cnts = net.neighbor_counts[evt.discoverSrcTei] = {};
+            for (var di = 0; di < evt.neighborTeis.length; di++) {
+                var nb = evt.neighborTeis[di];
+                cnts[nb] = (cnts[nb] || 0) + 1;
+            }
+        }
         // CCO restart detection (mirrors TopoState)
         if (evt.restartCount >= 0) {
             if (net.cco_restart >= 0 && net.cco_restart !== evt.restartCount) {
                 push_event(net, "ccoRestart", evt.frameIndex, evt.epochMs,
                     "WARNING: CCO rebooted! restart count " +
-                    net.cco_restart + " -> " + evt.restartCount);
+                    net.cco_restart + " -> " + evt.restartCount, evt.nid);
             }
             net.cco_restart = evt.restartCount;
         }
@@ -247,7 +315,7 @@ function apply_topo_event(evt, skip_log) {
                 if (prev !== undefined && prev !== evt.restartCount) {
                     push_event(net, "staRestart", evt.frameIndex, evt.epochMs,
                         "WARNING: STA rebooted! STA " + mac + " restart count " +
-                        prev + " -> " + evt.restartCount);
+                        prev + " -> " + evt.restartCount, evt.nid);
                 }
                 net.sta_restart[mac] = evt.restartCount;
             }
@@ -281,14 +349,21 @@ function apply_topo_event(evt, skip_log) {
     } else if (k === "successRate") {
         for (i = 0; i < (evt.commRates || []).length; i++) {
             var c = evt.commRates[i];
-            nd = net.nodes[c.tei];
-            if (nd) { nd.down = c.down; nd.up = c.up; }
+            // 无条件覆盖(与主界面 comm_rates[tei]=cr 一致):节点不存在也先建立
+            nd = net.nodes[c.tei] || ensure_node(net, c.tei);
+            nd.down = c.down; nd.up = c.up;
         }
     }
-    // changeProxyReq / other: record only
-
-    if (k !== "ccoRestart" && k !== "staRestart")
-        push_event(net, k, evt.frameIndex, evt.epochMs, build_desc(evt));
+    // 对齐主界面:仅真正"变更"入路由变更表
+    // (assoc/changeProxy/leave 直接入;发现列表仅上行路由变化;成功率/重启不入)
+    var RECORD_KINDS = { assocReq:1, assocCnf:1, assocGatherInd:1, assocInd:1,
+                         changeProxyReq:1, changeProxyCnf:1, leaveInd:1 };
+    if (RECORD_KINDS[k]) {
+        push_event(net, k, evt.frameIndex, evt.epochMs, build_desc(evt), evt.nid);
+    } else if (k === "discoverList" && up_route_changed) {
+        push_event(net, k, evt.frameIndex, evt.epochMs,
+                   up_route_desc || build_desc(evt), evt.nid);
+    }
     return true;
 }
 
@@ -367,8 +442,11 @@ function fmt_time(ms) {
     var d = new Date(ms);
     function p2(v) { return (v < 10 ? "0" : "") + v; }
     function p3(v) { return (v < 10 ? "00" : (v < 100 ? "0" : "")) + v; }
-    return p2(d.getHours()) + ":" + p2(d.getMinutes()) + ":" +
-           p2(d.getSeconds()) + "." + p3(d.getMilliseconds());
+    // 对齐主界面 format_time: yyyy-MM-dd HH:mm:ss.zzz
+    return d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" +
+           p2(d.getDate()) + " " + p2(d.getHours()) + ":" +
+           p2(d.getMinutes()) + ":" + p2(d.getSeconds()) + "." +
+           p3(d.getMilliseconds());
 }
 
 function status_label(s) {
@@ -394,7 +472,16 @@ var NODE_W = 140, ICON_H = 64, LABEL_H = 54;
 var HGAP = 28, VGAP = 140, MARGIN = 40;
 
 function render(p, w, h) {
-    p.clear("#1e1e1e");
+    // 动态跟随主界面主题:切换后下一次渲染即生效(周期重绘约 800ms 内)
+    var t = "dark";
+    try {
+        if (typeof host !== "undefined" && host.getEnv) {
+            var _tv = host.getEnv("BPLC_THEME");
+            if (_tv === "light") t = "light";
+        }
+    } catch (e) {}
+    if (t !== g_theme) { g_theme = t; C = PALETTE[g_theme]; }
+    p.clear(C.bg);
     // History mode: graph / map table / NID selector / top bar read the frozen
     // snapshot; the frame-record table below always reads the live model and
     // highlights the frozen row (native parity).
@@ -402,68 +489,71 @@ function render(p, w, h) {
     if (g_hist) load_model(g_hist.model);
     var net = cur_net();
     g_record_rows = [];  // rebuilt by draw_records each frame
+    g_map_rows = [];     // rebuilt by draw_map_table each frame
     g_live_btn = null;   // rebuilt by draw_top_bar each frame
     draw_top_bar(p, w, net);
     var bot_h = Math.max(96, Math.floor(h * 0.26));
     if (!net || (net.order.length === 0 &&
                  Object.keys(net.pending).length === 0)) {
         p.set_font("", 10, false);
-        p.set_pen("#808080", 1);
+        p.set_pen(C.text_dim, 1);
         p.draw_text(20, TOP_H + 40, "No topology data yet");
     } else {
         var rw = Math.min(360, Math.floor(w * 0.38));
         var gx = 0, gy = TOP_H, gw = w - rw, gh = h - TOP_H - bot_h;
+        g_graph_rect = { x: gx, y: gy, w: gw, h: gh };
         draw_graph(p, net, gx, gy, gw, gh);
         draw_map_table(p, net, w - rw, TOP_H, rw, h - TOP_H - bot_h);
     }
     if (g_nid_open) draw_nid_dropdown(p);
     draw_tooltip(p, net, w, h);
     load_model(live);
+    g_rec_rect = { x: 0, y: h - bot_h, w: w, h: bot_h };
     draw_records(p, cur_net(), 0, h - bot_h, w, bot_h,
                  g_hist ? g_hist.frame : -1);
 }
 
 function draw_top_bar(p, w, net) {
-    p.fill_rect(0, 0, w, TOP_H, "#2d2d2d");
-    p.set_pen("#3a3a3a", 1);
+    p.fill_rect(0, 0, w, TOP_H, C.top);
+    p.set_pen(C.border, 1);
     p.draw_line(0, TOP_H - 1, w, TOP_H - 1);
     p.set_font("", 10, false);
     var x = 10;
-    p.set_pen("#d4d4d4", 1);
+    p.set_pen(C.text, 1);
     p.draw_text(x, 20, "NID:");
     x += 36;
     var bw = 110;
     g_nid_box = { x: x, y: 5, w: bw, h: TOP_H - 10 };
-    p.fill_rect(x, 5, bw, TOP_H - 10, g_nid_open ? "#3e3e3e" : "#383838");
-    p.set_pen("#6a6a6a", 1);
+    p.fill_rect(x, 5, bw, TOP_H - 10, g_nid_open ? C.nid_bg_open : C.nid_bg);
+    p.set_pen(C.border3, 1);
     p.draw_rect(x, 5, bw, TOP_H - 10);
-    p.set_pen("#d4d4d4", 1);
+    p.set_pen(C.text, 1);
     p.draw_text(x + 8, 20, (net ? fmt_nid(net.nid) : "--") + "  v");
     x += bw + 16;
     if (net && net.cco_mac) {
-        p.set_pen("#808080", 1);
+        p.set_pen(C.text_dim, 1);
         p.draw_text(x, 20, "CCO " + net.cco_mac);
         x += 170;
     }
     var nn = net ? net.order.length : 0;
-    p.set_pen("#808080", 1);
+    p.set_pen(C.text_dim, 1);
     p.draw_text(x, 20, nn + " node(s)");
     if (g_hist) {
         // History mode: frozen position label + Back to Live button
         var label = "History @ #" + g_hist.frame;
         if (g_hist.ms > 0) label += " " + fmt_time(g_hist.ms);
-        p.set_pen("#d7ba7d", 1);
+        p.set_pen(C.warn, 1);
         p.draw_text(w - 300, 20, label);
         var bw2 = 110;
         g_live_btn = { x: w - bw2 - 10, y: 5, w: bw2, h: TOP_H - 10 };
         p.fill_rect(g_live_btn.x, g_live_btn.y, g_live_btn.w, g_live_btn.h,
-                    "#4a3a1a");
-        p.set_pen("#8a6a2a", 1);
+                    C.warn_bg);
+        p.set_pen(C.warn_border, 1);
         p.draw_rect(g_live_btn.x, g_live_btn.y, g_live_btn.w, g_live_btn.h);
-        p.set_pen("#ffd97a", 1);
+        p.set_pen(C.warn_text, 1);
         p.draw_text(g_live_btn.x + 12, 20, "Back to Live");
     } else {
-        p.set_pen("#4ec9b0", 1);
+        p.set_pen(C.accent2, 1);
         p.draw_text(w - 50, 20, "Live");
     }
 }
@@ -478,10 +568,10 @@ function draw_nid_dropdown(p) {
                   w: g_nid_box.w, h: 24, nid: nid };
         g_nid_items.push(r);
         p.fill_rect(r.x, r.y, r.w, r.h,
-                    nid === g_cur_nid ? "#094771" : "#383838");
-        p.set_pen("#6a6a6a", 1);
+                    nid === g_cur_nid ? C.sel : C.nid_bg);
+        p.set_pen(C.border3, 1);
         p.draw_rect(r.x, r.y, r.w, r.h);
-        p.set_pen("#d4d4d4", 1);
+        p.set_pen(C.text, 1);
         p.draw_text(r.x + 8, r.y + 16, fmt_nid(nid));
     }
 }
@@ -509,10 +599,10 @@ function layout_nodes(net, gx, gy, gw, gh) {
     var node_h = ICON_H + LABEL_H;
     var canvas_w = Math.max(400, max_tier * (NODE_W + HGAP) + 2 * MARGIN);
     var canvas_h = MARGIN * 2 + (max_level + 1) * VGAP;
-    var scale = Math.min(gw / canvas_w, gh / canvas_h, 1.5);
+    var scale = Math.min(gw / canvas_w, gh / canvas_h, 1.5) * g_zoom;
     if (!(scale > 0)) scale = 1;
-    var ox = gx + (gw - canvas_w * scale) / 2;
-    var oy = gy + (gh - canvas_h * scale) / 2;
+    var ox = gx + (gw - canvas_w * scale) / 2 + g_pan_x;
+    var oy = gy + (gh - canvas_h * scale) / 2 + g_pan_y;
 
     var items = [];
     var centers = {};  // tei -> item (for edges)
@@ -574,12 +664,13 @@ function layout_nodes(net, gx, gy, gw, gh) {
 }
 
 function draw_graph(p, net, gx, gy, gw, gh) {
+    p.set_clip(gx, gy, gw, gh);  // 裁剪到图区,防止缩放/平移后画到映射表
     var lay = layout_nodes(net, gx, gy, gw, gh);
     g_layout = lay.items;
     var i, it;
 
     // edges: parent -> child (pending -> CCO)
-    p.set_pen("#5a5a5a", 1);
+    p.set_pen(C.line, 1);
     for (i = 0; i < lay.items.length; i++) {
         it = lay.items[i];
         var pc = null;
@@ -607,10 +698,10 @@ function draw_graph(p, net, gx, gy, gw, gh) {
 
         // selection / hover outline
         if (same_key(g_selected, key)) {
-            p.set_pen("#d7ba7d", 2);
+            p.set_pen(C.warn, 2);
             p.draw_rect(it.x - 3, it.y - 3, it.w + 6, it.h + 6);
         } else if (same_key(g_hover, key)) {
-            p.set_pen("#808080", 1);
+            p.set_pen(C.text_dim, 1);
             p.draw_rect(it.x - 2, it.y - 2, it.w + 4, it.h + 4);
         }
 
@@ -621,15 +712,16 @@ function draw_graph(p, net, gx, gy, gw, gh) {
         var title = node_title(key);
         var dim = (!is_pending && nd && nd.status === "offline");
         p.set_font("", fs, true);
-        p.set_pen(it.tei === 1 ? "#569cd6" : dim ? "#808080" : "#d4d4d4", 1);
+        p.set_pen(it.tei === 1 ? C.accent : dim ? C.text_dim : C.text, 1);
         center_text(p, title, it.x, ly + row_h * 0.75, it.w, fs);
         p.set_font("", Math.max(6, fs - 1), false);
-        p.set_pen(dim ? "#606060" : "#a0a0a0", 1);
+        p.set_pen(dim ? C.text_muted : C.text_dim2, 1);
         center_text(p, it.mac ? it.mac : "MAC ?", it.x, ly + row_h * 1.75,
                     it.w, fs - 1);
         var acc = (!is_pending && nd && nd.is_rf) ? "RF" : "PLC";
         center_text(p, acc, it.x, ly + row_h * 2.75, it.w, fs - 1);
     }
+    p.reset_clip();
 }
 
 function center_text(p, s, x, y, w, fs) {
@@ -638,8 +730,8 @@ function center_text(p, s, x, y, w, fs) {
 }
 
 function draw_map_table(p, net, x, y, w, h) {
-    p.fill_rect(x, y, w, h, "#252526");
-    p.set_pen("#3a3a3a", 1);
+    p.fill_rect(x, y, w, h, C.table_bg);
+    p.set_pen(C.border, 1);
     p.draw_line(x, y, x, y + h);
     var cols = [
         { t: "TEI", w: 0.10 }, { t: "MAC", w: 0.28 },
@@ -648,7 +740,7 @@ function draw_map_table(p, net, x, y, w, h) {
     ];
     var rh = 20;
     p.set_font("", 9, true);
-    p.set_pen("#9a9a9a", 1);
+    p.set_pen(C.text_head, 1);
     var cx = x;
     var i, j;
     for (i = 0; i < cols.length; i++) {
@@ -667,8 +759,8 @@ function draw_map_table(p, net, x, y, w, h) {
         var nd = net.nodes[tei];
         var key = { tei: tei, mac: nd.mac };
         if (same_key(g_hover, key) || same_key(g_selected, key))
-            p.fill_rect(x + 1, ry + 1, w - 2, rh - 1, "#2a3a4a");
-        p.set_pen(nd.status === "offline" ? "#606060" : "#d4d4d4", 1);
+            p.fill_rect(x + 1, ry + 1, w - 2, rh - 1, C.hover);
+        p.set_pen(nd.status === "offline" ? C.text_muted : C.text, 1);
         cx = x;
         var nbs = net.neighbors[tei] || [];
         var vals = [
@@ -682,14 +774,18 @@ function draw_map_table(p, net, x, y, w, h) {
         for (j = 0; j < cols.length; j++) {
             // Neighbors 列用绿色(与原版邻居表配色呼应)
             if (j === 4 && nbs.length > 0)
-                p.set_pen("#7fbf7f", 1);
+                p.set_pen(C.green, 1);
             else
-                p.set_pen(nd.status === "offline" ? "#606060" : "#d4d4d4", 1);
+                p.set_pen(nd.status === "offline" ? C.text_muted : C.text, 1);
             p.draw_text(cx + 4, ry + 15, vals[j]);
             cx += w * cols[j].w;
         }
-        p.set_pen("#2a2a2a", 1);
+        p.set_pen(C.border2, 1);
         p.draw_line(x, ry + rh, x + w, ry + rh);
+        // 记录邻居列单元格 rect(双击 → host.showTable 弹独立邻居表)
+        if (nbs.length > 0)
+            g_map_rows.push({ x: x + w * 0.62, y: ry, w: w * 0.24, h: rh,
+                              tei: tei });
         ry += rh;
     }
     // joining (assocReq, TEI not yet assigned): list by MAC like the native table
@@ -700,29 +796,29 @@ function draw_map_table(p, net, x, y, w, h) {
         var pmac = pend_macs[i];
         var pvals = ["-", pmac ? pmac : "-", "Joining", "1", "-", "1"];
         cx = x;
-        p.set_pen("#d4d4d4", 1);
+        p.set_pen(C.text, 1);
         for (j = 0; j < cols.length; j++) {
             p.draw_text(cx + 4, ry + 15, pvals[j]);
             cx += w * cols[j].w;
         }
-        p.set_pen("#2a2a2a", 1);
+        p.set_pen(C.border2, 1);
         p.draw_line(x, ry + rh, x + w, ry + rh);
         ry += rh;
     }
 }
 
 function draw_records(p, net, x, y, w, h, hist_frame) {
-    p.fill_rect(x, y, w, h, "#1e1e1e");
-    p.set_pen("#3a3a3a", 1);
+    p.fill_rect(x, y, w, h, C.bg);
+    p.set_pen(C.border, 1);
     p.draw_line(x, y, x + w, y);
     var cols = [
-        { t: "Frame", w: 60 }, { t: "Time", w: 100 },
-        { t: "Type", w: 110 }, { t: "NID", w: 80 },
+        { t: "Seq", w: 50 }, { t: "Time", w: 160 },
+        { t: "Type", w: 110 }, { t: "NID", w: 70 },
         { t: "Description", w: 0 }
     ];
     var rh = 20;
     p.set_font("", 9, true);
-    p.set_pen("#9a9a9a", 1);
+    p.set_pen(C.text_head, 1);
     var cx = x + 6;
     var i;
     for (i = 0; i < cols.length; i++) {
@@ -734,25 +830,37 @@ function draw_records(p, net, x, y, w, h, hist_frame) {
     p.set_font("", 9, false);
     var ry = y + rh;
     var evs = net.events;
-    var start = Math.max(0, evs.length - Math.floor((h - rh) / rh));
+    var visible = Math.max(1, Math.floor((h - rh) / rh));
+    var max_scroll = Math.max(0, evs.length - visible);
+    if (g_rec_scroll > max_scroll) g_rec_scroll = max_scroll;
+    var start = Math.max(0, evs.length - visible - g_rec_scroll);
     for (i = start; i < evs.length; i++) {
         if (ry + rh > y + h) break;
         var e = evs[i];
         var warn = (e.kind === "ccoRestart" || e.kind === "staRestart");
         var frozen = (hist_frame > 0 && e.frameIndex === hist_frame);
-        if (frozen) p.fill_rect(x, ry, w, rh, "#3a2f1a");  // frozen row highlight
-        p.set_pen(warn ? "#d7ba7d" : (frozen ? "#ffd97a" : "#b0b0b0"), 1);
+        if (frozen) p.fill_rect(x, ry, w, rh, C.misc2);  // frozen row highlight
+        p.set_pen(warn ? C.warn : (frozen ? C.warn_text : C.text_bright), 1);
         p.draw_text(x + 6, ry + 15, e.frameIndex > 0 ? String(e.frameIndex) : "-");
-        p.draw_text(x + 66, ry + 15, fmt_time(e.epochMs));
-        p.draw_text(x + 166, ry + 15, kind_label(e.kind));
-        p.set_pen(warn ? "#d7ba7d" : "#909090", 1);
-        p.draw_text(x + 276, ry + 15, fmt_nid(net.nid));
-        p.set_pen(warn ? "#d7ba7d" : "#808080", 1);
-        p.draw_text(x + 356, ry + 15, e.desc);
+        p.draw_text(x + 56, ry + 15, fmt_time(e.epochMs));
+        p.draw_text(x + 216, ry + 15, kind_label(e.kind));
+        p.set_pen(warn ? C.warn : C.misc, 1);
+        p.draw_text(x + 326, ry + 15,
+                    e.nid !== undefined ? fmt_nid(e.nid) : "-");
+        p.set_pen(warn ? C.warn : C.text_dim, 1);
+        p.draw_text(x + 396, ry + 15, e.desc);
         if (e.frameIndex > 0)
             g_record_rows.push({ x: x, y: ry, w: w, h: rh,
                                  frameIndex: e.frameIndex });
         ry += rh;
+    }
+    // 滚动条指示(有可滚动内容时):右侧竖条 + 滑块
+    if (max_scroll > 0) {
+        var tr_x = x + w - 7, tr_y = y + rh, tr_h = Math.max(8, h - rh);
+        p.fill_rect(tr_x, tr_y, 5, tr_h, C.border2);
+        var thumb_h = Math.max(16, tr_h * visible / evs.length);
+        var thumb_y = tr_y + (tr_h - thumb_h) * g_rec_scroll / max_scroll;
+        p.fill_rect(tr_x, thumb_y, 5, thumb_h, C.border3);
     }
 }
 
@@ -810,14 +918,14 @@ function draw_tooltip(p, net, w, h) {
     if (ay + th > h) ay = h - th - 4;
     if (ax < 0) ax = 4;
     if (ay < 0) ay = 4;
-    p.fill_rect(ax, ay, tw, th, "#2d2d2d");
-    p.set_pen("#6a6a6a", 1);
+    p.fill_rect(ax, ay, tw, th, C.top);
+    p.set_pen(C.border3, 1);
     p.draw_rect(ax, ay, tw, th);
     p.set_font("", 9, true);
-    p.set_pen("#d4d4d4", 1);
+    p.set_pen(C.text, 1);
     p.draw_text(ax + 8, ay + 17, tip.title);
     p.set_font("", 9, false);
-    p.set_pen("#b0b0b0", 1);
+    p.set_pen(C.text_bright, 1);
     for (i = 0; i < tip.lines.length; i++)
         p.draw_text(ax + 8, ay + 17 + (i + 1) * 16, tip.lines[i]);
 }
@@ -836,15 +944,70 @@ function in_rect(x, y, r) {
     return r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 }
 
+// 双击邻居表单元格 → 弹出独立表格窗口(对齐原版 on_teimac_double_clicked)
+function show_neighbor_table(tei) {
+    var net = cur_net();
+    if (!net) return;
+    var nbs = (net.neighbors[tei] || []).slice();
+    if (nbs.length === 0) return;
+    var counts = net.neighbor_counts[tei] || {};
+    // 按发现列表出现次数降序(与主表一致)
+    nbs.sort(function(a, b) { return (counts[b] || 0) - (counts[a] || 0); });
+    var levels = compute_levels(net);
+    var cols = ["TEI", "MAC", "Level", "Discover count"];
+    var rows = [];
+    for (var i = 0; i < nbs.length; i++) {
+        var nb = nbs[i];
+        var node = net.nodes[nb] || {};
+        rows.push([
+            String(nb),
+            node.mac ? node.mac : "-",
+            levels[nb] !== undefined ? String(levels[nb]) : "-",
+            String(counts[nb] || 0)
+        ]);
+    }
+    if (typeof host !== "undefined" && host.showTable)
+        host.showTable("Neighbors of STA TEI=" + tei, cols, rows);
+}
+
 function on_event(type, x, y, button, modifiers, delta_y) {
     var i, r;
     if (type === EVT_LEAVE) {
         if (g_hover) { g_hover = null; return true; }
         return false;
     }
+    if (type === EVT_WHEEL) {
+        // 帧记录区域:滚轮滚动(向上=看更早记录)
+        if (g_rec_rect && in_rect(x, y, g_rec_rect)) {
+            g_rec_scroll += (delta_y > 0) ? 2 : -2;
+            if (g_rec_scroll < 0) g_rec_scroll = 0;
+            return true;
+        }
+        // 图区域:滚轮缩放,以鼠标位置为中心
+        var f = (delta_y > 0) ? 1.15 : (1 / 1.15);
+        var nz = g_zoom * f;
+        if (nz < 0.3) nz = 0.3;
+        if (nz > 4.0) nz = 4.0;
+        f = nz / g_zoom;
+        g_pan_x = x - (x - g_pan_x) * f;
+        g_pan_y = y - (y - g_pan_y) * f;
+        g_zoom = nz;
+        return true;
+    }
     if (type === EVT_MOVE) {
+        if (g_drag) {
+            var dx = x - g_drag.sx, dy = y - g_drag.sy;
+            if (!g_drag.moved && (dx * dx + dy * dy) > 9) g_drag.moved = true;
+            g_pan_x = g_drag.px + dx;
+            g_pan_y = g_drag.py + dy;
+            return true;
+        }
         var h = hit_node(x, y);
         if (!same_key(h, g_hover)) { g_hover = h; return true; }
+        return false;
+    }
+    if (type === EVT_RELEASE) {
+        if (g_drag) { g_drag = null; return true; }
         return false;
     }
     if (type === EVT_DBLCLICK) {
@@ -855,6 +1018,14 @@ function on_event(type, x, y, button, modifiers, delta_y) {
                 if (typeof host !== "undefined" && host.jumpToFrame)
                     host.jumpToFrame(r.frameIndex);
                 return false;  // no redraw needed
+            }
+        }
+        // Neighbors cell double-click: pop up an independent table window
+        for (i = 0; i < g_map_rows.length; i++) {
+            r = g_map_rows[i];
+            if (in_rect(x, y, r)) {
+                show_neighbor_table(r.tei);
+                return false;
             }
         }
         return false;
@@ -885,7 +1056,14 @@ function on_event(type, x, y, button, modifiers, delta_y) {
         }
         g_nid_open = false;
         var n = hit_node(x, y);
-        if (!same_key(n, g_selected)) { g_selected = n; return true; }
+        if (n) {
+            if (!same_key(n, g_selected)) { g_selected = n; return true; }
+            return false;
+        }
+        // 图区域空白处按下:开始拖拽平移
+        if (g_graph_rect && in_rect(x, y, g_graph_rect)) {
+            g_drag = { sx: x, sy: y, px: g_pan_x, py: g_pan_y, moved: false };
+        }
         return false;
     }
     return false;

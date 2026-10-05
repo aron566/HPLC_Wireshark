@@ -19,6 +19,10 @@ public:
 
     ReaderConfig config() const { return m_cfg; }
 
+signals:
+    /// @brief 主题切换(深色?)→ 供主界面通知插件跟随 BPLC_THEME
+    void theme_changed(bool dark);
+
 private slots:
     void on_browse_file();
     void on_source_type_changed();

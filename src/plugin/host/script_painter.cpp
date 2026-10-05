@@ -57,6 +57,13 @@ void ScriptPainter::draw_point(double x, double y) {
     m_p->drawPoint(QPointF(x, y));
 }
 
+void ScriptPainter::set_clip(double x, double y, double w, double h) {
+    m_p->setClipRect(QRectF(x, y, w, h));
+}
+void ScriptPainter::reset_clip() {
+    m_p->setClipping(false);
+}
+
 /// @brief 绘制内置节点图标(与原版 TopoWindow 同源: :/icons/*.png)。
 /// 资源缺失(如宿主进程未打包图标)时退化为彩色圆点,保证脚本不崩。
 void ScriptPainter::draw_icon(const QString& name, double x, double y,

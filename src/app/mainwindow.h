@@ -80,6 +80,8 @@ private slots:
     void enter_topo_history(qint64 frame_index, qint64 frame_ms);  ///< 帧双击 → 强制历史追溯(冻结,不跟随实时)
     void on_topo_request_history(qint64 frame_index, qint64 frame_ms); ///< TOPO 路由表双击 → 追溯到该帧
     void jump_packet_to_frame(qint64 frame_index); ///< TOPO 双击 → 主帧列表定位到该帧(选中+居中,清过滤)
+    void show_plugin_table(const QString& title, const QStringList& columns,
+                           const QList<QStringList>& rows); ///< 插件 host.showTable → 弹独立表格窗口
     void replay_topo_history();        ///< 按 m_topo_hist_frame 重放日志生成冻结快照
     void on_ranges_selected(const QList<QPair<int, int>>& ranges, const QByteArray& copy_bytes);
     void on_flush_buffer();

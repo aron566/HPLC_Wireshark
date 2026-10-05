@@ -26,6 +26,7 @@ public:
     QSize graphics_preferred_size() const override;
     QImage render_graphics(int w, int h, QString* err) override;
     bool handle_graphics_event(const GraphicsEvent& e, QString* err) override;
+    void set_ui_dark(bool dark) override;  ///< 主题跟随 → 转发给 native 图形插件
 
 private:
     QPluginLoader m_loader;

@@ -160,6 +160,12 @@ bool TopoPluginPanel::eventFilter(QObject* obj, QEvent* ev) {
                                    static_cast<int>(me->button()), 0);
             break;
         }
+        case QEvent::MouseButtonRelease: {
+            const auto* me = static_cast<QMouseEvent*>(ev);
+            forward_graphics_event(GraphicsEventType::MouseRelease, me->pos(),
+                                   static_cast<int>(me->button()), 0);
+            break;
+        }
         case QEvent::MouseButtonDblClick: {
             const auto* me = static_cast<QMouseEvent*>(ev);
             forward_graphics_event(GraphicsEventType::MouseDblClick, me->pos(),

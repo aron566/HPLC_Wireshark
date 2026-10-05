@@ -113,3 +113,8 @@ bool NativeBackend::handle_graphics_event(const GraphicsEvent& e, QString* err) 
     }
     return m_graphics->handle_event(e);
 }
+
+void NativeBackend::set_ui_dark(bool dark) {
+    IPluginBackend::set_ui_dark(dark);
+    if (m_graphics) m_graphics->set_dark(dark);
+}
