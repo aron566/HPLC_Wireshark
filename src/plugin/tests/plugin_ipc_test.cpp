@@ -117,10 +117,9 @@ RecvResult recv_msg(QLocalSocket* sock, int timeout_ms = 15000) {
     return r;
 }
 
-BplcFrame make_test_frame(const QByteArray& data, qint64 arrival_us) {
+BplcFrame make_test_frame(const QByteArray& data) {
     BplcFrame f;
     f.data = data;
-    f.arrival_us = arrival_us;
     f.arrival_ms = 1700000000000LL;
     return f;
 }
@@ -239,7 +238,7 @@ bool test_plugin(const QString& host_bin, const QString& plugin_dir,
     }
     quint64 seq = 1;
     for (int i = 0; i < frames.size(); ++i) {
-        BplcFrame frame = make_test_frame(frames[i], 1000000 + i * 1000);
+        BplcFrame frame = make_test_frame(frames[i]);
         MsduState msdu;
         ParseFilter filter;
         QByteArray p = make_payload([&](QDataStream& ds) {

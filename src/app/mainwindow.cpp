@@ -879,9 +879,8 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
     e.epoch_ms  = t;
     e.accepted  = r.accept;     // 先落 accepted,Delta/last 追踪依赖它
     e.reason    = r.reject_reason;
-    // Delta:统一用帧内 NTB 差(tick × 40ns),实时串口与回放 bin 一致。
-    // 本地接收时间(0x3C 打点 arrival_us)只作 serialreader 断段(seg_start)
-    // 判断参考,不参与 Delta 计算。
+    // Delta:统一用帧内 NTB 差(tick × 40ns),实时串口与回放 bin 一致;
+    // 断段(seg_start)由 serialreader 按 NTB 差/本地时间差判断,不参与 Delta 计算。
     const quint32 ntb = r.meta.timestamp;   // NTB tick(实时/回放统一)
     if (r.meta.seg_start) {
         e.delta_us = 0;                     // 跨段断点:不计算与上一帧 delta
@@ -927,7 +926,6 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
         pf.meta = r.meta;
         pf.raw_wire = r.raw_wire;
         pf.data = r.raw_wire.isEmpty() ? r.payload_for_log : r.raw_wire;
-        pf.arrival_us = r.arrival_us;
         pf.decoded_index = e.index;
         pf.decoded_epoch_ms = e.epoch_ms;
         if (e.msdu.topo_event.kind != TopoEventKind::Other)

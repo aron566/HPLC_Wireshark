@@ -34,10 +34,9 @@ void check(bool ok, const QString& name, const QString& detail = {}) {
     fflush(stdout);
 }
 
-BplcFrame make_frame(const QByteArray& data, qint64 arrival_us) {
+BplcFrame make_frame(const QByteArray& data) {
     BplcFrame f;
     f.data = data;
-    f.arrival_us = arrival_us;
     f.arrival_ms = 1700000000000LL;
     return f;
 }
@@ -84,7 +83,7 @@ bool test_plugin(const QString& ex_dir, const QString& plugin_name,
 
     // 解析测试帧
     for (int i = 0; i < frames.size(); ++i) {
-        BplcFrame frame = make_frame(frames[i], 1000000 + i * 1000);
+        BplcFrame frame = make_frame(frames[i]);
         MsduState msdu;
         ParseFilter filter;
         QString perr;
@@ -215,7 +214,7 @@ bool test_decoded_frame_contract() {
         qint64 jumped = -1;
         backend->set_host_jump_callback([&](qint64 idx) { jumped = idx; });
 
-        BplcFrame frame = make_frame(QByteArray::fromHex("3c000102") + QByteArray(20, '\xAA'), 1000000);
+        BplcFrame frame = make_frame(QByteArray::fromHex("3c000102") + QByteArray(20, '\xAA'));
         frame.decoded_index = 42;
         frame.decoded_epoch_ms = 1700000000123LL;
         // 标量透传测试值
@@ -324,7 +323,7 @@ function parse(frame) {
         JsBackend b;
         mark(b.initialize(m, &err), "js initialize", err);
         b.set_ui_english(true);
-        BplcFrame frame = make_frame(QByteArray::fromHex("3c000201"), 1000);
+        BplcFrame frame = make_frame(QByteArray::fromHex("3c000201"));
         MsduState msdu;
         ParseFilter filter;
         ParseResult r = b.parse(frame, msdu, filter, &err);
@@ -366,7 +365,7 @@ end)");
         LuaBackend b;
         mark(b.initialize(m, &err), "lua initialize", err);
         b.set_ui_english(true);
-        BplcFrame frame = make_frame(QByteArray::fromHex("3c000201"), 1000);
+        BplcFrame frame = make_frame(QByteArray::fromHex("3c000201"));
         MsduState msdu;
         ParseFilter filter;
         ParseResult r = b.parse(frame, msdu, filter, &err);

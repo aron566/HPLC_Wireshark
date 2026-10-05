@@ -117,18 +117,14 @@ struct CoverageModel {
                          : nodes.isEmpty() ? quint16(0) : nodes.firstKey();
     }
 
-    /// @brief 中心节点的展示邻居:优先其自身邻居表,为空则回退反向边;
-    ///        按该中心发现此邻居的帧个数降序(越常被发现越靠上),TEI  tie-break
+    /// @brief 中心节点的展示邻居:严格取该节点发现列表声称能听到的邻居(有向,
+    ///        TEI1 能听到 TEI2 不代表 TEI2 能听到 TEI1);按发现帧个数降序(越常
+    ///        被发现越靠上),TEI tie-break
     QVector<quint16> display_neighbors() const {
         QVector<quint16> v;
         auto it = nodes.find(center_tei);
-        if (it != nodes.end() && !it->neighbors.isEmpty()) {
+        if (it != nodes.end())
             v = QVector<quint16>(it->neighbors.begin(), it->neighbors.end());
-        } else {
-            for (auto i = nodes.constBegin(); i != nodes.constEnd(); ++i)
-                if (i.key() != center_tei && i->neighbors.contains(center_tei))
-                    v.append(i.key());
-        }
         const quint16 c = center_tei;
         std::sort(v.begin(), v.end(), [&](quint16 a, quint16 b) {
             const int ca = discover_cnt.value(qMakePair(c, a), 0);
@@ -159,6 +155,18 @@ struct CoverageModel {
         int r = nodes.value(t).up_rate;
         if (r < 0) r = nodes.value(t).avg_rate();
         return r;
+    }
+
+    /// @brief 邻居到中心的距离因子(0~1,0=最近圆心,1=最远圈边):
+    ///        信号强度(成功率)优先;未知则用发现帧个数(越多越近);再未知取 0.8
+    double neighbor_distance_factor(quint16 x, quint16 y) const {
+        const int rate = link_rate(x, y);
+        if (rate >= 0)
+            return 0.55 + 0.30 * (1.0 - rate / 100.0);    // 0.55(强) ~ 0.85(弱)
+        const int cnt = discover_cnt.value(qMakePair(x, y), 0);
+        if (cnt > 0)
+            return 0.85 - 0.15 * double(qMin(cnt, 4)) / 4.0;  // 0.70(多) ~ 0.85(少)
+        return 0.80;
     }
 
     /// @brief 是否父子关系(严格按 routes,不含 CCO 推定)
@@ -207,7 +215,6 @@ public:
         ParseResult r;
         r.meta = in.meta;
         r.raw_wire = in.raw_wire;
-        r.arrival_us = in.arrival_us;
         r.accept = true;
         r.msdu.present = false;
         r.msdu.summary = QStringLiteral("COVERAGE");
@@ -247,10 +254,13 @@ public:
     // ---- IGraphicsPlugin ----
     bool has_graphics() const override { return true; }
     QSize preferred_size() const override { return QSize(760, 600); }
+    void set_dark(bool dark) override { m_dark = dark; }
 
     void render(QPainter* p, int w, int h) override {
         QMutexLocker lk(&m_model.mutex);
-        p->fillRect(0, 0, w, h, QColor(0x17, 0x19, 0x1e));
+        p->setRenderHint(QPainter::Antialiasing, true);
+        p->setRenderHint(QPainter::TextAntialiasing, true);
+        p->fillRect(0, 0, w, h, c_bg());
         QFont f = cov_font(13, true);
         p->setFont(f);
 
@@ -261,14 +271,14 @@ public:
             center ? &m_model.nodes[center] : nullptr;
 
         // 标题
-        p->setPen(QColor(0xe8, 0xea, 0xed));
+        p->setPen(c_text());
         p->drawText(14, 26,
                     QStringLiteral("信号覆盖 Coverage · 共 %1 个节点 Nodes")
                         .arg(m_model.nodes.size()));
         f.setPixelSize(10);
         f.setBold(false);
         p->setFont(f);
-        p->setPen(QColor(0x9a, 0xa0, 0xa8));
+        p->setPen(c_dim());
         int avg = -1, known = 0, sum = 0;
         for (quint16 t : nbrs) {
             const int r = m_model.circle_rate(t);
@@ -284,7 +294,7 @@ public:
                                       : QStringLiteral("?")));
 
         if (!center || !cnode) {
-            p->setPen(QColor(0x9a, 0xa0, 0xa8));
+            p->setPen(c_dim());
             f.setPixelSize(12);
             p->setFont(f);
             p->drawText(QRect(0, 0, w, h), Qt::AlignCenter,
@@ -293,8 +303,8 @@ public:
         }
 
         // 布局:选中节点居中,一跳邻居在内圈,其余节点在外圈,每节点自带覆盖圈
-        const QPointF C(w / 2.0, h * 0.52);
-        const double R = 0.30 * qMin(w, h);  // 中心覆盖圈半径
+        const QPointF C(w / 2.0 + m_pan_x, h * 0.52 + m_pan_y);
+        const double R = 0.30 * qMin(w, h) * m_zoom;  // 中心覆盖圈半径
         m_node_pos.clear();
         m_node_pos[center] = C;
 
@@ -312,15 +322,12 @@ public:
         double r1 = 0.38 * R;
         if (n1 > 1) r1 = qMin(r1, 0.42 * 2 * R * qSin(kPi / n1));
         // 嵌套子节点圈半径(放得进父圈 r1 内)
-        const double rn = qMin(18.0, r1 * 0.32);
+        const double rn = qMin(18.0 * m_zoom, r1 * 0.32);
         const double nest_d = r1 * 0.55;  // 子节点距父节点圆心距离
 
         for (int i = 0; i < n1; ++i) {
-            // 内圈半径按链路质量:信号越好离中心越近
-            // (100%→0.55R, 0%→R 落在覆盖边界上, 未知→0.9R)
-            const int lr = m_model.link_rate(center, nbrs[i]);
-            const double rr =
-                R * (lr < 0 ? 0.9 : 1.0 - 0.45 * lr / 100.0);
+            // 内圈半径按信号强度(成功率)优先、发现帧数兜底:越好离中心越近
+            const double rr = R * m_model.neighbor_distance_factor(center, nbrs[i]);
             const double ang = -kPi / 2.0 + i * 2.0 * kPi / n1;
             m_node_pos[nbrs[i]] = C + QPointF(rr * qCos(ang), rr * qSin(ang));
         }
@@ -360,14 +367,14 @@ public:
             rest.swap(outer);
         }
         // 外圈用椭圆布局,吃满横向空间(纵向给标题/提示留边)
-        const double R2x = w / 2.0 - r1 - 24;
-        const double R2y = h * 0.5 - r1 - 40;
+        const double R2x = w / 2.0 - r1 - 24 * m_zoom;
+        const double R2y = h * 0.5 - r1 - 40 * m_zoom;
         double r2 = 0.38 * R;
         const QVector<quint16>& outer = rest;
         if (!outer.isEmpty()) {
             const double spacing = qMin(2 * R2x * qSin(kPi / outer.size()),
                                        2 * R2y * qSin(kPi / outer.size()));
-            r2 = qMax(16.0, qMin(r2, 0.42 * spacing));
+            r2 = qMax(16.0 * m_zoom, qMin(r2, 0.42 * spacing));
         }
         // 外圈整体旋转:与内圈节点角距离最大化,避免径向重叠
         double outer_rot = 0;
@@ -401,10 +408,10 @@ public:
         // 父子连线:全网父子关系箭头(子→父),中心连线稍后高亮重画
         p->setBrush(Qt::NoBrush);
         auto dot_r = [&](quint16 t) -> double {
-            if (t == center) return 13.0;
-            if (nbrs.contains(t)) return 10.0;
-            if (nested.contains(t)) return 6.0;
-            return 7.0;
+            if (t == center) return 13.0 * m_zoom;
+            if (nbrs.contains(t)) return 10.0 * m_zoom;
+            if (nested.contains(t)) return 6.0 * m_zoom;
+            return 7.0 * m_zoom;
         };
         const QColor faint(0x9a, 0xa3, 0xb5, 200);
         for (auto it = m_model.parent_of.constBegin();
@@ -421,11 +428,11 @@ public:
         // 各自的覆盖圈:外圈细实线 / 嵌套子节点细圈 / 内圈按上行质量着色 /
         // 中心虚线大圈
         for (quint16 t : outer) {
-            p->setPen(QPen(QColor(0x2e, 0x33, 0x3d), 1));
+            p->setPen(QPen(c_border2(), 1));
             p->drawEllipse(m_node_pos[t], r2, r2);
         }
         for (quint16 t : nested_order) {
-            p->setPen(QPen(QColor(0x2e, 0x33, 0x3d), 1));
+            p->setPen(QPen(c_border2(), 1));
             p->drawEllipse(m_node_pos[t], rn, rn);
         }
         for (quint16 t : nbrs) {   // 内圈:按节点自身上行质量着色的圈
@@ -434,9 +441,9 @@ public:
             p->setPen(QPen(c, 1.2));
             p->drawEllipse(m_node_pos[t], r1, r1);
         }
-        p->setPen(QPen(QColor(0x3a, 0x41, 0x50), 1.5, Qt::DashLine));
+        p->setPen(QPen(c_border(), 1.5, Qt::DashLine));
         p->drawEllipse(C, R, R);
-        p->setPen(QColor(0x8b, 0x93, 0xa3));
+        p->setPen(c_dim());
         f.setPixelSize(10);
         p->setFont(f);
         // 标签放在圆圈左下方外侧,避开内圈节点
@@ -452,9 +459,11 @@ public:
             const bool center_is_parent =
                 m_model.parent_of.value(t, 0) == center;
             if (center_is_parent)
-                draw_arrow(p, m_node_pos[t], C, 10.0, 13.0, c, 3.0, 16.0);
+                draw_arrow(p, m_node_pos[t], C, 10.0 * m_zoom, 13.0 * m_zoom,
+                           c, 3.0, 16.0 * m_zoom);
             else
-                draw_arrow(p, C, m_node_pos[t], 13.0, 10.0, c, 3.0, 16.0);
+                draw_arrow(p, C, m_node_pos[t], 13.0 * m_zoom, 10.0 * m_zoom,
+                           c, 3.0, 16.0 * m_zoom);
         }
 
         // 节点:外圈小点 → 嵌套子节点 → 中心 → 内圈
@@ -463,7 +472,7 @@ public:
         for (quint16 t : outer) {
             QColor fc = rate_color(m_model.nodes[t].avg_rate());
             fc.setAlpha(170);
-            draw_node(p, t, 7, fc, t == m_hover_tei, false, true);
+            draw_node(p, t, 7 * m_zoom, fc, t == m_hover_tei, false, true);
         }
         for (quint16 t : nested_order) {
             // 嵌套子节点:小圆点 + TEI 标签放在远离父节点的一侧,避开父节点标签
@@ -473,11 +482,11 @@ public:
             if (t == m_hover_tei) {
                 p->setPen(QPen(QColor(0xff, 0xff, 0xff, 220), 1.5));
                 p->setBrush(Qt::NoBrush);
-                p->drawEllipse(pos, 9, 9);
+                p->drawEllipse(pos, 9 * m_zoom, 9 * m_zoom);
             }
             p->setPen(Qt::NoPen);
             p->setBrush(fc);
-            p->drawEllipse(pos, 6, 6);
+            p->drawEllipse(pos, 6 * m_zoom, 6 * m_zoom);
             QPointF away(0, -1);
             const quint16 par = m_model.parent_of.value(t, 0);
             if (par && par != t && m_node_pos.contains(par)) {
@@ -485,17 +494,17 @@ public:
                 const double dl = std::hypot(d.x(), d.y());
                 if (dl > 1.0) away = d / dl;
             }
-            p->setPen(QColor(0xe8, 0xea, 0xed));
+            p->setPen(c_text());
             p->setFont(cov_font(10, true));
             const QPointF lp = pos + away * 15.0;
             p->drawText(QRectF(lp.x() - 20, lp.y() - 8, 40, 16),
                         Qt::AlignCenter, QString::number(t));
             p->setFont(f);
         }
-        draw_node(p, center, 13, QColor(0x42, 0xa5, 0xf5), true, true);
+        draw_node(p, center, 13 * m_zoom, QColor(0x42, 0xa5, 0xf5), true, true);
         for (quint16 t : nbrs) {
             const int cr = m_model.circle_rate(t);
-            draw_node(p, t, 10, rate_color(cr), t == m_hover_tei,
+            draw_node(p, t, 10 * m_zoom, rate_color(cr), t == m_hover_tei,
                       false, false, cr);
         }
 
@@ -523,7 +532,7 @@ public:
             p->setBrush(legend[i].c);
             p->setPen(Qt::NoPen);
             p->drawEllipse(QPoint(lx + 5, ly - 4), 5, 5);
-            p->setPen(QColor(0x9a, 0xa0, 0xa8));
+            p->setPen(c_dim());
             p->drawText(lx + 14, ly, ltexts[i]);
             lx += 14 + lfm.horizontalAdvance(ltexts[i]) + 18;
         }
@@ -533,7 +542,7 @@ public:
             draw_hover_box(p, w, h);
 
         // 底部提示
-        p->setPen(QColor(0x6b, 0x72, 0x80));
+        p->setPen(c_dim());
         f.setPixelSize(10);
         p->setFont(f);
         p->drawText(QRect(0, h - 28, w, 20), Qt::AlignCenter,
@@ -545,7 +554,22 @@ public:
 
     bool handle_event(const GraphicsEvent& e) override {
         QMutexLocker lk(&m_model.mutex);
+        if (e.type == GraphicsEventType::Wheel) {
+            // 滚轮缩放(以鼠标位置为中心,对齐 js-topo)
+            const double f = e.delta_y > 0 ? 1.15 : (1.0 / 1.15);
+            const double nz = qBound(0.3, m_zoom * f, 4.0);
+            const double k = nz / m_zoom;
+            m_pan_x = e.x - (e.x - m_pan_x) * k;
+            m_pan_y = e.y - (e.y - m_pan_y) * k;
+            m_zoom = nz;
+            return true;
+        }
         if (e.type == GraphicsEventType::MouseMove) {
+            if (m_dragging) {
+                m_pan_x = m_drag_pan_x + (e.x - m_drag_start.x());
+                m_pan_y = m_drag_pan_y + (e.y - m_drag_start.y());
+                return true;
+            }
             const quint16 hit = hit_test(QPointF(e.x, e.y));
             if (hit != m_hover_tei) {
                 m_hover_tei = hit;
@@ -561,12 +585,34 @@ public:
                 m_model.center_tei = hit;
                 return true;
             }
+            if (!hit) {
+                // 空白处按下:开始拖拽平移
+                m_dragging = true;
+                m_drag_start = QPointF(e.x, e.y);
+                m_drag_pan_x = m_pan_x;
+                m_drag_pan_y = m_pan_y;
+            }
+            return false;
+        }
+        if (e.type == GraphicsEventType::MouseRelease) {
+            if (m_dragging) {
+                m_dragging = false;
+                return true;
+            }
         }
         return false;
     }
 
 private:
-    void draw_node(QPainter* p, quint16 tei, int radius, const QColor& fill,
+    // 主题颜色(跟随主界面深/浅)
+    QColor c_bg() const { return m_dark ? QColor(0x17,0x19,0x1e) : QColor(0xf0,0xf0,0xf0); }
+    QColor c_text() const { return m_dark ? QColor(0xe8,0xea,0xed) : QColor(0x20,0x20,0x20); }
+    QColor c_dim() const { return m_dark ? QColor(0x9a,0xa0,0xa8) : QColor(0x60,0x60,0x60); }
+    QColor c_border() const { return m_dark ? QColor(0x3a,0x41,0x50) : QColor(0xc0,0xc0,0xc0); }
+    QColor c_border2() const { return m_dark ? QColor(0x2e,0x33,0x3d) : QColor(0xd8,0xd8,0xd8); }
+    QColor c_hover_bg() const { return m_dark ? QColor(0x22,0x25,0x2c) : QColor(0xff,0xff,0xff); }
+
+    void draw_node(QPainter* p, quint16 tei, double radius, const QColor& fill,
                    bool highlight, bool is_center = false,
                    bool dim = false, int label_rate = -2) {
         const QPointF pos = m_node_pos.value(tei);
@@ -579,7 +625,7 @@ private:
         p->setBrush(fill);
         p->drawEllipse(pos, radius, radius);
         // TEI 编号画在点上方(浅色,深背景可读)
-        p->setPen(QColor(0xe8, 0xea, 0xed));
+        p->setPen(c_text());
         QFont f = cov_font(10, true);
         p->setFont(f);
         p->drawText(QRectF(pos.x() - 20, pos.y() - radius - 20, 40, 16),
@@ -647,28 +693,38 @@ private:
         qreal bx = m_hover_pos.x() + 16, by = m_hover_pos.y() + 16;
         if (bx + bw > w) bx = m_hover_pos.x() - bw - 12;
         if (by + bh > h) by = m_hover_pos.y() - bh - 12;
-        p->setPen(QColor(0x3a, 0x41, 0x50));
-        p->setBrush(QColor(0x22, 0x25, 0x2c));
+        p->setPen(c_border());
+        p->setBrush(c_hover_bg());
         p->drawRoundedRect(QRectF(bx, by, bw, bh), 6, 6);
-        p->setPen(QColor(0xe8, 0xea, 0xed));
+        p->setPen(c_text());
         for (int i = 0; i < lines.size(); ++i)
             p->drawText(QPointF(bx + 10, by + 20 + i * 18), lines[i]);
     }
 
     quint16 hit_test(const QPointF& pt) const {
+        const double r = 18.0 * m_zoom;
         for (auto it = m_node_pos.constBegin();
              it != m_node_pos.constEnd(); ++it) {
             const double dx = pt.x() - it->x();
             const double dy = pt.y() - it->y();
-            if (dx * dx + dy * dy <= 18.0 * 18.0) return it.key();
+            if (dx * dx + dy * dy <= r * r) return it.key();
         }
         return 0;
     }
 
     CoverageModel m_model;
-    QMap<quint16, QPointF> m_node_pos;  ///< 本次 render 的节点坐标(命中测试用)
+    QMap<quint16, QPointF> m_node_pos;  ///< 本次 render 的节点屏幕坐标(命中测试用)
     quint16 m_hover_tei = 0;
     QPointF m_hover_pos;
+
+    // 视图变换(缩放/平移):对齐 js-topo 的交互能力
+    double m_zoom = 1.0;      ///< 用户缩放因子(滚轮)
+    double m_pan_x = 0.0;     ///< 平移偏移(拖拽)
+    double m_pan_y = 0.0;
+    QPointF m_drag_start;     ///< 拖拽起点(屏幕坐标)
+    double m_drag_pan_x = 0.0, m_drag_pan_y = 0.0;  ///< 拖拽开始时的平移
+    bool m_dragging = false;
+    bool m_dark = true;       ///< 界面主题(深色?跟随主界面)
 };
 
 }  // namespace

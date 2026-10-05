@@ -59,8 +59,6 @@ QDataStream& operator>>(QDataStream& in, ParseResult& r);
 QDataStream& operator<<(QDataStream& out, const GraphicsEvent& e);
 QDataStream& operator>>(QDataStream& in, GraphicsEvent& e);
 
-// ---- QImage (Phase3): PNG 压缩字节,限 8MB ----
-QDataStream& operator<<(QDataStream& out, const QImage& img);
-QDataStream& operator>>(QDataStream& in, QImage& img);
+// (QImage 的 QDataStream 序列化由 Qt 内置提供,见 QtGui/qimage.h,此处不再声明)
 
 #endif // BPLC_PLUGIN_SERIALIZATION_H

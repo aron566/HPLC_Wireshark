@@ -27,7 +27,6 @@ NW_2021_Parser::NW_2021_Parser() {}
 // 剥物理层头(与国网一致:[dlen2][ts4][phr_mcs][option][channel][isRF])
 bool NW_2021_Parser::decode_envelope(const BplcFrame& in, Result& r) {
     r.meta = in.meta;
-    r.arrival_us = in.arrival_us;
     r.raw_wire   = in.raw_wire;
     const QByteArray& d = in.data;
 

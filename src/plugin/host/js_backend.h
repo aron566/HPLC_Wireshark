@@ -7,7 +7,7 @@
 ///     mpdu?: { frameType, srcTei, dstTei, netId },
 ///     fields?: [{ name, value, relStart?, relLen?, children?: [...] }]
 ///   }
-///   frame = { data: [byte...], rawWire: [byte...], arrivalUs: number,
+///   frame = { data: [byte...], rawWire: [byte...],
 ///             index: number,        // 主程序帧序号(1-based;0=独立测试无解码)
 ///             epochMs: number,      // 解析出的帧时刻(epoch ms)
 ///             topoEvent: evt|null,  // 本帧的拓扑事件,无事件时为 null
@@ -73,6 +73,8 @@ public:
     std::function<void(qint64)> jump_cb;
     std::function<QVariant(const QString&, const QVariant&)> setting_cb;
     std::function<QString(const QString&)> env_cb;
+    std::function<void(const QString&, const QStringList&,
+                       const QList<QStringList>&)> table_cb;
 public slots:
     void jumpToFrame(double index) { if (jump_cb) jump_cb(static_cast<qint64>(index)); }
     QVariant getSetting(const QString& key, const QVariant& defaultValue = QVariant()) {
@@ -83,6 +85,9 @@ public slots:
         if (env_cb) return env_cb(name);
         return QString();
     }
+    /// @brief 请求主界面弹出独立表格窗口(title=标题, columns=列头, rows=二维行数据)
+    void showTable(const QString& title, const QJSValue& columns,
+                   const QJSValue& rows);
 };
 
 /// @brief JS 插件后端

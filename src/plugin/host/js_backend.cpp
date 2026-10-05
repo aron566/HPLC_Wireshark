@@ -61,6 +61,33 @@ QString format_mac_evt(quint64 v) {
 }
 } // namespace
 
+// HostHelper::showTable 实现:QJSValue 数组 → QStringList,再经 table_cb 转发宿主
+void HostHelper::showTable(const QString& title, const QJSValue& columns,
+                           const QJSValue& rows) {
+    if (!table_cb) return;
+    QStringList cols;
+    if (columns.isArray()) {
+        const quint32 n = columns.property(QStringLiteral("length")).toUInt();
+        for (quint32 i = 0; i < n; ++i)
+            cols << columns.property(i).toString();
+    }
+    QList<QStringList> data;
+    if (rows.isArray()) {
+        const quint32 rn = rows.property(QStringLiteral("length")).toUInt();
+        for (quint32 r = 0; r < rn; ++r) {
+            const QJSValue row = rows.property(r);
+            QStringList cells;
+            if (row.isArray()) {
+                const quint32 cn = row.property(QStringLiteral("length")).toUInt();
+                for (quint32 c = 0; c < cn; ++c)
+                    cells << row.property(c).toString();
+            }
+            data << cells;
+        }
+    }
+    table_cb(title, cols, data);
+}
+
 // TopoEvent → JS 对象(供 frame.topoEvent)。定义在 namespace 外,parse 先用。
 static QJSValue build_topo_event_object(QJSEngine& eng, const TopoEvent& e);
 
@@ -112,7 +139,12 @@ bool JsBackend::initialize(const PluginManifest& m, QString* err) {
         return plugin_setting_value(m_plugin_dir, key, def);
     };
     m_host_helper->env_cb = [this](const QString& name) {
-        return plugin_env_value(name, m_plugin_dir, m_ui_english);
+        return plugin_env_value(name, m_plugin_dir, m_ui_english, m_ui_dark);
+    };
+    m_host_helper->table_cb = [this](const QString& title,
+                                     const QStringList& cols,
+                                     const QList<QStringList>& rows) {
+        if (m_host_table_cb) m_host_table_cb(title, cols, rows);
     };
     m_engine.globalObject().setProperty(
         QStringLiteral("host"),
@@ -242,15 +274,12 @@ ParseResult JsBackend::parse(const BplcFrame& frame, MsduState& msdu,
     ParseResult r;
     r.meta = frame.meta;
     r.raw_wire = frame.raw_wire;
-    r.arrival_us = frame.arrival_us;
     r.payload_for_log = frame.data;
 
     // 构造 frame 对象
     QJSValue js_frame = m_engine.newObject();
     js_frame.setProperty("data", byte_array_to_js(m_engine, frame.data));
     js_frame.setProperty("rawWire", byte_array_to_js(m_engine, frame.raw_wire));
-    js_frame.setProperty("arrivalUs",
-                         QJSValue(static_cast<double>(frame.arrival_us)));
 
     // MPDU:主程序解析真值直接透传(插件无需重复解析 raw 字节)
     QJSValue js_mpdu = m_engine.newObject();

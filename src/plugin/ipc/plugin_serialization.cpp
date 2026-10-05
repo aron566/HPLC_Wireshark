@@ -18,14 +18,14 @@ QDataStream& operator>>(QDataStream& in, PhysicalMeta& m) {
 // ---- BplcFrame ----
 QDataStream& operator<<(QDataStream& out, const BplcFrame& f) {
     out << f.meta << f.data << f.error_reason
-        << f.arrival_ms << f.arrival_us << f.raw_wire
+        << f.arrival_ms << f.raw_wire
         << f.decoded_index << f.decoded_epoch_ms << f.topo_event
         << f.accepted << f.mpdu << f.msdu_summary << f.msdu_present;
     return out;
 }
 QDataStream& operator>>(QDataStream& in, BplcFrame& f) {
     in >> f.meta >> f.data >> f.error_reason
-       >> f.arrival_ms >> f.arrival_us >> f.raw_wire
+       >> f.arrival_ms >> f.raw_wire
        >> f.decoded_index >> f.decoded_epoch_ms >> f.topo_event
        >> f.accepted >> f.mpdu >> f.msdu_summary >> f.msdu_present;
     return in;
@@ -180,13 +180,13 @@ QDataStream& operator>>(QDataStream& in, MsduInfo& m) {
 // ---- ParseResult ----
 QDataStream& operator<<(QDataStream& out, const ParseResult& r) {
     out << r.meta << r.mpdu << r.msdu_body << r.msdu
-        << r.msdu_raw_base << r.beacon << r.arrival_us
+        << r.msdu_raw_base << r.beacon
         << r.raw_wire << r.accept << r.reject_reason << r.payload_for_log;
     return out;
 }
 QDataStream& operator>>(QDataStream& in, ParseResult& r) {
     in >> r.meta >> r.mpdu >> r.msdu_body >> r.msdu
-       >> r.msdu_raw_base >> r.beacon >> r.arrival_us
+       >> r.msdu_raw_base >> r.beacon
        >> r.raw_wire >> r.accept >> r.reject_reason >> r.payload_for_log;
     return in;
 }
@@ -204,26 +204,4 @@ QDataStream& operator>>(QDataStream& in, GraphicsEvent& e) {
     e.type = static_cast<GraphicsEventType>(t);
     return in;
 }
-
-// ---- QImage (Phase3): PNG 压缩,限 8MB ----
-namespace {
-constexpr int kMaxImageBytes = 8 * 1024 * 1024;
-}
-QDataStream& operator<<(QDataStream& out, const QImage& img) {
-    QByteArray png;
-    if (!img.isNull()) {
-        QBuffer buf(&png);
-        buf.open(QIODevice::WriteOnly);
-        img.save(&buf, "PNG");
-    }
-    out << png;
-    return out;
-}
-QDataStream& operator>>(QDataStream& in, QImage& img) {
-    QByteArray png;
-    in >> png;
-    img = QImage();
-    if (!png.isEmpty() && png.size() <= kMaxImageBytes)
-        img.loadFromData(png, "PNG");
-    return in;
-}
+// (QImage 的 QDataStream 序列化已由 Qt 内置提供,见 QtGui/qimage.h,此处不再重复定义)

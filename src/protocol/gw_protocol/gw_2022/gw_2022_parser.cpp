@@ -34,7 +34,6 @@ GW_2022_Parser::GW_2022_Parser() {}
 // 剥物理层头
 bool GW_2022_Parser::decode_envelope(const BplcFrame& in, Result& r) {
     r.meta = in.meta;
-    r.arrival_us = in.arrival_us;   // 实时串口帧起始 0x3C 高精度接收时刻
     r.raw_wire   = in.raw_wire;     // 原始串口帧原样(调试复制)
     const QByteArray& d = in.data;
 

@@ -17,7 +17,6 @@ public:
         ParseResult r;
         r.meta = in.meta;
         r.raw_wire = in.raw_wire;
-        r.arrival_us = in.arrival_us;
         r.payload_for_log = in.data;
         r.accept = true;
 
