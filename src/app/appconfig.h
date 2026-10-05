@@ -52,8 +52,6 @@ inline void ensure_default_file() {
         "baud=460800\n"
         "; 回放/裸hex 文件路径\n"
         "file_path=\n"
-        "; 回放文件是否带 8B BCD 时间标签(自动识别时无需勾选)\n"
-        "time_tag=false\n"
         "\n"
         "[crash]\n"
         "; 崩溃捕获后端:sentry=上报Sentry服务 / crashpad=仅本地minidump / auto=自动(默认)\n"
@@ -125,7 +123,6 @@ inline int  reader_mode()      { return settings().value(QStringLiteral("reader/
 inline QString reader_com()    { return settings().value(QStringLiteral("reader/com"), QStringLiteral("COM3")).toString(); }
 inline int  reader_baud()      { return settings().value(QStringLiteral("reader/baud"), 460800).toInt(); }
 inline QString reader_file()   { return settings().value(QStringLiteral("reader/file_path")).toString(); }
-inline bool reader_time_tag()  { return settings().value(QStringLiteral("reader/time_tag"), false).toBool(); }
 
 // ---- crash ----
 inline QString crash_backend() {
@@ -145,13 +142,12 @@ inline QString crash_db_path() {
 }
 
 inline void set_reader(int mode, const QString& com, int baud,
-                       const QString& file, bool time_tag) {
+                       const QString& file) {
     QSettings s = settings();
     s.setValue(QStringLiteral("reader/mode"), mode);
     s.setValue(QStringLiteral("reader/com"), com);
     s.setValue(QStringLiteral("reader/baud"), baud);
     s.setValue(QStringLiteral("reader/file_path"), file);
-    s.setValue(QStringLiteral("reader/time_tag"), time_tag);
 }
 
 }  // namespace appcfg

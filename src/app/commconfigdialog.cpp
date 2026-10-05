@@ -29,7 +29,7 @@ CommConfigDialog::CommConfigDialog(QWidget* parent, const ReaderConfig& initial)
       m_cmb_baud_rate(nullptr), m_cmb_data_bits(nullptr),
       m_cmb_stop_bits(nullptr), m_cmb_parity(nullptr),
       m_edt_file_path(nullptr), m_btn_browse(nullptr),
-      m_chk_time_tag(nullptr), m_chk_auto_check(nullptr),
+      m_chk_auto_check(nullptr),
       m_cmb_protocol(nullptr) {
     setWindowTitle(trl::L("通讯口设置"));
     setMinimumWidth(420);
@@ -116,8 +116,6 @@ void CommConfigDialog::build_ui() {
 
     auto* opt_group = new QGroupBox(trl::L("其他"), this);
     auto* opt_lay = new QVBoxLayout(opt_group);
-    m_chk_time_tag = new QCheckBox(trl::L("带时间标签(has_time_tag=1,BCD 8B)"), opt_group);
-    opt_lay->addWidget(m_chk_time_tag);
 
     // 语言/Language:auto=跟随系统 / zh=中文 / en=English(config.ini general/lang)
     auto* lang_row = new QHBoxLayout;
@@ -245,8 +243,6 @@ void CommConfigDialog::load_initial(const ReaderConfig& c) {
 
     m_edt_file_path->setText(c.file_path);
 
-    m_chk_time_tag->setChecked(c.has_time_tag);
-
     on_source_type_changed();
 }
 
@@ -290,7 +286,6 @@ void CommConfigDialog::on_accept() {
             return;
         }
     }
-    m_cfg.has_time_tag = m_chk_time_tag->isChecked();
     accept();
 }
 namespace {
@@ -318,8 +313,6 @@ struct I18nRegCommConfig {
         trl::register_en("浏览...", "Browse...");
         trl::register_en("路径:", "Path:");
         trl::register_en("其他", "Other");
-        trl::register_en("带时间标签(has_time_tag=1,BCD 8B)",
-                         "With time tag (has_time_tag=1,BCD 8B)");
         trl::register_en("启动时自动检查更新", "Auto-check for updates at startup");
         trl::register_en("开始捕获", "Start Capture");
         trl::register_en("取消", "Cancel");

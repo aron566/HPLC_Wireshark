@@ -419,13 +419,12 @@ static ReaderConfig load_config_from_settings() {
     c.serial_name = appcfg::reader_com();
     c.baud_rate   = appcfg::reader_baud();
     c.file_path   = appcfg::reader_file();
-    c.has_time_tag = appcfg::reader_time_tag();
     return c;
 }
 
 static void save_config_to_settings(const ReaderConfig& c) {
     appcfg::set_reader(int(c.mode), c.serial_name, c.baud_rate,
-                       c.file_path, c.has_time_tag);
+                       c.file_path);
 }
 
 void MainWindow::on_start() {

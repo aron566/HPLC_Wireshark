@@ -40,7 +40,6 @@ private:
     QComboBox*    m_cmb_parity;
     QLineEdit*    m_edt_file_path;
     QPushButton*  m_btn_browse;
-    QCheckBox*    m_chk_time_tag;
     QCheckBox*    m_chk_auto_check;
     QComboBox*    m_cmb_protocol;   ///< 协议选择(国网 GW_2022 / 南网 NW_2021)
 

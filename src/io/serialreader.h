@@ -31,15 +31,13 @@ struct ReaderConfig {
     QSerialPort::StopBits stop_bits;
     QSerialPort::Parity   parity;
     QString    file_path;
-    bool       has_time_tag;
 
     ReaderConfig()
         : mode(ReaderMode::SerialPort),
           baud_rate(460800),
           data_bits(QSerialPort::Data8),
           stop_bits(QSerialPort::OneStop),
-          parity(QSerialPort::NoParity),
-          has_time_tag(false) {}
+          parity(QSerialPort::NoParity) {}
 };
 Q_DECLARE_METATYPE(ReaderConfig)
 
