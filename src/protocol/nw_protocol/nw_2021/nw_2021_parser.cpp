@@ -36,6 +36,7 @@ bool NW_2021_Parser::decode_envelope(const BplcFrame& in, Result& r) {
         r.meta.is_rf = (quint8(d[0]) != 0);
         r.payload_for_log = d.mid(1);
         r.meta.frame_time = QDateTime::fromMSecsSinceEpoch(in.arrival_ms);
+        r.meta.epoch_ms = in.arrival_ms;
         return true;
     }
 
@@ -57,11 +58,14 @@ bool NW_2021_Parser::decode_envelope(const BplcFrame& in, Result& r) {
             r.meta.frame_time = QDateTime(QDate(2000 + y, mo, da),
                                           QTime(hh, mm, ss, ms));
             r.meta.has_time_tag = true;
+            r.meta.epoch_ms = r.meta.frame_time.toMSecsSinceEpoch();
         } catch (...) {
             r.meta.frame_time = QDateTime::currentDateTime();
+            r.meta.epoch_ms = r.meta.frame_time.toMSecsSinceEpoch();
         }
     } else {
         r.meta.frame_time = QDateTime::fromMSecsSinceEpoch(in.arrival_ms);
+        r.meta.epoch_ms = in.arrival_ms;
     }
 
     int offset = hdr;

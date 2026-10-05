@@ -3,6 +3,7 @@
 #include "framedispatcher.h"
 #include "protocolfactory.h"
 #include "appconfig.h"
+#include "QsLog.h"
 
 #include <QElapsedTimer>
 
@@ -27,6 +28,12 @@ void DispatcherWorker::on_frame(const BplcFrame& frame) {
         while (t.nsecsElapsed() < 20000)
             QThread::yieldCurrentThread();
     }
+    // 累计统计:每 5 万帧打一条进度,定位回灌卡顿在哪个环节
+    const quint64 n = m_frame_count.fetch_add(1) + 1;
+    m_parse_us.fetch_add(quint64(t.nsecsElapsed() / 1000));
+    if (n % 50000 == 0)
+        QLOG_INFO() << "解析进度:" << n << "帧, 累计 parse+节流"
+                    << (m_parse_us.load() / 1000) << "ms";
 }
 
 FrameDispatcher::FrameDispatcher(QObject* parent)

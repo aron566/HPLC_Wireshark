@@ -16,7 +16,9 @@
 #include "gw_2022_coord_parser.h"
 #include "common/fieldtools.h"
 #include "crc.h"
+#include "QsLog.h"
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QtEndian>
 
 namespace {
@@ -65,13 +67,16 @@ bool GW_2022_Parser::decode_envelope(const BplcFrame& in, Result& r) {
             r.meta.frame_time = QDateTime(QDate(2000 + y, mo, da),
                                           QTime(hh, mm, ss, ms));
             r.meta.has_time_tag = true;
+            r.meta.epoch_ms = r.meta.frame_time.toMSecsSinceEpoch();
         } catch (...) {
             r.meta.frame_time = QDateTime::currentDateTime();
+            r.meta.epoch_ms = r.meta.frame_time.toMSecsSinceEpoch();
         }
     } else {
         // 无时间标签:串口/回放帧 arrival=now(等价本地时间);
         // 裸数据回放帧 arrival=ts 还原的捕获时刻 → 以此恢复 frame_time
         r.meta.frame_time = QDateTime::fromMSecsSinceEpoch(in.arrival_ms);
+        r.meta.epoch_ms = in.arrival_ms;   // O(1):arrival_ms 即 epoch ms
     }
 
     int offset = hdr;
@@ -133,10 +138,13 @@ bool GW_2022_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QSt
 // 主入口:帧分发
 GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msdu, const Filter& f) {
     Result r;
+    QElapsedTimer pt;
+    pt.start();
     if (!decode_envelope(in, r)) {
         r.accept = false;
         return r;
     }
+    const qint64 us_env = pt.nsecsElapsed() / 1000;
 
     if (!r.meta.is_rf && !f.link_hplc) { r.reject_reason = trl::L("HPLC 链路被过滤"); r.accept = false; return r; }
     if ( r.meta.is_rf && !f.link_hrf ) { r.reject_reason = trl::L("HRF 链路被过滤");  r.accept = false; return r; }
@@ -147,6 +155,7 @@ GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msd
         r.accept = false;
         return r;
     }
+    const qint64 us_mpdu = pt.nsecsElapsed() / 1000 - us_env;
 
     if (f.nid_filter && !f.nid_list.contains(r.mpdu.net_id)) {
         r.reject_reason = QString("NetID 不在白名单: 0x%1")
@@ -218,6 +227,17 @@ GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msd
         gw_2022_coordp::parse_fch(p, r.mpdu);
     }
 
+    // parse 细分统计(成功路径):env=物理头/FCH, mpdu=MPDU 基础, body=MSDU/BEACON 字段树
+    const qint64 us_body = pt.nsecsElapsed() / 1000 - us_env - us_mpdu;
+    static std::atomic<quint64> n{0}, env_us{0}, mpdu_us{0}, body_us{0};
+    const quint64 c = n.fetch_add(1) + 1;
+    env_us.fetch_add(quint64(us_env));
+    mpdu_us.fetch_add(quint64(us_mpdu));
+    body_us.fetch_add(quint64(us_body));
+    if (c % 50000 == 0)
+        QLOG_DEBUG() << "parse细分:" << c << "帧: env累计" << env_us.load() / 1000
+                     << "ms, mpdu累计" << mpdu_us.load() / 1000
+                     << "ms, body累计" << body_us.load() / 1000 << "ms";
     r.accept = true;
     return r;
 }

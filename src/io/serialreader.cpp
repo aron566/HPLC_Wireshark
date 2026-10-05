@@ -3,10 +3,12 @@
 #include "serialreader.h"
 #include "i18n.h"
 #include "playbackwriter.h"
+#include "QsLog.h"
 #include <QSerialPortInfo>
 #include <QRegularExpression>
 #include <QDateTime>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <chrono>
 
 ReaderWorker::ReaderWorker(QObject* parent) : QObject(parent),
@@ -15,7 +17,8 @@ ReaderWorker::ReaderWorker(QObject* parent) : QObject(parent),
     m_last_ntb(0), m_last_ft(0), m_running(false), m_abort(false), m_active(false),
     m_raw_base_ms(-1),
     m_hex_seg_first(false), m_hex_seg_base_ts(0), m_hex_seg_base_us(0),
-    m_last_local_ms(0), m_pending_seg_start(false), m_file_size(0), m_last_progress(-1) {}
+    m_last_local_ms(0), m_pending_seg_start(false), m_file_size(0), m_last_progress(-1),
+    m_frame_count(0) {}
 
 ReaderWorker::~ReaderWorker() {
     stop_reading();
@@ -68,6 +71,10 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
             m_file->seek(8);
         }
         emit status_message(trl::L("文件回放: %1").arg(cfg.file_path));
+        QLOG_INFO() << "回放开始:" << cfg.file_path << m_file_size << "字节";
+        QElapsedTimer replay_t;
+        replay_t.start();
+        m_frame_count = 0;
         // 一次性读完整文件(不用 timer,快速回放);每块 1MB,切帧即时 emit
         while (!m_file->atEnd()) {
             if (m_abort.load()) break;   // 立即响应 stop()(切协议重建等)
@@ -85,6 +92,8 @@ void ReaderWorker::start_reading(const ReaderConfig& cfg) {
             }
         }
         m_file->close();
+        QLOG_INFO() << "回放结束:" << m_frame_count << "帧, 读文件+切帧耗时"
+                    << replay_t.elapsed() << "ms";
         emit progress_percent(100);
         emit status_message(trl::L("文件回放结束"));
         emit finished();
@@ -301,6 +310,7 @@ void ReaderWorker::try_extract_frame() {
         // 8B 标注在文件头/段间,帧体无逐帧 BCD;不做旧版每帧 BCD 兼容检测
         bf.meta.has_time_tag = false;
         bf.data = unesc;
+        ++m_frame_count;
         emit frame_ready(bf);
     }
 }

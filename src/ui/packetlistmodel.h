@@ -81,7 +81,7 @@ public:
     bool entry_at(int visible_row, PacketEntry& out) const;
 
 public slots:
-    void append_packets(const QVector<PacketEntry>& entries);
+    void append_packets(QVector<PacketEntry> entries);  // 按值:move 语义,避免 PacketEntry 深拷贝
     void append_packet(const PacketEntry& entry);
     void clear_all();
     void activate_row(int visible_row);

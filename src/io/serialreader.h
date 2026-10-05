@@ -99,6 +99,7 @@ private:
     bool         m_pending_seg_start; ///< 实时串口新采集段首帧待标 seg_start(停止→恢复/首帧)
     qint64       m_file_size;     ///< 回放文件总大小(字节,算进度用)
     int          m_last_progress; ///< 上次上报的进度百分比(节流,避免重复刷)
+    qint64       m_frame_count;   ///< 本次回放已切出的帧数(日志统计用)
     ReaderConfig m_cfg;
 };
 

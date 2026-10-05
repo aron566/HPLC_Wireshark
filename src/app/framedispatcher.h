@@ -32,6 +32,8 @@ private:
     MsduState   m_msdu;
     ParseFilter m_filter;
     std::atomic<bool> m_stopped{false};
+    std::atomic<quint64> m_frame_count{0};  ///< 已解析帧数(日志统计)
+    std::atomic<quint64> m_parse_us{0};     ///< parse 累计耗时(µs,含节流补齐)
 };
 
 class FrameDispatcher : public QObject {

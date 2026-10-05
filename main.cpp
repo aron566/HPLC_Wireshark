@@ -19,6 +19,9 @@
 #include <QGuiApplication>
 #include <cstring>
 
+#include "QsLog.h"
+#include "QsLogDest.h"
+
 // 隐藏自测钩子(仅 CI 崩溃可用性验证用,不对外文档):
 // --self-crash-test 在崩溃处理器安装后,于本函数内触发确定性空指针崩溃,
 // 使生成的 dump 能被符号化定位到 crash_selftest_trigger(main.cpp 行号),
@@ -60,12 +63,36 @@ static void decide_language() {
     trl::set_enabled(en);
 }
 
+/// @brief 初始化 QsLog:文件(轮转 5MB×3)+ 调试输出(OutputDebugString,DebugView 可见)
+static void init_qslog() {
+    using namespace QsLogging;
+    Logger& logger = Logger::instance();
+    logger.setLoggingLevel(DebugLevel);   // 开发期看 Debug;发布可按需降为 Info
+    logger.setIncludeTimestamp(true);
+
+    const QString log_dir =
+        QCoreApplication::applicationDirPath() + QStringLiteral("/logs");
+    QDir().mkpath(log_dir);
+    const QString log_file = log_dir + QStringLiteral("/BPLC_STA_Monitor.log");
+    logger.addDestination(DestinationFactory::MakeFileDestination(
+        log_file, EnableLogRotation,
+        MaxSizeBytes(5 * 1024 * 1024), MaxOldLogCount(3)));
+
+    // 调试输出目的地(Windows 走 OutputDebugString,方便 DebugView 实时看)
+    logger.addDestination(DestinationFactory::MakeDebugOutputDestination());
+}
+
 int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationName("ZbMonitor");
     QCoreApplication::setApplicationName("BPLC_STA_Monitor");
-    QCoreApplication::setApplicationVersion("1.3.0");
+    QCoreApplication::setApplicationVersion("1.3.1");
 
     QApplication app(argc, argv);
+
+    // 日志:QsLog 文件 + 调试输出(尽早初始化,崩溃处理器前后都可记日志)
+    init_qslog();
+    QLOG_INFO() << "BPLC_STA_Monitor start, version"
+                << QCoreApplication::applicationVersion();
 
     // 崩溃捕获:与业务解耦,失败不影响启动。后端由 qmake CONFIG
     // (crash_sentry/crash_crashpad)决定编译进哪些,运行时按 config.ini [crash] 选择。

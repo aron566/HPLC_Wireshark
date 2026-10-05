@@ -9,6 +9,10 @@ TEMPLATE = app
 
 DEFINES += QT_DEPRECATED_WARNINGS
 
+# 消除第三方库的编译警告(crashpad 头文件 unused-parameter / miniz.c type-limits)
+QMAKE_CXXFLAGS += -Wno-unused-parameter
+QMAKE_CFLAGS += -Wno-type-limits
+
 # Windows 资源:exe 文件图标 + 程序版本信息
 RC_ICONS = icons/app.ico
 VERSION = 1.3.1
@@ -34,11 +38,24 @@ RESOURCES += BPLC_STA_Monitor.qrc
 # (2026-09-30 实测:CI 矩阵 none/sentry-only 组合因此实际编进了 crashpad)。
 # 所以默认改用"可退出的默认":命令行 += 的标记在 .pro 求值时可见。
 !contains(CONFIG, crash_no_default): CONFIG += crash_crashpad
-# 崩溃后端需要符号化:release 也带 -g,打包时再分离出 .sym(见 scripts/package_linux.sh)
+# 崩溃后端需要符号化:按编译器保留调试信息,打包时分离符号
+#   MinGW(g++): DWARF 内嵌 exe → 链接不 strip,打包存带符号 exe + addr2line 符号化
+#   MSVC(cl):   PDB 独立文件 → /Zi 编译 + /DEBUG 链接产 PDB,打包 dump_syms 提取 .sym
 CONFIG(crash_crashpad)|CONFIG(crash_sentry) {
-    QMAKE_CXXFLAGS_RELEASE += -g
-    QMAKE_CFLAGS_RELEASE += -g
+    win32-msvc* {
+        QMAKE_CXXFLAGS_RELEASE += /Zi
+        QMAKE_CFLAGS_RELEASE += /Zi
+        QMAKE_LFLAGS_RELEASE += /DEBUG
+    }
+    win32-g++ {
+        QMAKE_CXXFLAGS_RELEASE += -g
+        QMAKE_CFLAGS_RELEASE += -g
+        # qmake release 默认 QMAKE_LFLAGS_RELEASE=-Wl,-s 会剥掉 DWARF,去掉它
+        QMAKE_LFLAGS_RELEASE -= -Wl,-s
+    }
 }
+# QsLog 轻量日志库(3rdparty,文件轮转 + 调试输出)
+include(3rdparty/qslog/QsLog.pri)
 include(src/updater/updater.pri)
 include(src/common/common.pri)
 include(src/protocol/protocol.pri)

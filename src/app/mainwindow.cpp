@@ -18,6 +18,7 @@
 #include "plugin_manager.h"
 #include "market_dialog.h"
 #include "plugin_market.h"
+#include "QsLog.h"
 
 #include <QtConcurrent>
 #include <QCoreApplication>
@@ -874,7 +875,7 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
     // 带时间标签(回放导出的 bin)时用帧内绝对时刻,保证 Time/Delta/再导出
     // 均以原始捕获时间为基准;否则退化为本地接收时刻
     qint64 t = (r.meta.frame_time.isValid())
-                   ? r.meta.frame_time.toMSecsSinceEpoch() : now;
+                   ? r.meta.epoch_ms : now;   // 用 parse 时缓存的 epoch_ms,避免时区转换
     e.epoch_ms  = t;
     e.accepted  = r.accept;     // 先落 accepted,Delta/last 追踪依赖它
     e.reason    = r.reject_reason;
@@ -960,6 +961,8 @@ void MainWindow::on_parsed(const ParseResult& r) {
 
 void MainWindow::on_flush_buffer() {
     if (m_exporting) return;   // 导出期间暂停 append 进模型,保证快照一致且线程安全
+    QElapsedTimer flush_t;
+    flush_t.start();
     QList<PacketEntry> snapshot;
     {
         QMutexLocker lock(&m_pending_mutex);
@@ -970,11 +973,30 @@ void MainWindow::on_flush_buffer() {
     QVector<PacketEntry> entries;
     entries.reserve(snapshot.size());
     for (auto& e : snapshot) entries.append(std::move(e));
-    m_model->append_packets(entries);
+    QElapsedTimer append_t;
+    append_t.start();
+    const int batch_size = entries.size();
+    m_model->append_packets(std::move(entries));
+    const qint64 append_us = append_t.nsecsElapsed() / 1000;
 
+    QElapsedTimer scroll_t;
+    scroll_t.start();
     if (m_table_packets->model()->rowCount() > 0 && !m_paused && m_follow_bottom) {
         m_table_packets->scrollToBottom();
     }
+    const qint64 scroll_us = scroll_t.nsecsElapsed() / 1000;
+    // flush 耗时统计(主线程,每 10 批打一条,定位 UI 插入/滚动瓶颈)
+    static qint64 flush_n = 0;
+    static qint64 append_us_total = 0;
+    static qint64 scroll_us_total = 0;
+    ++flush_n;
+    append_us_total += append_us;
+    scroll_us_total += scroll_us;
+    if (flush_n % 10 == 0)
+        QLOG_DEBUG() << "flush" << flush_n << "批: append累计"
+                     << append_us_total / 1000 << "ms, scroll累计"
+                     << scroll_us_total / 1000 << "ms, 本批"
+                     << batch_size << "帧";
 }
 
 namespace {

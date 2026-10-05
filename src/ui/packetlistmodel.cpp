@@ -4,6 +4,7 @@
 #include "packetentry_serialize.h"
 #include <QColor>
 #include <QDataStream>
+#include <QDir>
 #include <QFile>
 #include <QtConcurrent>
 #include <QFutureWatcher>
@@ -359,26 +360,30 @@ const PacketEntry& PacketListModel::locate(int g) const {
 void PacketListModel::flush_hot_block() {
     if (m_hot.size() < kBlockSize) return;
     const int idx = m_block_count;
-    // 整块编码(序列化+qCompress),一次写入
+    // move 前 kBlockSize 条到待落盘块,热区立即腾出(UI 线程只做 move,不阻塞)
     QVector<PacketEntry> blk;
     blk.reserve(kBlockSize);
-    for (int i = 0; i < kBlockSize; ++i) blk.append(m_hot[i]);
-    const QByteArray data = pser::encode_block(blk);
-    QFile f(block_path(idx));
-    if (!f.open(QIODevice::WriteOnly)) return;   // 写失败:保留在热区,不丢弃数据
-    bool ok = (f.write(data) == data.size());
-    f.close();
-    // 只有完整落盘才提交;否则删除残缺文件,数据保留在热区
-    // (磁盘满时若仍提交,会导致 load_block 读到截断块,locate() 越界崩溃)
-    if (!ok || f.error() != QFile::NoError) {
-        f.remove();
-        return;
-    }
-    m_block_count++;
+    for (int i = 0; i < kBlockSize; ++i)
+        blk.append(std::move(m_hot[i]));
     m_hot.remove(0, kBlockSize);
+    m_block_count++;   // 块号立即可用;文件在后台落盘(完成前 load_block 返回空块)
+    // 后台线程:序列化 + qCompress + 写盘。
+    // 安全:只捕获 path(值) + blk(move),不捕获 this —— 模型析构/clear 后,
+    // 后台只碰局部资源;临时目录被删则 open 失败安全返回,不悬空不崩溃。
+    const QString path = block_path(idx);
+    QtConcurrent::run([path, blk = std::move(blk)]() {
+        const QByteArray data = pser::encode_block(blk);
+        QFile f(path);
+        if (!f.open(QIODevice::WriteOnly)) return;
+        const bool ok = (f.write(data) == data.size());
+        f.close();
+        // 只有完整落盘才保留;残缺文件删除,load_block 读到空块返回 false(不崩溃)
+        if (!ok || f.error() != QFile::NoError)
+            f.remove();
+    });
 }
 
-void PacketListModel::append_packets(const QVector<PacketEntry>& entries) {
+void PacketListModel::append_packets(QVector<PacketEntry> entries) {
     if (entries.isEmpty()) return;
     if (m_filtering) {                        // 过滤中:暂存,过滤完成后再补 append
         m_deferred += entries;
@@ -387,13 +392,12 @@ void PacketListModel::append_packets(const QVector<PacketEntry>& entries) {
     QVector<int> new_visible;
     new_visible.reserve(entries.size());
     const int first_new = m_visible.size();
-    for (const PacketEntry& e : entries) {
-        PacketEntry ee = e;                      // 拷贝(与 m_hot.append 合并为一次)
-        if (ee.search_text.isEmpty())            // 兜底:非 make_entry 路径(测试等)补生成
-            ee.search_text = make_search_text(ee);
+    for (PacketEntry& e : entries) {
+        if (e.search_text.isEmpty())          // 兜底:非 make_entry 路径(测试等)补生成
+            e.search_text = make_search_text(e);
         const int g = int(m_total);
         ++m_total;
-        m_hot.append(std::move(ee));
+        m_hot.append(std::move(e));           // move 进热缓存,避免深拷贝
         update_tei_mac(m_hot.last());
         if (passes_filter(m_hot.last())) new_visible.append(g);
         if (m_hot.size() >= kBlockSize) flush_hot_block();
@@ -421,6 +425,12 @@ void PacketListModel::clear_all() {
     m_total = 0;
     m_tei_mac.clear();
     endResetModel();
+    // 删除旧盘块文件:异步写盘的后台任务可能还在写,删掉后其 open 失败即安全;
+    // 已被后台打开的文件(Windows 文件锁)删不掉,写盘完成后残留,由下次 clear 清理。
+    const QDir dir(m_paging_dir.path());
+    for (const QString& f : dir.entryList(QStringList() << QStringLiteral("blk_*.bin"),
+                                          QDir::Files))
+        QFile::remove(dir.filePath(f));
 }
 
 void PacketListModel::update_tei_mac(const PacketEntry& e) {
@@ -475,7 +485,7 @@ void PacketListModel::set_display_filter(const QString& expr) {
         if (!m_deferred.isEmpty()) {         // 过滤期间暂存的 append 补进来(空过滤全可见)
             QVector<PacketEntry> def;
             def.swap(m_deferred);
-            append_packets(def);
+            append_packets(std::move(def));
         }
         return;
     }
@@ -493,7 +503,7 @@ void PacketListModel::set_display_filter(const QString& expr) {
             if (!m_deferred.isEmpty()) {      // 过滤期间暂存的 append 补进来
                 QVector<PacketEntry> def;
                 def.swap(m_deferred);
-                append_packets(def);
+                append_packets(std::move(def));
             }
             beginResetModel();
             endResetModel();

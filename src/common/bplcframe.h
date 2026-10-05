@@ -37,6 +37,7 @@ struct PhysicalMeta {
     bool     is_rf;           ///< false=PLC 载波;true=HRF 无线
     bool     has_time_tag;    ///< 是否携带 8 字节 BCD 时间标签(has_time_tag=1)
     QDateTime frame_time;     ///< 帧时间(BCD 解码或 PC 本地时间)
+    qint64    epoch_ms;       ///< frame_time 的 epoch ms 缓存(热路径避免 toMSecsSinceEpoch 时区转换)
     bool     from_raw;        ///< 是否为裸 hex 文本导入(无哨兵封装)
     bool     frame_ts_is_ntb; ///< ts 域为 NTB tick(实时串口;25kHz,40µs);
                               ///< false=文件回放(ts=epoch ms 低 32 位,毫秒级)
@@ -45,7 +46,7 @@ struct PhysicalMeta {
     PhysicalMeta()
         : timestamp(0), phr_mcs(0), option(0), channel(0),
           is_rf(false), has_time_tag(false), from_raw(false),
-          frame_ts_is_ntb(false), seg_start(false) {}
+          frame_ts_is_ntb(false), seg_start(false), epoch_ms(0) {}
 };
 
 /// @brief 一帧完整载荷(经哨兵切分 + 0x3D 反转义后),完整定义见 TopoEvent 之后
