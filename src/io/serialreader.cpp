@@ -235,6 +235,19 @@ void ReaderWorker::try_extract_frame() {
             }
         }
 
+        // 旧格式兼容:帧体 data 开头带 8B 逐帧 BCD 标签(无 raw_wire 时
+        // frame_to_playback 的回退格式) → 剥离并重建 raw_wire,统一为新格式。
+        // 不剥离的后果:raw_wire 含帧内 BCD,再次导出时该帧走 raw_wire 分支,
+        // 段首(seg_start)会在帧外再写一个 8B 段标注 → 同一帧带双重 BCD 标签。
+        if (playback::looks_like_bcd_time(unesc)) {
+            const QByteArray stripped = unesc.mid(8);
+            wire.clear();
+            wire.append(char(0x3C))
+                .append(playback::escape_frame_data(stripped))
+                .append(char(0x3E));
+            unesc = stripped;
+        }
+
         BplcFrame bf;
         // 新 bin:时间轴以帧内 NTB(u32,40 µs)差推进——
         //   首帧  frame_time = 文件头/段 8B 标注时刻
