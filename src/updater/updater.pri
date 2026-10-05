@@ -13,7 +13,9 @@
 
 QT += network
 
-DEFINES += QSU_INCLUDE_MOC=1
+# 不定义 QSU_INCLUDE_MOC:让 qmake 自动生成并单独编译 moc_QSimpleUpdater.cpp。
+# 若定义 QSU_INCLUDE_MOC=1,源文件末尾 #include "moc_QSimpleUpdater.cpp" 内联 moc,
+# 与 qmake 的 moc 规则冲突(metaObject/qt_static_metacall 等符号重复定义),链接失败。
 INCLUDEPATH += $$PWD/include
 
 SOURCES += \

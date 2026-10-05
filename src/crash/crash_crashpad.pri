@@ -39,3 +39,21 @@ win32 {
     LIBS += -lmini_chromium
     LIBS += -lwinhttp -ldbghelp -lversion -lws2_32
 }
+
+# crashpad_handler 二进制复制到 exe 输出目录(运行时 backend_crashpad 用 exe_dir()
+# 找同目录的 crashpad_handler,缺了崩溃不落 dump)。仅当后端启用且 handler 存在时复制。
+# 平台/工具链区分复制命令:
+#   win32-msvc*(nmake,cmd shell) → copy /Y
+#   win32-g++(mingw32-make,sh shell) / unix(Linux) → cp -f
+CRASH_HANDLER_BIN = $$CRASH_CRASHPAD_ROOT/bin/crashpad_handler
+win32: CRASH_HANDLER_BIN = $$CRASH_CRASHPAD_ROOT/bin/crashpad_handler.exe
+exists($$CRASH_HANDLER_BIN) {
+    # 目标目录 = OUT_PWD + DESTDIR。DESTDIR 在 qmake 求值 .pri 时尚未按
+    # debug/release 赋值(qmake 生成 Makefile 时才赋 debug/ 或空),故用 Makefile
+    # 变量 $(DESTDIR) 运行时展开,避免 Debug 构建把 handler 复制到 OUT_PWD 根。
+    win32-msvc* {
+        QMAKE_POST_LINK += $$quote(copy /Y $$shell_path($$CRASH_HANDLER_BIN) $$shell_path($$OUT_PWD)/$(DESTDIR))
+    } else {
+        QMAKE_POST_LINK += $$quote(cp -f $$shell_path($$CRASH_HANDLER_BIN) $$shell_path($$OUT_PWD)/$(DESTDIR))
+    }
+}
