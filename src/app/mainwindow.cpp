@@ -1278,6 +1278,10 @@ void MainWindow::setup_plugin_ui() {
     m_plugin_dock->setWidget(m_plugin_tabs);
     m_plugin_dock->setVisible(false);
     addDockWidget(Qt::RightDockWidgetArea, m_plugin_dock);
+    // 去掉关闭按钮:面板显隐只由菜单「显示插件面板」控制,避免 dock 自带
+    // 关闭按钮与菜单勾选状态不一致。
+    m_plugin_dock->setFeatures(QDockWidget::DockWidgetMovable |
+                               QDockWidget::DockWidgetFloatable);
 
     // 插件菜单
     auto* menu_plugin = menuBar()->addMenu(trl::L("插件(&G)"));
@@ -1286,12 +1290,16 @@ void MainWindow::setup_plugin_ui() {
     auto* act_market = menu_plugin->addAction(trl::L("插件市场(&M)..."));
     connect(act_market, &QAction::triggered, this,
             &MainWindow::on_open_plugin_market);
-    auto* act_show = menu_plugin->addAction(trl::L("显示插件面板"));
-    act_show->setCheckable(true);
-    act_show->setChecked(false);
-    connect(act_show, &QAction::toggled, m_plugin_dock, &QDockWidget::setVisible);
-    connect(m_plugin_dock, &QDockWidget::visibilityChanged,
-            act_show, &QAction::setChecked);
+    m_act_show_plugin = menu_plugin->addAction(trl::L("显示插件面板"));
+    m_act_show_plugin->setCheckable(true);
+    m_act_show_plugin->setChecked(false);
+    // 单向绑定:菜单勾选 → dock 显隐。不反向连 visibilityChanged——主窗口
+    // 最小化时 QDockWidget 会收到 HideToParent(触发 visibilityChanged(false)),
+    // 若反向 setChecked 会再触发 toggled→setVisible(false) 把面板真正关掉,
+    // 恢复窗口后面板就不见了。断开反向后,最小化只是暂时不可见,恢复时
+    // 依自身 visible 属性自动重显。
+    connect(m_act_show_plugin, &QAction::toggled,
+            m_plugin_dock, &QDockWidget::setVisible);
 }
 
 void MainWindow::connect_plugin_feed() {
@@ -1377,8 +1385,12 @@ void MainWindow::on_plugin_loaded(const PluginLoadedInfo& info) {
     PluginPanel* panel = create_plugin_panel(m_plugin_engine, info, m_plugin_tabs);
     m_plugin_tabs->addTab(panel, info.display_name);
     m_plugin_panels.insert(info.plugin_id, panel);
-    if (!m_plugin_dock->isVisible())
+    if (!m_plugin_dock->isVisible()) {
         m_plugin_dock->setVisible(true);
+        // 同步菜单勾选状态(反向绑定已移除,插件加载自动显示面板时手动同步)
+        if (m_act_show_plugin)
+            m_act_show_plugin->setChecked(true);
+    }
     m_status_left->setText(
         QStringLiteral("%1: %2").arg(trl::L("插件"), info.display_name));
 }

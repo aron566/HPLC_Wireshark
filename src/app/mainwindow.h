@@ -141,6 +141,7 @@ private:
     PacketListModel* m_model;
     LocalPluginEngine* m_plugin_engine = nullptr; ///< 主界面内置插件引擎(进程内后端)
     QDockWidget*  m_plugin_dock = nullptr;        ///< 插件功能面板 dock
+    QAction*      m_act_show_plugin = nullptr;    ///< 菜单「显示插件面板」勾选项
     QTabWidget*   m_plugin_tabs = nullptr;        ///< 每个插件一个 tab
     QMap<QString, QWidget*> m_plugin_panels;      ///< pid → 功能面板
     QStringList   m_plugin_search_dirs;           ///< 插件搜索目录(市场安装目录+命令行目录)
