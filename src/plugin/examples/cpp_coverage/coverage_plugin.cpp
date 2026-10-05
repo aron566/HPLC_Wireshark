@@ -485,12 +485,34 @@ public:
         int both = 0;
         for (quint16 t : nbrs)
             if (m_model.is_bidirectional(center, t)) ++both;
+        // 全网统计(还原网页 stats):平均邻居数 + 全网链路双向/单向
+        int total_nbr = 0, total_links = 0, bidir_links = 0;
+        QSet<QPair<quint16, quint16>> seen;
+        for (auto it = m_model.nodes.constBegin();
+             it != m_model.nodes.constEnd(); ++it) {
+            total_nbr += it->neighbors.size();
+            for (quint16 nb : it->neighbors) {
+                const auto key = qMakePair(qMin(it.key(), nb), qMax(it.key(), nb));
+                if (seen.contains(key)) continue;
+                seen.insert(key);
+                ++total_links;
+                if (m_model.is_bidirectional(it.key(), nb)) ++bidir_links;
+            }
+        }
+        const double avg_nbr =
+            m_model.nodes.isEmpty() ? 0.0
+                                    : double(total_nbr) / m_model.nodes.size();
         p->drawText(14, 44,
-                    QStringLiteral("选中 Selected TEI %1 · 邻居 %2 · 双向 %3 · 单向 %4")
+                    QStringLiteral("选中 TEI %1 · 邻居 %2 · 双向 %3 · 单向 %4 · "
+                                   "全网 %5 节点 · 链路 %6(%7 双向) · 平均邻居 %8")
                         .arg(center)
                         .arg(nbrs.size())
                         .arg(both)
-                        .arg(inbound.size()));
+                        .arg(inbound.size())
+                        .arg(m_model.nodes.size())
+                        .arg(total_links)
+                        .arg(bidir_links)
+                        .arg(QString::number(avg_nbr, 'f', 1)));
 
         if (!center) {
             p->setPen(c_dim());
