@@ -425,12 +425,20 @@ QFont cov_font(int pixel_size, bool bold = false) {
     return f;
 }
 
-/// @brief 成功率配色:优/中/差/未知
+/// @brief 成功率配色:优/中/差/未知(仅面板表格/图例用)
 QColor rate_color(int rate) {
     if (rate < 0) return QColor(0x8a, 0x8f, 0x98);
     if (rate >= 90) return QColor(0x43, 0xd1, 0x7c);
     if (rate >= 70) return QColor(0xe8, 0xc5, 0x47);
     return QColor(0xe5, 0x53, 0x4b);
+}
+
+/// @brief 颜色线性插值(HTML mixc):near→far 距离渐变
+QColor mix_color(const QColor& a, const QColor& b, double t) {
+    t = qBound(0.0, t, 1.0);
+    return QColor(int(a.red() + (b.red() - a.red()) * t),
+                  int(a.green() + (b.green() - a.green()) * t),
+                  int(a.blue() + (b.blue() - a.blue()) * t));
 }
 
 /// @brief 帧解析器:只建模,不做协议解析
@@ -611,6 +619,33 @@ public:
             return layout.radius.value(t, 0.0) * fit_k;
         };
 
+        // 0. 背景网格(对齐 HTML drawMap)
+        {
+            // step 自适应:保证屏距 ≥28px。
+            // 注:不用 `while (step*fit_k<28.0) step*=2.0` —— 该浮点 while 会触发
+            // MinGW 13.1.0 编译器的优化 bug,产物 DLL 加载失败(exit 127)。
+            // 改用带次数上限的 for,语义相同(step 最多翻 16 次到 3.2M)。
+            double step = 50.0;
+            for (int k = 0; k < 16 && step * fit_k < 28.0; ++k)
+                step *= 2.0;
+            p->setPen(QPen(c_grid(), 1));
+            const double off_x = map_cx + m_pan_x;
+            const double off_y = map_cy + m_pan_y;
+            const double xs = qFloor((-off_x / fit_k) / step) * step;
+            const double xe = (map_w - off_x) / fit_k;
+            for (double wx = xs; wx <= xe; wx += step) {
+                const double sx = wx * fit_k + off_x;
+                p->drawLine(QPointF(sx, header_h), QPointF(sx, h - footer_h));
+            }
+            const double ys = qFloor((-off_y / fit_k) / step) * step;
+            const double ye = (h - footer_h - off_y) / fit_k;
+            for (double wy = ys; wy <= ye; wy += step) {
+                const double sy = wy * fit_k + off_y;
+                if (sy < header_h) continue;
+                p->drawLine(QPointF(0, sy), QPointF(map_w, sy));
+            }
+        }
+
         // 1. 全网父子连线(箭头,子→父)
         p->setBrush(Qt::NoBrush);
         const QColor faint = c_dim();
@@ -620,7 +655,7 @@ public:
             if (ch == pa) continue;
             if (!m_node_pos.contains(ch) || !m_node_pos.contains(pa)) continue;
             draw_arrow(p, m_node_pos[ch], m_node_pos[pa],
-                       6.0 * m_zoom, 8.0 * m_zoom, faint, 1.0, 5.5);
+                       6.0 * m_zoom, 8.0 * m_zoom, faint, 1.5, 9.0);
         }
 
         // 1b. 选中中心父子连线高亮(颜色=中心→邻居传输质量,盖在 faint 上)
@@ -635,70 +670,103 @@ public:
             c.setAlpha(255);
             if (t_is_child)
                 draw_arrow(p, m_node_pos[t], m_node_pos[center],
-                           10.0 * m_zoom, 13.0 * m_zoom, c, 1.5, 8.0);
+                           10.0 * m_zoom, 13.0 * m_zoom, c, 3.0, 16.0);
             else
                 draw_arrow(p, m_node_pos[center], m_node_pos[t],
-                           13.0 * m_zoom, 10.0 * m_zoom, c, 1.5, 8.0);
+                           13.0 * m_zoom, 10.0 * m_zoom, c, 3.0, 16.0);
         }
 
-        // 2. 各节点覆盖圈(半径 = MDS 还原的最远邻居距离)
+        // 2. 各节点覆盖圈(HTML 风格:ink 蓝填充+描边,单向略强调)
+        const QSet<quint16> inb_set(inbound.begin(), inbound.end());
         for (auto it = layout.pos.constBegin(); it != layout.pos.constEnd(); ++it) {
             const quint16 t = it.key();
             if (t == center) continue;
             const double r = scr_r(t);
             if (r <= 0) continue;
-            QColor fc = rate_color(m_model.circle_rate(t));
-            fc.setAlpha(18);
-            p->setBrush(fc);
-            p->setPen(QPen(c_border2(), 1));
+            const bool h = inb_set.contains(t);
+            QColor fill = c_ink();
+            fill.setAlpha(h ? 12 : 7);
+            QColor stroke = c_ink();
+            stroke.setAlpha(h ? 150 : 55);
+            p->setBrush(fill);
+            p->setPen(QPen(stroke, h ? 1.3 : 1.0));
             p->drawEllipse(m_node_pos[t], r, r);
         }
 
-        // 3. 中心节点覆盖圈(虚线高亮)
+        // 3. 中心节点覆盖圈(accent 橙,实线)
         {
             const double r = scr_r(center);
-            p->setBrush(Qt::NoBrush);
-            p->setPen(QPen(c_accent(), 1.6, Qt::DashLine));
+            QColor fill = c_accent();
+            fill.setAlpha(25);
+            p->setBrush(fill);
+            p->setPen(QPen(c_accent(), 2.0));
             if (r > 0) p->drawEllipse(m_node_pos[center], r, r);
         }
 
-        // 4. 节点(中心最后画;邻居按链路质量着色,其余按自身平均质量)
+        // 4. 节点(HTML 风格:选中橙 / 邻居 near→far 渐变 / 单向空心 / 默认 ink / CCO 方块)
         f.setPixelSize(10);
         p->setFont(f);
+        const double dRef = 120.0;  // 距离归一化参考(未知距离=120)
         for (auto it = layout.pos.constBegin(); it != layout.pos.constEnd(); ++it) {
             const quint16 t = it.key();
             if (t == center) continue;
             const bool is_nbr = nbrs.contains(t);
-            const int cr = is_nbr ? m_model.link_rate(center, t)
-                                  : m_model.nodes[t].avg_rate();
-            QColor fc = rate_color(cr);
-            if (!is_nbr) fc.setAlpha(180);
-            const double rad = is_nbr ? 10.0 : 7.0;
-            draw_node(p, t, rad * m_zoom, fc, t == m_hover_tei, false, false, cr);
+            const bool is_inb = inb_set.contains(t);
+            QColor fill, stroke = c_ink();
+            double rad = 6.0;
+            int label_rate = -2;
+            if (is_nbr) {
+                const double tt =
+                    qBound(0.0, m_model.est_distance(center, t) / dRef, 1.0);
+                fill = mix_color(c_near(), c_far(), tt);
+                stroke = c_ink();
+                rad = 7.5;
+                label_rate = m_model.link_rate(center, t);
+            } else if (is_inb) {
+                fill = c_bg();       // 空心:背景色填充 + accent 描边
+                stroke = c_accent();
+                rad = 6.0;
+            } else {
+                fill = c_ink();
+                fill.setAlpha(150);
+                label_rate = m_model.nodes[t].avg_rate();
+            }
+            draw_node(p, t, rad * m_zoom, fill, stroke, t == m_hover_tei,
+                      (t == 1), false, label_rate);
         }
-        draw_node(p, center, 13 * m_zoom, c_accent(), true, true);
+        draw_node(p, center, 8.5 * m_zoom, c_accent(), c_ink(), true,
+                  (center == 1), true, -2);
 
-        // 图例(画布左上角,横排)
-        const struct { QColor c; const char* zh; const char* en; } legend[] = {
-            { rate_color(95), "≥90 优", "good" },
-            { rate_color(80), "70–89 中", "fair" },
-            { rate_color(50), "<70 差", "poor" },
-            { rate_color(-1), "未知", "unknown" },
+        // 图例(画布左上角,横排,对齐 HTML legend)
+        const struct { QColor c; bool hollow; bool square; const char* zh; const char* en; } legend[] = {
+            { c_accent(), false, false, "选中", "selected" },
+            { c_near(),  false, false, "邻居", "neighbor" },
+            { c_accent(), true,  false, "单向", "one-way" },
+            { c_ink(),   false, true,  "CCO", "CCO" },
         };
         f.setPixelSize(9);
         p->setFont(f);
         const QFontMetrics lfm(f);
         QStringList ltexts;
-        for (const auto& e : legend) {
+        for (const auto& e : legend)
             ltexts << QString::fromUtf8(e.zh) + QStringLiteral(" ") +
                           QString::fromUtf8(e.en);
-        }
         {
             int lx = 14, ly = header_h + 14;
             for (int i = 0; i < 4; ++i) {
-                p->setBrush(legend[i].c);
-                p->setPen(Qt::NoPen);
-                p->drawEllipse(QPoint(lx + 4, ly - 3), 4, 4);
+                if (legend[i].square) {
+                    p->setPen(Qt::NoPen);
+                    p->setBrush(legend[i].c);
+                    p->drawRect(QRectF(lx + 1, ly - 7, 6, 6));
+                } else if (legend[i].hollow) {
+                    p->setPen(QPen(legend[i].c, 1.2));
+                    p->setBrush(Qt::NoBrush);
+                    p->drawEllipse(QPoint(lx + 4, ly - 3), 4, 4);
+                } else {
+                    p->setPen(Qt::NoPen);
+                    p->setBrush(legend[i].c);
+                    p->drawEllipse(QPoint(lx + 4, ly - 3), 4, 4);
+                }
                 p->setPen(c_dim());
                 p->drawText(lx + 12, ly, ltexts[i]);
                 lx += 12 + lfm.horizontalAdvance(ltexts[i]) + 14;
@@ -745,7 +813,23 @@ public:
             return false;
         }
         if (e.type == GraphicsEventType::MousePress && e.button == 1) {
-            // 先命中右侧面板的邻居表格行(点击切换选中)
+            // 0. 下拉框本体:点击切换展开/收起
+            if (m_dropdown_rect.contains(QPointF(e.x, e.y))) {
+                m_dropdown_open = !m_dropdown_open;
+                return true;
+            }
+            // 0b. 下拉列表项:点击切换选中并收起
+            if (m_dropdown_open) {
+                for (const auto& item : m_dropdown_items) {
+                    if (item.second.contains(QPointF(e.x, e.y))) {
+                        if (item.first != m_model.center_tei)
+                            m_model.center_tei = item.first;
+                        m_dropdown_open = false;
+                        return true;
+                    }
+                }
+            }
+            // 1. 先命中右侧面板的邻居表格行(点击切换选中)
             for (const auto& row : m_table_rows) {
                 if (row.second.contains(QPointF(e.x, e.y))) {
                     if (row.first != m_model.center_tei) {
@@ -789,31 +873,40 @@ private:
     QColor c_border() const { return m_dark ? QColor(0x45,0x53,0x64) : QColor(0xc0,0xc0,0xc0); }
     QColor c_border2() const { return m_dark ? QColor(0x37,0x41,0x4f) : QColor(0xd8,0xd8,0xd8); }
     QColor c_hover_bg() const { return m_dark ? QColor(0x22,0x30,0x3c) : QColor(0xff,0xff,0xff); }
-    QColor c_accent() const { return m_dark ? QColor(0x34,0x67,0x92) : QColor(0x3d,0x6f,0x9f); }
+    // 节点/圈配色严格对齐 hplc-coverage.html 的 CSS 变量(深浅两套)
+    QColor c_accent() const { return m_dark ? QColor(0xff,0x8f,0x52) : QColor(0xd2,0x49,0x0c); }  // --accent 橙(选中)
+    QColor c_ink() const { return m_dark ? QColor(0x78,0xb6,0xec) : QColor(0x1d,0x4e,0x7a); }     // --ink 蓝(圈/默认节点)
+    QColor c_near() const { return m_dark ? QColor(0x3f,0xcd,0xbb) : QColor(0x0a,0x7c,0x73); }    // --near 绿(近)
+    QColor c_far() const { return m_dark ? QColor(0x3a,0x4c,0x59) : QColor(0xbf,0xcb,0xd4); }     // --far 灰(远)
+    QColor c_grid() const { return m_dark ? QColor(0x1b,0x2a,0x34) : QColor(0xdf,0xe5,0xe9); }    // --grid 网格线
     QColor c_panel() const { return m_dark ? QColor(0x15,0x21,0x2b) : QColor(0xf8,0xfa,0xfb); }
     QColor c_footer_bg() const { return m_dark ? QColor(0x11,0x1c,0x25) : QColor(0xe8,0xea,0xeb); }
     QColor c_good() const { return m_dark ? QColor(0x3f,0xcd,0xbb) : QColor(0x0a,0x7c,0x73); }
     QColor c_warn() const { return m_dark ? QColor(0xe3,0xa6,0x50) : QColor(0xa3,0x5f,0x0a); }
 
     void draw_node(QPainter* p, quint16 tei, double radius, const QColor& fill,
-                   bool highlight, bool is_center = false,
-                   bool dim = false, int label_rate = -2) {
+                   const QColor& stroke, bool highlight, bool cco = false,
+                   bool is_center = false, int label_rate = -2) {
         const QPointF pos = m_node_pos.value(tei);
         if (highlight) {
-            p->setPen(QPen(Qt::white, 2));
+            p->setPen(QPen(c_text(), 1.2));
             p->setBrush(Qt::NoBrush);
             p->drawEllipse(pos, radius + 3, radius + 3);
         }
-        p->setPen(Qt::NoPen);
+        p->setPen(QPen(stroke, 1.3));
         p->setBrush(fill);
-        p->drawEllipse(pos, radius, radius);
-        // TEI 编号画在点上方(浅色,深背景可读)
+        if (cco)   // CCO 用方块(对齐 HTML rect)
+            p->drawRect(QRectF(pos.x() - radius, pos.y() - radius,
+                               2 * radius, 2 * radius));
+        else
+            p->drawEllipse(pos, radius, radius);
+        // TEI 编号画在点上方
         p->setPen(c_text());
         QFont f = cov_font(10, true);
         p->setFont(f);
         p->drawText(QRectF(pos.x() - 20, pos.y() - radius - 20, 40, 16),
                     Qt::AlignCenter, QString::number(tei));
-        if (!is_center && !dim) {
+        if (!is_center) {
             // label_rate=-2:用节点自身平均;调用方可传入链路质量
             const int rate = (label_rate <= -2)
                                  ? m_model.nodes[tei].avg_rate()
@@ -839,7 +932,7 @@ private:
         const QPointF a = from + u * (from_r + 2.0);
         const QPointF tip = to - u * (to_r + 1.5);
         const QPointF bc = tip - u * head_len;  // 箭头底边中心
-        const double hw = head_len * 0.45;      // 半宽:箭头更修长
+        const double hw = head_len * 0.5;       // 半宽:宽箭头更醒目
         p->setPen(QPen(color, width));
         p->drawLine(a, bc + u);
         QPolygonF poly;
@@ -896,7 +989,46 @@ private:
 
         QFont f = cov_font(11);
         p->setFont(f);
-        int y = py + 16;
+        int y = py + 14;
+
+        // 「查看节点」下拉框(对齐 HTML 的 select)
+        m_dropdown_rect = QRectF(px + 12, y, panel_w - 24, 22);
+        p->setPen(c_border());
+        p->setBrush(c_hover_bg());
+        p->drawRoundedRect(m_dropdown_rect, 4, 4);
+        p->setPen(c_text());
+        p->drawText(QRectF(px + 18, y, panel_w - 60, 22),
+                    Qt::AlignVCenter | Qt::AlignLeft,
+                    QStringLiteral("查看节点 View: TEI %1").arg(center));
+        p->setPen(c_dim());
+        p->drawText(QRectF(px + panel_w - 34, y, 22, 22), Qt::AlignCenter,
+                    m_dropdown_open ? QStringLiteral("▲") : QStringLiteral("▼"));
+        y += 28;
+
+        // 展开的节点列表(覆盖在面板上部)
+        if (m_dropdown_open) {
+            m_dropdown_items.clear();
+            QVector<quint16> all;
+            for (auto it = m_model.nodes.constBegin();
+                 it != m_model.nodes.constEnd(); ++it)
+                all.append(it.key());
+            std::sort(all.begin(), all.end());
+            const int row_h = 18;
+            for (quint16 t : all) {
+                const QRectF row(px + 12, y, panel_w - 24, row_h);
+                m_dropdown_items.append(qMakePair(t, row));
+                if (t == center)
+                    p->fillRect(row, c_accent());
+                p->setPen(c_text());
+                p->drawText(row.adjusted(6, 0, -4, 0), Qt::AlignVCenter,
+                            QStringLiteral("TEI %1%2")
+                                .arg(t)
+                                .arg(t == 1 ? QStringLiteral(" (CCO)")
+                                            : QString()));
+                y += row_h;
+            }
+            y += 6;
+        }
 
         // 选中节点信息
         const CoverageNode& nd = m_model.nodes[center];
@@ -1045,6 +1177,9 @@ private:
     CoverageModel m_model;
     QMap<quint16, QPointF> m_node_pos;  ///< 本次 render 的节点屏幕坐标(命中测试用)
     QVector<QPair<quint16, QRectF>> m_table_rows;  ///< 右侧邻居表格行矩形(点击切换选中)
+    bool m_dropdown_open = false;                  ///< 「查看节点」下拉框是否展开
+    QRectF m_dropdown_rect;                        ///< 下拉框本体矩形(点击切换展开)
+    QVector<QPair<quint16, QRectF>> m_dropdown_items;  ///< 下拉列表项矩形
     quint16 m_hover_tei = 0;
     QPointF m_hover_pos;
 
