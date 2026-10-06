@@ -116,8 +116,9 @@ struct CoverageModel {
             src.tei = ev.discover_src_tei;
             // 邻居表累积(并集):多次发现帧共同决定覆盖全集,
             // 邻居在圈中的角度位置按发现帧计数排序(越常被发现越靠上)
-            src.neighbors.unite(
-                QSet<quint16>(ev.neighbor_teis.begin(), ev.neighbor_teis.end()));
+            for (quint16 t : ev.neighbor_teis)
+                if (t != 0)
+                    src.neighbors.insert(t);  // TEI 0 保留值,不进邻居表
             for (quint16 t : ev.neighbor_teis) {
                 if (t == 0) continue;  // TEI 0 是保留值(位图 bit0 噪声),不作为节点
                 nodes[t].tei = t;
@@ -163,6 +164,7 @@ struct CoverageModel {
                     ++it;
             }
         }
+        nodes.remove(0);  // TEI 0 是保留值,任何来源(节点列表/邻居位图/成功率)都不作为节点
         if (!nodes.contains(center_tei))
             center_tei = nodes.contains(1) ? quint16(1)
                          : nodes.isEmpty() ? quint16(0) : nodes.firstKey();

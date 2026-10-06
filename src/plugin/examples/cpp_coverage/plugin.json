@@ -15,5 +15,5 @@
     "windows-x86_64": "qt6-mingw-x64-l23003f800280158",
     "linux-x86_64": "qt6-gcc-x64"
   },
-  "version": "1.4.2"
+  "version": "1.4.3"
 }
