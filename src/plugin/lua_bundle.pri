@@ -24,8 +24,11 @@ LUA_URL = https://www.lua.org/ftp/lua-5.4.6.tar.gz
         # qmake 的 system() 在 Windows 下实际跑的是 cmd /v:off /s /c "<command>",
         # /s 会剥掉首尾引号,命令里不能再嵌套双引号——因此逻辑收进
         # 3rdparty/bootstrap_lua.bat,这里只调 bat(路径无空格,不加引号)。
+        # 注意:不能用 $$shell_path() —— 在 MSYS/Git Bash(CI 与本地终端都走它)
+        # 下会转成 /C/Users/... 这种 MSYS 路径,cmd.exe 认不得(报"系统找不到
+        # 指定的路径")。$$clean_path() 始终给出 C:/... 正斜杠,cmd 可直接执行。
         # Windows 下统一用 mingw32-make(各 MinGW 套件都带,含 llvm-mingw)。
-        LUA_BOOT = $$shell_path($$clean_path($$_LUA_THIRDPARTY)/bootstrap_lua.bat) mingw32-make
+        LUA_BOOT = $$clean_path($$_LUA_THIRDPARTY)/bootstrap_lua.bat mingw32-make
         system($$LUA_BOOT)
     } else {
         # unix:走 /bin/sh -c,引号无此问题

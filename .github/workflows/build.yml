@@ -45,10 +45,10 @@ jobs:
           fi
           echo "版本 v$V 与仓库一致,校验通过"
 
-      - name: 安装 Qt 6.10.1 + MinGW 13.1.0
+      - name: 安装 Qt 6.11.2 + MinGW 13.1.0
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.10.1'
+          version: '6.11.2'
           arch: 'win64_mingw'
           tools: 'tools_mingw1310'
           modules: 'qtserialport'
@@ -160,10 +160,10 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "解析版本: v$V"
 
-      - name: 安装 Qt 6.10.1
+      - name: 安装 Qt 6.11.2
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.10.1'
+          version: '6.11.2'
           modules: 'qtserialport'
           cache: true
 
@@ -218,10 +218,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 安装 Qt 6.10.1
+      - name: 安装 Qt 6.11.2
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.10.1'
+          version: '6.11.2'
           modules: 'qtserialport'
           cache: true
 
