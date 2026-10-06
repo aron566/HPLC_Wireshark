@@ -1026,7 +1026,7 @@ private:
         p->setPen(c_dim());
         p->drawText(QRectF(px + panel_w - 34, y, 22, 22), Qt::AlignCenter,
                     m_dropdown_open ? QStringLiteral("▲") : QStringLiteral("▼"));
-        y += 28;
+        y += 40;  // 下拉框高 22,留足间距避免与下方"选中节点"标题重叠
 
         // 展开的节点列表(覆盖在面板上部)
         if (m_dropdown_open) {
