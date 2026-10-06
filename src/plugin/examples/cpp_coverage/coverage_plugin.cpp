@@ -16,8 +16,12 @@
 #include <QSet>
 #include <QMap>
 #include <QVector>
+#include <QThreadPool>
+#include <QRunnable>
+#include <QPointer>
 #include <QtMath>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
 #include "iprotocolparserplugin.h"
@@ -56,6 +60,17 @@ struct CoverageLayout {
 };
 
 /// @brief 覆盖模型:parse 线程写,render/事件读(同 worker 线程,仍加锁)
+/// @details MDS 布局计算在后台线程异步执行(GUI 线程永不阻塞):
+///          on_topo_event 每次递增 layout_gen 并派发任务(若无任务在跑);
+///          工作线程持快照(深拷贝)计算,完成后把结果放进 m_pending_layout;
+///          render() 在 GUI 线程回收,用 generation 校验丢弃过期结果,
+///          仅最新代写入 m_layout_cache。
+///          竞争安全要点:
+///          - 快照在 model mutex 内深拷贝,工作线程只读快照不碰共享状态
+///          - layout_gen 用 QAtomicInt,无锁递增/读取
+///          - m_layout_cache 仅 GUI 线程写(render 内),m_pending_layout 由
+///            工作线程写/render 读(均持 mutex),render 内先消费再清 computing
+///          - m_layout_computing 在 mutex 内读写,防重复派发
 struct CoverageModel {
     QMutex mutex;
     QMap<quint16, CoverageNode> nodes;
@@ -63,7 +78,18 @@ struct CoverageModel {
     QMap<QPair<quint16, quint16>, int> discover_cnt;  ///< (src,邻居)->发现帧计数
     quint16 center_tei = 0;
     mutable CoverageLayout m_layout_cache;  ///< 布局缓存(数据变化时重算)
-    mutable bool m_layout_dirty = true;     ///< 布局脏标记
+    mutable bool m_layout_dirty = true;     ///< 布局脏标记(需异步重算)
+    QAtomicInt layout_gen{0};               ///< 布局代次,每次节点集合变化+1
+    bool m_layout_computing = false;        ///< 是否有 MDS 任务在跑(mutex 内读写)
+    /// @brief 工作线程算完的待回收结果(mutex 内读写)
+    /// @details 工作线程只写(持 mutex),render() 只读(持 mutex);
+    ///          gen 用于丢弃过期结果(新任务已派发,旧结果到达时丢弃)。
+    struct PendingLayout {
+        int gen = -1;
+        CoverageLayout layout;
+        bool has = false;
+    };
+    PendingLayout m_pending_layout;
 
     /// @brief 布局计算快照:持锁拷贝,锁外做 O(n³) MDS 计算,不阻塞 parse 线程
     struct LayoutSnapshot {
@@ -168,8 +194,26 @@ struct CoverageModel {
         if (!nodes.contains(center_tei))
             center_tei = nodes.contains(1) ? quint16(1)
                          : nodes.isEmpty() ? quint16(0) : nodes.firstKey();
-        m_layout_dirty = true;  // 数据变化 → 下次 render 重算 MDS 布局
+
+        // 数据变化 → 标记脏并异步重算 MDS(后台线程,不阻塞 GUI/parse)
+        // 注意:此处不对"节点集合是否变化"做过滤,每次事件都递增代次;
+        // 若有任务在跑则只标记,等当前任务完成后再由 render 补派发。
+        m_layout_dirty = true;
+        const int gen = layout_gen.fetchAndAddOrdered(1) + 1;
+        // (m_layout_computing 在 mutex 内读写,防重复派发)
+        if (!m_layout_computing && m_dispatch_cb) {
+            m_layout_computing = true;
+            LayoutSnapshot snap = snapshot_for_layout();  // 深拷贝,锁外安全
+            auto cb = m_dispatch_cb;
+            lk.unlock();  // 解锁后派发,回调内不再碰 model 锁
+            cb(std::move(snap), gen);
+        }
     }
+
+    /// @brief 异步 MDS 派发回调,由插件在构造时设置
+    /// @details 在 on_topo_event 内(已解锁后)调用;实现负责把快照扔进线程池,
+    ///          算完后把结果写回 m_pending_layout(需持 mutex)。
+    std::function<void(LayoutSnapshot, int)> m_dispatch_cb;
 
     /// @brief 中心节点的展示邻居:严格取该节点发现列表声称能听到的邻居(有向,
     ///        TEI1 能听到 TEI2 不代表 TEI2 能听到 TEI1);按发现帧个数降序(越常
@@ -501,8 +545,58 @@ public:
         return QStringLiteral("以 STA 为中心,用圆圈展示其邻居表覆盖范围,节点颜色表示通信成功率");
     }
     QString author() const override { return QStringLiteral("BPLC Team"); }
-    bool initialize() override { return true; }
-    void shutdown() override {}
+    bool initialize() override {
+        // 设置异步 MDS 派发回调
+        // 竞争安全:回调在 parse 线程内(已解锁后)调用,只做 QThreadPool::start
+        // (线程安全);工作线程持有快照深拷贝,不碰共享状态;结果写回时持
+        // model mutex;插件销毁时 m_mds_alive 置 false,工作线程丢弃结果。
+        m_model.m_dispatch_cb =
+            [this](CoverageModel::LayoutSnapshot snap, int gen) {
+                QPointer<CoveragePlugin> self(this);
+                // 用 QRunnable 而非 QtConcurrent::run,避免 <QtConcurrent> 依赖
+                struct MdsTask : public QRunnable {
+                    CoverageModel::LayoutSnapshot snap;
+                    int gen;
+                    QPointer<CoveragePlugin> plugin;
+                    void run() override {
+                        // 纯计算,不碰任何共享状态(快照是深拷贝)
+                        CoverageLayout layout =
+                            CoverageModel::compute_layout_from(snap);
+                        auto* p = plugin.data();
+                        if (!p) return;  // 插件已销毁
+                        if (!p->m_mds_alive.load(std::memory_order_acquire))
+                            return;  // 正在关闭,丢弃
+                        QMutexLocker lk(&p->m_model.mutex);
+                        // 只保留最新代的结果,旧代直接丢弃(已被新任务取代)
+                        auto& pend = p->m_model.m_pending_layout;
+                        if (gen >= pend.gen) {
+                            pend.gen = gen;
+                            pend.layout = std::move(layout);
+                            pend.has = true;
+                        }
+                        // 不直接请求重绘:render() 下次被宿主调用时回收结果即可;
+                        // 若宿主支持 redraw 回调则顺手触发一次,减少显示延迟
+                        auto cb = p->m_redraw_cb;
+                        lk.unlock();
+                        if (cb) cb();
+                    }
+                };
+                auto* task = new MdsTask();
+                task->snap = std::move(snap);
+                task->gen = gen;
+                task->plugin = self;
+                task->setAutoDelete(true);
+                QThreadPool::globalInstance()->start(task);
+            };
+        return true;
+    }
+    void shutdown() override {
+        // 先标记,工作线程看到后丢弃结果,不再写 model
+        m_mds_alive.store(false, std::memory_order_release);
+        // 等待已派发任务完成,避免析构后工作线程写悬空 model
+        // (QThreadPool::waitForDone 在插件卸载时可接受短暂阻塞)
+        QThreadPool::globalInstance()->waitForDone(3000);
+    }
 
     // ---- IProtocolParserPlugin ----
     QString protocol_id() const override { return QStringLiteral("COVERAGE"); }
@@ -514,6 +608,9 @@ public:
     bool has_graphics() const override { return true; }
     QSize preferred_size() const override { return QSize(760, 600); }
     void set_dark(bool dark) override { m_dark = dark; }
+    void set_redraw_callback(std::function<void()> cb) override {
+        m_redraw_cb = std::move(cb);
+    }
 
     void render(QPainter* p, int w, int h) override {
         QMutexLocker lk(&m_model.mutex);
@@ -586,17 +683,44 @@ public:
             return;
         }
 
-        // MDS 布局还原:脏时快照+锁外 O(n³) 计算,不阻塞 parse 线程
+        // 异步 MDS 结果回收(GUI 线程,持 model 锁,永不阻塞):
+        // 工作线程算完把结果放进 m_pending_layout,这里取出来。
+        // 竞争处理:
+        // - gen == 当前代:采用,更新缓存,清脏标记
+        // - gen != 当前代(过期):丢弃;若仍有新变化等待(dirty),补派发一次
+        // - m_layout_computing 在消费后清零,保证单任务在飞
         CoverageLayout layout;
-        if (m_model.m_layout_dirty) {
-            auto snap = m_model.snapshot_for_layout();
+        {
+            auto& pend = m_model.m_pending_layout;
+            const int cur_gen = m_model.layout_gen.loadAcquire();
+            if (pend.has) {
+                if (pend.gen == cur_gen) {
+                    m_model.m_layout_cache = std::move(pend.layout);
+                    m_model.m_layout_dirty = false;
+                }
+                pend.has = false;
+                pend.gen = -1;
+                pend.layout = CoverageLayout();
+            }
+            m_model.m_layout_computing = false;
+            layout = m_model.m_layout_cache;  // 深拷贝,锁外安全使用
+        }
+        // 若消费后仍有脏数据(worker 跑的时候又有节点变化),补派发
+        // 注意:此处仍在 render 的 lk 作用域内,需先解锁再派发
+        bool need_redispatch = false;
+        CoverageModel::LayoutSnapshot redispatch_snap;
+        int redispatch_gen = -1;
+        if (m_model.m_layout_dirty && !m_model.m_layout_computing) {
+            m_model.m_layout_computing = true;
+            redispatch_snap = m_model.snapshot_for_layout();
+            redispatch_gen = m_model.layout_gen.loadAcquire();
+            need_redispatch = true;
+        }
+        if (need_redispatch) {
+            auto cb = m_model.m_dispatch_cb;
             lk.unlock();
-            layout = CoverageModel::compute_layout_from(snap);
+            if (cb) cb(std::move(redispatch_snap), redispatch_gen);
             lk.relock();
-            m_model.m_layout_cache = layout;
-            m_model.m_layout_dirty = false;
-        } else {
-            layout = m_model.m_layout_cache;
         }
         if (layout.pos.isEmpty() || !layout.pos.contains(center)) {
             p->setPen(c_dim());
@@ -887,6 +1011,10 @@ public:
     }
 
 private:
+    // 异步 MDS 线程安全成员(GUI 线程与工作线程共享,见 CoverageModel 注释)
+    std::atomic<bool> m_mds_alive{true};  ///< false=正在关闭,工作线程丢弃结果
+    std::function<void()> m_redraw_cb;    ///< 宿主重绘回调(GUI 线程调用)
+
     // 主题颜色(跟随主界面深/浅)
     // 主题颜色:严格对齐主界面 theme.cpp 的 dark/light palette
     // (深 #19232D/#DFE1E2/#455364/#346792;浅 #f0f0f0/#202020/#3d6f9f)
