@@ -119,6 +119,7 @@ struct CoverageModel {
             src.neighbors.unite(
                 QSet<quint16>(ev.neighbor_teis.begin(), ev.neighbor_teis.end()));
             for (quint16 t : ev.neighbor_teis) {
+                if (t == 0) continue;  // TEI 0 是保留值(位图 bit0 噪声),不作为节点
                 nodes[t].tei = t;
                 if (t != ev.discover_src_tei)
                     discover_cnt[qMakePair(ev.discover_src_tei, t)]++;
@@ -273,10 +274,15 @@ struct CoverageModel {
                 pcnt[key]++;
             }
         }
-        if (logsum.isEmpty()) {
-            // 无邻居信息:退化为按 TEI 排布的网格
-            for (int i = 0; i < n; ++i)
-                out.pos[ids[i]] = QPointF((i % 8) * 30.0, (i / 8) * 30.0);
+        if (logsum.isEmpty() || n <= 6) {
+            // 无邻居信息,或节点太少:MDS 在少节点时 double-centering 特征向量退化,
+            // 所有节点挤在一起重叠(网页版 n≥16 模拟数据才不退化,真实抓包常只有 3~5 节点)。
+            // 退化为环形布局,保证节点分散不重叠。
+            const double pi = 3.14159265358979323846;
+            for (int i = 0; i < n; ++i) {
+                const double ang = 2.0 * pi * double(i) / double(n);
+                out.pos[ids[i]] = QPointF(std::cos(ang) * 40.0, std::sin(ang) * 40.0);
+            }
             return out;
         }
 
