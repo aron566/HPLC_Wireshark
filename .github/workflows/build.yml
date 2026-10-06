@@ -138,7 +138,9 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           body_path: release_body.md
-          files: dist/BPLC_STA_Monitor_Setup_v*.exe
+          files: |
+            dist/BPLC_STA_Monitor_Setup_v*.exe
+            dist/BPLC_STA_Monitor_v*_win64_symbols.tar.gz
 
   build-linux:
     runs-on: ubuntu-24.04

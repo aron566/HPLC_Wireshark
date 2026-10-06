@@ -11,6 +11,9 @@ rm -rf release Makefile* .qmake.stash
 qmake BPLC_STA_Monitor.pro
 mingw32-make -j4
 
+echo "== 1.5/3 符号分离:存档带符号 exe(供符号化),再 strip 发布版"
+bash scripts/symbol_split.sh release/BPLC_STA_Monitor.exe "$VER"
+
 echo "== 2/3 windeployqt 收集运行时"
 windeployqt --release --no-translations --no-system-d3d-compiler \
     release/BPLC_STA_Monitor.exe

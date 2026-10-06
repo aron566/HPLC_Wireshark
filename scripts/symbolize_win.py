@@ -14,6 +14,30 @@ import sys
 
 STREAM_EXCEPTION = 6
 STREAM_MODULELIST = 4
+STREAM_THREADLIST = 3
+
+
+def stack_return_addr(data, thr_rva, thread_id, exc_ctx_rva):
+    """崩溃地址为 NULL(间接调用 NULL 函数指针)时,从崩溃线程栈取返回地址。
+
+    异常发生时的 RSP 在 ExceptionStream 的 ThreadContext(CONTEXT 偏移 0x98),
+    栈数据在 ThreadListStream 崩溃线程的 Stack 内存段(StartOfMemoryRange + Rva)。
+    返回地址 = 栈 [RSP]。
+    """
+    if thr_rva is None or exc_ctx_rva is None:
+        return 0
+    rsp = struct.unpack_from("<Q", data, exc_ctx_rva + 0x98)[0]
+    (nt,) = struct.unpack_from("<I", data, thr_rva)
+    for i in range(nt):
+        toff = thr_rva + 4 + i * 48
+        if struct.unpack_from("<I", data, toff)[0] != thread_id:
+            continue
+        stack_start = struct.unpack_from("<Q", data, toff + 24)[0]
+        stack_dsize = struct.unpack_from("<I", data, toff + 32)[0]
+        stack_rva = struct.unpack_from("<I", data, toff + 36)[0]
+        if stack_start <= rsp < stack_start + stack_dsize:
+            return struct.unpack_from("<Q", data, stack_rva + (rsp - stack_start))[0]
+    return 0
 
 
 def read_cstr_u16(data, rva):
@@ -27,7 +51,7 @@ def parse_dump(path):
     magic, _, stream_count, stream_rva = struct.unpack_from("<IIII", data, 0)
     assert magic == 0x504D444D, f"非 minidump: {magic:08x}"
 
-    exc_rva = mod_rva = None
+    exc_rva = mod_rva = thr_rva = None
     for i in range(stream_count):
         off = stream_rva + i * 12
         stype, _, rva = struct.unpack_from("<III", data, off)
@@ -35,14 +59,22 @@ def parse_dump(path):
             exc_rva = rva
         elif stype == STREAM_MODULELIST:
             mod_rva = rva
+        elif stype == STREAM_THREADLIST:
+            thr_rva = rva
     assert exc_rva is not None, "dump 缺少 Exception 流"
     assert mod_rva is not None, "dump 缺少 ModuleList 流"
 
     # MINIDUMP_EXCEPTION_STREAM: ThreadId(4) + align(4) + ExceptionRecord(152)
     # ExceptionRecord 内: Code(4) Flags(4) Record(8) Address(8) ...
+    thread_id = struct.unpack_from("<I", data, exc_rva)[0]
     (code,) = struct.unpack_from("<I", data, exc_rva + 8)
     (addr,) = struct.unpack_from("<Q", data, exc_rva + 8 + 16)
     print(f"异常码: {code:#x}  崩溃地址: {addr:#x}")
+
+    exc_ctx_rva = struct.unpack_from("<I", data, exc_rva + 164)[0]
+    if addr == 0:
+        addr = stack_return_addr(data, thr_rva, thread_id, exc_ctx_rva)
+        print(f"崩溃地址为 NULL(间接调用 NULL 函数指针),改用栈返回地址: {addr:#x}")
 
     # ModuleList: count(4) + 108 字节/模块
     (count,) = struct.unpack_from("<I", data, mod_rva)
