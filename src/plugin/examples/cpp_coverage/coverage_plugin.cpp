@@ -283,6 +283,21 @@ struct CoverageModel {
                 const double ang = 2.0 * pi * double(i) / double(n);
                 out.pos[ids[i]] = QPointF(std::cos(ang) * 40.0, std::sin(ang) * 40.0);
             }
+            // 覆盖圈半径:到最远邻居的距离(环形坐标下),与 MDS 分支一致
+            for (int i = 0; i < n; ++i) {
+                double r = 0.0;
+                auto nit = s.nodes.find(ids[i]);
+                if (nit != s.nodes.end()) {
+                    for (quint16 b : nit->neighbors) {
+                        auto pit = out.pos.find(b);
+                        if (pit == out.pos.end()) continue;
+                        const double d = std::hypot(out.pos[ids[i]].x() - pit->x(),
+                                                    out.pos[ids[i]].y() - pit->y());
+                        if (d > r) r = d;
+                    }
+                }
+                out.radius[ids[i]] = r > 0 ? r * 1.04 + 3.0 : 0.0;
+            }
             return out;
         }
 
