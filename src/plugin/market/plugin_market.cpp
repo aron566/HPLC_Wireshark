@@ -2,6 +2,8 @@
 /// @brief 插件市场后端实现
 #include "plugin_market.h"
 
+#include "plugin_market.h"
+
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -13,6 +15,7 @@
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QProcess>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QUrl>
@@ -24,6 +27,97 @@ namespace {
 QString meta_path(const QString& plugin_dir) {
     return QDir(plugin_dir).filePath(QStringLiteral("meta.json"));
 }
+
+/// 插件安装目录是否可写(目录不存在时向上找已存在的父目录判断)
+bool install_dir_writable() {
+    const QString base =
+        QDir(PluginMarket::default_install_dir()).absolutePath();
+    QDir d(base);
+    if (d.exists()) return QFileInfo(base).isWritable();
+    QDir parent(base);
+    while (!parent.exists() && parent.cdUp()) {
+    }
+    return QFileInfo(parent.absolutePath()).isWritable();
+}
+
+#ifdef Q_OS_LINUX
+/// pkexec(PolicyKit 图形鉴权)是否可用
+bool pkexec_available() {
+    return !QStandardPaths::findExecutable(QStringLiteral("pkexec")).isEmpty();
+}
+
+/// 以提权方式部署插件: mkdir -p base && rm -rf dest && mv staged dest
+/// 路径均以 sh 位置参数传递,避免 shell 注入
+bool pkexec_deploy(const QString& base_dir, const QString& dest_dir,
+                   const QString& staged_dir, QString* err) {
+    if (!pkexec_available()) {
+        if (err)
+            *err = QStringLiteral("no write permission for ") + base_dir +
+                   QStringLiteral(", and pkexec not found;"
+                                  " run as root or install to a writable location");
+        return false;
+    }
+    QProcess proc;
+    proc.start(
+        QStringLiteral("pkexec"),
+        QStringList()
+            << QStringLiteral("sh") << QStringLiteral("-c")
+            << QStringLiteral("mkdir -p \"$0\" && rm -rf \"$1\" && mv \"$2\" \"$1\"")
+            << base_dir << dest_dir << staged_dir);
+    proc.waitForFinished(180000);  // 等用户完成鉴权,给足时间
+    if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0) {
+        if (err) {
+            const QString se =
+                QString::fromLocal8Bit(proc.readAllStandardError()).trimmed();
+            *err = QStringLiteral("privileged install failed") +
+                   (se.isEmpty() ? QString() : QStringLiteral(": ") + se);
+        }
+        return false;
+    }
+    return true;
+}
+
+/// 以提权方式删除目录(pkexec rm -rf,路径以参数传递)
+bool pkexec_remove(const QString& target_dir, QString* err) {
+    if (!pkexec_available()) {
+        if (err)
+            *err = QStringLiteral("no write permission, and pkexec not found");
+        return false;
+    }
+    QProcess proc;
+    proc.start(QStringLiteral("pkexec"),
+               QStringList() << QStringLiteral("rm") << QStringLiteral("-rf")
+                             << target_dir);
+    proc.waitForFinished(180000);
+    if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0) {
+        if (err) *err = QStringLiteral("privileged uninstall failed");
+        return false;
+    }
+    return true;
+}
+
+/// 以提权方式写文件:内容经 stdin 传入 pkexec sh -c 'cat > "$0"'
+bool pkexec_write_file(const QString& path, const QByteArray& data,
+                       QString* err) {
+    if (!pkexec_available()) {
+        if (err)
+            *err = QStringLiteral("no write permission, and pkexec not found");
+        return false;
+    }
+    QProcess proc;
+    proc.start(QStringLiteral("pkexec"),
+               QStringList() << QStringLiteral("sh") << QStringLiteral("-c")
+                             << QStringLiteral("cat > \"$0\"") << path);
+    proc.write(data);
+    proc.closeWriteChannel();
+    proc.waitForFinished(180000);
+    if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0) {
+        if (err) *err = QStringLiteral("privileged write failed: ") + path;
+        return false;
+    }
+    return true;
+}
+#endif  // Q_OS_LINUX
 
 bool copy_dir_recursive(const QString& src, const QString& dst, QString* err) {
     QDir s(src);
@@ -299,33 +393,60 @@ void PluginMarket::finish_install_from_zip(const QString& zip_path,
 
 bool PluginMarket::deploy_staged(const QString& staged_dir,
                                  const QString& plugin_name, QString* err) {
-    const QString dest =
-        QDir(default_install_dir()).absoluteFilePath(plugin_name);
+    const QString base = QDir(default_install_dir()).absolutePath();
+    const QString dest = QDir(base).absoluteFilePath(plugin_name);
+    // 路径穿越防护:目标必须在安装目录下
+    if (!dest.startsWith(base + QLatin1Char('/'))) {
+        if (err) *err = QStringLiteral("unsafe plugin name: ") + plugin_name;
+        return false;
+    }
+    // 先卸载插件释放 native DLL 文件锁(Windows 删不掉被加载的 dll)
+    if (unload_cb) unload_cb();
+    // meta.json 先写进 staged:提权路径只需一次文件移动,无需提权后二次写文件
+    if (!write_meta_json(staged_dir, err)) return false;
+
+    if (!install_dir_writable()) {
+#ifdef Q_OS_LINUX
+        // Linux: 安装目录不可写时请求提权(pkexec 弹出图形鉴权框)
+        emit install_progress(
+            QStringLiteral("requesting administrator privileges..."));
+        return pkexec_deploy(base, dest, staged_dir, err);
+#else
+        if (err)
+            *err = QStringLiteral("no write permission for ") + base +
+                   QStringLiteral("; run as administrator or choose a writable location");
+        return false;
+#endif
+    }
+
     // 备份旧版:先删目标再拷贝(同名覆盖=升级)
     QDir d(dest);
     if (d.exists()) {
-        // 先卸载插件释放 native DLL 文件锁(Windows 删不掉被加载的 dll)
-        if (unload_cb) unload_cb();
         if (!d.removeRecursively()) {
             if (err) *err = QStringLiteral("cannot remove old version: ") + dest;
             return false;
         }
     }
     if (!copy_dir_recursive(staged_dir, dest, err)) return false;
-    // 写 meta.json(默认启用,记录来源与版本更新时间)
-    QFile mf(meta_path(dest));
-    if (mf.open(QIODevice::WriteOnly)) {
-        mf.write(QJsonDocument(QJsonObject{
-                                   {QStringLiteral("enabled"), true},
-                                   {QStringLiteral("installed_at"),
-                                    QDateTime::currentDateTimeUtc()
-                                        .toString(Qt::ISODate)},
-                                   {QStringLiteral("source"), m_pending_source},
-                                   {QStringLiteral("updated_at"),
-                                    m_pending_updated_at},
-                               })
-                     .toJson());
+    return true;
+}
+
+/// 写 meta.json(默认启用,记录来源与版本更新时间)
+bool PluginMarket::write_meta_json(const QString& plugin_dir, QString* err) {
+    QFile mf(meta_path(plugin_dir));
+    if (!mf.open(QIODevice::WriteOnly)) {
+        if (err)
+            *err = QStringLiteral("cannot write meta.json: ") + plugin_dir;
+        return false;
     }
+    mf.write(QJsonDocument(QJsonObject{
+                               {QStringLiteral("enabled"), true},
+                               {QStringLiteral("installed_at"),
+                                QDateTime::currentDateTimeUtc().toString(Qt::ISODate)},
+                               {QStringLiteral("source"), m_pending_source},
+                               {QStringLiteral("updated_at"), m_pending_updated_at},
+                           })
+                 .toJson());
     return true;
 }
 
@@ -371,8 +492,16 @@ bool PluginMarket::set_enabled(const QString& name, bool enabled) {
         mf.close();
     }
     o[QStringLiteral("enabled")] = enabled;
+    const QByteArray data = QJsonDocument(o).toJson();
+#ifdef Q_OS_LINUX
+    // Linux: 提权安装的插件 meta.json 属 root,不可写时提权重写
+    if (!QFileInfo(mf.fileName()).isWritable() && !install_dir_writable()) {
+        QString err;
+        return pkexec_write_file(mf.fileName(), data, &err);
+    }
+#endif
     if (!mf.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
-    mf.write(QJsonDocument(o).toJson());
+    mf.write(data);
     return true;
 }
 
@@ -388,6 +517,13 @@ bool PluginMarket::uninstall(const QString& name) {
     if (!QDir(pdir).exists()) return false;
     // 先卸载插件释放 native DLL 文件锁(Windows 删不掉被加载的 dll)
     if (unload_cb) unload_cb();
+#ifdef Q_OS_LINUX
+    // Linux: 安装目录不可写时请求提权删除
+    if (!install_dir_writable()) {
+        QString err;
+        return pkexec_remove(pdir, &err);
+    }
+#endif
     return QDir(pdir).removeRecursively();
 }
 

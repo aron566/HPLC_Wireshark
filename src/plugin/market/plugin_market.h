@@ -149,6 +149,8 @@ private:
                                  const QString& expected_sha256);
     bool deploy_staged(const QString& staged_dir, const QString& plugin_name,
                        QString* err);
+    /// 写插件目录下的 meta.json(默认启用,记录来源与版本更新时间)
+    bool write_meta_json(const QString& plugin_dir, QString* err);
 
     QNetworkAccessManager* m_nam = nullptr;
     QString m_pending_name;       ///< 本次安装中的插件名
