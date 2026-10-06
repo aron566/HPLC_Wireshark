@@ -144,9 +144,11 @@ int main(int argc, char* argv[]) {
     if (plugins_dir.isEmpty() && QDir(default_plugins).exists())
         plugins_dir = default_plugins;
     // 插件搜索目录:命令行/默认目录 + 市场安装目录(用户自行安装的插件)
+    // 两者现在都指向 <exe>/plugins(插件包总目录),去重避免重复加载
     QStringList plugin_dirs;
     if (!plugins_dir.isEmpty()) plugin_dirs << plugins_dir;
     plugin_dirs << PluginMarket::default_install_dir();
+    plugin_dirs.removeDuplicates();
     if (autotest_dir.isEmpty() && replay_bin.isEmpty())
         w.load_plugin_dirs(plugin_dirs);  // 无回放:仅加载插件展示空面板
     if (!replay_bin.isEmpty() && autotest_dir.isEmpty())

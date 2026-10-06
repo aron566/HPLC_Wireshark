@@ -57,9 +57,9 @@ PluginMarket::PluginMarket(QObject* parent) : QObject(parent) {
 PluginMarket::~PluginMarket() = default;
 
 QString PluginMarket::default_install_dir() {
-    return QStandardPaths::writableLocation(
-               QStandardPaths::AppDataLocation) +
-           QStringLiteral("/plugins");
+    // 插件包总目录:主程序安装目录下的 plugins/ 子目录(与随程序分发的
+    // 插件同目录,统一由 load_plugin_dirs 扫描;per-user 安装目录可写,无需 UAC)。
+    return QCoreApplication::applicationDirPath() + QStringLiteral("/plugins");
 }
 
 QString PluginMarket::default_feed_url() {

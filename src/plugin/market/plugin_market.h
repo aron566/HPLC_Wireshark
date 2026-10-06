@@ -10,8 +10,8 @@
 ///                         { "version", "url", "sha256", "size",
 ///                           "min_app_version", "updated_at" } ] } ] }
 ///   插件包为 zip,内含 plugin.json(清单,见 plugin_api/plugin_manifest.h)
-///   与入口脚本。安装目录:
-///     QStandardPaths::AppDataLocation + "/plugins/<name>/"
+///   与入口脚本。安装目录(插件包总目录):
+///     <主程序安装目录>/plugins/<name>/
 ///   每个已安装插件目录下有 meta.json: { "enabled": bool, "installed_at",
 ///   "source", "updated_at" }。README 优先读插件目录下 README.md,
 ///   其次拉取 feed 的 readme_url。
