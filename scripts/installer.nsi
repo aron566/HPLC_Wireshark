@@ -50,6 +50,8 @@ FunctionEnd
 Section "主程序" SEC_MAIN
   SetOutPath "$INSTDIR"
   ; 升级时先清理旧版可能遗留的文件(.o/.obj 等编译产物与旧 DLL 一律不带入)
+  ; 注意:绝不能删 "$INSTDIR\plugins" —— 那是插件包总目录,用户从市场安装的
+  ; 插件须跨升级保留(加载时按 ABI 过滤,不兼容的自然拒绝,不崩溃)。
   RMDir /r "$INSTDIR\platforms"
   RMDir /r "$INSTDIR\styles"
   RMDir /r "$INSTDIR\tls"
@@ -61,7 +63,7 @@ Section "主程序" SEC_MAIN
   File /nonfatal "${SRC}\config.ini"
   SetOverwrite on
   ; 清旧版残留 DLL(升级时旧 DLL 可能多余;先删后写保证新包干净)
-  File /r /x "*.o" /x "*.obj" /x "*.res" /x "*.cpp" /x "*.h" /x "object_script*" /x "Makefile*" /x ".qmake.stash" "${SRC}\*.*"
+  File /r /x "*.o" /x "*.obj" /x "*.res" /x "*.cpp" /x "*.h" /x "mocinclude.opt" /x "object_script*" /x "Makefile*" /x ".qmake.stash" "${SRC}\*.*"
   WriteRegStr HKCU "Software\BPLC_STA_Monitor" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BPLC_STA_Monitor" \
     "DisplayName" "BPLC STA Monitor"
