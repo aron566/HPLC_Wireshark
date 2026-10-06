@@ -85,7 +85,7 @@ static void init_qslog() {
 int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationName("ZbMonitor");
     QCoreApplication::setApplicationName("BPLC_STA_Monitor");
-    QCoreApplication::setApplicationVersion("1.4.0");
+    QCoreApplication::setApplicationVersion("1.4.1");
 
     QApplication app(argc, argv);
 
