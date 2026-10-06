@@ -61,7 +61,6 @@ struct I18nRegMarket {
         trl::register_en("全平台", "All platforms");
         trl::register_en("当前平台不支持", "Not supported on this platform");
         trl::register_en("ABI 不兼容", "ABI incompatible");
-        trl::register_en("可选版本", "Available versions");
         trl::register_en("已安装版本", "Installed version");
         trl::register_en("可更新到", "Update available");
         trl::register_en("诊断", "Diagnosis");
@@ -161,8 +160,12 @@ PluginMarketDialog::PluginMarketDialog(QWidget* parent)
     rebuild_list();
 }
 
-void PluginMarketDialog::set_unload_cb(std::function<void()> cb) {
-    if (m_market) m_market->unload_cb = std::move(cb);
+void PluginMarketDialog::set_unload_cb(std::function<void()> cb) {    if (m_market) m_market->unload_cb = std::move(cb);
+}
+
+void PluginMarketDialog::set_versions_text(const QString& t) {
+    m_d_versions->setText(t);
+    m_d_versions->setVisible(!t.isEmpty());
 }
 
 PluginMarketDialog::~PluginMarketDialog() = default;
@@ -259,6 +262,7 @@ void PluginMarketDialog::setup_ui() {
     dl->addWidget(m_tabs, 1);
     m_d_versions = new QLabel(detail);
     m_d_versions->setWordWrap(true);
+    m_d_versions->setVisible(false);  // 为空时隐藏,不在布局里留空白行
     dl->addWidget(m_d_versions);
     split->addWidget(detail);
     split->setStretchFactor(0, 4);
@@ -735,7 +739,7 @@ void PluginMarketDialog::update_detail() {
         m_d_icon->clear();
         m_d_name->setText(trl::L("未选择插件"));
         m_d_meta->clear();
-        m_d_versions->clear();
+        set_versions_text(QString());
         m_readme->clear();
         rebuild_settings_tab(nullptr);
         rebuild_env_tab(nullptr);
@@ -764,11 +768,11 @@ void PluginMarketDialog::update_detail() {
             trl::L("来源") + ": " + source_label(p.source));
         const MarketVersion* upd_v = PluginMarket::update_for(p, m_feed);
         if (upd_v) {
-            m_d_versions->setText(trl::L("可更新到") + ": " + upd_v->version);
+            set_versions_text(trl::L("可更新到") + ": " + upd_v->version);
             m_btn_install->setText(trl::L("更新"));
             m_btn_install->setEnabled(true);
         } else {
-            m_d_versions->clear();
+            set_versions_text(QString());
             m_btn_install->setEnabled(false);
             m_btn_install->setText(trl::L("安装"));
         }
@@ -805,7 +809,7 @@ void PluginMarketDialog::update_detail() {
             trl::L("平台") + ": " + plat_txt + "\n" +
             trl::L("来源") + ": " + source_label(p.source));
         // 历史版本不展示:最新版本已在上面「版本」字段显示
-        m_d_versions->clear();
+        set_versions_text(QString());
         m_btn_install->setText(trl::L("安装"));
         m_btn_install->setEnabled(lat && PluginMarket::app_version_ok(
                                               lat->min_app_version));

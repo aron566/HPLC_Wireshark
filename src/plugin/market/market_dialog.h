@@ -90,6 +90,8 @@ private:
     QLabel*      m_d_name = nullptr;
     QLabel*      m_d_meta = nullptr;
     QLabel*      m_d_versions = nullptr;
+    /// @brief 设置版本提示文本,为空时隐藏标签(不在布局留空白行)
+    void set_versions_text(const QString& t);
     QPushButton* m_btn_install = nullptr;
     QPushButton* m_btn_uninstall = nullptr;
     QCheckBox*   m_chk_enabled = nullptr;
