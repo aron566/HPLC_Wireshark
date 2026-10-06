@@ -184,6 +184,10 @@ void PluginMarketDialog::setup_ui() {
     m_filter->addItem(trl::L("全部"), 0);
     m_filter->addItem(trl::L("已安装"), 1);
     m_filter->addItem(trl::L("未安装"), 2);
+    // 保证下拉框宽度能完整显示最长选项(参考 commconfigdialog 的做法),
+    // 避免主题样式下文字被裁剪显示不全
+    m_filter->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    m_filter->setMinimumContentsLength(8);
     connect(m_filter, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &PluginMarketDialog::on_filter_changed);
     top->addWidget(m_search, 1);
