@@ -43,26 +43,39 @@ int main(int argc, char** argv) {
     CHECK(perr.isEmpty() && feed.size() == 4, "parse 4 plugins");
     const MarketPlugin& topo = feed[0];
     CHECK(topo.name == "js-topo", "topo name");
-    CHECK(topo.versions.size() == 2, "topo 2 versions");
-    CHECK(topo.latest()->version == "1.1.0", "topo latest 1.1.0");
+    CHECK(topo.versions.size() == 4, "topo 4 versions");
+    CHECK(topo.latest()->version == "1.3.0", "topo latest 1.3.0");
     CHECK(!topo.display_name_en.isEmpty(), "topo en name");
     // 脚本插件:platforms 为空=全平台
     CHECK(topo.latest()->platforms.isEmpty(), "script plugin all platforms");
     CHECK(PluginMarket::version_platform_ok(*topo.latest()),
           "script version platform ok");
     CHECK(topo.latest_compatible() != nullptr, "script latest_compatible");
-    // native 插件:cpp-coverage 带 platforms 标注
+    // native 插件:cpp-coverage 带 platforms/abi 标注
     const MarketPlugin& cov = feed[3];
     CHECK(cov.name == "cpp-coverage", "cov name");
-    CHECK(cov.versions.size() == 1, "cov 1 version");
-    CHECK(cov.latest()->platforms.contains(
+    CHECK(cov.versions.size() == 4, "cov 4 versions");
+    // 最新条目 1.3.0 目前只发了 Windows 包;本机取 latest_compatible
+    CHECK(cov.latest()->version == "1.3.0", "cov latest 1.3.0");
+    const MarketVersion* cov_compat = cov.latest_compatible();
+#if defined(Q_OS_WIN)
+    // Windows:1.3.0 带 qt6-mingw-x64 ABI,当前平台可装
+    CHECK(cov_compat != nullptr && cov_compat->version == "1.3.0",
+          "cov latest_compatible 1.3.0 on windows");
+#else
+    // Linux:1.3.0 只标注了 windows 平台,回落到 1.1.0(qt6-gcc-x64)
+    CHECK(cov_compat != nullptr && cov_compat->version == "1.1.0",
+          "cov latest_compatible 1.1.0 on linux");
+#endif
+    CHECK(cov_compat->platforms.contains(
               PluginMarket::current_platform()),
-          "cov platforms has current");
-    CHECK(PluginMarket::version_platform_ok(*cov.latest()),
-          "cov version platform ok");
-    CHECK(cov.latest_compatible() != nullptr &&
-              cov.latest_compatible()->version == "1.0.0",
-          "cov latest_compatible 1.0.0");
+          "cov compat platforms has current");
+    CHECK(PluginMarket::version_platform_ok(*cov_compat),
+          "cov compat version platform ok");
+    CHECK(PluginMarket::version_abi_ok(*cov_compat),
+          "cov compat version abi ok");
+    CHECK(cov_compat->abi == plugin_host_abi(),
+          "cov compat abi == host abi");
     // 不兼容平台被过滤
     MarketVersion win_only = *cov.latest();
     win_only.platforms = QStringList{"windows-x86_64"};
@@ -95,10 +108,10 @@ int main(int argc, char** argv) {
     CHECK(!PluginMarket::app_version_ok("9.9.9"), "app ver reject");
     CHECK(PluginMarket::app_version_ok(""), "app ver empty ok");
 
-    // sha256 校验:与 market.json 记录值比对
+    // sha256 校验:与 market.json 记录值比对(js-topo 最新版)
     const QString zip_path =
         QStringLiteral("/home/hatch/workspace/BPLC_Plugin_Market/plugins/"
-                       "js-topo/js-topo-1.1.0.zip");
+                       "js-topo/js-topo-1.3.0.zip");
     CHECK(PluginMarket::verify_sha256(zip_path, topo.latest()->sha256),
           "sha256 match feed");
     CHECK(!PluginMarket::verify_sha256(
@@ -113,7 +126,7 @@ int main(int argc, char** argv) {
     CHECK(PluginMarket::unzip_to_dir(zip_path, staged, &uerr),
           "unzip ok");
     const PluginManifest m = read_plugin_manifest(staged);
-    CHECK(m.valid && m.name == "js-topo" && m.version == "1.1.0",
+    CHECK(m.valid && m.name == "js-topo" && m.version == "1.3.0",
           "staged manifest valid");
     // settings schema 解析
     CHECK(m.settings.size() == 3, "settings count");
@@ -168,16 +181,18 @@ int main(int argc, char** argv) {
     CHECK(fin_ok && fin_name == "js-topo", "install_from_file ok");
 
     QList<InstalledPlugin> inst = mk.installed_plugins();
-    CHECK(inst.size() == 1 && inst[0].manifest.version == "1.1.0" &&
+    CHECK(inst.size() == 1 && inst[0].manifest.version == "1.3.0" &&
               inst[0].enabled,
           "installed listed, enabled");
     // meta.json 记录来源与更新时间(离线安装:source=file)
     CHECK(inst[0].source == "file", "installed source=file");
     CHECK(!inst[0].updated_at.isEmpty(), "installed updated_at set");
 
-    // 公共环境变量
+    // 公共环境变量(5b7ba88 起新增 BPLC_THEME,共 6 个)
     const QList<PluginEnvVar> envs = plugin_common_env_vars();
-    CHECK(envs.size() == 5, "env count");
+    CHECK(envs.size() == 6, "env count");
+    CHECK(plugin_env_value("BPLC_THEME", QString(), false) == "dark",
+          "env theme default dark");
     CHECK(plugin_env_value("BPLC_API_VERSION", QString(), false) == "1",
           "env api version");
     CHECK(plugin_env_value("BPLC_LANG", QString(), false) == "zh" &&
@@ -198,13 +213,13 @@ int main(int argc, char** argv) {
     CHECK(plugin_setting_value(tmp.path(), "missing", 7).toInt() == 7,
           "setting missing default");
 
-    // 更新检查:已装 1.1.0=最新 → 无更新;伪造 1.0.0 → 有更新
+    // 更新检查:已装 1.3.0=最新 → 无更新;伪造 1.0.0 → 有更新
     CHECK(PluginMarket::update_for(inst[0], feed) == nullptr,
           "no update at latest");
     InstalledPlugin old = inst[0];
     old.manifest.version = "1.0.0";
     const MarketVersion* upd = PluginMarket::update_for(old, feed);
-    CHECK(upd && upd->version == "1.1.0", "update found");
+    CHECK(upd && upd->version == "1.3.0", "update found");
 
     CHECK(mk.set_enabled("js-topo", false), "disable ok");
     CHECK(!PluginMarket::plugin_dir_enabled(

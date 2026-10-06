@@ -29,7 +29,7 @@ done
 if [ -n "$PDB" ]; then
     # ---- MSVC: dump_syms 从 PDB 提取 .sym ----
     echo "== 检测到 MSVC PDB: $PDB (走 dump_syms → .sym)"
-    DUMP_SYMS="3rdparty/install/symtools/dump_syms"
+    DUMP_SYMS="3rdparty/install/symtools/dump_syms.exe"
     if [ ! -x "$DUMP_SYMS" ]; then
         echo "Windows dump_syms 缺失,先构建(需 MSVC + DIA SDK):" >&2
         echo "  bash 3rdparty/build_sym_tools_win.sh" >&2
