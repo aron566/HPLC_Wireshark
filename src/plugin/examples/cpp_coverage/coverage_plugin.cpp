@@ -131,6 +131,14 @@ struct CoverageModel {
     }
 
     void on_topo_event(const TopoEvent& ev) {
+        // 纯数据帧(kind=Other,无任何拓扑信息)不改变模型,直接跳过:
+        // 否则回放时每个数据帧都标记脏并触发一次 O(n³) MDS 重算 + 快照深拷贝,
+        // 持续抢 CPU 造成卡顿(尤其回放开头的帧洪峰)。
+        if (ev.kind == TopoEventKind::Other && ev.nodes.isEmpty() &&
+            ev.routes.isEmpty() && ev.up_routes.isEmpty() &&
+            ev.neighbor_teis.isEmpty() && ev.leaves.isEmpty() &&
+            ev.comm_rates.isEmpty() && ev.discover_src_tei == 0)
+            return;
         QMutexLocker lk(&mutex);
         for (const TeiMacPair& p : ev.nodes) {
             CoverageNode& n = nodes[p.tei];
@@ -574,11 +582,9 @@ public:
                             pend.layout = std::move(layout);
                             pend.has = true;
                         }
-                        // 不直接请求重绘:render() 下次被宿主调用时回收结果即可;
-                        // 若宿主支持 redraw 回调则顺手触发一次,减少显示延迟
-                        auto cb = p->m_redraw_cb;
-                        lk.unlock();
-                        if (cb) cb();
+                        // 不请求重绘:redraw 回调由宿主假设在 GUI 线程调用,
+                        // 从工作线程触发会跨线程调 QWidget,偶发卡死。
+                        // render() 下次被宿主调用时自然回收结果即可。
                     }
                 };
                 auto* task = new MdsTask();
@@ -701,8 +707,10 @@ public:
                 pend.has = false;
                 pend.gen = -1;
                 pend.layout = CoverageLayout();
+                // 仅在真正消费到结果时才清零:任务还在跑时保持 true,
+                // 否则 render 会重复派发(多个任务并发重算同一布局,抢 CPU)。
+                m_model.m_layout_computing = false;
             }
-            m_model.m_layout_computing = false;
             layout = m_model.m_layout_cache;  // 深拷贝,锁外安全使用
         }
         // 若消费后仍有脏数据(worker 跑的时候又有节点变化),补派发
