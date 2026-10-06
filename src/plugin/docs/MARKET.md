@@ -128,7 +128,9 @@ plugin.json   # manifest, see plugin_api/plugin_manifest.h
    existence are still enforced.
 3. Zip-slip guard: entries with absolute paths or `..` are rejected.
 
-Install dir: `QStandardPaths::AppDataLocation + "/plugins/<name>/"`.
+Install dir: `<applicationDirPath>/plugins/<name>/` (next to the executable).
+On Linux, if the dir is not writable, installation requests elevation via
+pkexec(1).
 Each installed plugin gets `meta.json`: `{ "enabled": bool, "installed_at" }`.
 Re-installing the same name replaces it (= update). `uninstall(name)`
 deletes the dir; name is restricted to a single path segment
