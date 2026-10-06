@@ -635,10 +635,10 @@ public:
             c.setAlpha(255);
             if (t_is_child)
                 draw_arrow(p, m_node_pos[t], m_node_pos[center],
-                           10.0 * m_zoom, 13.0 * m_zoom, c, 3.0, 16.0);
+                           10.0 * m_zoom, 13.0 * m_zoom, c, 1.5, 8.0);
             else
                 draw_arrow(p, m_node_pos[center], m_node_pos[t],
-                           13.0 * m_zoom, 10.0 * m_zoom, c, 3.0, 16.0);
+                           13.0 * m_zoom, 10.0 * m_zoom, c, 1.5, 8.0);
         }
 
         // 2. 各节点覆盖圈(半径 = MDS 还原的最远邻居距离)
