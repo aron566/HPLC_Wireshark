@@ -620,7 +620,7 @@ public:
             if (ch == pa) continue;
             if (!m_node_pos.contains(ch) || !m_node_pos.contains(pa)) continue;
             draw_arrow(p, m_node_pos[ch], m_node_pos[pa],
-                       6.0 * m_zoom, 8.0 * m_zoom, faint, 1.5, 9.0);
+                       6.0 * m_zoom, 8.0 * m_zoom, faint, 1.0, 5.5);
         }
 
         // 1b. 选中中心父子连线高亮(颜色=中心→邻居传输质量,盖在 faint 上)
@@ -839,7 +839,7 @@ private:
         const QPointF a = from + u * (from_r + 2.0);
         const QPointF tip = to - u * (to_r + 1.5);
         const QPointF bc = tip - u * head_len;  // 箭头底边中心
-        const double hw = head_len * 0.5;       // 半宽:宽箭头更醒目
+        const double hw = head_len * 0.45;      // 半宽:箭头更修长
         p->setPen(QPen(color, width));
         p->drawLine(a, bc + u);
         QPolygonF poly;
