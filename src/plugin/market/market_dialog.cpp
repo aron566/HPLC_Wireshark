@@ -804,9 +804,8 @@ void PluginMarketDialog::update_detail() {
             "\n" + trl::L("分类") + ": " + category_name(p.category) + "\n" +
             trl::L("平台") + ": " + plat_txt + "\n" +
             trl::L("来源") + ": " + source_label(p.source));
-        QStringList vs;
-        for (const MarketVersion& v : p.versions) vs.prepend(v.version);
-        m_d_versions->setText(trl::L("可选版本") + ": " + vs.join(", "));
+        // 历史版本不展示:最新版本已在上面「版本」字段显示
+        m_d_versions->clear();
         m_btn_install->setText(trl::L("安装"));
         m_btn_install->setEnabled(lat && PluginMarket::app_version_ok(
                                               lat->min_app_version));
