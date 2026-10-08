@@ -8,6 +8,7 @@
 #include <QFile>
 #include <QtConcurrent>
 #include <QFutureWatcher>
+#include <QThreadPool>
 
 namespace {
 // 南网 NW_2021 应用层帧类型域(表4)确认/否认帧 + 业务标识(表9)确认/否认取值
@@ -371,7 +372,7 @@ void PacketListModel::flush_hot_block() {
     // 安全:只捕获 path(值) + blk(move),不捕获 this —— 模型析构/clear 后,
     // 后台只碰局部资源;临时目录被删则 open 失败安全返回,不悬空不崩溃。
     const QString path = block_path(idx);
-    QtConcurrent::run([path, blk = std::move(blk)]() {
+    QThreadPool::globalInstance()->start([path, blk = std::move(blk)]() {
         const QByteArray data = pser::encode_block(blk);
         QFile f(path);
         if (!f.open(QIODevice::WriteOnly)) return;
