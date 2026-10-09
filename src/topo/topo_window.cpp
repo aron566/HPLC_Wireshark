@@ -938,8 +938,14 @@ void TopoWindow::rebuild_teimac_table() {
                 const int g_bright = light_bg ? 144 : 224;
                 const int g_dark   = light_bg ? 64  : 160;
                 QStringList parts;
-                parts.reserve(nbs.size());
-                for (quint16 nb : nbs) {
+                // 邻居过多时只显示前 3 个(已按出现次数降序),其余用 (+N) 折叠:
+                // 全量 HTML 会换行,而行高固定只露出首行,导致"只显示部分"。
+                // 双击该单元格弹窗仍可看全量邻居(见 on_teimac_double_clicked)。
+                const int kMaxNeighborDisplay = 3;
+                const int show_n = qMin(nbs.size(), kMaxNeighborDisplay);
+                parts.reserve(show_n);
+                for (int i = 0; i < show_n; ++i) {
+                    const quint16 nb = nbs[i];
                     const double ratio = max_c > 0
                         ? (double)counts.value(nb, 0) / (double)max_c : 0.0;
                     const int g = g_dark + (int)((g_bright - g_dark) * ratio);
@@ -948,6 +954,10 @@ void TopoWindow::rebuild_teimac_table() {
                                  .arg(color).arg(nb);
                 }
                 s_neighbors = parts.join(QStringLiteral(","));
+                if (nbs.size() > kMaxNeighborDisplay)
+                    s_neighbors += QStringLiteral(
+                        "<span style=\"color:#888;\">(+%1)</span>")
+                                       .arg(nbs.size() - kMaxNeighborDisplay);
             } else {
                 s_neighbors = QStringLiteral("-");
             }
