@@ -605,7 +605,7 @@ public:
     // ---- IPlugin ----
     QString id() const override { return QStringLiteral("cpp-coverage"); }
     QString display_name() const override { return QStringLiteral("C++ 信号覆盖"); }
-    QString version() const override { return QStringLiteral("1.0.0"); }
+    QString version() const override { return QStringLiteral("1.4.6"); }
     QString description() const override {
         return QStringLiteral("以 STA 为中心,用圆圈展示其邻居表覆盖范围,节点颜色表示通信成功率");
     }
