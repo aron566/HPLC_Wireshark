@@ -497,8 +497,10 @@ struct CoverageModel {
                                     if (d > 1e-6) {
                                         ux = dx / d; uy = dy / d;
                                     } else {
+                                        // 黄金角 ≈ 137.508°(rad):相邻 TEI 的散开
+                                        // 方向均匀错开,不会挤成少数几条线。
                                         const double ang =
-                                            (ids[b] % 16) * 0.39269908169872414;
+                                            ids[b] * 2.39996322972865332;
                                         ux = std::cos(ang); uy = std::sin(ang);
                                     }
                                     const double push = (min_gap - d) * 0.5;
@@ -1256,7 +1258,7 @@ private:
             // 有更多项时画滚动指示(右上角)
             if (total > max_visible) {
                 p->setPen(c_dim());
-                const QString hint = QStringLiteral("… %1-%2 / %3 (滚轮)")
+                const QString hint = QStringLiteral("… %1-%2 / %3 (滚轮 Scroll)")
                                          .arg(m_dropdown_scroll + 1)
                                          .arg(end)
                                          .arg(total);
