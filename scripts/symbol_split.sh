@@ -9,6 +9,10 @@
 #
 # 用法: bash scripts/symbol_split.sh <exe路径> <版本号>
 # 产物: dist/BPLC_STA_Monitor_v<VER>_win64_symbols.tar.gz(带符号 exe 或 .sym)
+#
+# 可对多个 exe 逐个调用(如主程序 + bplc-plugin-host):symbols_tmp 为累积
+# 暂存区,每次调用都会把已暂存的全部符号重新打包,不会互相覆盖;调用方
+# 须在首次调用前 rm -rf symbols_tmp 清理上次残留。
 set -e
 cd "$(dirname "$0")/.."
 
@@ -47,8 +51,8 @@ if [ -n "$PDB" ]; then
     mkdir -p "$SYMDIR"
     mv "$SYMFILE" "$SYMDIR/$EXE_BASE.sym"
     SYMPKG="dist/BPLC_STA_Monitor_v${VER}_win64_symbols.tar.gz"
+    # 累积打包:连同此前调用暂存的其他 exe 符号一起重打(见文件头说明)
     tar -czf "$SYMPKG" -C symbols_tmp .
-    rm -rf symbols_tmp
     echo "符号包: $SYMPKG ($(du -h "$SYMPKG" | cut -f1))"
     echo "MSVC 分支:exe 不带调试信息,无需 strip"
 else
@@ -61,8 +65,8 @@ else
     mkdir -p symbols_tmp
     cp "$EXE" "symbols_tmp/$EXE_BASE.exe"
     SYMPKG="dist/BPLC_STA_Monitor_v${VER}_win64_symbols.tar.gz"
-    tar -czf "$SYMPKG" -C symbols_tmp "$EXE_BASE.exe"
-    rm -rf symbols_tmp
+    # 累积打包:连同此前调用暂存的其他 exe 一起重打(见文件头说明)
+    tar -czf "$SYMPKG" -C symbols_tmp .
     strip "$EXE"
     echo "符号包: $SYMPKG ($(du -h "$SYMPKG" | cut -f1))"
     echo "发布版已 strip: $EXE ($(du -h "$EXE" | cut -f1))"

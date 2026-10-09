@@ -16,7 +16,11 @@ mingw32-make -j4
 cp -f src/plugin/host/release/bplc-plugin-host.exe release/
 
 echo "== 1.5/3 符号分离:存档带符号 exe(供符号化),再 strip 发布版"
+rm -rf symbols_tmp
 bash scripts/symbol_split.sh release/BPLC_STA_Monitor.exe "$VER"
+# 宿主 exe 同样符号分离:带符号版累积进同一个符号包,发布版 strip
+bash scripts/symbol_split.sh release/bplc-plugin-host.exe "$VER"
+rm -rf symbols_tmp
 
 echo "== 2/3 windeployqt 收集运行时"
 windeployqt --release --no-translations --no-system-d3d-compiler \
