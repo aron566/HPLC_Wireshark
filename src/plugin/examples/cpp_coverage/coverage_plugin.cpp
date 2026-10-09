@@ -457,7 +457,62 @@ struct CoverageModel {
                 }
         }
 
-        // 6. 输出坐标 + 圈半径(最远邻居距离)
+        // 6. 最小间距分离:MDS 会把大量节点挤到重叠/极近的位置,放大仍看不清;
+        //    在布局空间按尺度迭代推开,保证节点间有最小间隙(放大后间隙随之放大)。
+        //    用空间哈希网格只查相邻桶,复杂度 O(n),稀疏大网络下也不卡。
+        //    完全重叠的节点按 key 伪随机方向散开(黄金角),避免挤成一条线。
+        {
+            double extent = 1.0;
+            for (int i = 0; i < n; ++i)
+                extent = qMax(extent, std::hypot(X[i], Y[i]));
+            const double min_gap = extent * 0.03;  // 布局尺度 3% 作为最小间距
+            const double cell = min_gap;           // 网格单元=最小间距(查 3×3 邻域即覆盖)
+            const double inv = 1.0 / cell;
+            for (int iter = 0; iter < 15; ++iter) {
+                bool moved = false;
+                QHash<qint64, QVector<int>> grid;
+                grid.reserve(n);
+                for (int i = 0; i < n; ++i) {
+                    const int cx = int(std::floor(X[i] * inv));
+                    const int cy = int(std::floor(Y[i] * inv));
+                    grid[(qint64(cx) << 32) | quint32(cy)].append(i);
+                }
+                for (auto it = grid.constBegin(); it != grid.constEnd(); ++it) {
+                    const int cx = int(it.key() >> 32);
+                    const int cy = int(it.key() & 0xffffffff);
+                    for (int ox = -1; ox <= 1; ++ox)
+                        for (int oy = -1; oy <= 1; ++oy) {
+                            const qint64 nk = (qint64(cx + ox) << 32) |
+                                              quint32(cy + oy);
+                            const auto nit = grid.constFind(nk);
+                            if (nit == grid.constEnd()) continue;
+                            for (int a : it.value())
+                                for (int b : *nit) {
+                                    if (a >= b) continue;  // 每对只处理一次
+                                    const double dx = X[b] - X[a];
+                                    const double dy = Y[b] - Y[a];
+                                    const double d = std::hypot(dx, dy);
+                                    if (d >= min_gap) continue;
+                                    double ux, uy;
+                                    if (d > 1e-6) {
+                                        ux = dx / d; uy = dy / d;
+                                    } else {
+                                        const double ang =
+                                            (ids[b] % 16) * 0.39269908169872414;
+                                        ux = std::cos(ang); uy = std::sin(ang);
+                                    }
+                                    const double push = (min_gap - d) * 0.5;
+                                    X[a] -= ux * push; Y[a] -= uy * push;
+                                    X[b] += ux * push; Y[b] += uy * push;
+                                    moved = true;
+                                }
+                        }
+                }
+                if (!moved) break;
+            }
+        }
+
+        // 7. 输出坐标 + 圈半径(最远邻居距离)
         for (int i = 0; i < n; ++i)
             out.pos[ids[i]] = QPointF(X[i], Y[i]);
         for (int i = 0; i < n; ++i) {
@@ -943,6 +998,11 @@ public:
     bool handle_event(const GraphicsEvent& e) override {
         QMutexLocker lk(&m_model.mutex);
         if (e.type == GraphicsEventType::Wheel) {
+            // 下拉框展开时:滚轮滚动节点列表而非缩放画布
+            if (m_dropdown_open) {
+                m_dropdown_scroll += (e.delta_y > 0 ? -3 : 3);
+                return true;
+            }
             // 滚轮缩放(以鼠标位置为中心,对齐 js-topo)
             const double f = e.delta_y > 0 ? 1.15 : (1.0 / 1.15);
             const double nz = qBound(0.3, m_zoom * f, 4.0);
@@ -1173,7 +1233,14 @@ private:
                 all.append(it.key());
             std::sort(all.begin(), all.end());
             const int row_h = 18;
-            for (quint16 t : all) {
+            // 节点过多(>100)时列表溢出面板:最多显示 16 行,滚轮滚动查看其余。
+            const int max_visible = 16;
+            const int total = all.size();
+            m_dropdown_scroll =
+                qBound(0, m_dropdown_scroll, qMax(0, total - max_visible));
+            const int end = qMin(total, m_dropdown_scroll + max_visible);
+            for (int idx = m_dropdown_scroll; idx < end; ++idx) {
+                const quint16 t = all[idx];
                 const QRectF row(px + 12, y, panel_w - 24, row_h);
                 m_dropdown_items.append(qMakePair(t, row));
                 if (t == center)
@@ -1185,6 +1252,17 @@ private:
                                 .arg(t == 1 ? QStringLiteral(" (CCO)")
                                             : QString()));
                 y += row_h;
+            }
+            // 有更多项时画滚动指示(右上角)
+            if (total > max_visible) {
+                p->setPen(c_dim());
+                const QString hint = QStringLiteral("… %1-%2 / %3 (滚轮)")
+                                         .arg(m_dropdown_scroll + 1)
+                                         .arg(end)
+                                         .arg(total);
+                p->drawText(QRectF(px + 12, y, panel_w - 24, 16),
+                            Qt::AlignVCenter | Qt::AlignRight, hint);
+                y += 16;
             }
             // 列表后留足间距:下方「选中节点」标题是 14px 粗体(CJK 字体 ascent ≈ 13px),
             // 原 y += 6 会让标题顶部回落到列表最后一项之上,与 TEI1(CCO) 标题重叠。
@@ -1341,6 +1419,7 @@ private:
     bool m_dropdown_open = false;                  ///< 「查看节点」下拉框是否展开
     QRectF m_dropdown_rect;                        ///< 下拉框本体矩形(点击切换展开)
     QVector<QPair<quint16, QRectF>> m_dropdown_items;  ///< 下拉列表项矩形
+    int m_dropdown_scroll = 0;  ///< 下拉列表滚动偏移(行,>100 节点时滚轮滚动)
     quint16 m_hover_tei = 0;
     QPointF m_hover_pos;
 
