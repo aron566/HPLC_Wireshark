@@ -19,10 +19,17 @@ if [ ! -f 3rdparty/install/crashpad/bin/crashpad_handler ]; then
 fi
 
 echo "== 1/4 qmake + 构建(默认 crashpad 后端)"
-rm -rf build_linux
+rm -rf build_linux build_linux_host
 mkdir -p build_linux
 cd build_linux
 qmake ../BPLC_STA_Monitor.pro
+make -j"$(nproc)"
+cd ..
+# 插件宿主进程 bplc-plugin-host:独立工程,主程序在同目录查找它
+# (plugin_manager.cpp),不在主 .pro 里,须单独构建(缺失会导致插件不可用)。
+mkdir -p build_linux_host
+cd build_linux_host
+qmake ../src/plugin/host/bplc-plugin-host.pro
 make -j"$(nproc)"
 cd ..
 
@@ -30,6 +37,9 @@ echo "== 2/4 ldd 收集运行时库"
 rm -rf AppDir
 mkdir -p AppDir/usr/bin AppDir/usr/lib
 cp build_linux/BPLC_STA_Monitor AppDir/usr/bin/
+# bplc-plugin-host 必须与主程序同目录(主程序按 exe 目录查找,见上)
+cp build_linux_host/bplc-plugin-host AppDir/usr/bin/
+chmod +x AppDir/usr/bin/bplc-plugin-host
 # crashpad_handler 必须与主程序同目录(后端按 exe 目录查找)
 cp 3rdparty/install/crashpad/bin/crashpad_handler AppDir/usr/bin/
 chmod +x AppDir/usr/bin/crashpad_handler
@@ -97,6 +107,7 @@ cd usr/bin
 
 - \`usr/bin/BPLC_STA_Monitor\` — 主程序(请经 \`run.sh\` 启动,勿直接运行)
 - \`usr/bin/run.sh\` — 启动器(设置库路径与 Qt 插件路径)
+- \`usr/bin/bplc-plugin-host\` — 插件宿主进程(须与主程序同目录,勿删除)
 - \`usr/bin/crashpad_handler\` — 崩溃转储辅助进程(须与主程序同目录,勿删除)
 - \`usr/bin/config.ini.example\` — 配置模板,复制为 \`config.ini\` 后按需修改
 - \`usr/lib/\` — Qt6 及第三方运行时库
@@ -131,6 +142,13 @@ SYMFILE=$(mktemp)
 HASH=$(awk 'NR==1{print $4}' "$SYMFILE")
 mkdir -p "$SYMDIR/$HASH"
 mv "$SYMFILE" "$SYMDIR/$HASH/BPLC_STA_Monitor.sym"
+# 宿主进程的符号一并归档(宿主崩溃时同样需要符号化定位)
+HOSTSYMDIR="symbols_tmp/bplc-plugin-host"
+HOSTSYMFILE=$(mktemp)
+3rdparty/install/symtools/dump_syms build_linux_host/bplc-plugin-host > "$HOSTSYMFILE"
+HOSTHASH=$(awk 'NR==1{print $4}' "$HOSTSYMFILE")
+mkdir -p "$HOSTSYMDIR/$HOSTHASH"
+mv "$HOSTSYMFILE" "$HOSTSYMDIR/$HOSTHASH/bplc-plugin-host.sym"
 SYMPKG="dist/BPLC_STA_Monitor_v${VER}_linux_${ARCH}_symbols.tar.gz"
 tar -czf "$SYMPKG" -C symbols_tmp .
 rm -rf symbols_tmp
