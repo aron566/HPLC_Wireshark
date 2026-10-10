@@ -83,6 +83,7 @@ var g_event_log = [];   // {frameIndex, epochMs, evt} full topo events, frame or
 var g_max_frame = 0;    // max frame.index seen (live frontier)
 var g_hist = null;      // null=live; {frame, ms, model} when frozen
 var g_live_btn = null;  // "Back to Live" button rect (top bar, history mode)
+var g_fit_btn = null;   // "Fit" button rect (graph viewport, reset zoom/pan)
 var EVT_LOG_CAP = 5000; // history rebuild window (event count cap)
 
 // The live model lives in g_nets/g_nid_order/g_cur_nid/g_topo_active.
@@ -491,6 +492,7 @@ function render(p, w, h) {
     g_record_rows = [];  // rebuilt by draw_records each frame
     g_map_rows = [];     // rebuilt by draw_map_table each frame
     g_live_btn = null;   // rebuilt by draw_top_bar each frame
+    g_fit_btn = null;    // rebuilt by draw_fit_button each frame
     draw_top_bar(p, w, net);
     var bot_h = Math.max(96, Math.floor(h * 0.26));
     if (!net || (net.order.length === 0 &&
@@ -503,6 +505,7 @@ function render(p, w, h) {
         var gx = 0, gy = TOP_H, gw = w - rw, gh = h - TOP_H - bot_h;
         g_graph_rect = { x: gx, y: gy, w: gw, h: gh };
         draw_graph(p, net, gx, gy, gw, gh);
+        draw_fit_button(p);
         draw_map_table(p, net, w - rw, TOP_H, rw, h - TOP_H - bot_h);
     }
     if (g_nid_open) draw_nid_dropdown(p);
@@ -714,14 +717,27 @@ function draw_graph(p, net, gx, gy, gw, gh) {
         p.set_font("", fs, true);
         p.set_pen(it.tei === 1 ? C.accent : dim ? C.text_dim : C.text, 1);
         center_text(p, title, it.x, ly + row_h * 0.75, it.w, fs);
-        p.set_font("", Math.max(6, fs - 1), false);
+        p.set_font("", fs, false);
         p.set_pen(dim ? C.text_muted : C.text_dim2, 1);
         center_text(p, it.mac ? it.mac : "MAC ?", it.x, ly + row_h * 1.75,
-                    it.w, fs - 1);
+                    it.w, fs);
         var acc = (!is_pending && nd && nd.is_rf) ? "RF" : "PLC";
-        center_text(p, acc, it.x, ly + row_h * 2.75, it.w, fs - 1);
+        center_text(p, acc, it.x, ly + row_h * 2.75, it.w, fs);
     }
     p.reset_clip();
+}
+
+function draw_fit_button(p) {
+    if (!g_graph_rect) return;
+    var bw = 52, bh = 22, pad = 8;
+    g_fit_btn = { x: g_graph_rect.x + g_graph_rect.w - bw - pad,
+                  y: g_graph_rect.y + pad, w: bw, h: bh };
+    p.fill_rect(g_fit_btn.x, g_fit_btn.y, bw, bh, C.nid_bg);
+    p.set_pen(C.border3, 1);
+    p.draw_rect(g_fit_btn.x, g_fit_btn.y, bw, bh);
+    p.set_pen(C.accent2, 1);
+    p.set_font("", 9, true);
+    p.draw_text(g_fit_btn.x + 13, g_fit_btn.y + 15, "Fit");
 }
 
 function center_text(p, s, x, y, w, fs) {
@@ -1031,6 +1047,13 @@ function on_event(type, x, y, button, modifiers, delta_y) {
         return false;
     }
     if (type === EVT_PRESS) {
+        // Fit button: reset zoom/pan back to the fitted view
+        if (g_fit_btn && in_rect(x, y, g_fit_btn)) {
+            g_zoom = 1.0;
+            g_pan_x = 0;
+            g_pan_y = 0;
+            return true;
+        }
         // Back to Live button (history mode)
         if (g_live_btn && in_rect(x, y, g_live_btn)) {
             g_hist = null;

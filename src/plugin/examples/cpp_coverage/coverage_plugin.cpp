@@ -737,6 +737,21 @@ public:
                         .arg(bidir_links)
                         .arg(QString::number(avg_nbr, 'f', 1)));
 
+        // 一键适应视图按钮(右上角):复位缩放/平移,找回整张图
+        m_fit_rect = QRectF(w - 128, 8, 118, 26);
+        p->setPen(c_border());
+        p->setBrush(c_hover_bg());
+        p->drawRoundedRect(m_fit_rect, 4, 4);
+        p->setPen(c_accent());
+        {
+            QFont bf = cov_font(10, true);
+            p->setFont(bf);
+            p->drawText(m_fit_rect, Qt::AlignCenter,
+                        QStringLiteral("适应视图 Fit"));
+        }
+        p->setFont(f);
+        p->setPen(c_dim());
+
         if (!center) {
             p->setPen(c_dim());
             f.setPixelSize(12);
@@ -1030,6 +1045,13 @@ public:
             return false;
         }
         if (e.type == GraphicsEventType::MousePress && e.button == 1) {
+            // 适应视图按钮:复位缩放/平移
+            if (m_fit_rect.contains(QPointF(e.x, e.y))) {
+                m_zoom = 1.0;
+                m_pan_x = 0.0;
+                m_pan_y = 0.0;
+                return true;
+            }
             // 0. 下拉框本体:点击切换展开/收起
             if (m_dropdown_rect.contains(QPointF(e.x, e.y))) {
                 m_dropdown_open = !m_dropdown_open;
@@ -1420,6 +1442,7 @@ private:
     QVector<QPair<quint16, QRectF>> m_table_rows;  ///< 右侧邻居表格行矩形(点击切换选中)
     bool m_dropdown_open = false;                  ///< 「查看节点」下拉框是否展开
     QRectF m_dropdown_rect;                        ///< 下拉框本体矩形(点击切换展开)
+    QRectF m_fit_rect;                             ///< 「适应视图」按钮矩形(点击复位缩放/平移)
     QVector<QPair<quint16, QRectF>> m_dropdown_items;  ///< 下拉列表项矩形
     int m_dropdown_scroll = 0;  ///< 下拉列表滚动偏移(行,>100 节点时滚轮滚动)
     quint16 m_hover_tei = 0;
