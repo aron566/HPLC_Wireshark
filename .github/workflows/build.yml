@@ -115,6 +115,15 @@ jobs:
           fi
           echo "冒烟通过:无启动期崩溃"
 
+      - name: 上传 Windows 安装包(仅手动触发时,供取包验证)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v6
+        with:
+          name: BPLC_STA_Monitor_win64
+          path: |
+            dist/BPLC_STA_Monitor_Setup_v*.exe
+            dist/BPLC_STA_Monitor_v*_win64_symbols.tar.gz
+
       - name: 上传 Windows 崩溃测试产物
         if: always()
         uses: actions/upload-artifact@v6
