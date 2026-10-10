@@ -1,8 +1,8 @@
 {
   "api_version": 1,
   "author": "bplc",
-  "description": "拓扑图形插件:消费解析器拓扑事件,与原版TOPO对齐(NID选择/映射表/帧记录/悬浮成功率)。",
-  "description_en": "Topology graphics plugin: consumes parser topo events, aligned with the native TOPO page (NID selector, mapping table, frame records, hover success rates).",
+  "description": "拓扑图形插件:消费解析器拓扑事件,与原版TOPO对齐(NID选择/映射表/帧记录过滤/悬浮成功率/邻居表双击/主题跟随/图缩放平移/一键适应视图)。",
+  "description_en": "Topology graphics plugin: consumes parser topo events, aligned with the native TOPO page (NID selector, mapping table, frame-record filter, hover success rates, neighbor-table double-click, theme follow, graph zoom & pan, fit-to-view).",
   "display_name": "JS 拓扑图(测试)",
   "display_name_en": "JS Topology View (test)",
   "entry": "topo.js",
@@ -10,7 +10,7 @@
   "name": "js-topo",
   "protocol_id": "JSTOPO_2024",
   "runtime": "js",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "panel": "topo",
   "settings": [
     {
