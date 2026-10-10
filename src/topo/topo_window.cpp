@@ -200,6 +200,8 @@ struct I18nRegTopoWindow {
         trl::register_en("实时", "Live");
         trl::register_en("历史回放", "History replay");
         trl::register_en("回到实时", "Back to Live");
+        trl::register_en("适应视图", "Fit view");
+        trl::register_en("缩放并居中显示整张拓扑图", "Zoom to fit and center the whole topology");
     }
 } i18n_reg_topo_window;
 
@@ -369,7 +371,6 @@ void TopoGraphWidget::paintEvent(QPaintEvent*) {
         const qreal row_h = label_h / 3.0;
         p.drawText(label_rect.adjusted(0, 0, 0, -2 * row_h), Qt::AlignCenter, title);
         f.setBold(false);
-        f.setPointSizeF(f.pointSizeF() - 1.0);
         p.setFont(f);
         p.drawText(label_rect.adjusted(0, row_h, 0, -row_h), Qt::AlignCenter,
                    node->mac ? format_mac(node->mac) : QStringLiteral("MAC ?"));
@@ -489,6 +490,19 @@ void TopoGraphWidget::wheelEvent(QWheelEvent* e) {
     e->accept();
 }
 
+void TopoGraphWidget::fit_view() {
+    if (m_canvas_w <= 0.0 || m_canvas_h <= 0.0)
+        return;
+    const qreal margin = 20.0;
+    const qreal avail_w = qMax(1.0, (qreal)width() - 2.0 * margin);
+    const qreal avail_h = qMax(1.0, (qreal)height() - 2.0 * margin);
+    m_scale = qBound(0.2, qMin(avail_w / m_canvas_w, avail_h / m_canvas_h), 8.0);
+    // 居中:缩放后的世界内容在控件内居中
+    m_offset = QPointF(((qreal)width() - m_canvas_w * m_scale) / 2.0,
+                       ((qreal)height() - m_canvas_h * m_scale) / 2.0);
+    update();
+}
+
 // =============================== TopoWindow ===============================
 
 TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
@@ -514,7 +528,12 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     m_teimac_table->setModel(m_teimac_model);
     m_teimac_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_teimac_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_teimac_table->horizontalHeader()->setStretchLastSection(true);
+    // 列宽适配:邻居表列(索引 4)占满剩余宽度,其余列按内容自适应
+    {
+        auto* teimac_hh = m_teimac_table->horizontalHeader();
+        teimac_hh->setSectionResizeMode(QHeaderView::ResizeToContents);
+        teimac_hh->setSectionResizeMode(4, QHeaderView::Stretch);
+    }
     m_teimac_table->verticalHeader()->setVisible(false);
     // 邻居表列(索引 4)用 HTML 代理渲染多色 TEI
     m_teimac_table->setItemDelegateForColumn(4, new NeighborHtmlDelegate(this));
@@ -581,6 +600,11 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     m_btn_live->setVisible(false);
     connect(m_btn_live, &QPushButton::clicked, this, &TopoWindow::request_live);
     top_lay->addWidget(m_btn_live);
+    // 一键适应视图:缩小/拖拽后找回整张拓扑图
+    auto* btn_fit = new QPushButton(trl::L("适应视图"), this);
+    btn_fit->setToolTip(trl::L("缩放并居中显示整张拓扑图"));
+    connect(btn_fit, &QPushButton::clicked, this, [this] { m_graph->fit_view(); });
+    top_lay->addWidget(btn_fit);
 
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(6, 6, 6, 6);
@@ -828,6 +852,7 @@ void TopoWindow::on_teimac_double_clicked(const QModelIndex& idx) {
     view->verticalHeader()->setVisible(false);
     enable_table_copy(view);  // 支持 Ctrl+C 复制
     lay->addWidget(view);
+    view->resizeColumnsToContents();  // 列宽适配内容
     dlg->show();
 }
 

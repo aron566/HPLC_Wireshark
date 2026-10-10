@@ -26,6 +26,8 @@ class TopoGraphWidget : public QWidget {
 public:
     explicit TopoGraphWidget(QWidget* parent = nullptr);
     void set_state(const TopoState* state);
+    /// @brief 一键适应视图:缩放+平移使整张拓扑图居中铺满控件
+    void fit_view();
 
 protected:
     void paintEvent(QPaintEvent*) override;

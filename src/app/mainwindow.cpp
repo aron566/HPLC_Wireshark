@@ -172,6 +172,14 @@ void MainWindow::build_ui() {
     m_btn_export = new QToolButton(m_toolbar);  m_btn_export->setText(trl::L("导出"));     m_toolbar->addWidget(m_btn_export);
     m_btn_settings = new QToolButton(m_toolbar);m_btn_settings->setText(trl::L("设置"));    m_toolbar->addWidget(m_btn_settings);
     m_btn_topo = new QToolButton(m_toolbar);    m_btn_topo->setText(trl::L("拓扑"));        m_toolbar->addWidget(m_btn_topo);
+    // 自动调整列宽:按内容自适应各列宽度
+    auto* btn_autofit = new QToolButton(m_toolbar);
+    btn_autofit->setText(trl::L("自动列宽"));
+    btn_autofit->setToolTip(trl::L("按内容自动调整列表各列宽度"));
+    connect(btn_autofit, &QToolButton::clicked, this, [this] {
+        m_table_packets->resizeColumnsToContents();
+    });
+    m_toolbar->addWidget(btn_autofit);
     m_toolbar->addSeparator();
     m_toolbar->addWidget(new QLabel(trl::L("  显示过滤器:"), m_toolbar));
     m_edt_filter = new QLineEdit(m_toolbar);
@@ -1257,6 +1265,8 @@ struct I18nRegMainWindow {
         trl::register_en("协议已立即生效(Ctrl+E 开始捕获)", "Protocol applied immediately (Ctrl+E to start capture)");
         trl::register_en("本地时间", "Local time");
         trl::register_en("拓扑", "Topology");
+        trl::register_en("自动列宽", "Auto fit");
+        trl::register_en("按内容自动调整列表各列宽度", "Auto-resize all columns to fit their content");
     }
 };
 const I18nRegMainWindow g_i18n_reg_mainwindow;
