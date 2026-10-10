@@ -1,8 +1,10 @@
-// Round-trip test for the new compressed block format.
-// Builds synthetic PacketEntries with nested trees, encodes a block,
-// decodes it back, and verifies every field (incl. rebuilt search_text).
+// Round-trip test for the v3 block format (pool + filter index + chunked
+// entries). Builds synthetic PacketEntries with nested trees, encodes a
+// block, decodes it back, and verifies every field, plus v3 random access
+// (BlockReader::entry_at) and the stored search_text in the block index.
 //
-// Manual build & run (Qt 6):
+// Build & run: qmake src/common/tests/block_format_test.pro && make,
+// or manually (Qt 6):
 //   QT=~/qt/6.5.3/gcc_64
 //   g++ -std=c++17 -fPIC -O1 -I$QT/include -I$QT/include/QtCore -Isrc/common \
 //       src/common/tests/block_format_test.cpp -o /tmp/block_format_test \
@@ -67,7 +69,9 @@ static bool entry_equal(const PacketEntry& a, const PacketEntry& b, QString& why
             || a.msdu.tei_mac_pairs[k].mac != b.msdu.tei_mac_pairs[k].mac) {
             why = QStringLiteral("tei_mac mismatch at index %1").arg(a.index); return false;
         }
-    // search_text must be rebuilt (not serialized anymore)
+    // search_text is stored in the v3 block index; the decoded value must
+    // equal the stored original (test entries fill it via make_search_text,
+    // exactly like the app's make_entry does)
     if (b.search_text.isEmpty() || b.search_text != make_search_text(b)) {
         why = QStringLiteral("search_text not rebuilt at index %1").arg(a.index); return false;
     }
@@ -120,6 +124,45 @@ int main(int argc, char** argv) {
         if (pser::decode_block(flip, out)) ++bad;                          // bit flip
         if (bad) { qWarning() << "corrupt-input check FAIL:" << bad; ++fails; }
         else qInfo() << "corrupt-input checks OK (all rejected)";
+    }
+
+    // 4) v3 random access + filter index (BlockReader)
+    {
+        QVector<PacketEntry> src; src.reserve(2500);
+        for (int i = 1; i <= 2500; ++i) { PacketEntry e = make_entry(i); e.search_text = make_search_text(e); src.append(e); }
+        const QByteArray blob = pser::encode_block(src);
+        pser::BlockReader r;
+        if (!r.open_data(blob) || r.count() != 2500) {
+            qWarning() << "BlockReader open failed"; ++fails;
+        } else {
+            for (int i : {0, 1, 49, 50, 51, 999, 1000, 1234, 2499}) {
+                PacketEntry e; QString why;
+                if (!r.entry_at(i, e) || !entry_equal(src[i], e, why)) {
+                    qWarning() << "entry_at" << i << "FAIL" << why; ++fails; break;
+                }
+                if (r.frame_type(i) != src[i].mpdu.frame_type
+                    || r.src_tei(i) != src[i].mpdu.src_tei
+                    || r.dst_tei(i) != src[i].mpdu.dst_tei
+                    || r.search_text(i) != src[i].search_text) {
+                    qWarning() << "index mismatch at" << i; ++fails; break;
+                }
+            }
+            qInfo() << "random access + index OK";
+        }
+        // search_text is stored verbatim (NOT rebuilt): a value that differs
+        // from make_search_text() must round-trip unchanged via the index
+        PacketEntry pe = make_entry(7);
+        pe.search_text = QStringLiteral("zzz custom marker");
+        const QByteArray pblob = pser::encode_block(QVector<PacketEntry>{pe});
+        pser::BlockReader pr;
+        PacketEntry pd;
+        if (!pr.open_data(pblob) || pr.search_text(0) != pe.search_text
+            || !pr.entry_at(0, pd) || pd.search_text != pe.search_text
+            || pd.index != pe.index) {
+            qWarning() << "stored search_text round-trip FAIL"; ++fails;
+        } else {
+            qInfo() << "stored search_text OK";
+        }
     }
 
     qInfo() << (fails ? "RESULT: FAIL" : "RESULT: PASS");

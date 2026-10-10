@@ -6,18 +6,33 @@
 ///       视图回调 rowCount()/data(),若持锁将导致同一线程重入死锁(界面卡死)。
 /// @note 内存策略:驻留内存条目(热区 m_hot)最多 kBlockSize 条;超出后每满
 ///       kBlockSize 条 flush 成一块落盘临时文件(不丢弃)。滚动/访问旧条目时
-///       按块从盘加载进 LRU 缓存(m_block_cache),以控制常驻内存、支持
-///       任意深度回溯。导出/过滤按需流式遍历全部条目。
+///       按块从盘打开 BlockReader 进 LRU 缓存(m_block_cache):打开只解析
+///       头/字符串池/轻量索引,条目按需逐条解码(v3 块格式),以控制常驻
+///       内存、支持任意深度回溯。过滤只扫索引不解码条目;导出按需流式
+///       遍历全部条目。
 #ifndef PACKETLISTMODEL_H
 #define PACKETLISTMODEL_H
 
 #include "bplcframe.h"
+#include "packetentry_serialize.h"   // pser::BlockReader(盘块随机访问)
 #include <QAbstractTableModel>
 #include <QVector>
 #include <QHash>
 #include <QStringList>
 #include <QTemporaryDir>
 #include <functional>
+
+/// @brief 过滤条件词(表达式预处理产物,定义见 packetlistmodel.cpp)
+struct PacketFilterCond {
+    QString term;          ///< 子串条件(已 trim+小写;type_byte==-1 时用)
+    int     type_byte = -1;///< >=0 帧型关键词的帧型字节;-1 子串;-2 空词永假
+};
+
+/// @brief 预处理后的过滤表达式:'|' 分组、组内 '&' 合取(与 m_filter 同步重建)
+struct PacketPreparedFilter {
+    QVector<QVector<PacketFilterCond>> groups;
+    bool empty = true;     ///< 表达式为空 = 全部通过
+};
 
 class PacketListModel : public QAbstractTableModel {
     Q_OBJECT
@@ -110,13 +125,14 @@ private:
     qint64                 m_total;       ///< 总条目数
     QVector<int>           m_visible;     ///< 过滤器命中的全局行号(升序)
     QString                m_filter;
+    PacketPreparedFilter   m_prepared;   ///< m_filter 的预处理形式(匹配零分配)
     bool                   m_filtering = false; ///< 过滤进行中(异步;期间 append 暂存到 m_deferred)
     int                    m_filter_gen = 0; ///< 过滤代计数,丢弃过期异步结果
     QVector<PacketEntry>   m_deferred;    ///< 过滤期间暂存的 append 条目
     QHash<quint32, QHash<quint16, quint64>> m_tei_mac; ///< TEI→MAC 映射表(NID → TEI → MAC48)
     QTemporaryDir          m_paging_dir;  ///< 盘块临时目录(进程结束自动清理)
 
-    mutable QHash<int, QVector<PacketEntry>> m_block_cache; ///< 已加载盘块 LRU
+    mutable QHash<int, pser::BlockReader> m_block_cache; ///< 已打开盘块 LRU
     mutable QList<int>     m_lru;          ///< 盘块最近使用顺序(前=最旧)
 };
 

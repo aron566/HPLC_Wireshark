@@ -255,52 +255,85 @@ QVariant PacketListModel::data_color(const PacketEntry& e) const {
 }
 
 namespace {
-/// @brief 过滤器 DNF 匹配(不依赖成员 m_filter,供工作线程复用)
-bool filter_match(const QString& filter, const PacketEntry& e) {
-    if (filter.isEmpty()) return true;
-    const QString& haystack = e.search_text;   // 预计算缓存
-    const QString ft = e.mpdu.frame_type_name().toLower();
-    auto cond_hit = [&](const QString& raw) -> bool {
-        const QString t = raw.trimmed().toLower();
-        if (t.isEmpty()) return false;
-        if (t == QLatin1String("beacon") || t == QLatin1String("sof")
-            || t == QLatin1String("ack")   || t == QLatin1String("coord")
-            || t == QLatin1String("search")|| t == QLatin1String("switch")) {
-            return ft == t;
-        }
-        return haystack.contains(t);
+/// @brief 过滤表达式预处理:split/trim/小写/关键词判定只做一次,逐条匹配零分配
+/// @details 与旧版逐条 filter_match 语义严格一致:帧型关键词
+///          (beacon/sof/ack/coord/search/switch)按帧型字节比对,其余条件词
+///          按 search_text 子串比对,空条件词永假。
+PacketPreparedFilter prepare_filter(const QString& filter) {
+    PacketPreparedFilter pf;
+    pf.empty = filter.isEmpty();
+    if (pf.empty) return pf;
+    auto type_byte_of = [](const QString& t) -> int {
+        if (t == QLatin1String("beacon")) return 0;
+        if (t == QLatin1String("sof"))    return 1;
+        if (t == QLatin1String("ack"))    return 2;
+        if (t == QLatin1String("coord"))  return 3;
+        if (t == QLatin1String("search")) return 5;
+        if (t == QLatin1String("switch")) return 6;
+        return -1;
     };
     const QStringList or_groups = filter.split('|', Qt::SkipEmptyParts);
     for (const QString& g : or_groups) {
-        const QStringList ands = g.split('&');
+        QVector<PacketFilterCond> conds;
+        for (const QString& c : g.split('&')) {
+            const QString t = c.trimmed().toLower();
+            PacketFilterCond cond;
+            if (t.isEmpty()) {
+                cond.type_byte = -2;          // 空条件永假(与旧语义一致)
+            } else if (const int tb = type_byte_of(t); tb >= 0) {
+                cond.type_byte = tb;
+            } else {
+                cond.type_byte = -1;
+                cond.term = t;
+            }
+            conds.append(cond);
+        }
+        pf.groups.append(conds);
+    }
+    return pf;
+}
+
+/// @brief 预处理后的 DNF 匹配:frame_type 字节 + search_text 即可判定
+bool prepared_match(const PacketPreparedFilter& pf,
+                    quint8 frame_type, const QString& haystack) {
+    if (pf.empty) return true;
+    for (const auto& conds : pf.groups) {
         bool all = true;
-        for (const QString& c : ands) {
-            if (!cond_hit(c)) { all = false; break; }
+        for (const PacketFilterCond& c : conds) {
+            const bool hit = (c.type_byte >= 0) ? (frame_type == c.type_byte)
+                           : (c.type_byte == -1) ? haystack.contains(c.term)
+                                                 : false;
+            if (!hit) { all = false; break; }
         }
         if (all) return true;
     }
     return false;
 }
 
-/// @brief 工作线程:遍历快照盘块(独立读盘)+ 热区,返回命中过滤器的全局行号
+/// @brief 工作线程:遍历快照盘块(只读 v3 索引,不解码条目)+ 热区,
+///        返回命中过滤器的全局行号
 QVector<int> run_filter(const PacketListModel::ExportSnapshot& snap,
                         const QString& filter) {
+    const PacketPreparedFilter pf = prepare_filter(filter);
     QVector<int> result;
     int g = 0;
     for (const QString& bp : snap.block_paths) {
-        QVector<PacketEntry> block;
-        if (!pser::read_block_file(bp, block)) {
+        pser::BlockReader reader;
+        if (!reader.open(bp)) {
             g += PacketListModel::kBlockSize;
             continue;
         }
-        for (const PacketEntry& e : block) {
-            if (filter_match(filter, e))
-                result.append(g);
-            ++g;
+        const int n = reader.count();
+        for (int i = 0; i < n; ++i) {
+            if (prepared_match(pf, reader.frame_type(i),
+                                reader.search_text(i)))
+                result.append(g + i);
         }
+        g += n;
     }
     for (const PacketEntry& e : snap.hot) {
-        if (filter_match(filter, e)) result.append(g);
+        if (prepared_match(pf, e.mpdu.frame_type, e.search_text))
+            result.append(g);
         ++g;
     }
     return result;
@@ -308,7 +341,7 @@ QVector<int> run_filter(const PacketListModel::ExportSnapshot& snap,
 }  // namespace
 
 bool PacketListModel::passes_filter(const PacketEntry& e) const {
-    return filter_match(m_filter, e);
+    return prepared_match(m_prepared, e.mpdu.frame_type, e.search_text);
 }
 
 QString PacketListModel::block_path(int idx) const {
@@ -322,14 +355,13 @@ void PacketListModel::touch_lru(int idx) const {
 
 bool PacketListModel::load_block(int idx) const {
     if (m_block_cache.contains(idx)) { touch_lru(idx); return true; }
-    QVector<PacketEntry> block;
-    // 整块解码;条数必须 == kBlockSize,否则视为截断/损坏,拒收
-    // (成功落盘的块必为整块;残缺块不进缓存,避免 locate() 越界)
-    if (!pser::read_block_file(block_path(idx), block)
-        || block.size() != kBlockSize)
+    pser::BlockReader reader;
+    // 打开只解析头/池/索引,条目按需解码;条数必须 == kBlockSize,否则视为
+    // 截断/损坏,拒收(成功落盘的块必为整块;残缺块不进缓存,避免越界)
+    if (!reader.open(block_path(idx)) || reader.count() != kBlockSize)
         return false;
     // LRU 淘汰(先插入再淘汰,保证新块存活)
-    m_block_cache.insert(idx, block);
+    m_block_cache.insert(idx, std::move(reader));
     touch_lru(idx);
     while (m_lru.size() > kMaxCacheBlocks) {
         int old = m_lru.takeFirst();
@@ -353,9 +385,11 @@ const PacketEntry& PacketListModel::locate(int g) const {
     const int off = g % kBlockSize;
     if (!load_block(bi)) return kNullEntry;
     auto it = m_block_cache.constFind(bi);
-    if (it == m_block_cache.constEnd() || off < 0 || off >= it->size())
+    if (it == m_block_cache.constEnd() || off < 0 || off >= it->count())
         return kNullEntry;
-    return it->at(off);
+    bool ok = false;
+    const PacketEntry& e = it->entry_ref(off, ok);   // 只解码这一条
+    return ok ? e : kNullEntry;
 }
 
 void PacketListModel::flush_hot_block() {
@@ -474,6 +508,7 @@ bool PacketListModel::entry_at(int visible_row, PacketEntry& out) const {
 void PacketListModel::set_display_filter(const QString& expr) {
     if (m_filter == expr) return;
     m_filter = expr;
+    m_prepared = prepare_filter(expr);       // 预处理与表达式同步重建
     const int gen = ++m_filter_gen;          // 换代,丢弃在跑的旧过滤结果
     if (expr.isEmpty()) {                    // 清空过滤:恢复全可见(同步)
         m_filtering = false;                 // 复位过滤中状态(在跑旧过滤结果已由 gen 作废)
@@ -527,9 +562,15 @@ void PacketListModel::ensure_loaded(int visible_row) {
 
 void PacketListModel::for_each_entry(const std::function<void(const PacketEntry&)>& fn) {
     for (int b = 0; b < m_block_count; ++b) {
-        load_block(b);
-        const QVector<PacketEntry>& blk = m_block_cache[b];
-        for (const PacketEntry& e : blk) fn(e);
+        if (!load_block(b)) continue;
+        auto it = m_block_cache.constFind(b);
+        if (it == m_block_cache.constEnd()) continue;
+        // 顺序访问:BlockReader 内分块只解压一次,逐条解码后回调(拷贝出参,
+        // 避免回调期间缓存淘汰导致引用悬空)
+        for (int j = 0; j < it->count(); ++j) {
+            PacketEntry e;
+            if (it->entry_at(j, e)) fn(e);
+        }
     }
     for (const PacketEntry& e : m_hot) fn(e);
 }

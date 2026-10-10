@@ -334,8 +334,8 @@ inline void read_msdu_info(QDataStream& s, MsduInfo& m,
 }
 
 /// @brief 序列化一个 PacketEntry 到字节流(不含长度前缀)
-/// @details search_text 是派生字段,不序列化;反序列化时由
-///          make_search_text() 重建(见 deserialize_entry)。
+/// @details search_text 不在本载荷内:单条往返时由 deserialize_entry 按派生
+///          规则重建;块文件 v3 则把它存进块索引,BlockReader 解码时回填。
 ///          字符串经 pool 去重,调用方(encode_block)负责先写字符串表。
 inline QByteArray serialize_entry(const PacketEntry& e, StrPool& pool) {
     QByteArray buf;
@@ -357,8 +357,11 @@ inline QByteArray serialize_entry(const PacketEntry& e, StrPool& pool) {
 }
 
 /// @brief 反序列化一个 PacketEntry(与 serialize_entry 严格互逆)
+/// @param rebuild_search true=按派生规则重建 search_text(单条往返/旧路径);
+///        false=不重建,由调用方从块索引回填 v3 落盘值(BlockReader 用)
 inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
-                              const QVector<QString>& table) {
+                              const QVector<QString>& table,
+                              bool rebuild_search = true) {
     QDataStream s(buf);
     read_i32(s, e.index);
     read_i64(s, e.epoch_ms);
@@ -375,107 +378,317 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
     read_bytes(s, e.raw_bytes);
     if (s.status() != QDataStream::Ok)
         return false;
-    e.search_text = make_search_text(e);  // 派生字段:加载时重建
+    if (rebuild_search)
+        e.search_text = make_search_text(e);  // 派生字段:加载时重建
     return true;
 }
 
 // ---------------------------------------------------------------------------
-// 块文件格式 v2(字符串池 + 整块压缩,约为原文 1/12)
-// 文件布局: [magic u32]["PBLK"][version u32][zipped u8][count u32][blob]
-//   blob = zipped ? qCompress(raw, 1) : raw
-//   raw  = [str_count u32][str...] [len u32][entry] × count
-//   entry 内字符串以 u32 索引引用 str 表(块内去重)
-// 换页临时文件仅同一进程会话内往返,不做跨版本兼容;魔数/条数/解压校验用于
-// 识别截断文件(磁盘满等),decode_block 失败时调用方不得使用残缺数据。
+// 块文件格式 v3(字符串池 + 轻量索引 + 条目分块独立压缩)
+// 文件布局(QDataStream 顺序写入,偏移为文件绝对字节):
+//   [magic u32][version u32=3][count u32]
+//   [pool_zipped u8][pool_blob]        blob = qCompress(pool_raw) 或 pool_raw
+//     pool_raw = [str_count u32][str...]        (块内字符串去重表)
+//   [index_raw]                         每条 9B:[frame_type u8][src_tei u16]
+//                                       [dst_tei u16][search_text 池索引 u32]
+//   [nchunks u32][{off u32,len u32,zipped u8} × nchunks]
+//   [chunk_blob × nchunks]              每块 ≤ kBlockChunkEntries 条:
+//                                       chunk_raw = [len u32][payload] × n,
+//                                       blob = qCompress(chunk_raw) 或 chunk_raw;
+//                                       payload 与 v2 相同(serialize_entry,
+//                                       字符串以池索引引用)
+// 设计目标(2026-10 实测驱动):滚动只解一屏需要的条目(按条随机解码,不再整块
+// 解压+逐条反序列化+重建 search_text);筛选只读池+索引(search_text 已落盘),
+// 不碰条目正文。search_text 存索引区(池索引),反序列化后由 BlockReader 回填。
+// 换页临时文件仅同一进程会话内往返,不做跨版本兼容;魔数/条数/偏移/解压校验
+// 用于识别截断文件(磁盘满等),解码失败时调用方不得使用残缺数据。
 // ---------------------------------------------------------------------------
 
 inline quint32 block_magic()   { return 0x50424C4Bu; }  // "PBLK"
-inline quint32 block_version() { return 2u; }
+inline quint32 block_version() { return 3u; }
+/// @brief 独立压缩分块的条目数(随机解码粒度:解一条最多解压一个分块)
+inline constexpr int kBlockChunkEntries = 50;
 
-/// @brief 把一整块条目编码为待写入文件的内容
+namespace detail {
+/// @brief 大端 u32 读取(与 QDataStream 默认字节序一致,供分块内偏移步进)
+inline quint32 read_be32(const char* p) {
+    return (quint32(quint8(p[0])) << 24) | (quint32(quint8(p[1])) << 16)
+         | (quint32(quint8(p[2])) << 8)  |  quint32(quint8(p[3]));
+}
+/// @brief 压缩(1 档速度优先);压不动/失败则原样返回并置 zipped=false
+inline QByteArray compress_or_raw(const QByteArray& raw, bool& zipped) {
+    const QByteArray comp = qCompress(raw, 1);
+    if (!comp.isEmpty() && comp.size() < raw.size()) {
+        zipped = true;
+        return comp;
+    }
+    zipped = false;
+    return raw;
+}
+}  // namespace detail
+
+/// @brief 把一整块条目编码为待写入文件的内容(v3 布局)
 inline QByteArray encode_block(const QVector<PacketEntry>& entries) {
+    if (entries.isEmpty()) return {};
     StrPool pool;
-    QVector<QByteArray> bufs;
-    bufs.reserve(entries.size());
-    for (const PacketEntry& e : entries)
-        bufs.append(serialize_entry(e, pool));
-    QByteArray raw;
+    QVector<QByteArray> payloads;
+    QVector<quint32>    search_idx;
+    payloads.reserve(entries.size());
+    search_idx.reserve(entries.size());
+    for (const PacketEntry& e : entries) {
+        payloads.append(serialize_entry(e, pool));
+        // search_text 落盘:空时按派生规则补算(模型路径恒已填充)
+        search_idx.append(pool.intern(e.search_text.isEmpty()
+                                          ? make_search_text(e)
+                                          : e.search_text));
+    }
+    // 字符串池段
+    QByteArray pool_raw;
     {
-        QDataStream s(&raw, QIODevice::WriteOnly);
+        QDataStream s(&pool_raw, QIODevice::WriteOnly);
         s << quint32(pool.list.size());
-        for (const QString& str : pool.list) s << str;  // 字符串表
-        for (const QByteArray& b : bufs) {
-            s << quint32(b.size());
-            s.writeRawData(b.constData(), b.size());
+        for (const QString& str : pool.list) s << str;
+    }
+    bool pool_zipped = false;
+    const QByteArray pool_blob = detail::compress_or_raw(pool_raw, pool_zipped);
+    // 轻量索引段(帧型/TEI/search_text 索引,筛选专用,不解码正文)
+    QByteArray index_raw;
+    {
+        QDataStream s(&index_raw, QIODevice::WriteOnly);
+        for (int i = 0; i < entries.size(); ++i) {
+            s << quint8(entries[i].mpdu.frame_type)
+              << quint16(entries[i].mpdu.src_tei)
+              << quint16(entries[i].mpdu.dst_tei)
+              << search_idx[i];
         }
     }
-    const QByteArray comp = qCompress(raw, 1);  // 1 档:速度优先,压缩率接近默认档
-    const bool use_comp = !comp.isEmpty() && comp.size() < raw.size();
+    // 条目分块段(每分块独立压缩,支撑按条随机解码)
+    const int nchunks = (entries.size() + kBlockChunkEntries - 1)
+                        / kBlockChunkEntries;
+    QVector<QByteArray> chunk_blobs;
+    QVector<bool>       chunk_zipped;
+    chunk_blobs.reserve(nchunks);
+    for (int c = 0; c < nchunks; ++c) {
+        QByteArray raw;
+        QDataStream s(&raw, QIODevice::WriteOnly);
+        const int end = qMin(entries.size(), (c + 1) * kBlockChunkEntries);
+        for (int i = c * kBlockChunkEntries; i < end; ++i) {
+            s << quint32(payloads[i].size());
+            s.writeRawData(payloads[i].constData(), payloads[i].size());
+        }
+        bool z = false;
+        chunk_blobs.append(detail::compress_or_raw(raw, z));
+        chunk_zipped.append(z);
+    }
+    // 文件头(分块表偏移为绝对文件偏移,先按字段尺寸算出头长)
+    const qint64 header_len = 4 + 4 + 4 + 1 + (4 + pool_blob.size())
+                            + (4 + index_raw.size()) + 4 + qint64(nchunks) * 9;
     QByteArray out;
     QDataStream s(&out, QIODevice::WriteOnly);
-    s << block_magic() << block_version() << quint8(use_comp ? 1 : 0)
-      << quint32(entries.size());
-    s << (use_comp ? comp : raw);
+    s << block_magic() << block_version() << quint32(entries.size());
+    s << quint8(pool_zipped ? 1 : 0) << pool_blob;
+    s << index_raw;
+    s << quint32(nchunks);
+    qint64 off = header_len;
+    for (int c = 0; c < nchunks; ++c) {
+        s << quint32(off) << quint32(chunk_blobs[c].size())
+          << quint8(chunk_zipped[c] ? 1 : 0);
+        off += chunk_blobs[c].size();
+    }
+    for (const QByteArray& b : chunk_blobs)
+        s.writeRawData(b.constData(), b.size());
     return out;
 }
 
-/// @brief 解码块文件内容;魔数/解压/条数/反序列化任一步失败返回 false
-inline bool decode_block(const QByteArray& data, QVector<PacketEntry>& entries) {
-    entries.clear();
-    QDataStream s(data);
-    quint32 magic = 0, ver = 0, count = 0;
-    quint8 zipped = 0;
-    s >> magic >> ver >> zipped >> count;
-    if (s.status() != QDataStream::Ok || magic != block_magic()
-        || ver != block_version() || count == 0 || count > 100000)
-        return false;
-    QByteArray blob;
-    s >> blob;
-    if (s.status() != QDataStream::Ok || blob.isEmpty())
-        return false;
-    const QByteArray raw = zipped ? qUncompress(blob) : blob;
-    if (raw.isEmpty())
-        return false;  // 解压失败(截断文件)
-    QDataStream rs(raw);
-    quint32 str_count = 0;
-    rs >> str_count;
-    if (rs.status() != QDataStream::Ok || str_count > 1000000)
-        return false;
-    QVector<QString> table;
-    table.reserve(int(str_count));
-    for (quint32 i = 0; i < str_count; ++i) {
-        QString str;
-        rs >> str;
-        if (rs.status() != QDataStream::Ok) return false;
-        table.append(str);
+/// @brief v3 块文件随机访问读取器:打开只解析头/池/索引,条目按需解码
+/// @details 同一时刻只缓存最近一个分块的解压结果与一条条目(滚动/绘制的
+///          实际访问模式);read_all 顺序遍历时分块只解压一次。
+class BlockReader {
+public:
+    bool open(const QString& path) {
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly)) return false;
+        const QByteArray data = f.readAll();
+        f.close();
+        if (data.isEmpty()) return false;
+        return open_data(data);
     }
-    entries.reserve(int(count));
-    for (quint32 i = 0; i < count; ++i) {
+
+    bool open_data(const QByteArray& data) {
+        m_data = data;
+        m_table.clear();
+        m_index.clear();
+        m_chunks.clear();
+        m_chunk_no = -1;
+        m_chunk_raw.clear();
+        m_chunk_pay.clear();
+        m_ref_idx = -1;
+        QDataStream s(m_data);
+        quint32 magic = 0, ver = 0, count = 0;
+        quint8 pool_zipped = 0;
+        QByteArray pool_blob, index_raw;
+        s >> magic >> ver >> count >> pool_zipped >> pool_blob >> index_raw;
+        if (s.status() != QDataStream::Ok || magic != block_magic()
+            || ver != block_version() || count == 0 || count > 100000)
+            return false;
+        const QByteArray pool_raw = pool_zipped ? qUncompress(pool_blob)
+                                                : pool_blob;
+        if (pool_raw.isEmpty()) return false;
+        {
+            QDataStream ps(pool_raw);
+            quint32 str_count = 0;
+            ps >> str_count;
+            if (ps.status() != QDataStream::Ok || str_count > 1000000)
+                return false;
+            m_table.reserve(int(str_count));
+            for (quint32 i = 0; i < str_count; ++i) {
+                QString str;
+                ps >> str;
+                if (ps.status() != QDataStream::Ok) return false;
+                m_table.append(str);
+            }
+        }
+        {
+            QDataStream is(index_raw);
+            m_index.reserve(int(count));
+            for (quint32 i = 0; i < count; ++i) {
+                IndexEntry ix;
+                is >> ix.frame_type >> ix.src_tei >> ix.dst_tei >> ix.search_idx;
+                if (is.status() != QDataStream::Ok) return false;
+                if (ix.search_idx >= quint32(m_table.size())) return false;
+                m_index.append(ix);
+            }
+        }
+        quint32 nchunks = 0;
+        s >> nchunks;
+        if (s.status() != QDataStream::Ok
+            || nchunks != quint32((count + kBlockChunkEntries - 1)
+                                  / kBlockChunkEntries))
+            return false;
+        m_chunks.reserve(int(nchunks));
+        for (quint32 c = 0; c < nchunks; ++c) {
+            Chunk ch;
+            quint8 z = 0;
+            s >> ch.off >> ch.len >> z;
+            ch.zipped = (z != 0);
+            if (s.status() != QDataStream::Ok) return false;
+            if (qint64(ch.off) + ch.len > m_data.size()) return false;
+            m_chunks.append(ch);
+        }
+        m_count = int(count);
+        return true;
+    }
+
+    int count() const { return m_count; }
+
+    // ---- 轻量索引访问(筛选扫描用,不解码条目正文) ----
+    quint8  frame_type(int i) const { return m_index[i].frame_type; }
+    quint16 src_tei(int i) const    { return m_index[i].src_tei; }
+    quint16 dst_tei(int i) const    { return m_index[i].dst_tei; }
+    const QString& search_text(int i) const {
+        return m_table[int(m_index[i].search_idx)];
+    }
+
+    /// @brief 按条随机解码(只解压所在分块,只反序列化目标条)
+    bool entry_at(int i, PacketEntry& out) const {
+        if (i < 0 || i >= m_count) return false;
+        const int c = i / kBlockChunkEntries;
+        if (c != m_chunk_no && !load_chunk(c)) return false;
+        const int j = i - c * kBlockChunkEntries;
+        if (j >= m_chunk_pay.size()) return false;
+        const PayRec& rec = m_chunk_pay[j];
+        const QByteArray payload =
+            m_chunk_raw.mid(rec.off, rec.len);
+        if (!deserialize_entry(payload, out, m_table, /*rebuild_search=*/false))
+            return false;
+        out.search_text = search_text(i);   // 回填落盘值,不重建
+        return true;
+    }
+
+    /// @brief entry_at 的引用版(单条缓存,供模型 locate 的瞬时使用场景)
+    const PacketEntry& entry_ref(int i, bool& ok) const {
+        if (i == m_ref_idx) { ok = true; return m_ref_entry; }
+        ok = entry_at(i, m_ref_entry);
+        if (ok) m_ref_idx = i;
+        return m_ref_entry;
+    }
+
+    /// @brief 顺序解出整块(导出/for_each/测试用;分块各只解压一次)
+    bool read_all(QVector<PacketEntry>& entries) const {
+        entries.clear();
+        entries.reserve(m_count);
+        for (int i = 0; i < m_count; ++i) {
+            PacketEntry e;
+            if (!entry_at(i, e)) { entries.clear(); return false; }
+            entries.append(std::move(e));
+        }
+        return entries.size() == m_count;
+    }
+
+private:
+    struct IndexEntry {
+        quint8  frame_type = 0;
+        quint16 src_tei = 0;
+        quint16 dst_tei = 0;
+        quint32 search_idx = 0;
+    };
+    struct Chunk {
+        quint32 off = 0;
         quint32 len = 0;
-        rs >> len;
-        if (rs.status() != QDataStream::Ok || len == 0 || len > quint32(raw.size()))
-            return false;
-        QByteArray payload(int(len), Qt::Uninitialized);
-        if (rs.readRawData(payload.data(), int(len)) != int(len))
-            return false;
-        PacketEntry e;
-        if (!deserialize_entry(payload, e, table))
-            return false;
-        entries.append(std::move(e));
+        bool    zipped = false;
+    };
+    struct PayRec { int off = 0; int len = 0; };
+
+    bool load_chunk(int c) const {
+        const Chunk& ch = m_chunks[c];
+        const QByteArray slice = m_data.mid(int(ch.off), int(ch.len));
+        const QByteArray raw = ch.zipped ? qUncompress(slice) : slice;
+        if (raw.isEmpty()) return false;
+        const int expect = qMin(kBlockChunkEntries,
+                                m_count - c * kBlockChunkEntries);
+        QVector<PayRec> pays;
+        pays.reserve(expect);
+        int pos = 0;
+        for (int j = 0; j < expect; ++j) {
+            if (pos + 4 > raw.size()) return false;
+            const quint32 len = detail::read_be32(raw.constData() + pos);
+            pos += 4;
+            if (len == 0 || pos + int(len) > raw.size()) return false;
+            pays.append({pos, int(len)});
+            pos += int(len);
+        }
+        if (pos != raw.size()) return false;   // 分块内容必须恰好用尽
+        m_chunk_raw = raw;
+        m_chunk_pay = pays;
+        m_chunk_no = c;
+        m_ref_idx = -1;   // 分块换出,单条缓存随之失效
+        return true;
     }
-    return entries.size() == int(count) && rs.status() == QDataStream::Ok;
+
+    QByteArray          m_data;
+    int                 m_count = 0;
+    QVector<QString>    m_table;
+    QVector<IndexEntry> m_index;
+    QVector<Chunk>      m_chunks;
+    mutable int         m_chunk_no = -1;
+    mutable QByteArray  m_chunk_raw;
+    mutable QVector<PayRec> m_chunk_pay;
+    mutable int         m_ref_idx = -1;
+    mutable PacketEntry m_ref_entry;
+};
+
+/// @brief 解码块文件内容;任一步校验失败返回 false 并清空 entries
+inline bool decode_block(const QByteArray& data, QVector<PacketEntry>& entries) {
+    BlockReader r;
+    if (!r.open_data(data)) { entries.clear(); return false; }
+    return r.read_all(entries);
 }
 
 /// @brief 从块文件路径直接读出一整块条目,失败返回 false
 inline bool read_block_file(const QString& path, QVector<PacketEntry>& entries) {
-    QFile f(path);
-    if (!f.open(QIODevice::ReadOnly))
-        return false;
-    const QByteArray data = f.readAll();
-    f.close();
-    if (data.isEmpty())
-        return false;
-    return decode_block(data, entries);
+    BlockReader r;
+    if (!r.open(path)) { entries.clear(); return false; }
+    return r.read_all(entries);
 }
 
 }  // namespace pser
