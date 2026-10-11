@@ -165,6 +165,21 @@ int main(int argc, char* argv[]) {
                          .arg(rb.accept).arg(rd.accept);
         if (rb.accept && rd.accept) {
             ++accepted;
+            // reader 必填契约:信封字段(reader 切帧时填)与解析器复核值恒等
+            if (f.meta.timestamp != rb.meta.timestamp)
+                diffs << QStringLiteral("reader NTB %1 != parser %2")
+                             .arg(f.meta.timestamp).arg(rb.meta.timestamp);
+            if (f.meta.channel != rb.meta.channel)
+                diffs << QStringLiteral("reader channel %1 != parser %2")
+                             .arg(f.meta.channel).arg(rb.meta.channel);
+            if (f.meta.is_rf != rb.meta.is_rf)
+                diffs << QStringLiteral("reader is_rf != parser");
+            if (f.meta.phr_mcs != rb.meta.phr_mcs
+                || f.meta.option != rb.meta.option)
+                diffs << QStringLiteral("reader phr_mcs/option != parser");
+            if (f.meta.epoch_ms != rb.meta.epoch_ms)
+                diffs << QStringLiteral("reader epoch %1 != parser %2")
+                             .arg(f.meta.epoch_ms).arg(rb.meta.epoch_ms);
             if (rb.mpdu.frame_type != rd.mpdu.frame_type)
                 diffs << QStringLiteral("frame_type %1!=%2")
                              .arg(rb.mpdu.frame_type).arg(rd.mpdu.frame_type);

@@ -45,7 +45,12 @@ ParseResult ──► make_entry ──► PacketEntry（列表/过滤/topo/面�
 要点：
 
 - 喂给插件的只有**去封装后的净荷字节**与一份 **FrameContext**
-  （主程序独立告知的帧外信息：时间戳、通道、方向等），插件可用可不用。
+  （主程序告知的帧外信息：时间戳、通道、方向等）。其中时间戳与
+  通道类字段为**宿主必填**：reader 切帧时即按信封布局填入
+  BplcFrame.meta（NTB 在帧体 [2..5]、媒介头在 [6..9]、epoch_ms
+  取帧时间——回放时间以文件基准时间+NTB 差推进得出，只有 reader
+  知道），协议解析器仅以同口径复核；插件可用可不用这些值，但
+  宿主不可缺省为 0。
 - 插件返回**通用结构化结果** DissectResult：列表标量 + 通用字段树 +
   topo 载荷。主界面用通用渲染器把字段树画进详情视图，行为与内置
   解析器（tab 视图、Hex 高亮联动）一致。
@@ -55,12 +60,12 @@ ParseResult ──► make_entry ──► PacketEntry（列表/过滤/topo/面�
 ## 数据类型（src/plugin/plugin_api/dissect.h）
 
 ```cpp
-struct FrameContext {          // 主程序 → 解析器（解析器可忽略）
-    qint64  epoch_ms;          // 帧到达时刻（PC 时间）
+struct FrameContext {          // 主程序 → 解析器（宿主必填，解析器可忽略）
+    qint64  epoch_ms;          // 帧时刻（PC 时间；回放=文件基准+NTB 推进）
     qint64  arrival_us;        // 单调 µs 时刻（实时串口）
-    quint32 ntb;               // 帧内 NTB tick
+    quint32 ntb;               // 帧内 NTB tick（reader 自帧体 [2..5] 填）
     bool    is_rf;             // 通道：true=HRF(无线) false=HPLC(载波)
-    int     channel;           // 物理通道号，未知=-1
+    int     channel;           // 物理通道号（reader 自媒介头填）
     quint64 frame_index;       // 主程序侧帧序号（分发器计数）
     bool    seg_start;         // 是否分段起点（回放分段）
 };
@@ -98,9 +103,11 @@ PacketEntry 的 raw_bytes 即此缓冲）为坐标系，与内置解析器的高
 一致，HexView 联动无需换算。注意输入 payload（BplcFrame.data）含媒介
 头，与坐标系相差前缀长度，二者不可混用。
 
-精化帧外信息：媒介头里的 NTB/通道/RF 标志由解剖器在解析时得出
-（reader 只能给粗值，如文件回放时通道恒 0），经 refined_ctx 回传后
-宿主覆盖展示，保证 Physical 段与内置解析逐字一致。
+精化帧外信息（可选纠正通道）：reader 已按信封必填 NTB/通道/RF
+（见上），故 refined_ctx 不再是必需路径；仅当解剖器的信封理解与
+宿主不同（如私有前缀）时才经此回传覆盖，保证 Physical 段展示
+以解析方口径为准。参考插件回传的即解析器复核值，与 reader 必填
+值恒等（对比测试逐帧断言）。
 
 ## 插件接口（native）
 

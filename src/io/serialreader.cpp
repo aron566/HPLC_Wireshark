@@ -339,6 +339,24 @@ void ReaderWorker::try_extract_frame() {
         // 8B 标注在文件头/段间,帧体无逐帧 BCD;不做旧版每帧 BCD 兼容检测
         bf.meta.has_time_tag = false;
         bf.data = unesc;
+        // 信封头字段由 reader 必填(帧外信息契约:时间戳/通道由主程序
+        // 告知解析方,不可缺省为 0;尤其回放时间以文件基准为准,解析方
+        // 无从反推)。布局与协议解析器 decode_envelope 同口径:
+        // [len 2B][NTB 4B][phr_mcs 1B][option 1B][channel 1B][isRF 1B][MPDU]
+        // 解析器复核时以同一字节同一公式覆盖,两边恒一致。
+        bf.meta.epoch_ms = bf.meta.frame_time.toMSecsSinceEpoch();
+        if (unesc.size() >= 6) {
+            const quint8* b =
+                reinterpret_cast<const quint8*>(unesc.constData());
+            bf.meta.timestamp = (quint32)b[2] | ((quint32)b[3] << 8)
+                              | ((quint32)b[4] << 16) | ((quint32)b[5] << 24);
+            if (unesc.size() >= 10) {
+                bf.meta.phr_mcs = b[6];
+                bf.meta.option  = b[7];
+                bf.meta.channel = b[8];
+                bf.meta.is_rf   = b[9] != 0;
+            }
+        }
         ++m_frame_count;
         emit frame_ready(bf);
     }
@@ -429,6 +447,17 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
         bf.arrival_us = t2_us;
         bf.raw_wire   = raw;   // 0x3C...0x3E 原样
         bf.data       = data;  // 反转义后的 [dlen][ts][media][MPDU]
+        // 信封头字段必填(同 3C 路径口径):[len 2B][NTB 4B][媒介头 4B]
+        bf.meta.epoch_ms = bf.meta.frame_time.toMSecsSinceEpoch();
+        bf.meta.timestamp = ts_le2;
+        if (data.size() >= 10) {
+            const quint8* b =
+                reinterpret_cast<const quint8*>(data.constData());
+            bf.meta.phr_mcs = b[6];
+            bf.meta.option  = b[7];
+            bf.meta.channel = b[8];
+            bf.meta.is_rf   = b[9] != 0;
+        }
         emit frame_ready(bf);
         return;
     }
