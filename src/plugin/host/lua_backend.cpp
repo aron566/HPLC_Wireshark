@@ -357,6 +357,18 @@ bool LuaBackend::initialize(const PluginManifest& m, QString* err) {
         return 0;
     }, 1);
     lua_setfield(m_lua, -2, "jumpToFrame");
+    // host.sendPluginMessage(toName, topic, text):插件间通讯
+    lua_pushlightuserdata(m_lua, self);
+    lua_pushcclosure(m_lua, [](lua_State* L) -> int {
+        auto* backend = static_cast<LuaBackend*>(lua_touserdata(L, lua_upvalueindex(1)));
+        const QString to = QString::fromUtf8(lua_tostring(L, 1));
+        const QString topic = QString::fromUtf8(lua_tostring(L, 2));
+        const QString text = QString::fromUtf8(lua_tostring(L, 3));
+        if (backend->m_bus_send_cb)
+            backend->m_bus_send_cb(to, topic, text.toUtf8());
+        return 0;
+    }, 1);
+    lua_setfield(m_lua, -2, "sendPluginMessage");
     lua_pushlightuserdata(m_lua, self);
     lua_pushcclosure(m_lua, [](lua_State* L) -> int {
         auto* backend = static_cast<LuaBackend*>(lua_touserdata(L, lua_upvalueindex(1)));
@@ -663,6 +675,22 @@ void LuaBackend::notify_frame_selected(qint64 frameIndex, bool force_history) {
     lua_pushboolean(m_lua, force_history);
     if (lua_pcall(m_lua, 2, 0, 0) != LUA_OK) {
         qWarning() << "LuaBackend::notify_frame_selected:"
+                   << pop_lua_error(m_lua);
+    }
+}
+
+void LuaBackend::on_plugin_message(const QString& from, const QString& topic,
+                                   const QByteArray& payload) {
+    lua_getglobal(m_lua, "on_plugin_message");
+    if (!lua_isfunction(m_lua, -1)) {
+        lua_pop(m_lua, 1);
+        return;  // 脚本未定义回调:静默忽略
+    }
+    lua_pushstring(m_lua, from.toUtf8().constData());
+    lua_pushstring(m_lua, topic.toUtf8().constData());
+    lua_pushstring(m_lua, QString::fromUtf8(payload).toUtf8().constData());
+    if (lua_pcall(m_lua, 3, 0, 0) != LUA_OK) {
+        qWarning() << "LuaBackend::on_plugin_message:"
                    << pop_lua_error(m_lua);
     }
 }

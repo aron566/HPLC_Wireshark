@@ -1304,6 +1304,26 @@ void MainWindow::setup_plugin_ui() {
         && pmgr.is_dissector_protocol(appcfg::protocol().toUpper()))
         reset_dispatcher();
 
+    // 插件间通讯总线(主进程中转):按插件名投递,同名插件的全部实例
+    // (进程内引擎份 + host 子进程份)都会收到;目标不存在则静默丢弃。
+    connect(m_plugin_engine, &LocalPluginEngine::bus_message, this,
+            [this](const QString& from, const QString& to,
+                   const QString& topic, const QByteArray& payload) {
+                PluginManager::instance().send_plugin_message(to, from, topic,
+                                                              payload);
+                if (m_plugin_engine)
+                    m_plugin_engine->send_plugin_message(to, from, topic,
+                                                         payload);
+            });
+    connect(&pmgr, &PluginManager::plugin_message_received, this,
+            [this](const QString& from, const QString& to,
+                   const QString& topic, const QByteArray& payload) {
+                // host 目标已由 manager 内部直投;此处补投进程内实例
+                if (m_plugin_engine)
+                    m_plugin_engine->send_plugin_message(to, from, topic,
+                                                         payload);
+            });
+
     // 插件功能面板 dock(每个插件一个 tab,右置)
     m_plugin_dock = new QDockWidget(trl::L("插件"), this);
     m_plugin_dock->setObjectName(QStringLiteral("PluginDock"));

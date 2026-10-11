@@ -67,6 +67,11 @@ public:
     /// @brief 调用脚本全局函数 on_frame_selected(frameIndex, forceHistory)
     void notify_frame_selected(qint64 frameIndex, bool force_history) override;
 
+    // ---- 插件间通讯 ----
+    /// @brief 投递到脚本全局函数 on_plugin_message(from, topic, text);未定义则忽略
+    void on_plugin_message(const QString& from, const QString& topic,
+                           const QByteArray& payload) override;
+
 private:
     /// @brief Lua fields 表(数组) → MsduFieldNode 树(递归)。表在栈顶
     bool convert_fields(QVector<MsduFieldNode>* out, QString* err);

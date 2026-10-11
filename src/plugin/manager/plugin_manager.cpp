@@ -30,6 +30,35 @@ constexpr int kHeartbeatIntervalMs = 5000;
 constexpr int kHeartbeatTimeoutMs = 15000;
 } // namespace
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+namespace {
+/// Job Object(KILL_ON_JOB_CLOSE):主进程退出/被强杀后其句柄随进程关闭,
+/// OS 连带终止组内全部 host 子进程——父死子亡的 OS 级兜底(第三重保障)。
+HANDLE g_kill_job = nullptr;
+void assign_to_kill_job(QProcess* proc) {
+    if (!g_kill_job) {
+        g_kill_job = CreateJobObjectW(nullptr, nullptr);
+        if (g_kill_job) {
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
+            info.BasicLimitInformation.LimitFlags =
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            SetInformationJobObject(g_kill_job,
+                                    JobObjectExtendedLimitInformation,
+                                    &info, sizeof(info));
+        }
+    }
+    if (!g_kill_job) return;
+    HANDLE h = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, FALSE,
+                           static_cast<DWORD>(proc->processId()));
+    if (h) {
+        AssignProcessToJobObject(g_kill_job, h);   // 失败(嵌套 Job 等)不阻断
+        CloseHandle(h);
+    }
+}
+}  // namespace
+#endif  // Q_OS_WIN
+
 PluginManager& PluginManager::instance() {
     static PluginManager inst;
     return inst;
@@ -129,11 +158,16 @@ bool PluginManager::start_plugin(const PluginManifest& m) {
 
     rt->process->start(hostBinaryPath(),
         {QStringLiteral("--socket"), sock_name,
-         QStringLiteral("--plugin"), m.dir_path});
+         QStringLiteral("--plugin"), m.dir_path,
+         QStringLiteral("--parent-pid"),
+         QString::number(QCoreApplication::applicationPid())});
     if (!rt->process->waitForStarted(5000)) {
         delete rt;
         return false;
     }
+#ifdef Q_OS_WIN
+    assign_to_kill_job(rt->process);   // 主进程被杀时 OS 连带终止 host
+#endif
     m_plugins.insert(pid, rt);
     return true;
 }

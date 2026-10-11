@@ -75,8 +75,15 @@ public:
     std::function<QString(const QString&)> env_cb;
     std::function<void(const QString&, const QStringList&,
                        const QList<QStringList>&)> table_cb;
+    std::function<void(const QString&, const QString&, const QByteArray&)>
+        bus_send_cb;
 public slots:
     void jumpToFrame(double index) { if (jump_cb) jump_cb(static_cast<qint64>(index)); }
+    /// @brief 插件间通讯:host.sendPluginMessage(toName, topic, text)
+    void sendPluginMessage(const QString& to, const QString& topic,
+                           const QString& text) {
+        if (bus_send_cb) bus_send_cb(to, topic, text.toUtf8());
+    }
     QVariant getSetting(const QString& key, const QVariant& defaultValue = QVariant()) {
         if (setting_cb) return setting_cb(key, defaultValue);
         return defaultValue;
@@ -116,6 +123,11 @@ public:
     /// @brief 调用脚本全局函数 on_frame_selected(frameIndex, forceHistory)
     /// @details 函数未定义时静默忽略;脚本异常记入调试输出,不中断喂帧
     void notify_frame_selected(qint64 frameIndex, bool force_history) override;
+
+    // ---- 插件间通讯 ----
+    /// @brief 投递到脚本全局函数 on_plugin_message(from, topic, text);未定义则忽略
+    void on_plugin_message(const QString& from, const QString& topic,
+                           const QByteArray& payload) override;
 
 private:
     bool convert_fields(const QJSValue& js_fields, QVector<MsduFieldNode>* out,

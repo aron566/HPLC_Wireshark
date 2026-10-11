@@ -146,6 +146,10 @@ bool JsBackend::initialize(const PluginManifest& m, QString* err) {
                                      const QList<QStringList>& rows) {
         if (m_host_table_cb) m_host_table_cb(title, cols, rows);
     };
+    m_host_helper->bus_send_cb = [this](const QString& to, const QString& topic,
+                                        const QByteArray& payload) {
+        if (m_bus_send_cb) m_bus_send_cb(to, topic, payload);
+    };
     m_engine.globalObject().setProperty(
         QStringLiteral("host"),
         m_engine.newQObject(m_host_helper));
@@ -457,4 +461,17 @@ void JsBackend::notify_frame_selected(qint64 frameIndex, bool force_history) {
     QString err;
     if (!check_error(r, &err, QStringLiteral("on_frame_selected")))
         qWarning() << "JsBackend::notify_frame_selected:" << err;
+}
+
+void JsBackend::on_plugin_message(const QString& from, const QString& topic,
+                                  const QByteArray& payload) {
+    const QJSValue fn =
+        m_engine.globalObject().property(QStringLiteral("on_plugin_message"));
+    if (!fn.isCallable()) return;  // 脚本未定义回调:静默忽略
+    const QJSValue r = fn.call(QJSValueList{
+        QJSValue(from), QJSValue(topic),
+        QJSValue(QString::fromUtf8(payload))});
+    QString err;
+    if (!check_error(r, &err, QStringLiteral("on_plugin_message")))
+        qWarning() << "JsBackend::on_plugin_message:" << err;
 }

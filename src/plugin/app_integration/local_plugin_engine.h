@@ -69,6 +69,9 @@ public slots:
     void on_frame_selected(qint64 frame_index, bool force_history);
     /// @brief 主界面主题切换(深色?)→ 更新各后端 ui_dark(host.getEnv BPLC_THEME)
     void on_theme_changed(bool dark);
+    /// @brief 投递插件间消息到目标插件后端(按插件名;不存在则忽略)
+    void on_plugin_message(const QString& to, const QString& from,
+                           const QString& topic, const QByteArray& payload);
     void reset_all();
     /// @brief 卸载全部插件(删除后端,清空列表;重载目录前调用)
     void unload_all();
@@ -85,6 +88,9 @@ signals:
     /// @brief 插件请求主界面弹出独立表格窗口(host.showTable)
     void host_show_table(const QString& title, const QStringList& columns,
                          const QList<QStringList>& rows);
+    /// @brief 本引擎某插件经总线发出的消息(供 MainWindow 中转到其他宿主)
+    void bus_message(const QString& from, const QString& to,
+                     const QString& topic, const QByteArray& payload);
 
 private slots:
     void flush_periodic();
@@ -126,6 +132,9 @@ public slots:
     void notify_frame_selected(qint64 frame_index, bool force_history = false);
     /// @brief 主界面主题切换(GUI 线程调用,排队到工作线程更新各后端 ui_dark)
     void notify_theme_changed(bool dark);
+    /// @brief 向本引擎的目标插件投递一条总线消息(按插件名)
+    void send_plugin_message(const QString& to, const QString& from,
+                             const QString& topic, const QByteArray& payload);
     void reset_all();
 
 signals:
@@ -140,6 +149,9 @@ signals:
     /// @brief 插件请求主界面弹表格窗口(供 MainWindow 弹 QDialog)
     void host_show_table(const QString& title, const QStringList& columns,
                          const QList<QStringList>& rows);
+    /// @brief 本引擎某插件经总线发出的消息(供 MainWindow 中转)
+    void bus_message(const QString& from, const QString& to,
+                     const QString& topic, const QByteArray& payload);
 
 private:
     QThread*      m_thread = nullptr;

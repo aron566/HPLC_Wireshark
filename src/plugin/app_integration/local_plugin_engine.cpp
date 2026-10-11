@@ -159,6 +159,12 @@ void PluginWorker::start_load(const QString& dir) {
                                           const QList<QStringList>& rows) {
             emit host_show_table(title, columns, rows);
         });
+        // 插件间通讯:插件发出 → 总线信号(MainWindow 中转到目标宿主)
+        b->set_bus_send_callback([this, name = m.name](
+                                     const QString& to, const QString& topic,
+                                     const QByteArray& payload) {
+            emit bus_message(name, to, topic, payload);
+        });
         m_plugins.insert(m.name, rt);
         info.ok = true;
         emit plugin_loaded(info);
@@ -261,6 +267,14 @@ void PluginWorker::request_text(const QString& pid, const QString& func) {
                                              : QStringLiteral("ERROR: %1").arg(err));
 }
 
+void PluginWorker::on_plugin_message(const QString& to, const QString& from,
+                                     const QString& topic,
+                                     const QByteArray& payload) {
+    auto it = m_plugins.find(to);
+    if (it == m_plugins.end() || !it.value()->backend) return;
+    it.value()->backend->on_plugin_message(from, topic, payload);
+}
+
 void PluginWorker::reset_all() {
     for (auto* rt : m_plugins) {
         if (!rt->backend) continue;
@@ -327,6 +341,8 @@ LocalPluginEngine::LocalPluginEngine(QObject* parent) : QObject(parent) {
     connect(m_worker, &PluginWorker::host_jump_to_frame,
             this, &LocalPluginEngine::host_jump_to_frame,
             Qt::QueuedConnection);
+    connect(m_worker, &PluginWorker::bus_message,
+            this, &LocalPluginEngine::bus_message, Qt::QueuedConnection);
     connect(m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
 
     m_thread->start();
@@ -374,6 +390,16 @@ void LocalPluginEngine::notify_frame_selected(qint64 frame_index,
 void LocalPluginEngine::notify_theme_changed(bool dark) {
     QMetaObject::invokeMethod(m_worker, "on_theme_changed",
                               Qt::QueuedConnection, Q_ARG(bool, dark));
+}
+
+void LocalPluginEngine::send_plugin_message(const QString& to,
+                                            const QString& from,
+                                            const QString& topic,
+                                            const QByteArray& payload) {
+    QMetaObject::invokeMethod(m_worker, "on_plugin_message",
+                              Qt::QueuedConnection,
+                              Q_ARG(QString, to), Q_ARG(QString, from),
+                              Q_ARG(QString, topic), Q_ARG(QByteArray, payload));
 }
 
 void LocalPluginEngine::reset_all() {
