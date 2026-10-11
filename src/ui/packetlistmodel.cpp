@@ -3,6 +3,7 @@
 #include "packetlistmodel.h"
 #include "packetentry_serialize.h"
 #include <algorithm>
+#include <cstdint>
 #include <QColor>
 #include <QDataStream>
 #include <QDir>
@@ -291,11 +292,11 @@ PacketPreparedFilter prepare_filter(const QString& filter) {
                                   && ch <= QLatin1Char('9');
                           })) {
                 // sta-<纯数字> → TEI 等值谓词;TEI 是 quint16,超出
-                // 0xFFFF(或数字溢出 qlonglong)即超出取值域,永假
+                // UINT16_MAX(或数字溢出 qlonglong)即超出取值域,永假
                 bool ok = false;
                 const qlonglong v = t.mid(4).toLongLong(&ok);
-                if (ok && v <= 0xFFFF) cond.tei = int(v);
-                else                   cond.type_byte = -2;
+                if (ok && v <= UINT16_MAX) cond.tei = int(v);
+                else                       cond.type_byte = -2;
             } else {
                 cond.type_byte = -1;
                 cond.term = t;
