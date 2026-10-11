@@ -24,8 +24,9 @@
 
 /// @brief 过滤条件词(表达式预处理产物,定义见 packetlistmodel.cpp)
 struct PacketFilterCond {
-    QString term;          ///< 子串条件(已 trim+小写;type_byte==-1 时用)
-    int     type_byte = -1;///< >=0 帧型关键词的帧型字节;-1 子串;-2 空词永假
+    QString term;          ///< 子串条件(已 trim+小写;tei<0 且 type_byte==-1 时用)
+    int     type_byte = -1;///< >=0 帧型关键词的帧型字节;-1 子串;-2 永假(空词/TEI 溢出)
+    int     tei = -1;      ///< >=0:sta-<数字> 的 TEI 等值谓词(比 src/dst TEI,不走子串)
 };
 
 /// @brief 预处理后的过滤表达式:'|' 分组、组内 '&' 合取(与 m_filter 同步重建)

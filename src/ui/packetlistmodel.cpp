@@ -2,6 +2,7 @@
 /// @brief PacketListModel 实现(磁盘换页)
 #include "packetlistmodel.h"
 #include "packetentry_serialize.h"
+#include <algorithm>
 #include <QColor>
 #include <QDataStream>
 #include <QDir>
@@ -256,9 +257,11 @@ QVariant PacketListModel::data_color(const PacketEntry& e) const {
 
 namespace {
 /// @brief 过滤表达式预处理:split/trim/小写/关键词判定只做一次,逐条匹配零分配
-/// @details 与旧版逐条 filter_match 语义严格一致:帧型关键词
-///          (beacon/sof/ack/coord/search/switch)按帧型字节比对,其余条件词
-///          按 search_text 子串比对,空条件词永假。
+/// @details 帧型关键词(beacon/sof/ack/coord/search/switch)按帧型字节比对;
+///          sta-<纯数字> 解析为 TEI 等值谓词(比对 src/dst TEI——search_text
+///          里的 sta 词只由 src/dst TEI 生成),不再做子串匹配,避免
+///          sta-130 误命中 sta-1300;其余条件词仍按 search_text 子串比对,
+///          空条件词永假。
 PacketPreparedFilter prepare_filter(const QString& filter) {
     PacketPreparedFilter pf;
     pf.empty = filter.isEmpty();
@@ -282,6 +285,17 @@ PacketPreparedFilter prepare_filter(const QString& filter) {
                 cond.type_byte = -2;          // 空条件永假(与旧语义一致)
             } else if (const int tb = type_byte_of(t); tb >= 0) {
                 cond.type_byte = tb;
+            } else if (t.startsWith(QLatin1String("sta-")) && t.size() > 4
+                       && std::all_of(t.begin() + 4, t.end(), [](QChar ch) {
+                              return ch >= QLatin1Char('0')
+                                  && ch <= QLatin1Char('9');
+                          })) {
+                // sta-<纯数字> → TEI 等值谓词;数字大到溢出则超出任何
+                // TEI 取值范围,永假(等价于谓词恒不成立)
+                bool ok = false;
+                const qlonglong v = t.mid(4).toLongLong(&ok);
+                if (ok && v <= INT_MAX) cond.tei = int(v);
+                else                    cond.type_byte = -2;
             } else {
                 cond.type_byte = -1;
                 cond.term = t;
@@ -293,14 +307,16 @@ PacketPreparedFilter prepare_filter(const QString& filter) {
     return pf;
 }
 
-/// @brief 预处理后的 DNF 匹配:frame_type 字节 + search_text 即可判定
-bool prepared_match(const PacketPreparedFilter& pf,
-                    quint8 frame_type, const QString& haystack) {
+/// @brief 预处理后的 DNF 匹配:帧型字节 + src/dst TEI + search_text 即可判定
+bool prepared_match(const PacketPreparedFilter& pf, quint8 frame_type,
+                    quint16 src_tei, quint16 dst_tei,
+                    const QString& haystack) {
     if (pf.empty) return true;
     for (const auto& conds : pf.groups) {
         bool all = true;
         for (const PacketFilterCond& c : conds) {
-            const bool hit = (c.type_byte >= 0) ? (frame_type == c.type_byte)
+            const bool hit = (c.tei >= 0) ? (src_tei == c.tei || dst_tei == c.tei)
+                           : (c.type_byte >= 0) ? (frame_type == c.type_byte)
                            : (c.type_byte == -1) ? haystack.contains(c.term)
                                                  : false;
             if (!hit) { all = false; break; }
@@ -325,14 +341,15 @@ QVector<int> run_filter(const PacketListModel::ExportSnapshot& snap,
         }
         const int n = reader.count();
         for (int i = 0; i < n; ++i) {
-            if (prepared_match(pf, reader.frame_type(i),
-                                reader.search_text(i)))
+            if (prepared_match(pf, reader.frame_type(i), reader.src_tei(i),
+                                reader.dst_tei(i), reader.search_text(i)))
                 result.append(g + i);
         }
         g += n;
     }
     for (const PacketEntry& e : snap.hot) {
-        if (prepared_match(pf, e.mpdu.frame_type, e.search_text))
+        if (prepared_match(pf, e.mpdu.frame_type, e.mpdu.src_tei,
+                            e.mpdu.dst_tei, e.search_text))
             result.append(g);
         ++g;
     }
@@ -341,7 +358,8 @@ QVector<int> run_filter(const PacketListModel::ExportSnapshot& snap,
 }  // namespace
 
 bool PacketListModel::passes_filter(const PacketEntry& e) const {
-    return prepared_match(m_prepared, e.mpdu.frame_type, e.search_text);
+    return prepared_match(m_prepared, e.mpdu.frame_type, e.mpdu.src_tei,
+                          e.mpdu.dst_tei, e.search_text);
 }
 
 QString PacketListModel::block_path(int idx) const {
