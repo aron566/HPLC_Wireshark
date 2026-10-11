@@ -20,6 +20,7 @@
 #include "plugin_ipc.h"
 #include "plugin_serialization.h"
 #include "plugin_parser_proxy.h"
+#include "plugin_dissector_proxy.h"
 #include "protocolfactory.h"
 
 namespace {
@@ -41,16 +42,31 @@ PluginManager::PluginManager(QObject* parent) : QObject(parent) {
 }
 
 PluginManager::~PluginManager() {
-    for (auto* rt : m_plugins) {
+    stop_all();
+}
+
+void PluginManager::stop_all() {
+    if (m_plugins.isEmpty()) return;
+    const QList<PluginRuntime*> runtimes = m_plugins.values();
+    m_plugins.clear();
+    for (auto* rt : runtimes) {
+        if (rt->manifest.dissector) {
+            unregister_parser(rt->manifest.protocol_id);
+            emit dissector_unregistered(rt->manifest.protocol_id);
+        }
         if (rt->socket) {
             // 优雅退出
             QByteArray p;
             send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::Shutdown), p);
             rt->socket->flush();
+            rt->socket->disconnectFromServer();
         }
         if (rt->process) {
             rt->process->terminate();
-            rt->process->waitForFinished(2000);
+            if (!rt->process->waitForFinished(2000)) {
+                rt->process->kill();
+                rt->process->waitForFinished(1000);
+            }
             delete rt->process;
         }
         delete rt->server;
@@ -177,9 +193,13 @@ void PluginManager::handle_message(const QString& plugin_id, quint8 type,
         if (ok) {
             rt->ready = true;
             rt->last_pong_ms = QDateTime::currentMSecsSinceEpoch();
-            // 注册到解析器工厂(插件协议 id → 代理)
-            const QString pid = rt->manifest.protocol_id;
-            register_parser(pid, [pid]() { return make_plugin_parser(pid); });
+            // 仅解剖器插件注册到解析器工厂(插件协议 id → 解剖代理)。
+            // 面板类插件不注册:避免被选为解码器产生空心解析(见设计文档)。
+            if (rt->manifest.dissector) {
+                const QString pid = rt->manifest.protocol_id;
+                register_parser(pid, [pid]() { return make_dissector_parser(pid); });
+                emit dissector_registered(pid);
+            }
             emit plugin_status_changed(plugin_id, QStringLiteral("ready"));
         } else {
             disable_plugin(plugin_id, QStringLiteral("handshake failed"));
@@ -201,6 +221,16 @@ void PluginManager::handle_message(const QString& plugin_id, quint8 type,
         // 插件主动请求重绘:通知所有注册的视图
         for (PluginGraphicsView* v : m_graphics_views.value(plugin_id))
             v->on_plugin_request_redraw();
+        break;
+    }
+    case plugin_ipc::MsgType::PluginMessage: {
+        // 插件间通讯:host 插件发出,主进程总线按目标名中转(见 MainWindow 接线)
+        QString from, to, topic; QByteArray mp;
+        ds >> from >> to >> topic >> mp;
+        emit plugin_message_received(from, to, topic, mp);
+        // 目标也是 host 插件时直接在本层转发(无需绕 UI 层)
+        if (!to.isEmpty() && to != rt->manifest.name)
+            send_plugin_message(to, from, topic, mp);
         break;
     }
     default:
@@ -296,6 +326,142 @@ bool PluginManager::parse_via_plugin(const QString& protocol_id,
     return true;
 }
 
+QStringList PluginManager::dissector_protocol_ids() const {
+    QStringList out;
+    for (auto it = m_plugins.constBegin(); it != m_plugins.constEnd(); ++it) {
+        const PluginRuntime* rt = it.value();
+        if (rt->manifest.dissector && rt->ready && !rt->disabled)
+            out << it.key();
+    }
+    return out;
+}
+
+bool PluginManager::is_dissector_protocol(const QString& protocol_id) const {
+    auto it = m_plugins.constFind(protocol_id);
+    if (it == m_plugins.constEnd()) return false;
+    const PluginRuntime* rt = it.value();
+    return rt->manifest.dissector && rt->ready && !rt->disabled;
+}
+
+QString PluginManager::dissector_display_name(const QString& protocol_id) const {
+    auto it = m_plugins.constFind(protocol_id);
+    if (it == m_plugins.constEnd()) return protocol_id;
+    const PluginManifest& m = it.value()->manifest;
+    return m.display_name.isEmpty() ? protocol_id : m.display_name;
+}
+
+bool PluginManager::dissect_via_plugin(const QString& protocol_id,
+                                       const QByteArray& payload,
+                                       const FrameContext& ctx,
+                                       DissectResult* out) {
+    auto it = m_plugins.find(protocol_id);
+    if (it == m_plugins.end()) return false;
+    PluginRuntime* rt = *it;
+    if (!rt->ready || rt->disabled || !rt->socket) return false;
+
+    QMutexLocker lock(&rt->ipc_mutex);
+    const quint64 seq = ++rt->seq;
+
+    QByteArray body;
+    QDataStream o(&body, QIODevice::WriteOnly);
+    o.setVersion(plugin_ipc::kStreamVersion);
+    o << seq << payload << ctx;
+    send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::DissectRequest), body);
+
+    // 阻塞等待响应(分发 worker 线程调用,不阻塞 UI;与 parse_via_plugin 同构)
+    QByteArray resp_buf;
+    const qint64 deadline = QDateTime::currentMSecsSinceEpoch() + kParseTimeoutMs;
+    bool got = false;
+    bool ok = false;
+    DissectResult r;
+    QString err_text;
+    while (QDateTime::currentMSecsSinceEpoch() < deadline) {
+        if (!rt->socket->waitForReadyRead(100)) {
+            if (rt->socket->state() != QLocalSocket::ConnectedState) break;
+            continue;
+        }
+        resp_buf.append(rt->socket->readAll());
+        while (resp_buf.size() >= 5) {
+            QDataStream hdr(resp_buf);
+            hdr.setVersion(plugin_ipc::kStreamVersion);
+            quint32 len = 0; hdr >> len;
+            if (resp_buf.size() < 4 + (int)len) break;
+            const QByteArray fr = resp_buf.mid(4, len);
+            resp_buf.remove(0, 4 + len);
+            QDataStream ds(fr);
+            ds.setVersion(plugin_ipc::kStreamVersion);
+            quint8 t = 0; ds >> t;
+            if (static_cast<plugin_ipc::MsgType>(t)
+                    == plugin_ipc::MsgType::DissectResponse) {
+                quint64 rseq = 0;
+                ds >> rseq;
+                if (rseq != seq) continue;
+                ds >> ok;
+                if (ok) ds >> r;
+                else ds >> err_text;
+                got = true;
+                break;
+            }
+            if (static_cast<plugin_ipc::MsgType>(t) == plugin_ipc::MsgType::Pong)
+                rt->last_pong_ms = QDateTime::currentMSecsSinceEpoch();
+            if (static_cast<plugin_ipc::MsgType>(t) == plugin_ipc::MsgType::PluginMessage) {
+                QString from, to, topic; QByteArray mp;
+                ds >> from >> to >> topic >> mp;
+                emit plugin_message_received(from, to, topic, mp);
+            }
+        }
+        if (got) break;
+    }
+    if (!got || !ok) {
+        if (!got) {
+            // 超时/断连:很可能 host 已挂,禁用插件并注销协议(回主线程执行)
+            const bool was_dissector = rt->manifest.dissector;
+            rt->disabled = true;
+            rt->disable_reason = QStringLiteral("plugin dissect timeout/crash");
+            QMetaObject::invokeMethod(this, [this, protocol_id, was_dissector]() {
+                if (was_dissector) {
+                    unregister_parser(protocol_id);
+                    emit dissector_unregistered(protocol_id);
+                }
+                emit plugin_status_changed(protocol_id,
+                                           QStringLiteral("timeout-disabled"));
+            }, Qt::QueuedConnection);
+        }
+        return false;
+    }
+    *out = r;
+    return true;
+}
+
+void PluginManager::reset_dissectors() {
+    for (auto* rt : m_plugins) {
+        if (!rt->manifest.dissector || !rt->ready || rt->disabled || !rt->socket)
+            continue;
+        QMutexLocker lock(&rt->ipc_mutex);
+        send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::ResetDissector),
+                     QByteArray());
+    }
+}
+
+bool PluginManager::send_plugin_message(const QString& to_name,
+                                        const QString& from_name,
+                                        const QString& topic,
+                                        const QByteArray& payload) {
+    for (auto* rt : m_plugins) {
+        if (rt->manifest.name != to_name) continue;
+        if (!rt->ready || rt->disabled || !rt->socket) return false;
+        QMutexLocker lock(&rt->ipc_mutex);
+        QByteArray body;
+        QDataStream o(&body, QIODevice::WriteOnly);
+        o.setVersion(plugin_ipc::kStreamVersion);
+        o << from_name << to_name << topic << payload;
+        send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::PluginMessage),
+                     body);
+        return true;
+    }
+    return false;
+}
+
 void PluginManager::on_process_finished(const QString& plugin_id, int code) {
     Q_UNUSED(code);
     auto it = m_plugins.find(plugin_id);
@@ -319,7 +485,10 @@ void PluginManager::disable_plugin(const QString& plugin_id,
     rt->disabled = true;
     rt->disable_reason = reason;
     rt->ready = false;
-    unregister_parser(rt->manifest.protocol_id);
+    if (rt->manifest.dissector) {
+        unregister_parser(rt->manifest.protocol_id);
+        emit dissector_unregistered(rt->manifest.protocol_id);
+    }
     emit plugin_status_changed(plugin_id, QStringLiteral("disabled: ") + reason);
 }
 

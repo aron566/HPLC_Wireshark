@@ -25,6 +25,9 @@ struct ParseResult {
     bool         accept;
     QString      reject_reason;
     QByteArray   payload_for_log;
+    /// 插件解剖器返回的通用字段树(内置解析器为空,走旧 builder 渲染;
+    /// 非空时 ProtocolTree 用通用渲染器画协议段)。不进 IPC 旧序列化。
+    QVector<DissectField> dissect_fields;
 
     ParseResult() : msdu_raw_base(-1), arrival_us(0), accept(false) {}
 };

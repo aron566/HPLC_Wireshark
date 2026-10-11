@@ -24,9 +24,13 @@ enum class MsgType : quint8 {
     HelloAck = 2,       ///< app→host: {ok:bool, reason:QString}
     ParseRequest = 10,  ///< app→host: {seq:quint64, frame:BplcFrame, msdu:MsduState, filter:ParseFilter}
     ParseResponse = 11, ///< host→app: {seq:quint64, result:ParseResult, msdu:MsduState}
+    DissectRequest = 12,  ///< app→host: {seq:quint64, payload:QByteArray, ctx:FrameContext} 解剖器(净荷+帧外信息)
+    DissectResponse = 13, ///< host→app: {seq:quint64, ok:bool, result:DissectResult | err:QString}
     Ping = 20,          ///< app→host: {seq:quint64} 心跳
     Pong = 21,          ///< host→app: {seq:quint64}
     Shutdown = 30,      ///< app→host: 优雅退出
+    ResetDissector = 31, ///< app→host: {} 解剖器清跨帧状态(新采集/回放)
+    PluginMessage = 60,  ///< 双向: {from:QString, to:QString, topic:QString, payload:QByteArray} 插件间通讯(主进程中转)
     Error = 40,         ///< host→app: {seq:quint64, message:QString} 解析异常等
     // 图形插件(Phase3)
     RenderRequest = 50,  ///< app→host: {seq:quint64, width:int, height:int} 请求重绘

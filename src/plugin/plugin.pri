@@ -10,15 +10,20 @@ HEADERS += \
     $$PWD/plugin_api/iplugin.h \
     $$PWD/plugin_api/iprotocolparserplugin.h \
     $$PWD/plugin_api/igraphicsplugin.h \
+    $$PWD/plugin_api/dissect.h \
+    $$PWD/plugin_api/idissectorplugin.h \
+    $$PWD/plugin_api/ipluginbus.h \
     $$PWD/plugin_api/plugin_manifest.h \
     $$PWD/ipc/plugin_ipc.h \
     $$PWD/ipc/plugin_serialization.h \
     $$PWD/manager/plugin_manager.h \
     $$PWD/manager/plugin_parser_proxy.h \
+    $$PWD/manager/plugin_dissector_proxy.h \
     $$PWD/manager/plugin_graphics_view.h
 
 SOURCES += \
     $$PWD/ipc/plugin_serialization.cpp \
     $$PWD/manager/plugin_manager.cpp \
     $$PWD/manager/plugin_parser_proxy.cpp \
+    $$PWD/manager/plugin_dissector_proxy.cpp \
     $$PWD/manager/plugin_graphics_view.cpp

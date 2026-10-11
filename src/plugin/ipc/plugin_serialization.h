@@ -10,6 +10,7 @@
 #include "bplcframe.h"        // PhysicalMeta/BplcFrame/MsduState/MpduInfo/MsduInfo/...
 #include "iprotocolparser.h"  // ParseResult/ParseFilter
 #include "igraphicsplugin.h"  // GraphicsEvent(Phase3)
+#include "dissect.h"          // FrameContext/DissectField/DissectResult
 
 // ---- PhysicalMeta ----
 QDataStream& operator<<(QDataStream& out, const PhysicalMeta& m);
@@ -58,6 +59,14 @@ QDataStream& operator>>(QDataStream& in, ParseResult& r);
 // ---- GraphicsEvent (Phase3) ----
 QDataStream& operator<<(QDataStream& out, const GraphicsEvent& e);
 QDataStream& operator>>(QDataStream& in, GraphicsEvent& e);
+
+// ---- 解剖器通用类型（dissect.h） ----
+QDataStream& operator<<(QDataStream& out, const FrameContext& c);
+QDataStream& operator>>(QDataStream& in, FrameContext& c);
+QDataStream& operator<<(QDataStream& out, const DissectField& f);
+QDataStream& operator>>(QDataStream& in, DissectField& f);
+QDataStream& operator<<(QDataStream& out, const DissectResult& r);
+QDataStream& operator>>(QDataStream& in, DissectResult& r);
 
 // (QImage 的 QDataStream 序列化由 Qt 内置提供,见 QtGui/qimage.h,此处不再声明)
 

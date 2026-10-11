@@ -1,0 +1,1 @@
+{"api_version":1,"author":"BPLC Team","description":"南网 NW_2021 参考解剖器插件(结构化字段输出)","description_en":"Reference NW_2021 dissector plugin (structured fields)","display_name":"南网解剖器","display_name_en":"NW_2021 Dissector","dissector":true,"entry":"nw_dissector","min_app_version":"1.4.1","name":"nw-dissector","protocol_id":"NW_2021_PLUGIN","runtime":"native","version":"1.0.0"}

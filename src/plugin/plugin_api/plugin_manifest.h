@@ -92,6 +92,8 @@ struct PluginManifest {
     QString description_en;   ///< 英文描述(可选,缺省回退 description)
     QString author;
     bool    graphics = false;  ///< 是否提供图形能力(Phase3)
+    bool    dissector = false; ///< 是否实现解剖器接口(IDissectorPlugin);
+                               ///< 仅声明者注册为可选协议并进协议下拉框
     QString panel;           ///< 主界面功能面板类型(可选): topo|replay|diag|report|stats
     QString panel_function;  ///< 文本类面板调用的脚本函数名(可选,如 get_replay_data)
     QList<PluginSetting> settings; ///< 插件独立可配置项(可选,见 PluginSetting)
@@ -215,6 +217,7 @@ inline PluginManifest read_plugin_manifest(const QString& plugin_dir) {
     m.description_en = o.value(QStringLiteral("description_en")).toString(m.description);
     m.author       = o.value(QStringLiteral("author")).toString();
     m.graphics     = o.value(QStringLiteral("graphics")).toBool(false);
+    m.dissector    = o.value(QStringLiteral("dissector")).toBool(false);
     m.panel        = o.value(QStringLiteral("panel")).toString();
     m.panel_function = o.value(QStringLiteral("panel_function")).toString();
     for (const QJsonValue& sv : o.value(QStringLiteral("settings")).toArray()) {

@@ -36,6 +36,7 @@ private:
     void send_message(plugin_ipc::MsgType t, const QByteArray& payload);
     void handle_message(plugin_ipc::MsgType t, QDataStream& ds);
     void handle_parse_request(QDataStream& ds);
+    void handle_dissect_request(QDataStream& ds);
     void handle_render_request(QDataStream& ds);
     void handle_graphics_event(QDataStream& ds);
 

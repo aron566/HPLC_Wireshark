@@ -1,0 +1,1 @@
+{"api_version":1,"author":"BPLC Team","description":"国网 GW_2022 参考解剖器插件(结构化字段输出)","description_en":"Reference GW_2022 dissector plugin (structured fields)","display_name":"国网解剖器","display_name_en":"GW_2022 Dissector","dissector":true,"entry":"gw_dissector","min_app_version":"1.4.1","name":"gw-dissector","protocol_id":"GW_2022_PLUGIN","runtime":"native","version":"1.0.0"}

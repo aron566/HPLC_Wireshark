@@ -15,6 +15,7 @@
 #include <QTimer>
 
 #include "bplcframe.h"
+#include "dissect.h"
 #include "igraphicsplugin.h"
 #include "iprotocolparser.h"
 #include "plugin_manifest.h"
@@ -58,6 +59,31 @@ public:
                         const BplcFrame& frame, MsduState& msdu,
                         const ParseFilter& filter, ParseResult* result);
 
+    // ---- 解剖器（新架构） ----
+    /// @brief 已就绪的解剖器协议 id 列表(仅 manifest.dissector 且握手成功)
+    QStringList dissector_protocol_ids() const;
+    /// @brief 协议 id 是否为已就绪的解剖器插件
+    bool is_dissector_protocol(const QString& protocol_id) const;
+    /// @brief 解剖器协议的显示名(清单 display_name,供协议下拉框)
+    QString dissector_display_name(const QString& protocol_id) const;
+    /// @brief 经解剖器插件解剖一帧净荷(阻塞,worker 线程调用)
+    bool dissect_via_plugin(const QString& protocol_id,
+                            const QByteArray& payload, const FrameContext& ctx,
+                            DissectResult* out);
+    /// @brief 通知全部解剖器清跨帧状态(新采集/回放)
+    void reset_dissectors();
+
+    // ---- 插件间通讯（主进程总线） ----
+    /// @brief 向指定 host 插件投递一条消息(按插件名寻址)。false=目标不存在
+    bool send_plugin_message(const QString& to_name, const QString& from_name,
+                             const QString& topic, const QByteArray& payload);
+
+    // ---- 生命周期 ----
+    /// @brief 停止全部插件 host 进程(优雅 Shutdown → terminate → kill 兜底)
+    /// @details 市场安装/卸载删插件目录前、主程序退出时调用;调用后可再
+    ///          loadAll 重新拉起。析构函数亦调用之。
+    void stop_all();
+
     // ---- 图形(Phase3) ----
     /// @brief 插件是否有图形能力
     bool has_graphics(const QString& protocol_id) const;
@@ -75,6 +101,13 @@ public:
 signals:
     /// @brief 插件状态变化(崩溃/禁用/就绪),UI 可据此提示
     void plugin_status_changed(const QString& plugin_id, const QString& status);
+    /// @brief 解剖器协议注册/注销(供主界面在配置协议待注册时自动切换分发器)
+    void dissector_registered(const QString& protocol_id);
+    void dissector_unregistered(const QString& protocol_id);
+    /// @brief 收到某插件发往其他插件的消息(主进程总线中转,见 DISSECTOR_ARCH)
+    void plugin_message_received(const QString& from, const QString& to,
+                                 const QString& topic,
+                                 const QByteArray& payload);
 
 private:
     explicit PluginManager(QObject* parent = nullptr);

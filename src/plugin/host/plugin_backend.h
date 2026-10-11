@@ -12,6 +12,7 @@
 #include <functional>
 
 #include "bplcframe.h"
+#include "dissect.h"
 #include "igraphicsplugin.h"
 #include "iprotocolparser.h"
 #include "plugin_manifest.h"
@@ -30,6 +31,19 @@ public:
     /// @brief 解析一帧。err 非空时置错误信息
     virtual ParseResult parse(const BplcFrame& frame, MsduState& msdu,
                               const ParseFilter& filter, QString* err) = 0;
+
+    // ---- 解剖器（新架构，见 docs/DISSECTOR_ARCH.md） ----
+    /// @brief 是否提供解剖器通路（native 解剖插件）
+    virtual bool has_dissector() const { return false; }
+    /// @brief 解剖一帧去封装净荷。false=不支持/失败（err 置原因）
+    virtual bool dissect(const QByteArray& payload, const FrameContext& ctx,
+                         DissectResult* out, QString* err) {
+        Q_UNUSED(payload); Q_UNUSED(ctx); Q_UNUSED(out);
+        if (err) *err = QStringLiteral("dissect not supported by this backend");
+        return false;
+    }
+    /// @brief 清解剖器跨帧状态（新采集/回放）
+    virtual void dissect_reset() {}
 
     // ---- 主界面控制(Phase4) ----
     /// @brief 插件请求主界面跳转到指定帧的回调类型(host.jumpToFrame)
@@ -101,10 +115,25 @@ public:
     using RedrawCallback = std::function<void()>;
     virtual void set_redraw_callback(RedrawCallback cb) { m_redraw_cb = cb; }
 
+    // ---- 插件间通讯（主进程总线，见 docs/DISSECTOR_ARCH.md） ----
+    /// @brief 插件发送消息的回调类型(宿主注入;插件经后端成员 m_bus_send_cb 发)
+    using BusSendCallback = std::function<void(const QString& to,
+                                               const QString& topic,
+                                               const QByteArray& payload)>;
+    virtual void set_bus_send_callback(BusSendCallback cb) {
+        m_bus_send_cb = std::move(cb);
+    }
+    /// @brief 收到其他插件的消息(宿主投递;缺省忽略)
+    virtual void on_plugin_message(const QString& from, const QString& topic,
+                                   const QByteArray& payload) {
+        Q_UNUSED(from); Q_UNUSED(topic); Q_UNUSED(payload);
+    }
+
 protected:
     RedrawCallback m_redraw_cb;  ///< 插件调此请求主进程重绘
     HostJumpCallback m_host_jump_cb;  ///< 插件请求主界面跳帧
     HostTableCallback m_host_table_cb;  ///< 插件请求主界面弹表格窗口
+    BusSendCallback m_bus_send_cb;  ///< 插件经此向总线发消息(宿主中转)
     bool m_ui_english = false;  ///< 界面语言是否为英文(宿主注入)
     bool m_ui_dark = true;  ///< 界面是否深色(宿主注入,缺省深色)
 };

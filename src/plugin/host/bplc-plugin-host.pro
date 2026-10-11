@@ -29,6 +29,9 @@ HEADERS += \
     ../plugin_api/iplugin.h \
     ../plugin_api/iprotocolparserplugin.h \
     ../plugin_api/igraphicsplugin.h \
+    ../plugin_api/dissect.h \
+    ../plugin_api/idissectorplugin.h \
+    ../plugin_api/ipluginbus.h \
     ../plugin_api/plugin_manifest.h \
     ../ipc/plugin_ipc.h \
     ../ipc/plugin_serialization.h

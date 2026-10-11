@@ -47,6 +47,16 @@ bool PluginHost::start(QString* err) {
     m_backend->set_redraw_callback([self]() {
         self->send_message(plugin_ipc::MsgType::RequestRedraw, QByteArray());
     });
+    // 插件间通讯:插件发出 → PluginMessage 给主进程总线中转
+    m_backend->set_bus_send_callback(
+        [self](const QString& to, const QString& topic,
+               const QByteArray& payload) {
+            QByteArray p;
+            QDataStream ds(&p, QIODevice::WriteOnly);
+            ds.setVersion(plugin_ipc::kStreamVersion);
+            ds << self->m_manifest.name << to << topic << payload;
+            self->send_message(plugin_ipc::MsgType::PluginMessage, p);
+        });
     // 后端协议 id 须与清单一致
     if (m_backend->protocol_id() != m_manifest.protocol_id) {
         *err = QStringLiteral("protocolId mismatch: manifest=%1 backend=%2")
@@ -135,6 +145,18 @@ void PluginHost::handle_message(plugin_ipc::MsgType t, QDataStream& ds) {
     case plugin_ipc::MsgType::ParseRequest:
         handle_parse_request(ds);
         break;
+    case plugin_ipc::MsgType::DissectRequest:
+        handle_dissect_request(ds);
+        break;
+    case plugin_ipc::MsgType::ResetDissector:
+        if (m_backend) m_backend->dissect_reset();
+        break;
+    case plugin_ipc::MsgType::PluginMessage: {
+        QString from, to, topic; QByteArray mp;
+        ds >> from >> to >> topic >> mp;
+        if (m_backend) m_backend->on_plugin_message(from, topic, mp);
+        break;
+    }
     case plugin_ipc::MsgType::RenderRequest:
         handle_render_request(ds);
         break;
@@ -176,6 +198,29 @@ void PluginHost::handle_parse_request(QDataStream& ds) {
         Q_UNUSED(err);
     }
     send_message(plugin_ipc::MsgType::ParseResponse, resp);
+}
+
+void PluginHost::handle_dissect_request(QDataStream& ds) {
+    quint64 seq = 0;
+    QByteArray payload; FrameContext ctx;
+    ds >> seq >> payload >> ctx;
+
+    QByteArray resp;
+    QDataStream o(&resp, QIODevice::WriteOnly);
+    o.setVersion(plugin_ipc::kStreamVersion);
+    o << seq;
+    if (!m_hello_done || !m_backend || !m_backend->has_dissector()) {
+        o << false << QStringLiteral("dissector not ready");
+    } else {
+        QString err;
+        DissectResult r;
+        if (m_backend->dissect(payload, ctx, &r, &err)) {
+            o << true << r;
+        } else {
+            o << false << err;
+        }
+    }
+    send_message(plugin_ipc::MsgType::DissectResponse, resp);
 }
 
 void PluginHost::handle_render_request(QDataStream& ds) {

@@ -20,13 +20,25 @@ bool NativeBackend::initialize(const PluginManifest& m, QString* err) {
         *err = QStringLiteral("load failed: %1").arg(m_loader.errorString());
         return false;
     }
+    m_instance = inst;
     // 解析器接口(可选:纯图形插件可不实现)
     m_plugin = qobject_cast<IProtocolParserPlugin*>(inst);
     // 图形接口(可选)
     m_graphics = qobject_cast<IGraphicsPlugin*>(inst);
+    // 解剖器接口(可选:新架构)
+    m_dissector = qobject_cast<IDissectorPlugin*>(inst);
+    // 插件间通讯接口(可选)
+    m_bus_aware = qobject_cast<IPluginBusAware*>(inst);
 
-    if (!m_plugin && !m_graphics) {
-        *err = QStringLiteral("implements neither IProtocolParserPlugin nor IGraphicsPlugin");
+    if (!m_plugin && !m_graphics && !m_dissector) {
+        *err = QStringLiteral("implements neither IProtocolParserPlugin, "
+                              "IGraphicsPlugin nor IDissectorPlugin");
+        return false;
+    }
+    if (m_dissector &&
+        m_dissector->dissector_protocol_id() != m.protocol_id) {
+        *err = QStringLiteral("dissector protocol mismatch: manifest=%1 plugin=%2")
+                   .arg(m.protocol_id, m_dissector->dissector_protocol_id());
         return false;
     }
     if (m_plugin) {
@@ -62,7 +74,49 @@ void NativeBackend::shutdown() {
     m_parser = nullptr;
     if (m_plugin) { m_plugin->shutdown(); m_plugin = nullptr; }
     m_graphics = nullptr;
-    m_loader.unload();
+    m_dissector = nullptr;
+    m_bus_aware = nullptr;
+    // 先删插件根实例再卸库:实例的虚表/回调驻留在 DLL 内,实例存活时
+    // unload 即使成功也会留下悬空指针(渲染回调等会踩已卸载代码)。
+    delete m_instance;
+    m_instance = nullptr;
+    if (m_loader.isLoaded() && !m_loader.unload())
+        qWarning("NativeBackend: plugin unload failed: %s",
+                 qPrintable(m_loader.errorString()));
+}
+
+bool NativeBackend::has_dissector() const {
+    return m_dissector != nullptr;
+}
+
+bool NativeBackend::dissect(const QByteArray& payload, const FrameContext& ctx,
+                            DissectResult* out, QString* err) {
+    if (!m_dissector) {
+        if (err) *err = QStringLiteral("plugin implements no IDissectorPlugin");
+        return false;
+    }
+    *out = m_dissector->dissect(payload, ctx);
+    return true;
+}
+
+void NativeBackend::dissect_reset() {
+    if (m_dissector) m_dissector->dissect_reset();
+}
+
+void NativeBackend::set_bus_send_callback(BusSendCallback cb) {
+    IPluginBackend::set_bus_send_callback(cb);
+    if (m_bus_aware) {
+        m_bus_aware->set_bus_sender(
+            [this](const QString& to, const QString& topic,
+                   const QByteArray& payload) {
+                if (m_bus_send_cb) m_bus_send_cb(to, topic, payload);
+            });
+    }
+}
+
+void NativeBackend::on_plugin_message(const QString& from, const QString& topic,
+                                      const QByteArray& payload) {
+    if (m_bus_aware) m_bus_aware->on_plugin_message(from, topic, payload);
 }
 
 QString NativeBackend::protocol_id() const {

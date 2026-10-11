@@ -166,6 +166,33 @@ struct MsduFieldNode {
     MsduFieldNode() : rel_start(-1), rel_len(0) {}
 };
 
+/// @brief 解剖器帧外信息（主程序独立告知协议解析器：时间戳/通道等；
+///        解封装后解析器无从得知这些，解析器可用可不用。见 plugin/docs/DISSECTOR_ARCH.md）
+struct FrameContext {
+    qint64  epoch_ms = 0;    ///< 帧到达时刻（PC 时间，epoch ms）
+    qint64  arrival_us = 0;  ///< 单调 µs 时刻（实时串口打点）
+    quint32 ntb = 0;         ///< 帧内 NTB tick（25kHz）
+    bool    is_rf = false;   ///< 通道大类：true=HRF 无线，false=HPLC 载波
+    int     channel = -1;    ///< 物理通道号（HRF 信道/PLC 频段），未知=-1
+    quint64 frame_index = 0; ///< 主程序侧帧序号（分发器计数，从 1 起）
+    bool    seg_start = false; ///< 是否回放分段起点
+};
+
+/// @brief 通用解剖字段节点（Wireshark 风格，自递归树；插件解剖器返回、
+///        主界面通用渲染器绘制）。坐标以去封装净荷为系，与高亮坐标一致。
+struct DissectField {
+    QString name;        ///< 字段名（可带 [Nbit] 标注，与 MsduFieldNode 约定一致）
+    QString value;       ///< 格式化值文本
+    int     start = -1;  ///< 在去封装净荷中的字节偏移，-1=无字节映射
+    int     len = 0;     ///< 覆盖字节数
+    quint8  severity = 0; ///< 0=无 1=提示 2=警告 3=错误（expert info）
+    QVector<DissectField> children;
+
+    DissectField() = default;
+    DissectField(const QString& n, const QString& v, int s = -1, int l = 0)
+        : name(n), value(v), start(s), len(l) {}
+};
+
 /// @brief 管理帧携带的 TEI→MAC 学习对(供列表 TEI→MAC 映射表建立)
 struct TeiMacPair {
     quint16 tei;   ///< TEI(12-bit)
@@ -290,6 +317,7 @@ struct PacketEntry {
     int          msdu_raw_base;///< MSDU body 在 raw_bytes 中的偏移;-1=不在本帧(跨帧重组)
     QByteArray   raw_bytes;    ///< 原始字节,用于 HexView 显示
     QString      search_text;  ///< 可搜索全文缓存(小写;make_entry/反序列化时填充,过滤匹配用)
+    QVector<DissectField> dissect_fields; ///< 插件解剖器通用字段树(内置解析为空)
 
     PacketEntry()
         : index(0), epoch_ms(0), delta_us(0), accepted(false),

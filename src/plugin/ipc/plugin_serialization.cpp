@@ -205,3 +205,39 @@ QDataStream& operator>>(QDataStream& in, GraphicsEvent& e) {
     return in;
 }
 // (QImage 的 QDataStream 序列化已由 Qt 内置提供,见 QtGui/qimage.h,此处不再重复定义)
+
+// ---- FrameContext ----
+QDataStream& operator<<(QDataStream& out, const FrameContext& c) {
+    out << c.epoch_ms << c.arrival_us << c.ntb << c.is_rf << c.channel
+        << c.frame_index << c.seg_start;
+    return out;
+}
+QDataStream& operator>>(QDataStream& in, FrameContext& c) {
+    in >> c.epoch_ms >> c.arrival_us >> c.ntb >> c.is_rf >> c.channel
+       >> c.frame_index >> c.seg_start;
+    return in;
+}
+
+// ---- DissectField（递归） ----
+QDataStream& operator<<(QDataStream& out, const DissectField& f) {
+    out << f.name << f.value << f.start << f.len << f.severity << f.children;
+    return out;
+}
+QDataStream& operator>>(QDataStream& in, DissectField& f) {
+    in >> f.name >> f.value >> f.start >> f.len >> f.severity >> f.children;
+    return in;
+}
+
+// ---- DissectResult ----
+QDataStream& operator<<(QDataStream& out, const DissectResult& r) {
+    out << r.accept << r.reject_reason << r.mpdu << r.msdu_present
+        << r.msdu_summary << r.msdu_body << r.msdu_raw_base << r.topo_event
+        << r.tei_mac_pairs << r.fields;
+    return out;
+}
+QDataStream& operator>>(QDataStream& in, DissectResult& r) {
+    in >> r.accept >> r.reject_reason >> r.mpdu >> r.msdu_present
+       >> r.msdu_summary >> r.msdu_body >> r.msdu_raw_base >> r.topo_event
+       >> r.tei_mac_pairs >> r.fields;
+    return in;
+}
