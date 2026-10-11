@@ -290,12 +290,12 @@ PacketPreparedFilter prepare_filter(const QString& filter) {
                               return ch >= QLatin1Char('0')
                                   && ch <= QLatin1Char('9');
                           })) {
-                // sta-<纯数字> → TEI 等值谓词;数字大到溢出则超出任何
-                // TEI 取值范围,永假(等价于谓词恒不成立)
+                // sta-<纯数字> → TEI 等值谓词;TEI 是 quint16,超出
+                // 0xFFFF(或数字溢出 qlonglong)即超出取值域,永假
                 bool ok = false;
                 const qlonglong v = t.mid(4).toLongLong(&ok);
-                if (ok && v <= INT_MAX) cond.tei = int(v);
-                else                    cond.type_byte = -2;
+                if (ok && v <= 0xFFFF) cond.tei = int(v);
+                else                   cond.type_byte = -2;
             } else {
                 cond.type_byte = -1;
                 cond.term = t;
