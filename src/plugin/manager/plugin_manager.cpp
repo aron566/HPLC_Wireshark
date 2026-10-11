@@ -323,6 +323,31 @@ void PluginManager::disable_plugin(const QString& plugin_id,
     emit plugin_status_changed(plugin_id, QStringLiteral("disabled: ") + reason);
 }
 
+void PluginManager::stop_plugin(const QString& protocol_id) {
+    auto it = m_plugins.find(protocol_id);
+    if (it == m_plugins.end()) return;
+    PluginRuntime* rt = *it;
+    // 1) 优雅退出:发 Shutdown 让宿主自行清理(native DLL unload 释放文件锁)
+    if (rt->socket && rt->socket->state() == QLocalSocket::ConnectedState) {
+        QByteArray p;
+        send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::Shutdown), p);
+        rt->socket->flush();
+    }
+    // 2) 兜底终止:宿主若未及时退出,强制 terminate 并等待(防僵尸进程)
+    if (rt->process) {
+        rt->process->terminate();
+        if (!rt->process->waitForFinished(2000))
+            rt->process->kill();
+        rt->process->waitForFinished(1000);
+        delete rt->process;
+    }
+    delete rt->server;
+    delete rt;
+    m_plugins.erase(it);
+    unregister_parser(protocol_id);
+    emit plugin_status_changed(protocol_id, QStringLiteral("stopped"));
+}
+
 void PluginManager::checkHeartbeats() {
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     for (auto it = m_plugins.begin(); it != m_plugins.end(); ++it) {

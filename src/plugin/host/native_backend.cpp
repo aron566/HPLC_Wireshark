@@ -60,8 +60,14 @@ bool NativeBackend::initialize(const PluginManifest& m, QString* err) {
 void NativeBackend::shutdown() {
     delete m_parser;
     m_parser = nullptr;
-    if (m_plugin) { m_plugin->shutdown(); m_plugin = nullptr; }
-    m_graphics = nullptr;
+    if (m_plugin) {
+        m_plugin->shutdown();
+        // 删除根 QObject(其 vtable/析构在 dll 内):Qt 要求先 delete 实例
+        // 再 unload,否则实例仍引用 dll 代码,unload 行为未定义/锁不释放
+        delete m_plugin;
+        m_plugin = nullptr;
+    }
+    m_graphics = nullptr;  // 与 m_plugin 同一 QObject,已随 m_plugin 删除
     m_loader.unload();
 }
 

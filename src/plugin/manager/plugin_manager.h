@@ -58,6 +58,11 @@ public:
                         const BplcFrame& frame, MsduState& msdu,
                         const ParseFilter& filter, ParseResult* result);
 
+    /// @brief 停止并回收指定插件:发 Shutdown → 终止宿主进程 → 等待退出
+    ///        → 注销协议 → 删除运行时(市场卸载/插件更新前调用,释放
+    ///        native DLL 文件锁)
+    void stop_plugin(const QString& protocol_id);
+
     // ---- 图形(Phase3) ----
     /// @brief 插件是否有图形能力
     bool has_graphics(const QString& protocol_id) const;

@@ -1375,8 +1375,14 @@ void MainWindow::load_plugin_dirs(const QStringList& dirs) {
 
 void MainWindow::on_open_plugin_market() {
     PluginMarketDialog dlg(this);
-    // 更新/卸载删除旧目录前,先同步卸载插件释放 native DLL 文件锁
+    // 更新/卸载删除旧目录前,先同步卸载插件释放 native DLL 文件锁:
+    // 1) 停掉所有插件宿主子进程(进程内 LocalPluginEngine 之外的另一份
+    //    dll 加载源,宿主不退出则 dll 仍被锁 → removeRecursively 失败)
+    // 2) 再卸载进程内插件(dll 文件锁)
     dlg.set_unload_cb([this]() {
+        const QStringList pids = PluginManager::instance().pluginProtocolIds();
+        for (const QString& pid : pids)
+            PluginManager::instance().stop_plugin(pid);
         if (m_plugin_engine) m_plugin_engine->unload_all_sync();
     });
     dlg.exec();
