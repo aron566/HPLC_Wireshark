@@ -481,6 +481,11 @@ inline QByteArray encode_block(const QVector<PacketEntry>& entries) {
         chunk_zipped.append(z);
     }
     // 文件头(分块表偏移为绝对文件偏移,先按字段尺寸算出头长)
+    // 注意:header_len 是手算值,必须与下方 QDataStream 实际写出的字节数
+    // 逐字节一致——magic/version/count 各 quint32=4B、pool 是否压缩
+    // quint8=1B、QByteArray 自带 quint32 长度前缀+内容、分块表每条
+    // 4(off)+4(len)+1(zipped)=9B。改动头部任一字段必须同步改这里;
+    // 兜底是 block_format_test 的 round-trip(偏移错位会解码失败)。
     const qint64 header_len = 4 + 4 + 4 + 1 + (4 + pool_blob.size())
                             + (4 + index_raw.size()) + 4 + qint64(nchunks) * 9;
     QByteArray out;
@@ -597,8 +602,10 @@ public:
         const int j = i - c * kBlockChunkEntries;
         if (j >= m_chunk_pay.size()) return false;
         const PayRec& rec = m_chunk_pay[j];
-        const QByteArray payload =
-            m_chunk_raw.mid(rec.off, rec.len);
+        // 零拷贝视图(不深拷贝 payload):deserialize 期间分块缓存不被触碰,
+        // m_chunk_raw 始终有效,视图在其内部消费完毕。
+        const QByteArray payload = QByteArray::fromRawData(
+            m_chunk_raw.constData() + rec.off, rec.len);
         if (!deserialize_entry(payload, out, m_table, /*rebuild_search=*/false))
             return false;
         out.search_text = search_text(i);   // 回填落盘值,不重建
@@ -606,6 +613,11 @@ public:
     }
 
     /// @brief entry_at 的引用版(单条缓存,供模型 locate 的瞬时使用场景)
+    /// @warning 返回的引用指向单槽缓存 m_ref_entry:本读取器后续任何一次
+    ///          entry_ref、或触发 load_chunk 的 entry_at/read_all 调用都会
+    ///          覆盖它。调用方必须在下一次调用前立即消费(读字段或深拷贝),
+    ///          严禁跨调用持有该引用——这是与 v2「整块 QVector 引用在块
+    ///          淘汰前一直有效」相比收紧的语义,新增调用点务必注意。
     const PacketEntry& entry_ref(int i, bool& ok) const {
         if (i == m_ref_idx) { ok = true; return m_ref_entry; }
         ok = entry_at(i, m_ref_entry);

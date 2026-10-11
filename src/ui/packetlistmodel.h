@@ -108,6 +108,9 @@ signals:
 
 private:
     /// @brief 全局行号 g → 条目引用(盘块或热区)
+    /// @warning 盘块路径的引用来自 BlockReader 单槽缓存(见 entry_ref):
+    ///          下一次 locate/data 调用即可能失效,只能瞬时消费(立即读
+    ///          字段、emit 同步信号或深拷贝),严禁跨调用持有。
     const PacketEntry& locate(int g) const;
     /// @brief 加载盘块进缓存(若未在);返回是否成功
     bool load_block(int idx) const;
