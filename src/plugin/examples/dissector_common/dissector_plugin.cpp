@@ -94,13 +94,22 @@ public:
         out.msdu_summary = r.msdu.summary;
         out.msdu_body = r.msdu_body;
         out.msdu_raw_base = r.msdu_raw_base;
+        out.dissected_bytes = r.payload_for_log;   // 字段坐标基准(剥前缀后)
+        // 精化帧外信息:内置解析从媒介头解出的 NTB/通道/RF 标志
+        out.has_refined_ctx = r.accept;
+        out.refined_ctx = ctx;
+        out.refined_ctx.ntb = r.meta.timestamp;
+        out.refined_ctx.channel = r.meta.channel;
+        out.refined_ctx.is_rf = r.meta.is_rf;
         out.topo_event = r.msdu.topo_event;
         out.tei_mac_pairs = r.msdu.tei_mac_pairs;
         if (r.accept) {
+            // 字段生成器的字节坐标以剥前缀后的 MPDU(payload_for_log)为准,
+            // 与内置构建器读 e.raw_bytes 的口径一致
 #if defined(DISSECTOR_NW)
-            out.fields = dissect_gen::nw_fields(payload, r);
+            out.fields = dissect_gen::nw_fields(r.payload_for_log, r);
 #else
-            out.fields = dissect_gen::gw_fields(payload, r);
+            out.fields = dissect_gen::gw_fields(r.payload_for_log, r);
 #endif
         }
         return out;

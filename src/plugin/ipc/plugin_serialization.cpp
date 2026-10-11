@@ -232,12 +232,14 @@ QDataStream& operator>>(QDataStream& in, DissectField& f) {
 QDataStream& operator<<(QDataStream& out, const DissectResult& r) {
     out << r.accept << r.reject_reason << r.mpdu << r.msdu_present
         << r.msdu_summary << r.msdu_body << r.msdu_raw_base << r.topo_event
-        << r.tei_mac_pairs << r.fields;
+        << r.tei_mac_pairs << r.fields << r.dissected_bytes
+        << r.has_refined_ctx << r.refined_ctx;
     return out;
 }
 QDataStream& operator>>(QDataStream& in, DissectResult& r) {
     in >> r.accept >> r.reject_reason >> r.mpdu >> r.msdu_present
        >> r.msdu_summary >> r.msdu_body >> r.msdu_raw_base >> r.topo_event
-       >> r.tei_mac_pairs >> r.fields;
+       >> r.tei_mac_pairs >> r.fields >> r.dissected_bytes
+       >> r.has_refined_ctx >> r.refined_ctx;
     return in;
 }

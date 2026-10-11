@@ -81,16 +81,26 @@ struct DissectResult {
     bool    msdu_present;
     QString msdu_summary;      // 概要文本（进 search_text）
     QByteArray msdu_body;      // 重组后的 MSDU（若有）
-    int     msdu_raw_base;     // msdu_body[0] 在净荷中的偏移，-1=跨帧
+    int     msdu_raw_base;     // msdu_body[0] 在 dissected_bytes 中的偏移，-1=跨帧
     TopoEvent topo_event;      // topo 载荷（kind=Other 表示无）
     QVector<TeiMacPair> tei_mac_pairs;
     QVector<DissectField> fields;  // 协议段字段树（Frame/Physical 公共段除外）
+    QByteArray dissected_bytes;    // 解剖器实际解剖的字节（自行剥除媒介/传输
+                                   // 前缀后）；空则宿主回退用输入 payload
+    bool has_refined_ctx;          // 是否回传精化帧外信息
+    FrameContext refined_ctx;      // 精化值（ntb/channel/is_rf 覆盖宿主粗值）
 };
 ```
 
-坐标约定：DissectField 的 start/len 以**去封装净荷**（BplcFrame.data，
-即 PacketEntry 的 raw_bytes/payload_for_log 空间）为坐标系，与内置
-解析器的高亮坐标一致，HexView 联动无需换算。
+坐标约定：DissectField 的 start/len 以 **dissected_bytes**（解剖器自行
+剥除媒介/传输前缀后的字节，与内置解析器的 payload_for_log 同义，
+PacketEntry 的 raw_bytes 即此缓冲）为坐标系，与内置解析器的高亮坐标
+一致，HexView 联动无需换算。注意输入 payload（BplcFrame.data）含媒介
+头，与坐标系相差前缀长度，二者不可混用。
+
+精化帧外信息：媒介头里的 NTB/通道/RF 标志由解剖器在解析时得出
+（reader 只能给粗值，如文件回放时通道恒 0），经 refined_ctx 回传后
+宿主覆盖展示，保证 Physical 段与内置解析逐字一致。
 
 ## 插件接口（native）
 
@@ -110,10 +120,16 @@ public:
 - NativeBackend 若插件同时实现 IDissectorPlugin 则提供 dissect 通路；
   host 收到 DissectRequest 时调用之。脚本（JS/Lua）解剖器为后续工作，
   本期仅 native。
-- 参考实现 `src/plugin/examples/gw_nw_dissector/`：内部复用内置
-  GW_2022/NW_2021 解析器产出 ParseResult，再由字段生成器把结果
-  转成 DissectField 树（MPDU/FCH/PB 段 + MSDU 段），与内置字段树
-  在同帧对比测试中逐行一致（单段高亮的跨块字段除外，见测试说明）。
+- 参考实现：`src/plugin/examples/{gw_dissector,nw_dissector}/` 两打包
+  共用 `dissector_common/` 一份实现（protocol_id 分别为 GW_2022_PLUGIN /
+  NW_2021_PLUGIN，避免覆盖内置注册）：内部复用内置 GW_2022/NW_2021
+  解析器产出 ParseResult，再由字段生成器把结果转成 DissectField 树
+  （MPDU/FCH/PB 段 + MSDU 段）。一致性由
+  `src/plugin/tests/dissect_compare_test.cpp` 验证：真实抓包全帧标量
+  比对 + 抽样字段树经同一 ProtocolTree 渲染后逐行比对（NW 13568 帧 /
+  GW 320290 帧实测全一致）；跨 PB 块字段的高亮只取首片段为主区间
+  （内置构建器是多片段），"无区间"节点的 -1 与内置 0 表示等价
+  （len=0 不高亮任何字节）。端到端 IPC 由 dissect_ipc_test.cpp 验证。
 
 ## 主程序接入
 
@@ -132,7 +148,8 @@ public:
 - 渲染：PacketEntry 新增 `dissect_fields`（ParseResult 同步携带）。
   ProtocolTree 在 dissect_fields 非空时用通用渲染器画协议段
   （Frame/Physical 公共段仍为主程序统一生成），否则走旧 builder。
-  块文件格式随之升 v4（v3 条目无字段树，读取兼容）。
+  块文件格式随之升 v4（条目尾部追加字段树；块文件仅同会话往返，
+  不跨版本兼容）。
 
 ## 过滤 / topo / 其他插件
 
@@ -148,13 +165,16 @@ public:
 
 主进程做中转 hub（PluginBus 语义，复用 manager/engine 回调）：
 
-- 任一插件经宿主 API 发送 `send_plugin_message(target_name, topic,
-  payload)`；主进程按插件名路由：目标在 host 进程 → IPC
-  PluginMessage 转发；目标在进程内引擎 → 直接投递其后端。
+- 任一插件经宿主 API 发送（native 经 IPluginBackend 总线回调，
+  JS/Lua 经 `host.sendPluginMessage(to, topic, text)`）；主进程按
+  插件名路由：目标在 host 进程 → IPC PluginMessage 转发；目标在
+  进程内引擎 → 投递其后端。同名插件有多个实例时（进程内一份 +
+  host 一份）全部收到（按名广播语义）。
 - 接收侧回调 `on_plugin_message(from_name, topic, payload)`，
-  native 经 IPluginBusAware 接口注入，JS/Lua 经同名全局回调。
-- 载荷为不透明 QByteArray（约定 UTF-8 JSON），主进程不解析、
-  不持久化；目标不存在时静默丢弃并记英文日志。
+  native 经 IPluginBusAware 接口注入，JS/Lua 经同名全局函数
+  `on_plugin_message(from, topic, text)`。
+- 载荷为不透明 QByteArray（约定 UTF-8 文本/JSON），主进程不解析、
+  不持久化；目标不存在时投递函数返回 false、消息丢弃。
 
 ## 生命周期与联动（问题 1/3 的根治）
 

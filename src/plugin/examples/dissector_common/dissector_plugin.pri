@@ -29,7 +29,10 @@ HEADERS += \
     ../../plugin_api/iprotocolparserplugin.h \
     ../../plugin_api/dissect.h \
     ../../plugin_api/idissectorplugin.h \
-    ../dissector_common/field_gen.h
+    ../dissector_common/field_gen.h \
+    ../../../protocol/statistics.h
+# statistics.h 必须在 HEADERS 里:statistics.cpp 中 FrameStatistics(QObject)
+# 的 vtable 由 moc 生成,插件 .so 须自包含,不能指望宿主导出符号。
 
 SOURCES += \
     ../dissector_common/dissector_plugin.cpp \
@@ -37,5 +40,6 @@ SOURCES += \
     ../../../common/i18n.cpp \
     ../../../protocol/statistics.cpp
 
-# 产物旁附带 plugin.json(方便直接当插件目录用)
-QMAKE_POST_LINK += $$QMAKE_COPY $$PWD/plugin.json $$OUT_PWD $$escape_expand(\\n\\t)
+# 产物旁附带 plugin.json(方便直接当插件目录用);plugin.json 在各变体 .pro
+# 所在目录(不是本 .pri 的目录),用 _PRO_FILE_PWD_ 取
+QMAKE_POST_LINK += $$QMAKE_COPY $$_PRO_FILE_PWD_/plugin.json $$OUT_PWD $$escape_expand(\\n\\t)

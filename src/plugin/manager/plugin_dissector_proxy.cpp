@@ -11,7 +11,6 @@ ParseResult PluginDissectorProxy::parse(const BplcFrame& in, MsduState&,
     r.meta = in.meta;
     r.raw_wire = in.raw_wire;
     r.arrival_us = in.arrival_us;
-    r.payload_for_log = in.data;   // 详情 Hex/字段坐标空间=去封装净荷
 
     FrameContext ctx;
     ctx.epoch_ms = in.meta.epoch_ms;
@@ -31,6 +30,15 @@ ParseResult PluginDissectorProxy::parse(const BplcFrame& in, MsduState&,
     }
     r.accept = dr.accept;
     r.reject_reason = dr.reject_reason;
+    // 详情 Hex/字段坐标空间=解剖器实际解剖的字节(与内置 payload_for_log 同义)
+    r.payload_for_log = dr.dissected_bytes.isEmpty() ? in.data
+                                                     : dr.dissected_bytes;
+    // 解剖器从媒介头精化出的帧外信息覆盖 reader 的粗值(Physical 段来源)
+    if (dr.has_refined_ctx) {
+        r.meta.timestamp = dr.refined_ctx.ntb;
+        r.meta.channel = dr.refined_ctx.channel;
+        r.meta.is_rf = dr.refined_ctx.is_rf;
+    }
     r.mpdu = dr.mpdu;
     r.msdu.present = dr.msdu_present;
     r.msdu.summary = dr.msdu_summary;
