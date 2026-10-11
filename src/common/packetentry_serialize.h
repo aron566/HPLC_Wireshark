@@ -385,13 +385,13 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
 
 // ---------------------------------------------------------------------------
 // 块文件格式 v3(字符串池 + 轻量索引 + 条目分块独立压缩)
-// 文件布局(QDataStream 顺序写入,偏移为文件绝对字节):
-//   [magic u32][version u32=3][count u32]
-//   [pool_zipped u8][pool_blob]        blob = qCompress(pool_raw) 或 pool_raw
+// 文件布局(定长部分以 Wire* 结构体表达,sizeof 即磁盘字节数;变长段为
+// quint32 长度前缀 + 内容,QDataStream 大端序顺序写入,偏移为文件绝对字节):
+//   [WireBlockHead][pool_blob]         blob = qCompress(pool_raw) 或 pool_raw
 //     pool_raw = [str_count u32][str...]        (块内字符串去重表)
-//   [index_raw]                         每条 9B:[frame_type u8][src_tei u16]
-//                                       [dst_tei u16][search_text 池索引 u32]
-//   [nchunks u32][{off u32,len u32,zipped u8} × nchunks]
+//   [index_raw]                         WireIndexEntry × count(QByteArray
+//                                       形式承载,自带 u32 长度前缀)
+//   [nchunks u32][WireChunkEntry × nchunks]
 //   [chunk_blob × nchunks]              每块 ≤ kBlockChunkEntries 条:
 //                                       chunk_raw = [len u32][payload] × n,
 //                                       blob = qCompress(chunk_raw) 或 chunk_raw;
@@ -408,6 +408,38 @@ inline quint32 block_magic()   { return 0x50424C4Bu; }  // "PBLK"
 inline quint32 block_version() { return 3u; }
 /// @brief 独立压缩分块的条目数(随机解码粒度:解一条最多解压一个分块)
 inline constexpr int kBlockChunkEntries = 50;
+
+// ---- v3 磁盘布局结构体 -----------------------------------------------------
+// 1 字节对齐的定长布局定义:字段顺序与 QDataStream 的写入顺序一一对应,
+// sizeof 即磁盘字节数。所有段长/偏移/条目步长一律由 sizeof 推导(禁止再
+// 手算数字);改字段必须同步改结构体,static_assert 与 round-trip 测试兜底。
+#pragma pack(push, 1)
+/// @brief 文件头定长部分:[magic][version][count][pool_zipped]
+struct WireBlockHead {
+    quint32 magic;
+    quint32 version;
+    quint32 count;
+    quint8  pool_zipped;
+};
+/// @brief 轻量索引条目:[frame_type][src_tei][dst_tei][search_text 池索引]
+struct WireIndexEntry {
+    quint8  frame_type;
+    quint16 src_tei;
+    quint16 dst_tei;
+    quint32 search_idx;
+};
+/// @brief 分块表条目:[文件绝对偏移][分块字节数][是否压缩]
+struct WireChunkEntry {
+    quint32 offset;
+    quint32 length;
+    quint8  zipped;
+};
+#pragma pack(pop)
+static_assert(sizeof(WireBlockHead)  == 13, "WireBlockHead disk size drifted");
+static_assert(sizeof(WireIndexEntry) == 9,  "WireIndexEntry disk size drifted");
+static_assert(sizeof(WireChunkEntry) == 9,  "WireChunkEntry disk size drifted");
+/// @brief 变长段(QByteArray/QVector 计数等)的长度前缀字节数
+inline constexpr qint64 kLenPrefixBytes = qint64(sizeof(quint32));
 
 namespace detail {
 /// @brief 大端 u32 读取(与 QDataStream 默认字节序一致,供分块内偏移步进)
@@ -480,14 +512,15 @@ inline QByteArray encode_block(const QVector<PacketEntry>& entries) {
         chunk_blobs.append(detail::compress_or_raw(raw, z));
         chunk_zipped.append(z);
     }
-    // 文件头(分块表偏移为绝对文件偏移,先按字段尺寸算出头长)
-    // 注意:header_len 是手算值,必须与下方 QDataStream 实际写出的字节数
-    // 逐字节一致——magic/version/count 各 quint32=4B、pool 是否压缩
-    // quint8=1B、QByteArray 自带 quint32 长度前缀+内容、分块表每条
-    // 4(off)+4(len)+1(zipped)=9B。改动头部任一字段必须同步改这里;
-    // 兜底是 block_format_test 的 round-trip(偏移错位会解码失败)。
-    const qint64 header_len = 4 + 4 + 4 + 1 + (4 + pool_blob.size())
-                            + (4 + index_raw.size()) + 4 + qint64(nchunks) * 9;
+    // 文件头总长(分块表偏移为绝对文件偏移):全部由布局结构体的 sizeof
+    // 推导,与下方 QDataStream 实际写出的字节数逐字节对应——定长头
+    // WireBlockHead、两个 QByteArray 变长段(长度前缀+内容)、nchunks
+    // 计数、分块表 WireChunkEntry × nchunks。
+    const qint64 header_len = qint64(sizeof(WireBlockHead))
+                            + (kLenPrefixBytes + pool_blob.size())
+                            + (kLenPrefixBytes + index_raw.size())
+                            + qint64(sizeof(quint32))
+                            + qint64(nchunks) * qint64(sizeof(WireChunkEntry));
     QByteArray out;
     QDataStream s(&out, QIODevice::WriteOnly);
     s << block_magic() << block_version() << quint32(entries.size());
@@ -553,6 +586,9 @@ public:
                 m_table.append(str);
             }
         }
+        if (qint64(index_raw.size())
+                != qint64(count) * qint64(sizeof(WireIndexEntry)))
+            return false;   // 索引段字节数必须恰为 count 条定长条目
         {
             QDataStream is(index_raw);
             m_index.reserve(int(count));
@@ -660,11 +696,12 @@ private:
                                 m_count - c * kBlockChunkEntries);
         QVector<PayRec> pays;
         pays.reserve(expect);
+        constexpr int kLenBytes = int(sizeof(quint32));  // [len u32][payload]
         int pos = 0;
         for (int j = 0; j < expect; ++j) {
-            if (pos + 4 > raw.size()) return false;
+            if (pos + kLenBytes > raw.size()) return false;
             const quint32 len = detail::read_be32(raw.constData() + pos);
-            pos += 4;
+            pos += kLenBytes;
             if (len == 0 || pos + int(len) > raw.size()) return false;
             pays.append({pos, int(len)});
             pos += int(len);
