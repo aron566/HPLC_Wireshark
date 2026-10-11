@@ -1295,8 +1295,11 @@ void MainWindow::setup_plugin_ui() {
             });
     connect(&pmgr, &PluginManager::dissector_unregistered,
             this, [this](const QString& id) {
+                // 注销不设空闲条件:插件已不可用,继续挂着代理只会把本轮
+                // 采集剩余帧全部拒掉;立即重建分发器回退内置,保住采集。
+                // 代价:切换瞬间在途的一组 MSDU 重组会丢,后续帧恢复正常。
                 if (appcfg::protocol().toUpper() == id && m_dispatch
-                    && m_dispatch->uses_plugin_parser() && !m_reader->is_running())
+                    && m_dispatch->uses_plugin_parser())
                     reset_dispatcher();
             });
     // 补检:setup 时注册可能已就绪(信号已错过)

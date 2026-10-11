@@ -66,7 +66,8 @@ struct FrameContext {          // 主程序 → 解析器（宿主必填，解�
     quint32 ntb;               // 帧内 NTB tick（reader 自帧体 [2..5] 填）
     bool    is_rf;             // 通道：true=HRF(无线) false=HPLC(载波)
     int     channel;           // 物理通道号（reader 自媒介头填）
-    quint64 frame_index;       // 主程序侧帧序号（分发器计数）
+    quint64 frame_index;       // 解析线程单调计数（非条目序号：暂停丢弃/
+                               // 分发器重建会与条目序号漂移，勿对齐 jumpToFrame）
     bool    seg_start;         // 是否分段起点（回放分段）
 };
 
@@ -185,9 +186,14 @@ public:
 
 ## 生命周期与联动（问题 1/3 的根治）
 
-- PluginManager 新增 `stop_all()`：逐个 unregister_parser →
-  发 Shutdown IPC → QProcess::terminate → 超时 kill 兜底，
-  并停心跳定时器。
+- PluginManager 新增 `stop_all()`：两遍处理——先逐个置 disabled +
+  retired 并 unregister_parser（断绝新请求进入；已排队等锁的迟到
+  请求拿锁后复查 retired 立即退出），再逐个拿 `ipc_mutex` 等在途
+  请求收尾后才发 Shutdown IPC → QProcess::terminate → 超时 kill
+  兜底并释放进程/socket 等重对象。运行时本体（含 mutex）转入退役
+  列表、留待管理器析构才 delete，保证迟到请求手中的指针永不悬空。
+  与全系统"持锁贯穿请求"的纪律一致，避免采集进行中卸插件/退出时
+  与分发线程并发删除对象（UAF）。
 - 父死子亡，三层保障：
   1. IPC socket 断开 → host 自行退出（既有行为，保留）；
   2. host 新增 `--parent-pid` 看守：1s 轮询父进程存活，父死即退
@@ -200,3 +206,23 @@ public:
   加载（引擎既有 load_plugin_dirs + manager 补 loadAll）。
 - NativeBackend::shutdown 修正：先 delete 插件根实例再 unload，
   消除实例悬空隐患（与本次锁文件无关，但同属卸载正确性）。
+
+## 架构评审修复（2026-10-11 自审）
+
+- 注册安全：工厂内置条目（GW_2022/NW_2021）不可被插件注册覆盖、
+  不可被注销删除（register 拒绝 + unregister 无操作）；manager 在
+  握手注册前再查一遍 id 与内置冲突，冲突即禁用并给出原因。
+- 注册资格：以 host 在 Hello 上报的 has_dissector 能力位为准，
+  清单 dissector:true 但后端无解剖通路（如脚本后端）不注册、不进
+  下拉，并发状态提示说明原因。
+- 注册键归一化：解剖器工厂键/信号/下拉统一用 protocol_id 大写形；
+  运行时 IPC 寻址仍用清单原文 id（代理由工厂 lambda 捕获原文）。
+- 注销热回退：配置协议的解剖器被注销时（含采集中崩溃/超时禁用），
+  主界面立即重建分发器回退内置协议，保住本轮采集剩余帧；代价是
+  切换瞬间在途的一组 MSDU 重组丢失。注册到达仍仅在空闲时切换，
+  避免无必要的采集中扰动。
+- 总线路由单点化：handle_message 与 parse/dissect 等待循环统一走
+  route_plugin_message（信号广播 + host→host 直投）；直投排队到
+  主线程执行，避免等待循环持源 runtime 锁时同步拿目标锁自锁。
+  此前 parse 等待循环会吞掉总线消息、dissect 等待循环只发信号
+  不直投，两处不一致一并消除。

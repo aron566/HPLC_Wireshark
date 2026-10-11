@@ -90,7 +90,8 @@ void PluginHost::on_connected() {
     QByteArray p;
     QDataStream ds(&p, QIODevice::WriteOnly);
     ds.setVersion(plugin_ipc::kStreamVersion);
-    ds << plugin_ipc::kApiVersion << m_manifest.name << m_manifest.protocol_id;
+    ds << plugin_ipc::kApiVersion << m_manifest.name << m_manifest.protocol_id
+       << (m_backend && m_backend->has_dissector());   // 解剖能力位(注册以此为准)
     send_message(plugin_ipc::MsgType::Hello, p);
 }
 

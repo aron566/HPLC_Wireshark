@@ -174,7 +174,12 @@ struct FrameContext {
     quint32 ntb = 0;         ///< 帧内 NTB tick（25kHz）
     bool    is_rf = false;   ///< 通道大类：true=HRF 无线，false=HPLC 载波
     int     channel = -1;    ///< 物理通道号（HRF 信道/PLC 频段），未知=-1
-    quint64 frame_index = 0; ///< 主程序侧帧序号（分发器计数，从 1 起）
+    quint64 frame_index = 0; ///< 解析线程的单调计数（从 1 起）。注意与
+                             ///< 条目序号（PacketEntry::index）不是同一
+                             ///< 序列：主界面暂停丢弃、分发器重建都会使
+                             ///< 二者漂移；需要条目序号请用面板喂帧的
+                             ///< decoded_index，勿用本字段与 jumpToFrame/
+                             ///< 帧选中事件的帧号对齐。
     bool    seg_start = false; ///< 是否回放分段起点
 };
 

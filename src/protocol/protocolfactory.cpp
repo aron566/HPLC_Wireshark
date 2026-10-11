@@ -29,14 +29,28 @@ struct BuiltinRegistrar {
     }
 };
 BuiltinRegistrar g_builtin_registrar;  // 启动时自注册
+
+/// 内置协议 id 集合（与 BuiltinRegistrar 的注册保持一致）:插件注册/注销
+/// 不得触碰这些条目——防插件以同名 id 影射内置协议、注销时连内置一起删掉
+bool is_builtin_id(const QString& protocol_id) {
+    return protocol_id == QStringLiteral("GW_2022")
+        || protocol_id == QStringLiteral("NW_2021");
+}
 } // namespace
 
-void register_parser(const QString& protocol_id, ParserFactoryFn fn) {
+bool is_builtin_protocol(const QString& protocol_id) {
+    return is_builtin_id(protocol_id);
+}
+
+bool register_parser(const QString& protocol_id, ParserFactoryFn fn) {
+    if (is_builtin_id(protocol_id)) return false;   // 内置条目不可覆盖
     QMutexLocker l(&registry_mutex());
     registry().insert(protocol_id, std::move(fn));
+    return true;
 }
 
 void unregister_parser(const QString& protocol_id) {
+    if (is_builtin_id(protocol_id)) return;         // 内置条目不可删
     QMutexLocker l(&registry_mutex());
     registry().remove(protocol_id);
 }

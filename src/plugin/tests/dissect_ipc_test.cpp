@@ -21,6 +21,7 @@
 
 #include "gw_2022_parser.h"
 #include "plugin_manager.h"
+#include "protocolfactory.h"
 #include "serialreader.h"
 
 namespace {
@@ -81,6 +82,19 @@ int main(int argc, char* argv[]) {
         return 2;
     }
     out << "frame payload: " << frame.data.size() << " B\n";
+
+    // 工厂内置协议保护(P2a 回归):插件注册不得覆盖内置条目,
+    // 注销不得删除内置条目
+    check(!register_parser(QStringLiteral("GW_2022"),
+                           []() { return std::unique_ptr<IProtocolParser>(); }),
+          "register_parser refuses to overwrite builtin GW_2022");
+    check(is_builtin_protocol(QStringLiteral("GW_2022")), "GW_2022 is builtin");
+    unregister_parser(QStringLiteral("GW_2022"));   // 必须为无操作
+    {
+        auto p = make_parser_by_id(QStringLiteral("GW_2022"));
+        check(p && dynamic_cast<GW_2022_Parser*>(p.get()) != nullptr,
+              "builtin GW_2022 survives plugin unregister attempt");
+    }
 
     // 进程内内置解析(交叉核对基准)
     GW_2022_Parser builtin;
@@ -153,6 +167,37 @@ int main(int argc, char* argv[]) {
     pm.stop_all();
     check(!pm.is_dissector_protocol(QStringLiteral("GW_2022_PLUGIN")),
           "dissector unregistered after stop_all");
+
+    // stop_all 与在途 dissect 并发(P1 回归):重新拉起插件,worker 线程
+    // 持续 dissect,主线程中途 stop_all——全程不得崩溃,worker 在插件
+    // 停机后应收到失败并退出循环(进程存活到此处即为通过的核心证据)
+    pm.loadAll(plugins_dir);
+    timer.restart();
+    while (!pm.is_dissector_protocol(QStringLiteral("GW_2022_PLUGIN"))
+           && timer.elapsed() < 15000) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
+        QThread::msleep(20);
+    }
+    check(pm.is_dissector_protocol(QStringLiteral("GW_2022_PLUGIN")),
+          "dissector re-registered for stop_all-under-load phase");
+    std::atomic<bool> stop_flag{false};
+    std::atomic<int> dissect_calls{0};
+    std::thread load_worker([&]() {
+        while (!stop_flag.load()) {
+            DissectResult tmp;
+            if (!pm.dissect_via_plugin(QStringLiteral("GW_2022_PLUGIN"),
+                                       frame.data, ctx, &tmp))
+                break;   // 插件已停机/禁用 → 退出
+            dissect_calls.fetch_add(1);
+        }
+    });
+    QThread::msleep(200);
+    pm.stop_all();
+    stop_flag.store(true);
+    load_worker.join();
+    check(dissect_calls.load() > 0, "dissect loop ran across stop_all");
+    check(!pm.is_dissector_protocol(QStringLiteral("GW_2022_PLUGIN")),
+          "unregistered after stop_all under load");
 
     out << (failures == 0 ? "IPC TEST PASS\n" : "IPC TEST FAIL\n");
     return failures == 0 ? 0 : 1;
