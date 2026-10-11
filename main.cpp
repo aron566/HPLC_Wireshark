@@ -115,12 +115,19 @@ int main(int argc, char* argv[]) {
     QObject::connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged,
                      [] { if (appcfg::theme() == QLatin1String("auto")) theme::apply(QStringLiteral("auto")); });
 
-    MainWindow w;
-    w.show();
-
-    // 插件系统:扫描 plugins/ 并启动插件宿主进程(失败不影响主程序)
+    // 插件系统:扫描 plugins/ 并启动插件宿主进程(失败不影响主程序)。
+    // 必须早于 MainWindow 构造:host 进程拉起/握手与 UI 构造并行,解剖器
+    // 协议尽早注册进工厂,协议下拉框与分发器才能选到插件协议(注册到达
+    // 后 MainWindow 还会在空闲时自动补建分发器,见 setup_plugin_ui)。
     PluginManager::instance().loadAll(
         QCoreApplication::applicationDirPath() + QStringLiteral("/plugins"));
+    // 主程序退出(含被要求退出)时主动停掉全部 host 子进程,不留孤儿;
+    // 被强杀的情形由 host 侧父进程看守 + Windows Job Object 兜底。
+    QObject::connect(&app, &QCoreApplication::aboutToQuit,
+                     [] { PluginManager::instance().stop_all(); });
+
+    MainWindow w;
+    w.show();
 
     // 命令行:
     //   --plugins-dir <dir>  主界面内置插件目录(进程内 JS/Lua 后端,展示功能界面)

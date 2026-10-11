@@ -54,6 +54,31 @@ void ProtocolTree::set_variant(ProtocolVariant v) {
     m_builder = make_tree_builder(v);
 }
 
+namespace {
+/// @brief 通用字段树渲染(插件解剖帧):与内置构建器同款的节点数据约定
+///        (kRoleStart/kRoleLen 高亮 + 类型字段着色),severity 额外着色提示。
+void render_dissect_fields(QTreeWidgetItem* parent,
+                           const QVector<DissectField>& fields) {
+    for (const DissectField& f : fields) {
+        QTreeWidgetItem* it = new QTreeWidgetItem(parent);
+        it->setText(0, f.name);
+        it->setText(1, f.value);
+        it->setData(0, kRoleStart, f.start);
+        it->setData(0, kRoleLen, f.len);
+        tree_apply_type_color(it, f.name, f.value);
+        if (f.severity >= 3) {
+            it->setForeground(0, QColor(0xd0, 0x30, 0x30));
+            it->setForeground(1, QColor(0xd0, 0x30, 0x30));
+        } else if (f.severity == 2) {
+            it->setForeground(0, QColor(0xb0, 0x70, 0x00));
+            it->setForeground(1, QColor(0xb0, 0x70, 0x00));
+        }
+        if (!f.children.isEmpty())
+            render_dissect_fields(it, f.children);
+    }
+}
+}  // namespace
+
 void ProtocolTree::show_packet(const PacketEntry& e) {
     clear();
     m_selected_range = {-1, 0};
@@ -86,8 +111,11 @@ void ProtocolTree::show_packet(const PacketEntry& e) {
     }
     tree_add_item(phys, "FrameTime", e.meta.frame_time.toString("yyyy-MM-dd HH:mm:ss.zzz"));
 
-    // 协议特有字段树(MPDU Base + 各帧型 FCH + PB 块 + MSDU 挂载)由构建器构建
-    if (m_builder)
+    // 协议特有字段树(MPDU Base + 各帧型 FCH + PB 块 + MSDU 挂载):
+    // 插件解剖帧带通用字段树 → 通用渲染;内置解析帧 → 协议构建器构建
+    if (!e.dissect_fields.isEmpty())
+        render_dissect_fields(root, e.dissect_fields);
+    else if (m_builder)
         m_builder->build(root, e);
 
     expandAll();

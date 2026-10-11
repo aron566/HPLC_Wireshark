@@ -800,6 +800,7 @@ void MainWindow::reset_dispatcher() {
         m_dispatch = nullptr;
     }
     m_dispatch = new FrameDispatcher(this);   // 按 config.ini 新协议实例化解析器
+    PluginManager::instance().reset_dissectors();  // 新数据源:插件解剖器清跨帧状态
     m_dispatch->connect_source(m_reader);
     connect(m_dispatch, &FrameDispatcher::parsed,
             this,       &MainWindow::on_parsed,
@@ -908,6 +909,7 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
     e.beacon    = r.beacon;  // BEACON 载荷区字段树(BEACON 帧时非空)
     e.msdu_raw_base = r.msdu_raw_base;
     e.raw_bytes = r.payload_for_log;
+    e.dissect_fields = r.dissect_fields;   // 插件解剖器通用字段树(内置为空)
     // 拓扑:关键管理消息(关联确认/代理变更/发现列表/离网)喂给拓扑状态;
     // 同时记入回放日志:事件直接填充在 entry 内(nid/epoch_ms/is_rf),
     // 供 TOPO 历史回放调试(点击帧 → 按帧序号重放到该帧)
@@ -1281,6 +1283,27 @@ void MainWindow::setup_plugin_ui() {
     connect(m_plugin_engine, &LocalPluginEngine::plugin_loaded,
             this, &MainWindow::on_plugin_loaded, Qt::QueuedConnection);
 
+    // 解剖器协议注册联动:配置的协议是插件解剖器时,分发器在构造瞬间
+    // 可能还没等到注册(启动竞态)而回退了国网;注册到达后若会话仍空闲
+    // (未开始采集/回放)则自动重建分发器切换过去。注销同理回退内置。
+    auto& pmgr = PluginManager::instance();
+    connect(&pmgr, &PluginManager::dissector_registered,
+            this, [this](const QString& id) {
+                if (appcfg::protocol().toUpper() == id && m_dispatch
+                    && !m_dispatch->uses_plugin_parser() && !m_reader->is_running())
+                    reset_dispatcher();
+            });
+    connect(&pmgr, &PluginManager::dissector_unregistered,
+            this, [this](const QString& id) {
+                if (appcfg::protocol().toUpper() == id && m_dispatch
+                    && m_dispatch->uses_plugin_parser() && !m_reader->is_running())
+                    reset_dispatcher();
+            });
+    // 补检:setup 时注册可能已就绪(信号已错过)
+    if (m_dispatch && !m_dispatch->uses_plugin_parser()
+        && pmgr.is_dissector_protocol(appcfg::protocol().toUpper()))
+        reset_dispatcher();
+
     // 插件功能面板 dock(每个插件一个 tab,右置)
     m_plugin_dock = new QDockWidget(trl::L("插件"), this);
     m_plugin_dock->setObjectName(QStringLiteral("PluginDock"));
@@ -1375,13 +1398,18 @@ void MainWindow::load_plugin_dirs(const QStringList& dirs) {
 
 void MainWindow::on_open_plugin_market() {
     PluginMarketDialog dlg(this);
-    // 更新/卸载删除旧目录前,先同步卸载插件释放 native DLL 文件锁
+    // 更新/卸载删除旧目录前,先释放两套加载路径的文件占用:
+    // 进程内引擎同步卸载 + PluginManager 停掉全部 host 子进程
+    // (旧版只卸进程内那份,host 仍映射 DLL → Windows 删不掉旧版目录)
     dlg.set_unload_cb([this]() {
         if (m_plugin_engine) m_plugin_engine->unload_all_sync();
+        PluginManager::instance().stop_all();
     });
     dlg.exec();
-    // 市场内安装/卸载后重新加载全部插件目录,使变更即时生效
+    // 市场内安装/卸载后重新加载全部插件(两套路径),使变更即时生效
     load_plugin_dirs(m_plugin_search_dirs);
+    PluginManager::instance().loadAll(
+        QCoreApplication::applicationDirPath() + QStringLiteral("/plugins"));
 }
 
 void MainWindow::on_plugin_loaded(const PluginLoadedInfo& info) {

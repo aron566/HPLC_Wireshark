@@ -234,6 +234,30 @@ inline void read_field_node(QDataStream& s, MsduFieldNode& n,
     }
 }
 
+inline void write_dissect_node(QDataStream& s, const DissectField& f, StrPool& pool) {
+    write_str(s, f.name, pool);
+    write_str(s, f.value, pool);
+    write_i32(s, f.start);
+    write_i32(s, f.len);
+    write_u8(s, f.severity);
+    write_u32(s, quint32(f.children.size()));
+    for (const DissectField& c : f.children) write_dissect_node(s, c, pool);
+}
+
+inline void read_dissect_node(QDataStream& s, DissectField& f,
+                              const QVector<QString>& table) {
+    read_str(s, f.name, table);
+    read_str(s, f.value, table);
+    read_i32(s, f.start);
+    read_i32(s, f.len);
+    read_u8(s, f.severity);
+    quint32 cnt = 0; read_u32(s, cnt);
+    f.children.clear(); f.children.reserve(int(cnt));
+    for (quint32 i = 0; i < cnt; ++i) {
+        DissectField c; read_dissect_node(s, c, table); f.children.append(c);
+    }
+}
+
 inline void write_topo_event(QDataStream& s, const TopoEvent& t, StrPool& pool) {
     write_u8(s, static_cast<quint8>(t.kind));
     write_u32(s, t.nid);
@@ -353,6 +377,9 @@ inline QByteArray serialize_entry(const PacketEntry& e, StrPool& pool) {
     write_msdu_info(s, e.beacon, pool);
     write_i32(s, e.msdu_raw_base);
     write_bytes(s, e.raw_bytes);
+    // v4 追加:插件解剖器通用字段树(内置解析为空)
+    write_u32(s, quint32(e.dissect_fields.size()));
+    for (const DissectField& f : e.dissect_fields) write_dissect_node(s, f, pool);
     return buf;
 }
 
@@ -376,6 +403,11 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
     read_msdu_info(s, e.beacon, table);
     read_i32(s, e.msdu_raw_base);
     read_bytes(s, e.raw_bytes);
+    quint32 dcnt = 0; read_u32(s, dcnt);
+    e.dissect_fields.clear(); e.dissect_fields.reserve(int(dcnt));
+    for (quint32 i = 0; i < dcnt; ++i) {
+        DissectField f; read_dissect_node(s, f, table); e.dissect_fields.append(f);
+    }
     if (s.status() != QDataStream::Ok)
         return false;
     if (rebuild_search)
@@ -384,7 +416,9 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
 }
 
 // ---------------------------------------------------------------------------
-// 块文件格式 v3(字符串池 + 轻量索引 + 条目分块独立压缩)
+// 块文件格式 v4(字符串池 + 轻量索引 + 条目分块独立压缩)
+// v4 相对 v3 仅在条目载荷尾部追加插件解剖字段树(dissect_fields),其余
+// 布局与 v3 相同;本格式仅同会话往返,不做跨版本兼容,版本不符直接判坏块。
 // 文件布局(定长部分以 Wire* 结构体表达,sizeof 即磁盘字节数;变长段为
 // quint32 长度前缀 + 内容,QDataStream 大端序顺序写入,偏移为文件绝对字节):
 //   [WireBlockHead][pool_blob]         blob = qCompress(pool_raw) 或 pool_raw
@@ -405,7 +439,7 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
 // ---------------------------------------------------------------------------
 
 inline quint32 block_magic()   { return 0x50424C4Bu; }  // "PBLK"
-inline quint32 block_version() { return 3u; }
+inline quint32 block_version() { return 4u; }  // v4: 条目尾追加解剖字段树(v3 为无此段)
 /// @brief 独立压缩分块的条目数(随机解码粒度:解一条最多解压一个分块)
 inline constexpr int kBlockChunkEntries = 50;
 

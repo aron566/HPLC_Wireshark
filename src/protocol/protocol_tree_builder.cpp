@@ -124,6 +124,15 @@ QColor tree_type_field_color(int category, quint64 value) {
     return QColor::fromHsv(hue, 200, 190);
 }
 
+void tree_apply_type_color(QTreeWidgetItem* it, const QString& name,
+                           const QString& value) {
+    const int cat = tree_type_field_category(name);
+    if (cat < 0) return;
+    const QColor c = tree_type_field_color(cat, parse_leading_number(value));
+    it->setForeground(0, c);
+    it->setForeground(1, c);
+}
+
 void tree_render_msdu(QTreeWidgetItem* parent, const QVector<MsduFieldNode>& nodes,
                       const MsduRawMap& m, const QByteArray& msdu_body) {
     for (const auto& n : nodes) {
@@ -133,12 +142,7 @@ void tree_render_msdu(QTreeWidgetItem* parent, const QVector<MsduFieldNode>& nod
         // 字段带相对 msdu_body 的字节区间,映射为 raw 高亮片段(单块 1 段 / 跨块多段)
         tree_apply_msdu_range(it, m, n.rel_start, n.rel_len, msdu_body);
         // 报文类型字段按类别+数值着色(MMe/APP/MSDU 类型不同颜色,快速区分)
-        const int cat = tree_type_field_category(n.name);
-        if (cat >= 0) {
-            const QColor c = tree_type_field_color(cat, parse_leading_number(n.value));
-            it->setForeground(0, c);
-            it->setForeground(1, c);
-        }
+        tree_apply_type_color(it, n.name, n.value);
         if (!n.children.isEmpty()) {
             tree_render_msdu(it, n.children, m, msdu_body);
             it->setExpanded(true);

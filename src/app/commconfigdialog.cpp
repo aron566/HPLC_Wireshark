@@ -3,6 +3,7 @@
 #include "commconfigdialog.h"
 #include "i18n.h"
 #include "appconfig.h"
+#include "plugin_manager.h"
 #include "theme.h"
 
 #include <QComboBox>
@@ -157,6 +158,15 @@ void CommConfigDialog::build_ui() {
     m_cmb_protocol = new QComboBox(opt_group);
     m_cmb_protocol->addItem(trl::L("国网 GW_2022"), QStringLiteral("gw_2022"));
     m_cmb_protocol->addItem(trl::L("南网 NW_2021"), QStringLiteral("nw_2021"));
+    // 插件解剖协议:仅 manifest.dissector 且已就绪的插件(显示名+协议 id);
+    // data 存小写 id(与内置一致,分发器侧统一转大写匹配注册表)
+    const QStringList diss_ids = PluginManager::instance().dissector_protocol_ids();
+    for (const QString& id : diss_ids) {
+        m_cmb_protocol->addItem(
+            QStringLiteral("%1 (%2)")
+                .arg(PluginManager::instance().dissector_display_name(id), id),
+            id.toLower());
+    }
     m_cmb_protocol->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     m_cmb_protocol->setMinimumContentsLength(12);
     proto_row->addWidget(m_cmb_protocol);
@@ -165,7 +175,17 @@ void CommConfigDialog::build_ui() {
 
     // 恢复已保存协议并放在 connect 之前;变更即写回 config.ini
     const QString saved_proto = appcfg::protocol();
-    const int proto_idx = m_cmb_protocol->findData(saved_proto);
+    int proto_idx = m_cmb_protocol->findData(saved_proto);
+    if (proto_idx < 0)  // 大小写差异兜底(手改 config.ini 的插件 id 等)
+        proto_idx = m_cmb_protocol->findData(saved_proto.toLower());
+    if (proto_idx < 0 && !saved_proto.isEmpty()
+        && saved_proto != QLatin1String("gw_2022")
+        && saved_proto != QLatin1String("nw_2021")) {
+        // 已保存的是未加载的插件协议:补一项占位显示现状,避免被静默改成国网
+        m_cmb_protocol->addItem(
+            trl::L("%1 (插件未加载)").arg(saved_proto), saved_proto);
+        proto_idx = m_cmb_protocol->count() - 1;
+    }
     if (proto_idx >= 0) m_cmb_protocol->setCurrentIndex(proto_idx);
     connect(m_cmb_protocol, qOverload<int>(&QComboBox::currentIndexChanged), this,
             [this](int) {
@@ -293,6 +313,7 @@ namespace {
 struct I18nRegCommConfig {
     I18nRegCommConfig() {
         trl::register_en("通讯口设置", "Serial Port Settings");
+        trl::register_en("%1 (插件未加载)", "%1 (plugin not loaded)");
         trl::register_en("数据源类型", "Data Source Type");
         trl::register_en("实时串口", "Live Serial Port");
         trl::register_en("文件回放 (.bin)", "File Replay (.bin)");

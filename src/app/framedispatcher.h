@@ -44,6 +44,8 @@ public:
 
     void set_filter(const ParseFilter& f);
     FrameStatistics* statistics() { return &m_stats; }
+    /// @brief 当前解析器是否为插件解剖代理(供注册到达后判断是否需重建)
+    bool uses_plugin_parser() const { return m_uses_plugin; }
 
     void connect_source(QObject* source);
     void disconnect_source(QObject* source);
@@ -62,6 +64,7 @@ private slots:
 private:
     QThread*            m_thread;
     DispatcherWorker*   m_worker;
+    bool                m_uses_plugin = false;
     FrameStatistics     m_stats;
     std::atomic<quint64> m_total{0};
     std::atomic<quint64> m_dropped{0};
