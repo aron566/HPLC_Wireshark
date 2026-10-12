@@ -4,6 +4,7 @@
 #include "i18n.h"
 #include "appconfig.h"
 #include "theme.h"
+#include "protocolfactory.h"
 
 #include <QComboBox>
 #include <QLineEdit>
@@ -150,13 +151,15 @@ void CommConfigDialog::build_ui() {
     connect(m_chk_auto_check, &QCheckBox::toggled, this,
             [](bool on) { appcfg::set_auto_check(on); });
 
-    // 协议/Protocol:gw_2022=国网双模标准2022 / nw_2021=南网双模2021报批版
-    // (config.ini general/protocol)
+    // 协议/Protocol:动态列出已注册协议(内置 + 插件,插件协议在握手成功后注册,
+    // 故需在 PluginManager 加载完成后再打开本对话框才可见)
     auto* proto_row = new QHBoxLayout;
     proto_row->addWidget(new QLabel(trl::L("协议/Protocol:"), opt_group));
     m_cmb_protocol = new QComboBox(opt_group);
-    m_cmb_protocol->addItem(trl::L("国网 GW_2022"), QStringLiteral("gw_2022"));
-    m_cmb_protocol->addItem(trl::L("南网 NW_2021"), QStringLiteral("nw_2021"));
+    for (const QString& id : registered_protocol_ids()) {
+        // 下拉框数据存 config 键(小写),显示名经 trl::L 翻译
+        m_cmb_protocol->addItem(trl::L(protocol_display_name(id)), id.toLower());
+    }
     m_cmb_protocol->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     m_cmb_protocol->setMinimumContentsLength(12);
     proto_row->addWidget(m_cmb_protocol);

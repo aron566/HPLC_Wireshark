@@ -225,7 +225,7 @@ void MainWindow::build_ui() {
 
     m_tree_protocol = new ProtocolTree(m_splitter_bottom);
     m_tree_protocol->setMinimumWidth(220);
-    m_tree_protocol->set_variant(protocol_from_key(appcfg::protocol()));
+    m_tree_protocol->set_variant(protocol_variant_for_id(appcfg::protocol()));
 
     auto* hex_pane   = new QWidget(m_splitter_bottom);
     auto* hex_layout = new QVBoxLayout(hex_pane);
@@ -812,7 +812,7 @@ void MainWindow::rebuild_dispatcher() {
     if (m_reader) m_reader->stop();
     on_clear();                       // 清空列表/协议树/hex/统计(旧 dispatcher 仍在)
     reset_dispatcher();
-    m_tree_protocol->set_variant(protocol_from_key(appcfg::protocol()));  // 字段树切协议
+    m_tree_protocol->set_variant(protocol_variant_for_id(appcfg::protocol()));  // 字段树切协议
     m_status_left->setText(trl::L("协议已立即生效(Ctrl+E 开始捕获)"));
 }
 

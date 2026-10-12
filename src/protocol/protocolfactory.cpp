@@ -12,8 +12,12 @@
 #include <QMutexLocker>
 
 namespace {
-QMap<QString, ParserFactoryFn>& registry() {
-    static QMap<QString, ParserFactoryFn> r;
+struct ParserReg {
+    ParserFactoryFn fn;
+    QString display_name;
+};
+QMap<QString, ParserReg>& registry() {
+    static QMap<QString, ParserReg> r;
     return r;
 }
 QMutex& registry_mutex() {
@@ -21,19 +25,25 @@ QMutex& registry_mutex() {
     return m;
 }
 struct BuiltinRegistrar {
-    BuiltinRegistrar() {
-        registry().insert(QStringLiteral("GW_2022"),
-            []() { return std::make_unique<GW_2022_Parser>(); });
-        registry().insert(QStringLiteral("NW_2021"),
-            []() { return std::make_unique<NW_2021_Parser>(); });
-    }
+    BuiltinRegistrar() { register_builtin_parsers(); }
 };
 BuiltinRegistrar g_builtin_registrar;  // 启动时自注册
 } // namespace
 
-void register_parser(const QString& protocol_id, ParserFactoryFn fn) {
+void register_builtin_parsers() {
     QMutexLocker l(&registry_mutex());
-    registry().insert(protocol_id, std::move(fn));
+    registry().insert(QStringLiteral("GW_2022"),
+        ParserReg{ []() { return std::make_unique<GW_2022_Parser>(); },
+                   QStringLiteral("国网 GW_2022") });
+    registry().insert(QStringLiteral("NW_2021"),
+        ParserReg{ []() { return std::make_unique<NW_2021_Parser>(); },
+                   QStringLiteral("南网 NW_2021") });
+}
+
+void register_parser(const QString& protocol_id, ParserFactoryFn fn,
+                     const QString& display_name) {
+    QMutexLocker l(&registry_mutex());
+    registry().insert(protocol_id, ParserReg{ std::move(fn), display_name });
 }
 
 void unregister_parser(const QString& protocol_id) {
@@ -46,13 +56,21 @@ QStringList registered_protocol_ids() {
     return registry().keys();
 }
 
+QString protocol_display_name(const QString& protocol_id) {
+    QMutexLocker l(&registry_mutex());
+    auto it = registry().find(protocol_id);
+    if (it == registry().end() || it->display_name.isEmpty())
+        return protocol_id;
+    return it->display_name;
+}
+
 std::unique_ptr<IProtocolParser> make_parser_by_id(const QString& protocol_id) {
     ParserFactoryFn fn;
     {
         QMutexLocker l(&registry_mutex());
         auto it = registry().find(protocol_id);
         if (it == registry().end()) return nullptr;
-        fn = it.value();
+        fn = it->fn;
     }
     return fn ? fn() : nullptr;
 }

@@ -6,22 +6,7 @@
 #define NW_2021_TREE_H
 
 #include "protocol_tree_builder.h"
-
-/// 南网 NW_2021 定界符类型(FCH byte0 bit0-2,表11)
-enum class NW_2021_FrameType : quint8 {
-    BEACON = 0,  ///< 信标帧
-    SOF    = 1,  ///< SOF 帧
-    ACK    = 2,  ///< 选择确认帧
-    COORD  = 3,  ///< 网间协调帧
-};
-
-/// 南网 NW_2021 ACK 扩展帧类型(FCH byte12 bit0-3)
-enum class NW_2021_AckExtType : quint8 {
-    Normal        = 0,  ///< 常规 ACK
-    Search        = 1,  ///< 网络搜索
-    Sync          = 2,  ///< 同步
-    SwitchChannel = 3,  ///< 无线切频
-};
+#include "nw_2021_frametype.h"
 
 /// 南网双模 2021 报批版字段树构建器
 class NW_2021_TreeBuilder : public IProtocolTreeBuilder {

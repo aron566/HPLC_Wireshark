@@ -7,7 +7,7 @@
 #include "nw_2021_pb_table.h"
 #include "nw_2021_msdu_parser.h"
 #include "nw_2021_beacon_parser.h"
-#include "nw_2021_tree.h"
+#include "nw_2021_frametype.h"
 #include "common/fieldtools.h"
 #include "crc.h"
 #include "bcd.h"

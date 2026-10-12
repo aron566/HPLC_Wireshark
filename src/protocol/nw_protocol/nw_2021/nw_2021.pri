@@ -13,6 +13,7 @@ HEADERS += \
     $$PWD/nw_2021_msdu_parser.h \
     $$PWD/nw_2021_pb_table.h \
     $$PWD/nw_2021_beacon_parser.h \
+    $$PWD/nw_2021_frametype.h \
     $$PWD/nw_2021_tree.h
 
 SOURCES += \
