@@ -167,6 +167,8 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.pb_num    = (quint8) get_bits(p, 7, 0, 4);
             r.mpdu.tmi       = (quint8) get_bits(p, 7, 4, 4);
             r.mpdu.frame_len = (quint16)get_bits(p, 8, 0, 12);
+            r.mpdu.re_send_flag = (get_bits(p, 10, 6, 1) != 0);   // 重传标志位(表18)
+            r.mpdu.symbol_num   = (quint16)get_bits(p, 10, 7, 9);  // 符号数(表16)
             r.mpdu.tmi_ext   = (quint8) get_bits(p, 12, 0, 4);
             r.mpdu.pb_size   = (quint16)nw_2021_pb_size(r.mpdu.tmi, r.mpdu.tmi_ext);
         }

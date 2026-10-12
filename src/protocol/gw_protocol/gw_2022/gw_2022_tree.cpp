@@ -11,6 +11,11 @@ struct I18nReg {
         trl::register_en("报文优先级(越小越低)", "message priority (smaller = lower)");
         trl::register_en("业务分类LID", "service-class LID");
         trl::register_en("无效值", "invalid value");
+        trl::register_en("广播报文", "broadcast frame");
+        trl::register_en("非广播报文", "non-broadcast frame");
+        trl::register_en("重传报文", "retransmitted frame");
+        trl::register_en("非重传报文", "non-retransmitted frame");
+        trl::register_en("预留信息段", "reserved for future encryption");
     }
 };
 const I18nReg g_i18n_reg_gw_tree;
@@ -82,9 +87,20 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         tree_add_bit_field(sof, "Frame Length", QStringLiteral("%1 (x10us)").arg(e.mpdu.frame_len), 8, 0, 12);
         tree_add_bit_field(sof, "PB Num", QString::number(e.mpdu.pb_num), 9, 4, 4);
         tree_add_bit_field(sof, "Symbol Num", QString::number(e.mpdu.symbol_num), 10, 0, 9);
-        tree_add_bit_field(sof, "Broadcast", e.mpdu.bc_flag ? "Yes" : "No", 11, 1, 1);
-        tree_add_bit_field(sof, "ReSend", e.mpdu.re_send_flag ? "Yes" : "No", 11, 2, 1);
-        tree_add_bit_field(sof, "Encrypted", e.mpdu.encryp_flag ? "Yes" : "No", 11, 3, 1);
+        // 广播标志位(表21):0=非广播报文 1=广播报文
+        tree_add_bit_field(sof, "Broadcast",
+            e.mpdu.bc_flag ? QStringLiteral("1 - %1").arg(trl::L("广播报文"))
+                           : QStringLiteral("0 - %1").arg(trl::L("非广播报文")),
+            11, 1, 1);
+        // 重传标志位(表22):0=非重传报文 1=重传报文
+        tree_add_bit_field(sof, "ReSend",
+            e.mpdu.re_send_flag ? QStringLiteral("1 - %1").arg(trl::L("重传报文"))
+                                : QStringLiteral("0 - %1").arg(trl::L("非重传报文")),
+            11, 2, 1);
+        // 加密标志位:预留信息段(文档无 0/1 标准语义)
+        tree_add_bit_field(sof, "Encrypted",
+            QStringLiteral("%1 (%2)").arg(e.mpdu.encryp_flag).arg(trl::L("预留信息段")),
+            11, 3, 1);
         tree_add_bit_field(sof, "TMI", QString::number(e.mpdu.tmi), 11, 4, 4);
         tree_add_bit_field(sof, "TMI_EXT", QString::number(e.mpdu.tmi_ext), 12, 0, 4);
         tree_add_item(sof, "PB Size", QString::number(e.mpdu.pb_size));
