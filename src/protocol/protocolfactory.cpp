@@ -30,14 +30,16 @@ struct BuiltinRegistrar {
 BuiltinRegistrar g_builtin_registrar;  // 启动时自注册
 } // namespace
 
-void register_builtin_parsers() {
+void register_builtin_parsers(const QString& only_id) {
     QMutexLocker l(&registry_mutex());
-    registry().insert(QStringLiteral("GW_2022"),
-        ParserReg{ []() { return std::make_unique<GW_2022_Parser>(); },
-                   QStringLiteral("国网 GW_2022") });
-    registry().insert(QStringLiteral("NW_2021"),
-        ParserReg{ []() { return std::make_unique<NW_2021_Parser>(); },
-                   QStringLiteral("南网 NW_2021") });
+    if (only_id.isEmpty() || only_id == QLatin1String("GW_2022"))
+        registry().insert(QStringLiteral("GW_2022"),
+            ParserReg{ []() { return std::make_unique<GW_2022_Parser>(); },
+                       QStringLiteral("国网 GW_2022") });
+    if (only_id.isEmpty() || only_id == QLatin1String("NW_2021"))
+        registry().insert(QStringLiteral("NW_2021"),
+            ParserReg{ []() { return std::make_unique<NW_2021_Parser>(); },
+                       QStringLiteral("南网 NW_2021") });
 }
 
 void register_parser(const QString& protocol_id, ParserFactoryFn fn,

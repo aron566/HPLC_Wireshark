@@ -22,7 +22,9 @@ void register_parser(const QString& protocol_id, ParserFactoryFn fn,
 /// @brief 重新注册内置协议(GW_2022 / NW_2021)
 /// @note 插件注销了与内置同名的协议 id 时调用,恢复内置解析器兜底。
 ///       幂等:重复调用仅覆盖同名条目。
-void register_builtin_parsers();
+/// @param only_id 非空时仅恢复该 id 对应的内置协议(避免误覆盖其他插件
+///        注册的其余内置 id);空时恢复全部(启动时用)
+void register_builtin_parsers(const QString& only_id = QString());
 
 /// @brief 注销协议解析器
 void unregister_parser(const QString& protocol_id);

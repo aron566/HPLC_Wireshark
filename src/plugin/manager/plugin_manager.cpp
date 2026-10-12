@@ -321,7 +321,7 @@ void PluginManager::disable_plugin(const QString& plugin_id,
     rt->disable_reason = reason;
     rt->ready = false;
     unregister_parser(rt->manifest.protocol_id);
-    register_builtin_parsers();  // 插件 id 与内置同名时恢复内置兜底
+    register_builtin_parsers(rt->manifest.protocol_id);  // 插件 id 与内置同名时恢复内置兜底
     emit plugin_status_changed(plugin_id, QStringLiteral("disabled: ") + reason);
 }
 
@@ -347,7 +347,7 @@ void PluginManager::stop_plugin(const QString& protocol_id) {
     delete rt;
     m_plugins.erase(it);
     unregister_parser(protocol_id);
-    register_builtin_parsers();  // 插件 id 与内置同名时恢复内置兜底
+    register_builtin_parsers(protocol_id);  // 插件 id 与内置同名时恢复内置兜底
     emit plugin_status_changed(protocol_id, QStringLiteral("stopped"));
 }
 
