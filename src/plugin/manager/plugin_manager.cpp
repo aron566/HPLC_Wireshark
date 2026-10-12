@@ -283,10 +283,13 @@ bool PluginManager::parse_via_plugin(const QString& protocol_id,
     if (!got) {
         r.accept = false;
         r.reject_reason = QStringLiteral("plugin parse timeout/crash");
-        // 超时很可能意味着 host 挂了,禁用插件
-        // 注意:不能在 worker 线程直接调 disable_plugin(涉及信号),标记即可
+        // 超时很可能意味着 host 挂了,禁用插件。
+        // 注意:不能在 worker 线程直接调 disable_plugin(涉及信号 emit);
+        // 但 unregister_parser 是互斥保护的注册表操作,线程安全 —— 此处
+        // 必须注销覆盖层,否则内置兜底被影子挡住,后续帧无法热回退。
         rt->disabled = true;
         rt->disable_reason = r.reject_reason;
+        unregister_parser(protocol_id);  // 删覆盖层 → PluginParserProxy 懒回退内置
         QMetaObject::invokeMethod(this, [this, protocol_id]() {
             emit plugin_status_changed(protocol_id, QStringLiteral("timeout-disabled"));
         }, Qt::QueuedConnection);

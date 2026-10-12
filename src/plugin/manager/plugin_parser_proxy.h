@@ -25,6 +25,8 @@ public:
 
 private:
     QString m_protocol_id;
+    /// 插件禁用/崩溃后懒回退的内置解析器(同 id 的内置实现;首次 parse 时创建)
+    std::unique_ptr<IProtocolParser> m_fallback;
 };
 
 /// @brief 创建插件解析器代理(协议 id 未注册插件时返回 nullptr)
