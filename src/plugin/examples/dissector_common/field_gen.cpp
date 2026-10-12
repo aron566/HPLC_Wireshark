@@ -9,6 +9,22 @@
 
 namespace {
 
+// 英文注册:本文件新增文案(af3259e 同步的 SOF 字段语义)。内置树的同名
+// 注册在 tree 文件里,但插件进程不编译 tree 源,故在此自带一份(键值与
+// 内置注册逐字一致),保证插件进程英文界面下输出与内置路径相同。
+struct I18nReg {
+    I18nReg() {
+        trl::register_en("广播报文", "broadcast frame");
+        trl::register_en("非广播报文", "non-broadcast frame");
+        trl::register_en("重传报文", "retransmitted frame");
+        trl::register_en("非重传报文", "non-retransmitted frame");
+        trl::register_en("预留信息段", "reserved for future encryption");
+        trl::register_en("物理层不检查报文 TEI", "physical layer does not check TEI");
+        trl::register_en("物理层检查报文 TEI", "physical layer checks TEI");
+    }
+};
+const I18nReg g_i18n_reg_field_gen;
+
 /// 字段累加器：镜像 tree_add_item / tree_add_bit_field 的命名与坐标换算
 struct Sink {
     QVector<DissectField>* vec;
@@ -178,9 +194,20 @@ QVector<DissectField> gw_fields(const QByteArray& raw, const ParseResult& r) {
                   QStringLiteral("%1 (x10us)").arg(mpdu.frame_len), 8, 0, 12);
         Sink::bit(sof, QStringLiteral("PB Num"), QString::number(mpdu.pb_num), 9, 4, 4);
         Sink::bit(sof, QStringLiteral("Symbol Num"), QString::number(mpdu.symbol_num), 10, 0, 9);
-        Sink::bit(sof, QStringLiteral("Broadcast"), mpdu.bc_flag ? "Yes" : "No", 11, 1, 1);
-        Sink::bit(sof, QStringLiteral("ReSend"), mpdu.re_send_flag ? "Yes" : "No", 11, 2, 1);
-        Sink::bit(sof, QStringLiteral("Encrypted"), mpdu.encryp_flag ? "Yes" : "No", 11, 3, 1);
+        // 广播标志位(表21):0=非广播报文 1=广播报文(与内置树 af3259e 后文案一致)
+        Sink::bit(sof, QStringLiteral("Broadcast"),
+                  mpdu.bc_flag ? QStringLiteral("1 - %1").arg(trl::L("广播报文"))
+                               : QStringLiteral("0 - %1").arg(trl::L("非广播报文")),
+                  11, 1, 1);
+        // 重传标志位(表22):0=非重传报文 1=重传报文
+        Sink::bit(sof, QStringLiteral("ReSend"),
+                  mpdu.re_send_flag ? QStringLiteral("1 - %1").arg(trl::L("重传报文"))
+                                    : QStringLiteral("0 - %1").arg(trl::L("非重传报文")),
+                  11, 2, 1);
+        // 加密标志位:预留信息段(文档无 0/1 标准语义)
+        Sink::bit(sof, QStringLiteral("Encrypted"),
+                  QStringLiteral("%1 (%2)").arg(mpdu.encryp_flag).arg(trl::L("预留信息段")),
+                  11, 3, 1);
         Sink::bit(sof, QStringLiteral("TMI"), QString::number(mpdu.tmi), 11, 4, 4);
         Sink::bit(sof, QStringLiteral("TMI_EXT"), QString::number(mpdu.tmi_ext), 12, 0, 4);
         Sink::add_to(sof, QStringLiteral("PB Size"), QString::number(mpdu.pb_size));
@@ -393,9 +420,28 @@ QVector<DissectField> nw_fields(const QByteArray& raw, const ParseResult& r) {
             Sink::bit(sof, QStringLiteral("Frame Length"), QStringLiteral("%1 (x10us)").arg(mpdu.frame_len), 5, 0, 12);
             Sink::bit(sof, QStringLiteral("PBLen"), QString::number(mpdu.tmi), 6, 4, 4);
         } else {
+            // 载波 SOF(表16):保留16b(5,0,16) + PBNum(7,0,4)/TMI(7,4,4)/FrameLen(8,0,12)
+            //   + 保留9b(9,4,9) + TEI过滤(10,5,1)/重传(10,6,1)/符号数(10,7,9) + TMI_EXT(12,0,4)
+            // 与内置树 af3259e 后逐行对齐;保留字段解析器不入 MpduInfo,同内置树从原始字节取
+            const quint8* d = reinterpret_cast<const quint8*>(raw.constData());
+            const int raw_sz = raw.size();
+            const quint16 rsv0 = (raw_sz > 6) ? (quint16)(d[5] | (d[6] << 8)) : 0;
+            Sink::bit(sof, QStringLiteral("RSV"), QStringLiteral("0x%1").arg(rsv0, 4, 16, QChar('0')), 5, 0, 16);
             Sink::bit(sof, QStringLiteral("PB Num"), QString::number(mpdu.pb_num), 7, 0, 4);
             Sink::bit(sof, QStringLiteral("TMI"), QString::number(mpdu.tmi), 7, 4, 4);
             Sink::bit(sof, QStringLiteral("Frame Length"), QStringLiteral("%1 (x10us)").arg(mpdu.frame_len), 8, 0, 12);
+            const quint16 rsv1 = (raw_sz > 10) ? (quint16)(((d[9] >> 4) & 0x0F) | ((d[10] & 0x1F) << 4)) : 0;
+            Sink::bit(sof, QStringLiteral("RSV"), QStringLiteral("0x%1").arg(rsv1, 3, 16, QChar('0')), 9, 4, 9);
+            const quint8 tei_filter = (raw_sz > 10) ? ((d[10] >> 5) & 0x01) : 1;
+            Sink::bit(sof, QStringLiteral("TEI Filter"),
+                      tei_filter ? QStringLiteral("1 - %1").arg(trl::L("物理层不检查报文 TEI"))
+                                 : QStringLiteral("0 - %1").arg(trl::L("物理层检查报文 TEI")),
+                      10, 5, 1);
+            Sink::bit(sof, QStringLiteral("ReSend"),
+                      mpdu.re_send_flag ? QStringLiteral("1 - %1").arg(trl::L("重传报文"))
+                                        : QStringLiteral("0 - %1").arg(trl::L("非重传报文")),
+                      10, 6, 1);
+            Sink::bit(sof, QStringLiteral("Symbol Num"), QString::number(mpdu.symbol_num), 10, 7, 9);
             Sink::bit(sof, QStringLiteral("TMI_EXT"), QString::number(mpdu.tmi_ext), 12, 0, 4);
         }
         Sink::add_to(sof, QStringLiteral("PB Size"), QString::number(mpdu.pb_size));
