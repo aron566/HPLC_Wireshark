@@ -15,13 +15,13 @@ QMAKE_CFLAGS += -Wno-type-limits
 
 # Windows 资源:exe 文件图标 + 程序版本信息
 RC_ICONS = icons/app.ico
-VERSION = 1.4.1
+VERSION = 1.5.0
 QMAKE_TARGET_PRODUCT = "BPLC STA Monitor"
 QMAKE_TARGET_DESCRIPTION = "BPLC/HRF protocol STA frame monitor"
 QMAKE_TARGET_COPYRIGHT = "Copyright (c) 2026 aron566"
 RESOURCES += BPLC_STA_Monitor.qrc
 
-# Qt 6.10 win32 GUI app 默认自动链接 libQt6EntryPoint,该库要求 qMain()
+# Qt 6.11 win32 GUI app 默认自动链接 libQt6EntryPoint,该库要求 qMain()
 # 所以主函数用 qMain(名字)(没有 Qt 宏展开,真是函数符号名)
 
 # 模块依赖顺序(从底层到顶层):

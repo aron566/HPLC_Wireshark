@@ -20,7 +20,7 @@ bool NativeBackend::initialize(const PluginManifest& m, QString* err) {
         *err = QStringLiteral("load failed: %1").arg(m_loader.errorString());
         return false;
     }
-    m_instance = inst;
+    m_instance = inst;   // 根实例由本后端拥有,shutdown 时先删后卸库
     // 解析器接口(可选:纯图形插件可不实现)
     m_plugin = qobject_cast<IProtocolParserPlugin*>(inst);
     // 图形接口(可选)

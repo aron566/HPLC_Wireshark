@@ -42,17 +42,26 @@ win32 {
 
 # crashpad_handler 二进制复制到 exe 输出目录(运行时 backend_crashpad 用 exe_dir()
 # 找同目录的 crashpad_handler,缺了崩溃不落 dump)。仅当后端启用且 handler 存在时复制。
-# 平台/工具链区分复制命令:
-#   win32-msvc*(nmake,cmd shell) → copy /Y
-#   win32-g++(mingw32-make,sh shell) / unix(Linux) → cp -f
+# 平台区分复制命令:
+#   win32(msvc 的 nmake 与 g++ 的 mingw32-make 都是 Windows 原生环境)→ cmd /c copy /Y
+#     (不能用裸 cp:Qt Creator 启动的 mingw32-make 走 CreateProcess 找不到 cp.exe,
+#      报 "make (e=2): 系统找不到指定的文件";cmd.exe 是系统原生程序,git-bash/Qt Creator 都能找到)
+#   unix(Linux) → cp -f
 CRASH_HANDLER_BIN = $$CRASH_CRASHPAD_ROOT/bin/crashpad_handler
 win32: CRASH_HANDLER_BIN = $$CRASH_CRASHPAD_ROOT/bin/crashpad_handler.exe
 exists($$CRASH_HANDLER_BIN) {
     # 目标目录 = OUT_PWD + DESTDIR。DESTDIR 在 qmake 求值 .pri 时尚未按
     # debug/release 赋值(qmake 生成 Makefile 时才赋 debug/ 或空),故用 Makefile
     # 变量 $(DESTDIR) 运行时展开,避免 Debug 构建把 handler 复制到 OUT_PWD 根。
-    win32-msvc* {
-        QMAKE_POST_LINK += $$quote(copy /Y $$shell_path($$CRASH_HANDLER_BIN) $$shell_path($$OUT_PWD)/$(DESTDIR))
+    win32 {
+        # cmd /c copy:目标明确写文件名(末尾无斜杠),路径带引号保护反斜杠。
+        # 坑(实测):①目录目标(末尾斜杠)在 MSYS sh 下被路径转换破坏;②不带引号时
+        # 反斜杠 D:\code 被 sh 当转义符、路径损坏;③make 变量 $(DESTDIR) 展开含
+        # "#avoid trailing-slash linebreak" 注释、尾随空格把目标路径断裂成
+        # "release/ crashpad_handler.exe"。故改用 CONFIG(debug) 在 qmake 阶段定子目录。
+        CRASH_DEST_SUBDIR = release
+        CONFIG(debug, debug|release): CRASH_DEST_SUBDIR = debug
+        QMAKE_POST_LINK += $$quote(cmd /c copy /Y \"$$system_path($$CRASH_HANDLER_BIN)\" \"$$system_path($$OUT_PWD)\\$$CRASH_DEST_SUBDIR\\crashpad_handler.exe\")
     } else {
         QMAKE_POST_LINK += $$quote(cp -f $$shell_path($$CRASH_HANDLER_BIN) $$shell_path($$OUT_PWD)/$(DESTDIR))
     }

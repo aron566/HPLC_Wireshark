@@ -4,7 +4,7 @@
 set -e
 cd "$(dirname "$0")/.."
 VER="${1:-1.0.1}"
-QTDIR="/c/Qt/6.10.1/mingw_64"
+QTDIR="/c/Qt/6.11.2/mingw_64"
 TOOLDIR="/c/Qt/Tools/mingw1310_64/bin"
 
 export PATH="$TOOLDIR:$QTDIR/bin:$PATH"
