@@ -1375,13 +1375,18 @@ void MainWindow::load_plugin_dirs(const QStringList& dirs) {
 
 void MainWindow::on_open_plugin_market() {
     PluginMarketDialog dlg(this);
-    // 更新/卸载删除旧目录前,先同步卸载插件释放 native DLL 文件锁
+    // 更新/卸载删除旧目录前,先释放两套加载路径的文件占用:
+    // 进程内引擎同步卸载 + PluginManager 停掉全部 host 子进程
+    // (旧版只卸进程内那份,host 仍映射 DLL → Windows 删不掉旧版目录)
     dlg.set_unload_cb([this]() {
         if (m_plugin_engine) m_plugin_engine->unload_all_sync();
+        PluginManager::instance().stop_all();
     });
     dlg.exec();
-    // 市场内安装/卸载后重新加载全部插件目录,使变更即时生效
+    // 市场内安装/卸载后重新加载全部插件(两套路径),使变更即时生效
     load_plugin_dirs(m_plugin_search_dirs);
+    PluginManager::instance().loadAll(
+        QCoreApplication::applicationDirPath() + QStringLiteral("/plugins"));
 }
 
 void MainWindow::on_plugin_loaded(const PluginLoadedInfo& info) {

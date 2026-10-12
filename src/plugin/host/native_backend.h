@@ -30,6 +30,8 @@ public:
 
 private:
     QPluginLoader m_loader;
+    QObject* m_instance = nullptr;              ///< 拥有(插件根实例,
+                                                ///< shutdown 先于 unload 删除)
     IProtocolParserPlugin* m_plugin = nullptr;  ///< 不拥有(可空,纯图形插件)
     IGraphicsPlugin* m_graphics = nullptr;      ///< 不拥有(可空)
     IProtocolParser* m_parser = nullptr;        ///< 拥有(可空)

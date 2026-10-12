@@ -20,6 +20,7 @@ bool NativeBackend::initialize(const PluginManifest& m, QString* err) {
         *err = QStringLiteral("load failed: %1").arg(m_loader.errorString());
         return false;
     }
+    m_instance = inst;   // 根实例由本后端拥有,shutdown 时先删后卸库
     // 解析器接口(可选:纯图形插件可不实现)
     m_plugin = qobject_cast<IProtocolParserPlugin*>(inst);
     // 图形接口(可选)
@@ -62,7 +63,13 @@ void NativeBackend::shutdown() {
     m_parser = nullptr;
     if (m_plugin) { m_plugin->shutdown(); m_plugin = nullptr; }
     m_graphics = nullptr;
-    m_loader.unload();
+    // 先删插件根实例再卸库:实例的虚表/回调驻留在 DLL 内,实例存活时
+    // unload 即使成功也会留下悬空指针(渲染回调等会踩已卸载代码)。
+    delete m_instance;
+    m_instance = nullptr;
+    if (m_loader.isLoaded() && !m_loader.unload())
+        qWarning("NativeBackend: plugin unload failed: %s",
+                 qPrintable(m_loader.errorString()));
 }
 
 QString NativeBackend::protocol_id() const {

@@ -121,6 +121,9 @@ int main(int argc, char* argv[]) {
     // 插件系统:扫描 plugins/ 并启动插件宿主进程(失败不影响主程序)
     PluginManager::instance().loadAll(
         QCoreApplication::applicationDirPath() + QStringLiteral("/plugins"));
+    // 退出时主动停掉全部 host 子进程,不留孤儿进程占着插件 DLL
+    QObject::connect(&app, &QCoreApplication::aboutToQuit,
+                     [] { PluginManager::instance().stop_all(); });
 
     // 命令行:
     //   --plugins-dir <dir>  主界面内置插件目录(进程内 JS/Lua 后端,展示功能界面)

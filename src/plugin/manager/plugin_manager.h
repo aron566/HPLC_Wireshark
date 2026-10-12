@@ -14,6 +14,8 @@
 #include <QMutex>
 #include <QTimer>
 
+#include <atomic>
+
 #include "bplcframe.h"
 #include "igraphicsplugin.h"
 #include "iprotocolparser.h"
@@ -35,6 +37,8 @@ struct PluginRuntime {
     quint64       seq = 0;
     bool          ready = false;      ///< 握手完成
     bool          disabled = false;   ///< 崩溃/错误后禁用
+    std::atomic<bool> retired{false}; ///< stop_all 已退役:对象本体延迟到
+                                      ///< 管理器析构才释放(见 stop_all)
     QString       disable_reason;
     qint64        last_pong_ms = 0;
 };
@@ -47,6 +51,10 @@ public:
 
     /// @brief 扫描并启动 plugins_dir 下所有插件
     void loadAll(const QString& plugins_dir);
+    /// @brief 停掉全部插件 host 子进程并注销其解析器(退役式两遍处理,
+    ///        见实现注释)。供应用退出与插件市场删除/更新旧版前调用——
+    ///        host 进程映射着插件 DLL,不停机则 Windows 下删不掉旧目录。
+    void stop_all();
     /// @brief 已注册的插件协议 id 列表(供 UI/配置)
     QStringList pluginProtocolIds() const;
     /// @brief 协议 id 是否来自插件
@@ -91,6 +99,10 @@ private:
     void checkHeartbeats();
 
     QMap<QString, PluginRuntime*> m_plugins;  ///< key: protocol_id
+    QList<PluginRuntime*> m_retired;  ///< stop_all 退役的运行时本体:重对象
+                                      ///< (进程/socket)已在 stop_all 内释放,
+                                      ///< 本体留置此处待管理器析构统一 delete,
+                                      ///< 保证迟到的请求线程手中的指针永不悬空
     QMap<QString, QList<PluginGraphicsView*>> m_graphics_views;  ///< key: protocol_id
     QTimer m_hb_timer;
 };

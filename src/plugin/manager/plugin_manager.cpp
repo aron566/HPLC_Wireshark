@@ -41,20 +41,56 @@ PluginManager::PluginManager(QObject* parent) : QObject(parent) {
 }
 
 PluginManager::~PluginManager() {
-    for (auto* rt : m_plugins) {
-        if (rt->socket) {
-            // 优雅退出
-            QByteArray p;
-            send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::Shutdown), p);
-            rt->socket->flush();
+    stop_all();
+    // 退役运行时本体在此统一释放:管理器是进程级单例,析构时已无
+    // 请求线程存活,迟到指针不可能再被解引用
+    for (auto* rt : m_retired) delete rt;
+    m_retired.clear();
+}
+
+void PluginManager::stop_all() {
+    if (m_plugins.isEmpty()) return;
+    const QList<PluginRuntime*> runtimes = m_plugins.values();
+    m_plugins.clear();
+    // 第一遍:先置禁用+退役并注销协议,断绝新请求进入(parse 入口都先
+    // 查 disabled/ready);在途请求(分发线程正持 ipc_mutex 等响应)不
+    // 受影响;已取到 rt 指针、正排队等 ipc_mutex 的迟到请求,在拿锁
+    // 后会复查 retired 并立即退出(见 parse_via_plugin)。
+    for (auto* rt : runtimes) {
+        rt->disabled = true;
+        rt->ready = false;
+        rt->retired.store(true);
+        unregister_parser(rt->manifest.protocol_id);
+    }
+    // 第二遍:逐个拿 ipc_mutex 等在途请求收尾(最长等其请求超时),
+    // 再关停进程并释放重对象(socket/server/进程)。运行时本体(含
+    // mutex)不在此 delete:可能仍有请求线程堵在其 mutex 上,本体
+    // 转入 m_retired,留待管理器析构(进程退出、无请求线程存活时)
+    // 释放——避免市场卸插件/退出时与分发线程并发删除对象(UAF)。
+    for (auto* rt : runtimes) {
+        {
+            QMutexLocker lock(&rt->ipc_mutex);
+            if (rt->socket) {
+                // 优雅退出
+                QByteArray p;
+                send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::Shutdown), p);
+                rt->socket->flush();
+                rt->socket->disconnectFromServer();
+            }
+            if (rt->process) {
+                rt->process->terminate();
+                if (!rt->process->waitForFinished(2000)) {
+                    rt->process->kill();
+                    rt->process->waitForFinished(1000);
+                }
+                delete rt->process;
+                rt->process = nullptr;
+            }
+            delete rt->server;
+            rt->server = nullptr;
+            rt->socket = nullptr;   // socket 随 server 一并销毁
         }
-        if (rt->process) {
-            rt->process->terminate();
-            rt->process->waitForFinished(2000);
-            delete rt->process;
-        }
-        delete rt->server;
-        delete rt;
+        m_retired.append(rt);
     }
 }
 
@@ -230,6 +266,9 @@ bool PluginManager::parse_via_plugin(const QString& protocol_id,
     if (!rt->ready || rt->disabled || !rt->socket) return false;
 
     QMutexLocker lock(&rt->ipc_mutex);
+    // 拿锁后复查退役标志:stop_all 可能在我们排队等锁期间已关停该
+    // 运行时(socket/进程已释放),此时立即退出,不得再触碰其 IPC 对象
+    if (rt->retired.load()) return false;
     const quint64 seq = ++rt->seq;
 
     QByteArray payload;
