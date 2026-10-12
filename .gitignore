@@ -7,6 +7,7 @@ AppDir/
 Makefile
 Makefile.*
 .qmake.stash
+mocinclude.opt
 *.o
 *.obj
 *.user
