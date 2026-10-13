@@ -191,7 +191,17 @@ int main(int argc, char* argv[]) {
             dissect_calls.fetch_add(1);
         }
     });
-    QThread::msleep(200);
+    // 单读者契约下响应由主线程 on_host_ready_read 投递:等待窗口内主线程
+    // 必须泵事件(同阶段 1 往返的泵法),纯 msleep 会饿死投递、worker 一次
+    // 成功都拿不到——那测的是测试自身,不是停机并发。
+    {
+        QElapsedTimer wait_win;
+        wait_win.start();
+        while (wait_win.elapsed() < 200) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            QThread::msleep(5);
+        }
+    }
     pm.stop_all();
     stop_flag.store(true);
     load_worker.join();

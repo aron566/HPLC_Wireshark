@@ -101,6 +101,7 @@ void PluginManager::stop_all() {
         rt->disabled = true;
         rt->ready = false;
         rt->retired.store(true);
+        abort_response_waiters(rt);   // 在途等待先醒来放锁,第二遍才不等满超时
         if (dissector_eligible(rt)) {
             unregister_parser(dissector_key(rt));
             emit dissector_unregistered(dissector_key(rt));
@@ -238,8 +239,56 @@ void PluginManager::on_host_ready_read(const QString& plugin_id) {
         ds.setVersion(plugin_ipc::kStreamVersion);
         quint8 t = 0;
         ds >> t;
+        const auto mt = static_cast<plugin_ipc::MsgType>(t);
+        if (mt == plugin_ipc::MsgType::ParseResponse
+            || mt == plugin_ipc::MsgType::DissectResponse
+            || mt == plugin_ipc::MsgType::RenderResponse
+            || mt == plugin_ipc::MsgType::EventAck) {
+            // 响应帧:唯一读者在此把载荷按 seq 投递到响应邮箱,等待方
+            // (wait_response)自取——绝不能落进 handle_message(它没有
+            // 响应分支,响应会被静默丢弃,等待方超时误判插件崩溃)。
+            QDataStream probe(frame);
+            probe.setVersion(plugin_ipc::kStreamVersion);
+            quint8 pt = 0;
+            quint64 rseq = 0;
+            probe >> pt >> rseq;   // 四类响应载荷均以 seq 起头
+            {
+                QMutexLocker rl(&rt->resp_mutex);
+                rt->resp_body = frame.mid(1);   // 类型字节之后(以 seq 起头)
+                rt->resp_seq = rseq;
+                rt->resp_ready = true;
+            }
+            rt->resp_cond.wakeAll();
+            continue;
+        }
         handle_message(plugin_id, t, ds);
     }
+}
+
+bool PluginManager::wait_response(PluginRuntime* rt, quint64 seq,
+                                  int timeout_ms, QByteArray* body) {
+    QMutexLocker lock(&rt->resp_mutex);
+    const qint64 deadline = QDateTime::currentMSecsSinceEpoch() + timeout_ms;
+    while (true) {
+        if (rt->resp_aborted) return false;
+        if (rt->resp_ready && rt->resp_seq == seq) {
+            *body = rt->resp_body;
+            rt->resp_ready = false;
+            return true;
+        }
+        const qint64 remain = deadline - QDateTime::currentMSecsSinceEpoch();
+        if (remain <= 0) return false;
+        rt->resp_cond.wait(&rt->resp_mutex,
+                           static_cast<unsigned long>(qMin<qint64>(remain, 100)));
+    }
+}
+
+void PluginManager::abort_response_waiters(PluginRuntime* rt) {
+    {
+        QMutexLocker rl(&rt->resp_mutex);
+        rt->resp_aborted = true;
+    }
+    rt->resp_cond.wakeAll();
 }
 
 void PluginManager::handle_message(const QString& plugin_id, quint8 type,
@@ -293,8 +342,9 @@ void PluginManager::handle_message(const QString& plugin_id, quint8 type,
         break;
     }
     case plugin_ipc::MsgType::Pong: {
-        quint64 seq = 0; ds >> seq; Q_UNUSED(seq);
+        quint64 seq = 0; ds >> seq;
         rt->last_pong_ms = QDateTime::currentMSecsSinceEpoch();
+        if (seq == rt->awaiting_pong_seq) rt->awaiting_pong_seq = 0;
         break;
     }
     case plugin_ipc::MsgType::Error: {
@@ -354,52 +404,23 @@ bool PluginManager::parse_via_plugin(const QString& protocol_id,
     o << seq << frame << msdu << filter;
     send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::ParseRequest), payload);
 
-    // 阻塞等待响应(worker 线程调用,不阻塞 UI)
-    QByteArray resp_buf;
-    const qint64 deadline = QDateTime::currentMSecsSinceEpoch() + kParseTimeoutMs;
-    bool got = false;
+    // 阻塞等待响应邮箱投递(worker 线程调用,不阻塞 UI;socket 只由主
+    // 线程的 on_host_ready_read 读取——等待期间到达的 Pong/总线消息也
+    // 由它统一分发路由,不会被等待方吞掉或抢走)
     ParseResult r;
     MsduState new_msdu;
-    while (QDateTime::currentMSecsSinceEpoch() < deadline) {
-        if (!rt->socket->waitForReadyRead(100)) {
-            if (rt->socket->state() != QLocalSocket::ConnectedState) break;
-            continue;
-        }
-        resp_buf.append(rt->socket->readAll());
-        // 尝试解析完整帧
-        while (resp_buf.size() >= 5) {
-            QDataStream hdr(resp_buf);
-            hdr.setVersion(plugin_ipc::kStreamVersion);
-            quint32 len = 0; hdr >> len;
-            if (resp_buf.size() < 4 + (int)len) break;
-            const QByteArray fr = resp_buf.mid(4, len);
-            resp_buf.remove(0, 4 + len);
-            QDataStream ds(fr);
-            ds.setVersion(plugin_ipc::kStreamVersion);
-            quint8 t = 0; ds >> t;
-            if (static_cast<plugin_ipc::MsgType>(t)
-                    == plugin_ipc::MsgType::ParseResponse) {
-                quint64 rseq = 0; bool ok = false;
-                ds >> rseq;
-                if (rseq != seq) continue;  // 非本次请求的响应(理论上不应发生)
-                ds >> ok;
-                if (ok) { ds >> r >> new_msdu; }
-                else { QString e; ds >> e; r.reject_reason = e; }
-                r.accept = ok;
-                got = true;
-                break;
-            }
-            // Pong 等其他消息:更新心跳后继续等
-            if (static_cast<plugin_ipc::MsgType>(t) == plugin_ipc::MsgType::Pong)
-                rt->last_pong_ms = QDateTime::currentMSecsSinceEpoch();
-            // 等待响应期间到达的总线消息也要路由,不能被等待循环吞掉
-            if (static_cast<plugin_ipc::MsgType>(t) == plugin_ipc::MsgType::PluginMessage) {
-                QString from, to, topic; QByteArray mp;
-                ds >> from >> to >> topic >> mp;
-                route_plugin_message(from, to, topic, mp);
-            }
-        }
-        if (got) break;
+    bool got = false;
+    QByteArray resp_body;
+    if (wait_response(rt, seq, kParseTimeoutMs, &resp_body)) {
+        QDataStream ds(resp_body);
+        ds.setVersion(plugin_ipc::kStreamVersion);
+        quint64 rseq = 0;
+        bool ok = false;
+        ds >> rseq >> ok;   // seq 已由投递方核对
+        if (ok) { ds >> r >> new_msdu; }
+        else { QString e; ds >> e; r.reject_reason = e; }
+        r.accept = ok;
+        got = true;
     }
     if (!got) {
         r.accept = false;
@@ -468,49 +489,21 @@ bool PluginManager::dissect_via_plugin(const QString& protocol_id,
     o << seq << payload << ctx;
     send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::DissectRequest), body);
 
-    // 阻塞等待响应(分发 worker 线程调用,不阻塞 UI;与 parse_via_plugin 同构)
-    QByteArray resp_buf;
-    const qint64 deadline = QDateTime::currentMSecsSinceEpoch() + kParseTimeoutMs;
+    // 阻塞等待响应邮箱投递(分发 worker 线程调用,不阻塞 UI;与
+    // parse_via_plugin 同构,socket 只由主线程的 on_host_ready_read 读)
     bool got = false;
     bool ok = false;
     DissectResult r;
     QString err_text;
-    while (QDateTime::currentMSecsSinceEpoch() < deadline) {
-        if (!rt->socket->waitForReadyRead(100)) {
-            if (rt->socket->state() != QLocalSocket::ConnectedState) break;
-            continue;
-        }
-        resp_buf.append(rt->socket->readAll());
-        while (resp_buf.size() >= 5) {
-            QDataStream hdr(resp_buf);
-            hdr.setVersion(plugin_ipc::kStreamVersion);
-            quint32 len = 0; hdr >> len;
-            if (resp_buf.size() < 4 + (int)len) break;
-            const QByteArray fr = resp_buf.mid(4, len);
-            resp_buf.remove(0, 4 + len);
-            QDataStream ds(fr);
-            ds.setVersion(plugin_ipc::kStreamVersion);
-            quint8 t = 0; ds >> t;
-            if (static_cast<plugin_ipc::MsgType>(t)
-                    == plugin_ipc::MsgType::DissectResponse) {
-                quint64 rseq = 0;
-                ds >> rseq;
-                if (rseq != seq) continue;
-                ds >> ok;
-                if (ok) ds >> r;
-                else ds >> err_text;
-                got = true;
-                break;
-            }
-            if (static_cast<plugin_ipc::MsgType>(t) == plugin_ipc::MsgType::Pong)
-                rt->last_pong_ms = QDateTime::currentMSecsSinceEpoch();
-            if (static_cast<plugin_ipc::MsgType>(t) == plugin_ipc::MsgType::PluginMessage) {
-                QString from, to, topic; QByteArray mp;
-                ds >> from >> to >> topic >> mp;
-                route_plugin_message(from, to, topic, mp);
-            }
-        }
-        if (got) break;
+    QByteArray resp_body;
+    if (wait_response(rt, seq, kParseTimeoutMs, &resp_body)) {
+        QDataStream ds(resp_body);
+        ds.setVersion(plugin_ipc::kStreamVersion);
+        quint64 rseq = 0;
+        ds >> rseq >> ok;   // seq 已由投递方核对
+        if (ok) ds >> r;
+        else ds >> err_text;
+        got = true;
     }
     if (!got || !ok) {
         if (!got) {
@@ -568,13 +561,16 @@ bool PluginManager::send_plugin_message(const QString& to_name,
     for (auto* rt : m_plugins) {
         if (rt->manifest.name != to_name) continue;
         if (!rt->ready || rt->disabled || !rt->socket) return false;
-        QMutexLocker lock(&rt->ipc_mutex);
+        // tryLock:总线发送多在主线程,阻塞等锁会停转主线程的响应投递
+        // (见 checkHeartbeats 注释);目标忙(有请求在途)即报未投递
+        if (!rt->ipc_mutex.tryLock()) return false;
         QByteArray body;
         QDataStream o(&body, QIODevice::WriteOnly);
         o.setVersion(plugin_ipc::kStreamVersion);
         o << from_name << to_name << topic << payload;
         send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::PluginMessage),
                      body);
+        rt->ipc_mutex.unlock();
         return true;
     }
     return false;
@@ -600,6 +596,7 @@ void PluginManager::disable_plugin(const QString& plugin_id,
     auto it = m_plugins.find(plugin_id);
     if (it == m_plugins.end() || (*it)->disabled) return;
     PluginRuntime* rt = *it;
+    abort_response_waiters(rt);   // 在途请求立即失败退出,不等满超时
     rt->disabled = true;
     rt->disable_reason = reason;
     rt->ready = false;
@@ -615,16 +612,29 @@ void PluginManager::checkHeartbeats() {
     for (auto it = m_plugins.begin(); it != m_plugins.end(); ++it) {
         PluginRuntime* rt = it.value();
         if (!rt->ready || rt->disabled || !rt->socket) continue;
-        // 发 Ping
-        {
-            QMutexLocker lock(&rt->ipc_mutex);
+        // 发 Ping:必须 tryLock——本函数在主线程执行,而响应投递也靠主
+        // 线程的 on_host_ready_read;若在此阻塞等 ipc_mutex(在途请求的
+        // 工作线程正持锁等响应),主线程停转 → 响应永远投递不了 → 请求
+        // 等满超时误判崩溃并禁用插件(2026-10-13 实测:长回放下首个与
+        // 在途请求相撞的心跳 tick 必触发)。有请求在途本身就是存活证据,
+        // 本 tick 跳过 Ping 与超时判定。
+        if (!rt->ipc_mutex.tryLock()) continue;
+        bool heartbeat_expired = false;
+        if (rt->awaiting_pong_seq != 0) {
+            // 已有一枚 Ping 在途:不再叠发,只看它是否已超时未答
+            heartbeat_expired =
+                (now - rt->last_ping_ms > kHeartbeatTimeoutMs);
+        } else {
+            rt->awaiting_pong_seq = ++rt->seq;
+            rt->last_ping_ms = now;
             QByteArray p;
             QDataStream o(&p, QIODevice::WriteOnly);
             o.setVersion(plugin_ipc::kStreamVersion);
-            o << ++rt->seq;
+            o << rt->awaiting_pong_seq;
             send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::Ping), p);
         }
-        if (now - rt->last_pong_ms > kHeartbeatTimeoutMs) {
+        rt->ipc_mutex.unlock();
+        if (heartbeat_expired) {
             disable_plugin(it.key(), QStringLiteral("heartbeat timeout"));
         }
     }
@@ -635,46 +645,35 @@ void PluginManager::checkHeartbeats() {
 namespace {
 constexpr int kGraphicsTimeoutMs = 5000;
 /// @brief 同步等待指定 seq 的响应(主线程调用,带事件循环防假死)
+/// @details 与 parse/dissect 等待同一邮箱机制:socket 只由
+///          on_host_ready_read 读取并按 seq 投递,本函数只泵事件 + 查
+///          邮箱,绝不直读 socket(双读竞态,见 PluginRuntime 注释)。
+///          等待期间到达的 Pong/RequestRedraw/总线消息由读者统一分发。
 template <typename Handler>
 bool wait_graphics_response(PluginRuntime* rt, quint64 seq,
-                            plugin_ipc::MsgType want, Handler&& on_frame) {
-    QByteArray resp_buf;
+                            plugin_ipc::MsgType /*want*/, Handler&& on_frame) {
     const qint64 deadline =
         QDateTime::currentMSecsSinceEpoch() + kGraphicsTimeoutMs;
     while (QDateTime::currentMSecsSinceEpoch() < deadline) {
-        // 主线程:用事件循环等待,避免界面假死
-        QEventLoop loop;
-        QTimer::singleShot(100, &loop, &QEventLoop::quit);
-        QObject::connect(rt->socket, &QLocalSocket::readyRead,
-                         &loop, &QEventLoop::quit);
-        loop.exec();
-        if (rt->socket->state() != QLocalSocket::ConnectedState) break;
-        resp_buf.append(rt->socket->readAll());
-        while (resp_buf.size() >= 5) {
-            QDataStream hdr(resp_buf);
-            hdr.setVersion(plugin_ipc::kStreamVersion);
-            quint32 len = 0; hdr >> len;
-            if (resp_buf.size() < 4 + static_cast<int>(len)) break;
-            const QByteArray fr = resp_buf.mid(4, len);
-            resp_buf.remove(0, 4 + len);
-            QDataStream ds(fr);
-            ds.setVersion(plugin_ipc::kStreamVersion);
-            quint8 t = 0; ds >> t;
-            const auto mt = static_cast<plugin_ipc::MsgType>(t);
-            if (mt == want) {
-                quint64 rseq = 0; ds >> rseq;
-                if (rseq != seq) continue;
+        {
+            QMutexLocker rl(&rt->resp_mutex);
+            if (rt->resp_aborted) return false;
+            if (rt->resp_ready && rt->resp_seq == seq) {
+                const QByteArray body = rt->resp_body;
+                rt->resp_ready = false;
+                QDataStream ds(body);
+                ds.setVersion(plugin_ipc::kStreamVersion);
+                quint64 rseq = 0;
+                ds >> rseq;   // handler 的流位置与旧实现一致(seq 之后)
                 on_frame(ds);
                 return true;
             }
-            if (mt == plugin_ipc::MsgType::Pong)
-                rt->last_pong_ms = QDateTime::currentMSecsSinceEpoch();
-            // RequestRedraw 可能在等待中到达:直接处理
-            if (mt == plugin_ipc::MsgType::RequestRedraw) {
-                // 由外层 handle_message 统一处理,这里只标记
-                // (简化:忽略,视图的定时器会补)
-            }
         }
+        if (rt->socket->state() != QLocalSocket::ConnectedState) return false;
+        // 主线程:短事件循环泵一下,让 readyRead 有机会投递响应
+        QEventLoop loop;
+        QTimer::singleShot(20, &loop, &QEventLoop::quit);
+        loop.exec();
     }
     return false;
 }
@@ -694,7 +693,9 @@ QImage PluginManager::request_render(const QString& protocol_id,
     if (!rt->ready || rt->disabled || !rt->socket) return QImage();
     if (!rt->manifest.graphics) return QImage();
 
-    QMutexLocker lock(&rt->ipc_mutex);
+    // tryLock:主线程阻塞等锁会停转响应投递(见 checkHeartbeats 注释);
+    // 忙时跳过本帧渲染(视图定时器会再来)
+    if (!rt->ipc_mutex.tryLock()) return QImage();
     const quint64 seq = ++rt->seq;
     QByteArray payload;
     QDataStream o(&payload, QIODevice::WriteOnly);
@@ -711,6 +712,7 @@ QImage PluginManager::request_render(const QString& protocol_id,
             ds >> rok >> img;
             if (!rok) img = QImage();
         });
+    rt->ipc_mutex.unlock();
     return ok ? img : QImage();
 }
 
@@ -722,7 +724,8 @@ bool PluginManager::send_graphics_event(const QString& protocol_id,
     if (!rt->ready || rt->disabled || !rt->socket) return false;
     if (!rt->manifest.graphics) return false;
 
-    QMutexLocker lock(&rt->ipc_mutex);
+    // tryLock:主线程阻塞等锁会停转响应投递(见 checkHeartbeats 注释)
+    if (!rt->ipc_mutex.tryLock()) return false;
     const quint64 seq = ++rt->seq;
     QByteArray payload;
     QDataStream o(&payload, QIODevice::WriteOnly);
@@ -736,6 +739,7 @@ bool PluginManager::send_graphics_event(const QString& protocol_id,
     wait_graphics_response(
         rt, seq, plugin_ipc::MsgType::EventAck,
         [&redraw](QDataStream& ds) { ds >> redraw; });
+    rt->ipc_mutex.unlock();
     return redraw;
 }
 

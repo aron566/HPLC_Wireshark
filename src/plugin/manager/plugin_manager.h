@@ -13,6 +13,7 @@
 #include <QMap>
 #include <QMutex>
 #include <QTimer>
+#include <QWaitCondition>
 
 #include <atomic>
 
@@ -41,8 +42,21 @@ struct PluginRuntime {
     bool          disabled = false;   ///< 崩溃/错误后禁用
     std::atomic<bool> retired{false}; ///< stop_all 已退役:对象本体延迟到
                                       ///< 管理器析构才释放(见 stop_all)
+    // —— 同步请求响应邮箱(单读者投递,2026-10-13 竞态修复) ——
+    // socket 字节只由 on_host_ready_read(主线程)读取:响应帧按 seq 存入
+    // 本邮箱并唤醒等待者;请求等待方不得再直读 socket——双读会互相抢走
+    // 响应,被抢走的响应在 handle_message 里无分支可去、直接丢失,等待
+    // 方只能等满超时误判插件崩溃并禁用之(长回放实测数百帧内必触发)。
+    QMutex        resp_mutex;
+    QWaitCondition resp_cond;
+    QByteArray    resp_body;          ///< 最近一帧响应的载荷(类型字节之后,以 seq 起头)
+    quint64       resp_seq = 0;
+    bool          resp_ready = false;
+    bool          resp_aborted = false; ///< host 断连/禁用/退役:等待者立即退出
     QString       disable_reason;
     qint64        last_pong_ms = 0;
+    qint64        last_ping_ms = 0;       ///< 最近一次成功发出 Ping 的时刻
+    quint64       awaiting_pong_seq = 0;  ///< 尚未收到 Pong 的 Ping 序号(0=无)
 };
 
 /// @brief 插件管理器(单例,主线程)
@@ -130,6 +144,13 @@ private:
                               const QString& topic, const QByteArray& payload);
     void handle_message(const QString& plugin_id, quint8 type, QDataStream& ds);
     void send_message(PluginRuntime* rt, quint8 type, const QByteArray& payload);
+    /// @brief 等待 seq 对应的响应载荷被唯一读者投递到邮箱(见 PluginRuntime
+    ///        响应邮箱注释)。调用方须已持 ipc_mutex 串行化请求;本函数只
+    ///        碰 resp_mutex。超时/被中止返回 false。
+    bool wait_response(PluginRuntime* rt, quint64 seq, int timeout_ms,
+                       QByteArray* body);
+    /// @brief 中止该运行时的在途响应等待(host 断连/禁用/退役时调用)
+    void abort_response_waiters(PluginRuntime* rt);
     void checkHeartbeats();
 
     QMap<QString, PluginRuntime*> m_plugins;  ///< key: protocol_id
