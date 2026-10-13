@@ -1,6 +1,7 @@
 /// @file packetlistmodel.cpp
 /// @brief PacketListModel 实现(磁盘换页)
 #include "packetlistmodel.h"
+#include "i18n.h"
 #include "packetentry_serialize.h"
 #include <algorithm>
 #include <cstdint>
@@ -54,12 +55,92 @@ int PacketListModel::rowCount(const QModelIndex& parent) const {
 
 int PacketListModel::columnCount(const QModelIndex& parent) const {
     if (parent.isValid()) return 0;
-    return COL_COUNT;
+    if (!m_plugin_columns_active) return COL_COUNT;
+    return 3 + visible_plugin_columns().size();
+}
+
+const DissectColumn* PacketListModel::plugin_column_for_section(int section) const {
+    if (!m_plugin_columns_active || section < 3) return nullptr;
+    int want = section - 3;
+    for (int i = 0; i < m_plugin_columns.size(); ++i) {
+        if (!m_plugin_column_visible[i]) continue;
+        if (want-- == 0) return &m_plugin_columns[i];
+    }
+    return nullptr;
+}
+
+QVector<DissectColumn> PacketListModel::visible_plugin_columns() const {
+    QVector<DissectColumn> out;
+    if (!m_plugin_columns_active) return out;
+    for (int i = 0; i < m_plugin_columns.size(); ++i)
+        if (m_plugin_column_visible[i]) out.append(m_plugin_columns[i]);
+    return out;
+}
+
+void PacketListModel::set_plugin_columns(const QVector<DissectColumn>& columns) {
+    // 清洗:空 id / 重复 id 不进模型(id 是逐帧值的映射键,必须唯一)
+    QVector<DissectColumn> clean;
+    for (const DissectColumn& c : columns) {
+        if (c.id.isEmpty()) continue;
+        bool dup = false;
+        for (const DissectColumn& x : clean)
+            if (x.id == c.id) { dup = true; break; }
+        if (!dup) clean.append(c);
+    }
+    if (m_plugin_columns_active && clean.size() == m_plugin_columns.size()) {
+        bool same = true;
+        for (int i = 0; i < clean.size(); ++i) {
+            const DissectColumn& a = clean[i];
+            const DissectColumn& b = m_plugin_columns[i];
+            if (a.id != b.id || a.title != b.title || a.title_en != b.title_en
+                || a.width != b.width || a.alignment != b.alignment
+                || a.default_visible != b.default_visible) { same = false; break; }
+        }
+        if (same) return;   // 声明未变:保留用户已调整的列显隐
+    }
+    beginResetModel();
+    m_plugin_columns = clean;
+    m_plugin_column_visible.clear();
+    for (const DissectColumn& c : clean)
+        m_plugin_column_visible.append(c.default_visible);
+    m_plugin_columns_active = true;
+    endResetModel();
+}
+
+void PacketListModel::use_builtin_columns() {
+    if (!m_plugin_columns_active && m_plugin_columns.isEmpty()) return;
+    beginResetModel();
+    m_plugin_columns_active = false;
+    m_plugin_columns.clear();
+    m_plugin_column_visible.clear();
+    endResetModel();
+}
+
+bool PacketListModel::set_plugin_column_visible(const QString& id, bool visible) {
+    if (!m_plugin_columns_active) return false;
+    for (int i = 0; i < m_plugin_columns.size(); ++i) {
+        if (m_plugin_columns[i].id != id) continue;
+        if (m_plugin_column_visible[i] == visible) return true;
+        if (!visible) {
+            int shown = 0;
+            for (bool v : m_plugin_column_visible) if (v) ++shown;
+            if (shown <= 1) return false;   // 至少保留一列插件列
+        }
+        beginResetModel();
+        m_plugin_column_visible[i] = visible;
+        endResetModel();
+        return true;
+    }
+    return false;
 }
 
 QVariant PacketListModel::headerData(int section, Qt::Orientation orient, int role) const {
     if (role != Qt::DisplayRole) return {};
     if (orient == Qt::Horizontal) {
+        if (const DissectColumn* c = plugin_column_for_section(section)) {
+            if (trl::enabled() && !c->title_en.isEmpty()) return c->title_en;
+            return c->title;
+        }
         switch (section) {
             case COL_INDEX:    return QStringLiteral("#");
             case COL_TIME:     return QStringLiteral("Time");
@@ -85,6 +166,8 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
     const PacketEntry& e = locate(m_visible[idx.row()]);
 
     if (role == Qt::DisplayRole) {
+        if (const DissectColumn* c = plugin_column_for_section(idx.column()))
+            return e.column_values.value(c->id);
         switch (idx.column()) {
             case COL_INDEX:  return e.index;
             case COL_TIME: {
@@ -235,6 +318,8 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
         }
         return data_color(e);
     } else if (role == Qt::TextAlignmentRole) {
+        if (const DissectColumn* c = plugin_column_for_section(idx.column()))
+            return int(c->alignment);
         if (idx.column() == COL_INDEX || idx.column() == COL_LENGTH)
             return int(Qt::AlignRight | Qt::AlignVCenter);
         if (idx.column() == COL_TIME || idx.column() == COL_DELTA)
@@ -601,5 +686,7 @@ PacketListModel::ExportSnapshot PacketListModel::make_export_snapshot() const {
     for (int i = 0; i < m_block_count; ++i)
         s.block_paths << block_path(i);
     s.tei_mac = m_tei_mac;   // 深拷贝 TEI→MAC 映射表(CSV 导出显示 MAC 用)
+    s.plugin_columns_active = m_plugin_columns_active;
+    s.plugin_columns = visible_plugin_columns();
     return s;
 }

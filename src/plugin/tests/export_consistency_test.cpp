@@ -82,9 +82,162 @@ struct EntryMaker {
         e.msdu_raw_base = r.msdu_raw_base;
         e.raw_bytes = r.payload_for_log;
         e.dissect_fields = r.dissect_fields;
+        e.column_values = r.column_values;
         return e;
     }
 };
+
+/// 期望列值:从内置条目独立转录 MainWindow::csv_row 的列渲染(测试侧
+/// 第二份转录,与插件侧 column_gen 互为校验),TEI→MAC 学习规则与
+/// PacketListModel::update_tei_mac 一致(先学习本帧、再渲染本帧)。
+using HarnessMacMap = QHash<quint32, QHash<quint16, quint64>>;
+QString harness_mac_str(quint64 v) {
+    QString s;
+    for (int i = 0; i < 6; ++i) {
+        s += QStringLiteral("%1").arg((v >> (8 * i)) & 0xFF, 2, 16, QChar('0'));
+        if (i < 5) s += QLatin1Char(':');
+    }
+    return s;
+}
+quint64 harness_lookup(const HarnessMacMap& m, quint32 nid, quint16 tei) {
+    auto it = m.constFind(nid);
+    if (it == m.constEnd()) return 0;
+    auto mit = it->constFind(tei);
+    return (mit == it->constEnd()) ? 0 : mit.value();
+}
+void harness_update_mac(HarnessMacMap& m, const PacketEntry& e) {
+    if (!e.accepted) return;
+    const quint32 nid = e.mpdu.net_id;
+    if (e.mpdu.frame_type == 0 && e.mpdu.beacon_cco_mac)
+        m[nid][1] = e.mpdu.beacon_cco_mac;
+    for (const TeiMacPair& p : e.beacon.tei_mac_pairs)
+        if (p.tei != 0 && p.mac) m[nid][p.tei] = p.mac;
+    for (const TeiMacPair& p : e.msdu.tei_mac_pairs)
+        if (p.tei != 0 && p.mac) m[nid][p.tei] = p.mac;
+    if (!e.msdu.present || e.msdu.simple_head) return;
+    if (e.msdu.msdu_src_tei > 0 && e.msdu.msdu_src_mac)
+        m[nid][quint16(e.msdu.msdu_src_tei)] = e.msdu.msdu_src_mac;
+    if (e.msdu.msdu_dst_tei > 0 && e.msdu.msdu_dst_mac)
+        m[nid][quint16(e.msdu.msdu_dst_tei)] = e.msdu.msdu_dst_mac;
+}
+QString expected_column(const QString& id, const PacketEntry& e,
+                        const HarnessMacMap& macs) {
+    const quint32 nid = e.mpdu.net_id;
+    if (id == QStringLiteral("orig_src")) {
+        if (e.accepted && e.msdu.present && !e.msdu.simple_head
+            && e.msdu.msdu_src_tei > 0) {
+            const int tei = e.msdu.msdu_src_tei;
+            QString s = (tei == 1) ? QStringLiteral("CCO")
+                                   : QStringLiteral("STA-%1").arg(tei);
+            quint64 mac = e.msdu.msdu_src_mac;
+            if (!mac) mac = harness_lookup(macs, nid, quint16(tei));
+            if (mac) s += QStringLiteral(" [%1]").arg(harness_mac_str(mac));
+            return s;
+        }
+        return QString();
+    }
+    if (id == QStringLiteral("source")) {
+        if (!e.accepted) return QStringLiteral("DROP");
+        const quint16 tei = e.mpdu.src_tei;
+        if (e.mpdu.frame_type == 3 && tei == 0) {
+            QString s = QStringLiteral("CCO");
+            const quint64 mac = harness_lookup(macs, nid, 1);
+            if (mac) s += QStringLiteral(" [%1]").arg(harness_mac_str(mac));
+            return s;
+        }
+        if (tei != 0) {
+            QString s = (tei == 1) ? QStringLiteral("CCO")
+                                   : QStringLiteral("STA-%1").arg(tei);
+            const quint64 mac = harness_lookup(macs, nid, tei);
+            if (mac) s += QStringLiteral(" [%1]").arg(harness_mac_str(mac));
+            return s;
+        }
+        if (e.msdu.sta_mac)
+            return QStringLiteral("STA-X [%1]").arg(harness_mac_str(e.msdu.sta_mac));
+        return e.meta.is_rf ? QStringLiteral("RF") : QStringLiteral("PLC");
+    }
+    if (id == QStringLiteral("destination")) {
+        if (!e.accepted) return e.reason;
+        if (e.mpdu.dst_tei == 0xFFF) return QStringLiteral("BROADCAST");
+        const quint16 tei = e.mpdu.dst_tei;
+        if (tei != 0) {
+            QString s = (tei == 1) ? QStringLiteral("CCO")
+                                   : QStringLiteral("STA-%1").arg(tei);
+            const quint64 mac = harness_lookup(macs, nid, tei);
+            if (mac) s += QStringLiteral(" [%1]").arg(harness_mac_str(mac));
+            return s;
+        }
+        return QStringLiteral("*");
+    }
+    if (id == QStringLiteral("orig_dst")) {
+        if (e.accepted && e.msdu.present && !e.msdu.simple_head
+            && e.msdu.msdu_dst_tei > 0) {
+            const int tei = e.msdu.msdu_dst_tei;
+            QString s = (tei == 0xFFF) ? QStringLiteral("BCAST")
+                        : (tei == 1) ? QStringLiteral("CCO")
+                                     : QStringLiteral("STA-%1").arg(tei);
+            if (tei == 0xFFF) {
+                if (e.msdu.msdu_dst_mac)
+                    s += QStringLiteral(" [%1]").arg(harness_mac_str(e.msdu.msdu_dst_mac));
+            } else {
+                quint64 mac = e.msdu.msdu_dst_mac;
+                if (!mac) mac = harness_lookup(macs, nid, quint16(tei));
+                if (mac) s += QStringLiteral(" [%1]").arg(harness_mac_str(mac));
+            }
+            return s;
+        }
+        return QString();
+    }
+    if (id == QStringLiteral("dir")) {
+        if (!e.accepted || !e.msdu.present || e.msdu.simple_head)
+            return QStringLiteral("*");
+        const bool relay = (e.mpdu.src_tei != 0)
+                        && (e.msdu.msdu_src_tei > 0)
+                        && (quint16(e.msdu.msdu_src_tei) != e.mpdu.src_tei);
+        QString dir;
+        if (e.msdu.msdu_dst_tei == 0xFFF)
+            dir = (e.msdu.msdu_send_type == 1 || e.msdu.msdu_send_type == 3)
+                      ? QStringLiteral("\u2192") : QStringLiteral("*");
+        else if (e.msdu.msdu_dst_tei == 1)
+            dir = QStringLiteral("\u2191");
+        else if (e.msdu.msdu_src_tei == 1)
+            dir = QStringLiteral("\u2193");
+        else
+            dir = QStringLiteral("*");
+        if (relay && dir != QStringLiteral("*")) dir += QLatin1Char('R');
+        return dir;
+    }
+    if (id == QStringLiteral("protocol"))
+        return !e.accepted ? QStringLiteral("ERR")
+                           : e.meta.is_rf ? QStringLiteral("RF")
+                                          : QStringLiteral("HPLC");
+    if (id == QStringLiteral("frame_type"))
+        return !e.accepted ? QStringLiteral("-") : e.mpdu.frame_type_name();
+    if (id == QStringLiteral("msdu_type"))
+        return (e.accepted && e.msdu.present) ? e.msdu.summary : QString();
+    if (id == QStringLiteral("msdu_seq"))
+        return (e.accepted && e.msdu.present) ? QString::number(e.msdu.msdu_seq)
+                                              : QString();
+    if (id == QStringLiteral("length"))
+        return QString::number(e.raw_bytes.size());
+    if (id == QStringLiteral("info")) {
+        if (!e.accepted) return e.reason;
+        const QString n = QString::number(nid, 16).toUpper()
+                              .rightJustified(6, QChar('0'));
+        if (e.mpdu.frame_type == 0)
+            return QStringLiteral("NetID=0x%1 ts=%2").arg(n).arg(e.meta.timestamp);
+        if (e.mpdu.frame_type == 1)
+            return QStringLiteral("NetID=0x%1 src=%2 dst=%3 TMI=%4 PBNum=%5%6")
+                .arg(n).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
+                .arg(e.mpdu.tmi).arg(e.mpdu.pb_num)
+                .arg(e.msdu_body.isEmpty()
+                         ? QString()
+                         : QStringLiteral(" MSDU[%1B]").arg(e.msdu_body.size()));
+        return QStringLiteral("NetID=0x%1 src=%2 dst=%3")
+            .arg(n).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei);
+    }
+    return QStringLiteral("<unknown column id>");
+}
 
 QString sha256_hex(const QByteArray& b) {
     return QString::fromLatin1(
@@ -138,15 +291,20 @@ int main(int argc, char* argv[]) {
     const QCommandLineOption opt_max(QStringLiteral("max"),
         QStringLiteral("max frames (0=all)"), QStringLiteral("n"),
         QStringLiteral("0"));
+    const QCommandLineOption opt_offset(QStringLiteral("offset"),
+        QStringLiteral("skip first n frames (segmented full runs)"),
+        QStringLiteral("n"), QStringLiteral("0"));
     cli.addOption(opt_bin);
     cli.addOption(opt_plugins);
     cli.addOption(opt_variant);
     cli.addOption(opt_max);
+    cli.addOption(opt_offset);
     cli.process(app);
     const QString bin_path = cli.value(QStringLiteral("bin"));
     const QString plugins_dir = cli.value(QStringLiteral("plugins"));
     const bool is_gw = cli.value(QStringLiteral("variant")) == QLatin1String("gw");
     const int max_frames = cli.value(QStringLiteral("max")).toInt();
+    const int offset_frames = cli.value(QStringLiteral("offset")).toInt();
     if (bin_path.isEmpty() || plugins_dir.isEmpty()) {
         out << "usage: --bin <file> --variant <gw|nw> --plugins <dir>\n";
         return 2;
@@ -177,6 +335,12 @@ int main(int argc, char* argv[]) {
         loop.exec();
         reader.stop();
     }
+    // 分段全量校验:--offset 跳过前 N 帧后再按 --max 截取本段;各段内
+    // 内置/插件两侧同为全新状态起跑(解析器与学习表都重建),段间不重叠、
+    // 并集覆盖全帧。单进程全量驻留两组条目+四份导出缓冲,32 万帧级抓包
+    // 会 OOM(8G 机实测 4 万帧峰值 1.3G),故大抓包分段跑。
+    if (offset_frames > 0)
+        frames = frames.mid(qMin(offset_frames, frames.size()));
     if (max_frames > 0 && frames.size() > max_frames)
         frames = frames.mid(0, max_frames);
     out << "frames: " << frames.size() << "\n";
@@ -201,6 +365,11 @@ int main(int argc, char* argv[]) {
 
     // ---- 插件链:host 握手注册 → 工厂取代理解剖器 → worker 线程喂帧 ----
     PluginManager& pm = PluginManager::instance();
+    QObject::connect(&pm, &PluginManager::plugin_status_changed,
+                     [](const QString& id, const QString& st) {
+                         out << "status: " << id << " -> " << st << "\n";
+                         out.flush();
+                     });
     pm.loadAll(plugins_dir);
     {
         QElapsedTimer timer;
@@ -223,6 +392,8 @@ int main(int argc, char* argv[]) {
     QVector<ParseResult> plugin_results;
     plugin_results.resize(frames.size());
     std::atomic<bool> done{false};
+    QElapsedTimer pass_timer;
+    pass_timer.start();
     std::thread worker([&] {
         MsduState msdu;
         IProtocolParser* p = plugin_parser.get();
@@ -235,6 +406,10 @@ int main(int argc, char* argv[]) {
         QThread::msleep(10);
     }
     worker.join();
+    out << "plugin pass elapsed: " << pass_timer.elapsed() << " ms\n";
+    // 冲刷排队的禁用通知等事件,让状态信号落账后再统计
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 300);
+    out.flush();
     QVector<PacketEntry> plugin_entries;
     plugin_entries.reserve(frames.size());
     {
@@ -243,6 +418,7 @@ int main(int argc, char* argv[]) {
             plugin_entries.append(maker.make(r, kNow));
     }
     out << "plugin entries: " << plugin_entries.size() << "\n";
+    const QVector<DissectColumn> specs = pm.dissector_columns(plugin_id);
     pm.stop_all();
 
     check(builtin_entries.size() == plugin_entries.size(),
@@ -347,6 +523,7 @@ int main(int argc, char* argv[]) {
             if (!a.dissect_fields.isEmpty()) ++builtin_fields_nonempty;
             if (!b.dissect_fields.isEmpty()) ++plugin_fields_nonempty;
             b.dissect_fields.clear();
+            b.column_values.clear();   // 列值在下面第 3 节按列能力单独校验
             pser::StrPool pool_a, pool_b;
             const QByteArray sa = pser::serialize_entry(a, pool_a);
             const QByteArray sb = pser::serialize_entry(b, pool_b);
@@ -377,12 +554,63 @@ int main(int argc, char* argv[]) {
             out << "first mismatch at entry " << first_bad
                 << " groups: " << g.join(QStringLiteral(", ")) << "\n";
         }
-        check(mismatches == 0,
-              "all csv-input fields byte-identical per entry");
+        // 列能力架构下,插件条目的 msdu/beacon 结构体不再是显示/导出
+        // 的数据来源(列值走 column_values,第 3 节单独逐列校验),这两
+        // 组的结构性留空属预期;其余字段组与 collapse 仍必须为零。
+        bool genuine_only_arch = true;
+        for (const QString& g : genuine_groups)
+            if (g != QStringLiteral("msdu") && g != QStringLiteral("beacon"))
+                genuine_only_arch = false;
+        check(mismatch_collapse == 0 && genuine_only_arch,
+              "entry core fields identical (plugin msdu/beacon superseded "
+              "by column values)");
         check(builtin_fields_nonempty == 0,
               "builtin entries carry no dissect_fields (by design)");
         out << "plugin entries with dissect_fields: "
             << plugin_fields_nonempty << " (info only, export ignores them)\n";
+    }
+
+    // ---- 3) 列能力与列值:声明集 + 逐帧逐列与内置渲染期望一致 ----
+    {
+        const QStringList want_ids = {
+            QStringLiteral("orig_src"), QStringLiteral("source"),
+            QStringLiteral("destination"), QStringLiteral("orig_dst"),
+            QStringLiteral("dir"), QStringLiteral("protocol"),
+            QStringLiteral("frame_type"), QStringLiteral("msdu_type"),
+            QStringLiteral("msdu_seq"), QStringLiteral("length"),
+            QStringLiteral("info")};
+        QStringList got_ids;
+        for (const DissectColumn& c : specs) got_ids << c.id;
+        out << "plugin columns (" << specs.size() << "): "
+            << got_ids.join(QStringLiteral(",")) << "\n";
+        check(got_ids == want_ids,
+              "plugin declares the reference column set in order");
+        int col_mismatch = 0;
+        int first_bad_entry = -1;
+        QString first_bad_col;
+        HarnessMacMap macs;
+        const int n = qMin(builtin_entries.size(), plugin_entries.size());
+        for (int i = 0; i < n; ++i) {
+            harness_update_mac(macs, builtin_entries[i]);
+            for (const DissectColumn& c : specs) {
+                const QString want = expected_column(c.id, builtin_entries[i], macs);
+                const QString got = plugin_entries[i].column_values.value(c.id);
+                if (want != got) {
+                    ++col_mismatch;
+                    if (first_bad_entry < 0) {
+                        first_bad_entry = i;
+                        first_bad_col = c.id;
+                        out << "first column mismatch at entry " << i
+                            << " column " << c.id << ": builtin '" << want
+                            << "' vs plugin '" << got << "'\n";
+                    }
+                }
+            }
+        }
+        out << "column value compare: " << n << " entries x " << specs.size()
+            << " columns, mismatches " << col_mismatch << "\n";
+        check(col_mismatch == 0,
+              "all plugin column values equal builtin rendering");
     }
 
     out << (failures == 0 ? "EXPORT CONSISTENCY PASS\n"

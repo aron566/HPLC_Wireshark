@@ -14,6 +14,7 @@
 #define PACKETLISTMODEL_H
 
 #include "bplcframe.h"
+#include "dissect.h"                 // DissectColumn(插件列能力)
 #include "packetentry_serialize.h"   // pser::BlockReader(盘块随机访问)
 #include <QAbstractTableModel>
 #include <QVector>
@@ -81,6 +82,20 @@ public:
     /// @brief 按全局顺序流式遍历全部条目(导出用;不一次性载入内存)
     void for_each_entry(const std::function<void(const PacketEntry&)>& fn);
 
+    // ---- 插件列能力 ----
+    /// @brief 切换到插件声明的列集:#/Time/Delta 固定列之后按声明顺序
+    ///        显示 default_visible 的列;每帧值取 PacketEntry::column_values
+    void set_plugin_columns(const QVector<DissectColumn>& columns);
+    /// @brief 回到内置固定列集
+    void use_builtin_columns();
+    bool plugin_columns_active() const { return m_plugin_columns_active; }
+    /// @brief 插件声明的全部列(含当前隐藏列)
+    QVector<DissectColumn> plugin_columns() const { return m_plugin_columns; }
+    /// @brief 当前实际显示的插件列(声明顺序)
+    QVector<DissectColumn> visible_plugin_columns() const;
+    /// @brief 显示/隐藏一列插件列;返回 false=未找到该列或试图隐藏最后一列
+    bool set_plugin_column_visible(const QString& id, bool visible);
+
     /// @brief 导出快照:热区拷贝 + 已落盘块文件路径(升序),供工作线程流式导出
     /// @note 在 GUI 线程调用;快照独立于模型(热区深拷贝、盘块路径为快照值),
     ///       之后模型继续 append/滚动均不影响该快照,可安全传给工作线程。
@@ -89,6 +104,10 @@ public:
         QStringList          block_paths; ///< 盘块文件路径(升序,对应块 0..N-1)
         /// TEI→MAC 映射表快照(CSV 导出 Source/Dest 列显示 MAC 用;深拷贝)
         QHash<quint32, QHash<quint16, quint64>> tei_mac;
+        /// CSV 导出列集快照:插件列模式时为 true,plugin_columns 是导出
+        /// 时的可见插件列(顺序与界面一致);内置模式下 CSV 走固定列。
+        bool                   plugin_columns_active = false;
+        QVector<DissectColumn> plugin_columns;
     };
     ExportSnapshot make_export_snapshot() const;
 
@@ -123,6 +142,12 @@ private:
     void update_tei_mac(const PacketEntry& e);
     /// @brief 查 TEI 对应 MAC(48-bit;无记录返回 0)
     quint64 lookup_mac(quint32 nid, quint16 tei) const;
+    /// @brief 模型列 section → 插件列描述(仅插件列模式且 section≥3 时非空)
+    const DissectColumn* plugin_column_for_section(int section) const;
+
+    bool                   m_plugin_columns_active = false;
+    QVector<DissectColumn> m_plugin_columns;        ///< 插件声明的全部列
+    QVector<bool>          m_plugin_column_visible; ///< 与 m_plugin_columns 并行
 
     QVector<PacketEntry>  m_hot;         ///< 驻留热区(最近未 flush 条目,≤kBlockSize)
     int                    m_block_count; ///< 已落盘满块数量

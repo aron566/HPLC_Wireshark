@@ -13,6 +13,7 @@
 
 #include <QByteArray>
 #include <QDateTime>
+#include <QMap>
 #include <QPair>
 #include <QString>
 #include <QStringList>
@@ -323,6 +324,7 @@ struct PacketEntry {
     QByteArray   raw_bytes;    ///< 原始字节,用于 HexView 显示
     QString      search_text;  ///< 可搜索全文缓存(小写;make_entry/反序列化时填充,过滤匹配用)
     QVector<DissectField> dissect_fields; ///< 插件解剖器通用字段树(内置解析为空)
+    QMap<QString, QString> column_values; ///< 插件按其列能力返回的本帧列值(内置为空)
 
     PacketEntry()
         : index(0), epoch_ms(0), delta_us(0), accepted(false),

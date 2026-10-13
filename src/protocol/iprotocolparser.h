@@ -10,6 +10,7 @@
 #include "bplcframe.h"
 #include "common/protocolvariant.h"
 #include <QList>
+#include <QMap>
 #include <QMetaType>
 
 /// @brief 协议无关的解析结果(展示层/过滤/导出统一消费)
@@ -28,6 +29,9 @@ struct ParseResult {
     /// 插件解剖器返回的通用字段树(内置解析器为空,走旧 builder 渲染;
     /// 非空时 ProtocolTree 用通用渲染器画协议段)。不进 IPC 旧序列化。
     QVector<DissectField> dissect_fields;
+    /// 插件解剖器按其列能力返回的本帧列文本值(内置解析器为空;
+    /// 键为 DissectColumn::id,供 PacketList 插件列与 CSV 导出共用)。
+    QMap<QString, QString> column_values;
 
     ParseResult() : msdu_raw_base(-1), arrival_us(0), accept(false) {}
 };

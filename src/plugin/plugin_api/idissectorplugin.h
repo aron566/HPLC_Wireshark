@@ -28,6 +28,12 @@ public:
     /// @brief 本解剖器负责的协议 id（须与 plugin.json 的 protocol_id 一致）
     virtual QString dissector_protocol_id() const = 0;
 
+    /// @brief 本解剖器可提供的 PacketList 列能力(顺序即建议显示顺序)
+    /// @details 宿主在握手后读取一次并缓存;每帧文本值经
+    ///          DissectResult::column_values 按列 id 返回。缺省空列表=
+    ///          只显示宿主固定列(#/Time/Delta)。
+    virtual QVector<DissectColumn> dissector_columns() const { return {}; }
+
     /// @brief 解剖一帧去封装净荷
     /// @param payload 去封装后的帧字节（BplcFrame::data）
     /// @param ctx     主程序告知的帧外信息（时间戳/通道等，可忽略）

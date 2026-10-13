@@ -39,6 +39,7 @@ struct PluginRuntime {
     quint64       seq = 0;
     bool          ready = false;      ///< 握手完成
     bool          has_dissector = false; ///< host 握手上报的实际解剖能力
+    QVector<DissectColumn> dissector_columns; ///< host 握手上报的列能力
     bool          disabled = false;   ///< 崩溃/错误后禁用
     std::atomic<bool> retired{false}; ///< stop_all 已退役:对象本体延迟到
                                       ///< 管理器析构才释放(见 stop_all)
@@ -85,6 +86,8 @@ public:
     bool is_dissector_protocol(const QString& protocol_id) const;
     /// @brief 解剖器协议的显示名(清单 display_name,供协议下拉框)
     QString dissector_display_name(const QString& protocol_id) const;
+    /// @brief 解剖器握手上报的 PacketList 列能力(未就绪/已禁用返回空)
+    QVector<DissectColumn> dissector_columns(const QString& protocol_id) const;
     /// @brief 经解剖器插件解剖一帧净荷(阻塞,worker 线程调用)
     bool dissect_via_plugin(const QString& protocol_id,
                             const QByteArray& payload, const FrameContext& ctx,

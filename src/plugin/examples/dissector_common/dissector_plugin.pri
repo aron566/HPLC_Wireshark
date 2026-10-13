@@ -30,6 +30,7 @@ HEADERS += \
     ../../plugin_api/dissect.h \
     ../../plugin_api/idissectorplugin.h \
     ../dissector_common/field_gen.h \
+    ../dissector_common/column_gen.h \
     ../../../protocol/statistics.h
 # statistics.h 必须在 HEADERS 里:statistics.cpp 中 FrameStatistics(QObject)
 # 的 vtable 由 moc 生成,插件 .so 须自包含,不能指望宿主导出符号。
@@ -37,6 +38,7 @@ HEADERS += \
 SOURCES += \
     ../dissector_common/dissector_plugin.cpp \
     ../dissector_common/field_gen.cpp \
+    ../dissector_common/column_gen.cpp \
     ../../../common/i18n.cpp \
     ../../../protocol/statistics.cpp
 

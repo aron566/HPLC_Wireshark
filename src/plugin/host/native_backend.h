@@ -25,6 +25,7 @@ public:
 
     // ---- 解剖器 ----
     bool has_dissector() const override;
+    QVector<DissectColumn> dissector_columns() const override;
     bool dissect(const QByteArray& payload, const FrameContext& ctx,
                  DissectResult* out, QString* err) override;
     void dissect_reset() override;

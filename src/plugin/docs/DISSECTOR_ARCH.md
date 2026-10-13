@@ -95,8 +95,30 @@ struct DissectResult {
                                    // 前缀后）；空则宿主回退用输入 payload
     bool has_refined_ctx;          // 是否回传精化帧外信息
     FrameContext refined_ctx;      // 精化值（ntb/channel/is_rf 覆盖宿主粗值）
+    QMap<QString, QString> column_values;  // 本帧列文本值（键=列能力 id）
+};
+
+struct DissectColumn {         // 解剖器声明的一列展示/导出能力
+    QString id;                // 稳定列 id（column_values 的键，唯一）
+    QString title;             // 列标题（默认语言）
+    QString title_en;          // 英文标题（英文界面/CSV 表头优先）
+    int     width;             // 建议初始列宽
+    quint32 alignment;         // Qt::Alignment 位掩码
+    bool    default_visible;   // 是否默认显示（表头右键可调）
 };
 ```
+
+列能力契约（2026-10-13）：主界面不假定插件协议沿用内置列集。解剖器
+经 `IDissectorPlugin::dissector_columns()` 声明自己能提供的列，握手
+（Hello）时随能力位一并上报，管理器缓存、主界面在协议激活时读入
+PacketListModel：`# / Time / Delta` 三列为宿主固定列（时间轴不属于
+任何协议），其余列按声明顺序显示，用户可在表头右键菜单增减可显示
+列。每帧文本由插件在 DissectResult::column_values 中按列 id 返回，
+随 PacketEntry 落盘（块格式 v5）。CSV 导出复用导出快照中的同一组
+可见列与同一批值——插件依据自己的字段响应导出，宿主不再用内置
+MSDU 字段替插件拼列。参考解剖器声明与内置列一一对应的 11 列并在
+插件内复刻渲染（含自持 TEI→MAC 学习表），故其列表/CSV 与内置模式
+逐格一致（export_consistency_test 逐列校验）。
 
 坐标约定：DissectField 的 start/len 以 **dissected_bytes**（解剖器自行
 剥除媒介/传输前缀后的字节，与内置解析器的 payload_for_log 同义，
@@ -117,6 +139,7 @@ class IDissectorPlugin {       // src/plugin/plugin_api/idissectorplugin.h
 public:
     virtual ~IDissectorPlugin() = default;
     virtual QString dissector_protocol_id() const = 0;
+    virtual QVector<DissectColumn> dissector_columns() const { return {}; }
     virtual DissectResult dissect(const QByteArray& payload,
                                   const FrameContext& ctx) = 0;
     virtual void dissect_reset() {}   // 新采集/重放时主程序要求清状态
@@ -158,6 +181,11 @@ public:
   （Frame/Physical 公共段仍为主程序统一生成），否则走旧 builder。
   块文件格式随之升 v4（条目尾部追加字段树；块文件仅同会话往返，
   不跨版本兼容）。
+- 列集：MainWindow 在分发器重建与解剖器注册/注销时调用
+  sync_packet_columns()——活动协议为插件解剖器时模型换成其列能力
+  （见上「列能力契约」），否则回内置列；导出快照携带当时的可见列
+  集，CSV 在工作线程按快照生成，界面与导出严格同列。块格式升 v5
+  （条目尾部再追加 column_values）。
 
 ## 过滤 / topo / 其他插件
 
@@ -226,3 +254,31 @@ public:
   主线程执行，避免等待循环持源 runtime 锁时同步拿目标锁自锁。
   此前 parse 等待循环会吞掉总线消息、dissect 等待循环只发信号
   不直投，两处不一致一并消除。
+
+## IPC 单读者化与列能力（2026-10-13 实测驱动）
+
+导出层字节级实测（export_consistency_test）上量后暴露 IPC 响应
+双读竞态：socket 同时被主线程 on_host_ready_read 与请求等待循环
+（worker 线程 waitForReadyRead+readAll）读取，而 handle_message
+没有响应分支——响应被主线程抢读即丢失，等待方等满 5s 超时误判
+插件崩溃并禁用，长回放数百帧内必触发、后续帧连锁拒绝。修复：
+
+- 单读者：socket 字节只由 on_host_ready_read 读取；四类响应帧
+  （Parse/Dissect/Render/EventAck）按 seq 投递到 PluginRuntime
+  的响应邮箱（resp_mutex/resp_cond），parse/dissect/render 三处
+  等待统一改走 wait_response/邮箱查询，不再直读 socket。
+- 主线程防停转：响应投递依赖主线程事件循环，故主线程侧一切
+  ipc_mutex 获取改 tryLock——checkHeartbeats（忙则跳过本 tick）、
+  send_plugin_message（忙则报未投递）、request_render /
+  send_graphics_event（忙则跳过本帧）。否则主线程阻塞在工作线程
+  持有的锁上、响应永远投递不了，与双读是同一死结的两面。
+- 心跳判定改按在途 Ping 计时（awaiting_pong_seq + last_ping_ms）：
+  只对已发出且超时未答的 Ping 判死，不再用陈旧 last_pong 误杀
+  忙碌中的插件（tryLock 跳过若干 tick 后首个成功 tick 若沿用旧
+  判定会刚发 Ping 就禁用）。
+- 禁用/断连/退役时 abort_response_waiters 唤醒在途等待立即退出。
+
+同批落地列能力契约（见上「数据类型」节）：起因是实测发现
+DissectResult 未携带 MsduInfo 明细，插件模式列表/CSV 的 MSDU 派生
+列恒空——按「插件声明列、宿主按能力设列、插件按自己的字段导出」
+改为通用列契约，不再把内置列字段硬塞回 DissectResult。

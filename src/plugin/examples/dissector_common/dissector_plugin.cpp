@@ -8,6 +8,7 @@
 #include <QObject>
 #include <memory>
 
+#include "column_gen.h"
 #include "field_gen.h"
 #include "idissectorplugin.h"
 #include "iplugin.h"
@@ -66,6 +67,9 @@ public:
     QString dissector_protocol_id() const override {
         return QStringLiteral(DISSECTOR_PROTO_ID);
     }
+    QVector<DissectColumn> dissector_columns() const override {
+        return dissect_gen::reference_columns();
+    }
     DissectResult dissect(const QByteArray& payload,
                           const FrameContext& ctx) override {
         DissectResult out;
@@ -103,6 +107,10 @@ public:
         out.refined_ctx.is_rf = r.meta.is_rf;
         out.topo_event = r.msdu.topo_event;
         out.tei_mac_pairs = r.msdu.tei_mac_pairs;
+        // 列值:先以本帧学习对更新自持 TEI→MAC 表(与宿主模型 append
+        // 时先学习后渲染同序),再按列能力生成本帧各列文本
+        dissect_gen::update_tei_mac(m_tei_mac, r);
+        out.column_values = dissect_gen::reference_column_values(r, m_tei_mac);
         if (r.accept) {
             // 字段生成器的字节坐标以剥前缀后的 MPDU(payload_for_log)为准,
             // 与内置构建器读 e.raw_bytes 的口径一致
@@ -114,11 +122,15 @@ public:
         }
         return out;
     }
-    void dissect_reset() override { m_msdu_state = MsduState(); }
+    void dissect_reset() override {
+        m_msdu_state = MsduState();
+        m_tei_mac.clear();   // 列值用的 TEI→MAC 学习表随新会话清空
+    }
 
 private:
     std::unique_ptr<DISSECTOR_PARSER_T> m_parser;
     MsduState m_msdu_state;   ///< 跨帧重组状态（插件自持）
+    dissect_gen::TeiMacMap m_tei_mac;   ///< 列值 MAC 后缀的学习表（插件自持）
 };
 
 #include "dissector_plugin.moc"

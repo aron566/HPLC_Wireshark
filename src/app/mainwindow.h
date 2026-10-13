@@ -103,6 +103,9 @@ private:
     void check_for_updates(bool silent);   // 检查更新(silent=true:启动静默检查)
     void rebuild_dispatcher();             // 协议切换立即生效:停止+清空+重建解析器
     void reset_dispatcher();               // 停止旧解析+重建 dispatcher(拖放导入/协议切换共用)
+    void sync_packet_columns();            // 按活动协议同步列表列集(插件协议=插件列能力)
+    void apply_packet_column_widths();     // 按当前列集重设表头列宽
+    void show_packet_column_menu(const QPoint& pos);  // 插件列显隐菜单(表头右键)
     bool confirm_protocol_rebuild();       // 协议变更提示,返回是否立即生效
     void update_selection_delta();  // 选中两行算时间差(NTB 优先,与本地差>3s 时降级本地时间)
     void open_topo_window();        // 打开/聚焦拓扑独立窗口(多 NID 下拉切换)

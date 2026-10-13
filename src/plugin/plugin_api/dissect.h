@@ -11,10 +11,25 @@
 #define BPLC_DISSECT_H
 
 #include <QByteArray>
+#include <QMap>
 #include <QString>
 #include <QVector>
 
 #include "bplcframe.h"   // FrameContext / DissectField / MpduInfo / TopoEvent / TeiMacPair
+
+/// @brief 解剖器向主界面声明的一列 PacketList 展示/导出能力
+/// @details 主界面不再假定插件协议沿用内置列集:活动协议为插件解剖器
+///          时,#/Time/Delta 三列仍由宿主提供,其余列按本描述排序显示;
+///          每帧的文本值由 DissectResult::column_values 按 id 返回。
+///          CSV 导出复用同一组当前可见列,保证界面与导出字段一致。
+struct DissectColumn {
+    QString id;                    ///< 稳定列 id(同一解剖器内唯一,值映射键)
+    QString title;                 ///< 中文列标题
+    QString title_en;              ///< 英文列标题(英文界面优先,空则用 title)
+    int     width = 100;           ///< 建议初始列宽(px)
+    quint32 alignment = 0x0081;    ///< Qt::Alignment 位掩码(默认左对齐+垂直居中)
+    bool    default_visible = true;///< 是否默认显示(用户可在表头菜单调整)
+};
 
 /// @brief 解剖器返回的通用结构化结果
 struct DissectResult {
@@ -35,6 +50,9 @@ struct DissectResult {
     TopoEvent topo_event;       ///< topo 载荷（kind=Other 表示无）
     QVector<TeiMacPair> tei_mac_pairs;
     QVector<DissectField> fields; ///< 协议段字段树（Frame/Physical 公共段除外）
+    /// 本帧的插件列文本值:键为 dissector_columns() 声明的列 id。
+    /// 缺失 id 按空字符串显示/导出;多余 id 由宿主忽略。
+    QMap<QString, QString> column_values;
 };
 
 #endif // BPLC_DISSECT_H

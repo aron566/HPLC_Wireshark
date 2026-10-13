@@ -89,6 +89,11 @@ bool NativeBackend::has_dissector() const {
     return m_dissector != nullptr;
 }
 
+QVector<DissectColumn> NativeBackend::dissector_columns() const {
+    return m_dissector ? m_dissector->dissector_columns()
+                       : QVector<DissectColumn>();
+}
+
 bool NativeBackend::dissect(const QByteArray& payload, const FrameContext& ctx,
                             DissectResult* out, QString* err) {
     if (!m_dissector) {

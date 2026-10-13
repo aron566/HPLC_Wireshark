@@ -35,6 +35,8 @@ public:
     // ---- 解剖器（新架构，见 docs/DISSECTOR_ARCH.md） ----
     /// @brief 是否提供解剖器通路（native 解剖插件）
     virtual bool has_dissector() const { return false; }
+    /// @brief 解剖器声明的 PacketList 列能力(握手时上报宿主)
+    virtual QVector<DissectColumn> dissector_columns() const { return {}; }
     /// @brief 解剖一帧去封装净荷。false=不支持/失败（err 置原因）
     virtual bool dissect(const QByteArray& payload, const FrameContext& ctx,
                          DissectResult* out, QString* err) {

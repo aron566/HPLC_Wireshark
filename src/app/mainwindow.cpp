@@ -54,8 +54,10 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QRegularExpression>
+#include <QSet>
 #include <QString>
 #include <QMessageBox>
+#include <QMenu>
 #include <QPushButton>
 #include <QDesktopServices>
 #include <QUrl>
@@ -218,6 +220,9 @@ void MainWindow::build_ui() {
     hh->resizeSection(PacketListModel::COL_MSDU_TYPE, 140);
     hh->resizeSection(PacketListModel::COL_MSDU_SEQ, 90);
     hh->resizeSection(PacketListModel::COL_LENGTH,   60);
+    hh->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(hh, &QHeaderView::customContextMenuRequested,
+            this, [this](const QPoint& pos) { show_packet_column_menu(pos); });
 
     m_splitter_main->addWidget(m_table_packets);
 
@@ -666,6 +671,21 @@ static QStringList csv_row(const PacketEntry& e, const TeiMacMap& macs) {
     return c;
 }
 
+/// 插件列模式的一行 CSV:固定列(#/Time/Delta 与内置 csv_row 同格式)+
+/// 插件列值(按快照中的可见列声明顺序取 PacketEntry::column_values)
+static QStringList csv_plugin_row(const PacketEntry& e,
+                                  const QVector<DissectColumn>& cols) {
+    QStringList c;
+    c << QString::number(e.index);
+    c << (e.meta.frame_time.isValid()
+              ? e.meta.frame_time.toString(QStringLiteral("HH:mm:ss.zzz"))
+              : QStringLiteral("%1 s").arg(e.epoch_ms / 1000.0, 0, 'f', 6));
+    c << QStringLiteral("%1 s").arg(e.delta_us / 1e6, 0, 'f', 6);
+    for (const DissectColumn& col : cols)
+        c << e.column_values.value(col.id);
+    return c;
+}
+
 /// @brief 工作线程导出:遍历快照盘块 + 热区,流式写文件(不阻塞 GUI)
 void run_export(const PacketListModel::ExportSnapshot& snap,
                 const QString& path, ExportFormat fmt) {
@@ -683,10 +703,26 @@ void run_export(const PacketListModel::ExportSnapshot& snap,
         QTextStream ts(&out);
         // 本地编码存储(Windows 中文系统=GBK/ANSI 代码页),Excel 直接打开不乱码
         ts.setEncoding(QStringConverter::System);
-        ts << QStringLiteral("#,Time,Delta,Orig Src,Source,Destination,Orig Dst,Dir,"
-                             "Protocol,Frame Type,MSDU Type,MSDU Seq,Length,Info\n");
+        if (snap.plugin_columns_active) {
+            // 插件列模式:表头与界面一致(固定列 + 插件声明的可见列;
+            // 标题优先英文,与内置 CSV 的英文表头口径一致)
+            QStringList headers{QStringLiteral("#"), QStringLiteral("Time"),
+                                QStringLiteral("Delta")};
+            for (const DissectColumn& col : snap.plugin_columns)
+                headers << (col.title_en.isEmpty() ? col.title : col.title_en);
+            for (int i = 0; i < headers.size(); ++i) {
+                if (i) ts << ',';
+                ts << csv_escape(headers[i]);
+            }
+            ts << '\n';
+        } else {
+            ts << QStringLiteral("#,Time,Delta,Orig Src,Source,Destination,Orig Dst,Dir,"
+                                 "Protocol,Frame Type,MSDU Type,MSDU Seq,Length,Info\n");
+        }
         const auto emit_row = [&](const PacketEntry& e) {
-            const QStringList cells = csv_row(e, snap.tei_mac);
+            const QStringList cells = snap.plugin_columns_active
+                ? csv_plugin_row(e, snap.plugin_columns)
+                : csv_row(e, snap.tei_mac);
             for (int i = 0; i < cells.size(); ++i) {
                 if (i) ts << ',';
                 ts << csv_escape(cells[i]);
@@ -806,6 +842,72 @@ void MainWindow::reset_dispatcher() {
             this,       &MainWindow::on_parsed,
             Qt::QueuedConnection);
     if (m_plugin_engine) m_plugin_engine->reset_all();  // 新采集/回放:插件状态清零
+    sync_packet_columns();   // 列集跟随活动协议(插件协议=插件列能力)
+}
+
+/// @brief 列集同步:活动协议是已就绪的插件解剖器 → 模型换插件列;
+///        否则回到内置固定列。列宽随列集一并应用。
+void MainWindow::sync_packet_columns() {
+    if (!m_model || !m_table_packets) return;
+    auto& pm = PluginManager::instance();
+    const QString proto = appcfg::protocol();
+    if (pm.is_dissector_protocol(proto))
+        m_model->set_plugin_columns(pm.dissector_columns(proto));
+    else
+        m_model->use_builtin_columns();
+    apply_packet_column_widths();
+}
+
+void MainWindow::apply_packet_column_widths() {
+    if (!m_model || !m_table_packets) return;
+    QHeaderView* hh = m_table_packets->horizontalHeader();
+    hh->resizeSection(0, 60);    // #
+    hh->resizeSection(1, 120);   // Time
+    hh->resizeSection(2, 80);    // Delta
+    if (m_model->plugin_columns_active()) {
+        const QVector<DissectColumn> vis = m_model->visible_plugin_columns();
+        for (int i = 0; i < vis.size(); ++i)
+            hh->resizeSection(3 + i, qMax(30, vis[i].width));
+    } else {
+        hh->resizeSection(PacketListModel::COL_ORIG_SRC, 70);
+        hh->resizeSection(PacketListModel::COL_SOURCE,   100);
+        hh->resizeSection(PacketListModel::COL_DEST,     100);
+        hh->resizeSection(PacketListModel::COL_ORIG_DST, 70);
+        hh->resizeSection(PacketListModel::COL_DIR,      44);
+        hh->resizeSection(PacketListModel::COL_PROTOCOL, 70);
+        hh->resizeSection(PacketListModel::COL_FRAME_TYPE, 90);
+        hh->resizeSection(PacketListModel::COL_MSDU_TYPE, 140);
+        hh->resizeSection(PacketListModel::COL_MSDU_SEQ, 90);
+        hh->resizeSection(PacketListModel::COL_LENGTH,   60);
+    }
+}
+
+/// @brief 表头右键菜单:插件列模式下按列能力列出可显示列并可勾选切换;
+///        内置列模式无此菜单(保持原行为)
+void MainWindow::show_packet_column_menu(const QPoint& pos) {
+    if (!m_model || !m_table_packets || !m_model->plugin_columns_active())
+        return;
+    QSet<QString> shown;
+    for (const DissectColumn& c : m_model->visible_plugin_columns())
+        shown.insert(c.id);
+    QMenu menu(this);
+    menu.setTitle(trl::L("显示列"));
+    for (const DissectColumn& c : m_model->plugin_columns()) {
+        const QString title = (trl::enabled() && !c.title_en.isEmpty())
+                                  ? c.title_en : c.title;
+        QAction* a = menu.addAction(title);
+        a->setCheckable(true);
+        a->setChecked(shown.contains(c.id));
+        const QString id = c.id;
+        connect(a, &QAction::triggered, this, [this, a, id]() {
+            const bool want = a->isChecked();
+            if (m_model->set_plugin_column_visible(id, want))
+                apply_packet_column_widths();
+            else
+                a->setChecked(!want);   // 最后一列不许隐藏,恢复勾选
+        });
+    }
+    menu.exec(m_table_packets->horizontalHeader()->mapToGlobal(pos));
 }
 
 /// @brief 协议切换立即生效:停止当前采集/回放 → 清空 → 用新协议重建解析器
@@ -910,6 +1012,7 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
     e.msdu_raw_base = r.msdu_raw_base;
     e.raw_bytes = r.payload_for_log;
     e.dissect_fields = r.dissect_fields;   // 插件解剖器通用字段树(内置为空)
+    e.column_values = r.column_values;     // 插件列能力对应的本帧列值(内置为空)
     // 拓扑:关键管理消息(关联确认/代理变更/发现列表/离网)喂给拓扑状态;
     // 同时记入回放日志:事件直接填充在 entry 内(nid/epoch_ms/is_rf),
     // 供 TOPO 历史回放调试(点击帧 → 按帧序号重放到该帧)
@@ -1292,6 +1395,8 @@ void MainWindow::setup_plugin_ui() {
                 if (appcfg::protocol().toUpper() == id && m_dispatch
                     && !m_dispatch->uses_plugin_parser() && !m_reader->is_running())
                     reset_dispatcher();
+                if (appcfg::protocol().toUpper() == id)
+                    sync_packet_columns();   // 列能力到达:切插件列集
             });
     connect(&pmgr, &PluginManager::dissector_unregistered,
             this, [this](const QString& id) {
@@ -1301,11 +1406,14 @@ void MainWindow::setup_plugin_ui() {
                 if (appcfg::protocol().toUpper() == id && m_dispatch
                     && m_dispatch->uses_plugin_parser())
                     reset_dispatcher();
+                if (appcfg::protocol().toUpper() == id)
+                    sync_packet_columns();   // 插件已注销:回内置列集
             });
     // 补检:setup 时注册可能已就绪(信号已错过)
     if (m_dispatch && !m_dispatch->uses_plugin_parser()
         && pmgr.is_dissector_protocol(appcfg::protocol().toUpper()))
         reset_dispatcher();
+    sync_packet_columns();
 
     // 插件间通讯总线(主进程中转):按插件名投递,同名插件的全部实例
     // (进程内引擎份 + host 子进程份)都会收到;目标不存在则静默丢弃。

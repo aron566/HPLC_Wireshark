@@ -63,6 +63,8 @@ QDataStream& operator>>(QDataStream& in, GraphicsEvent& e);
 // ---- 解剖器通用类型（dissect.h） ----
 QDataStream& operator<<(QDataStream& out, const FrameContext& c);
 QDataStream& operator>>(QDataStream& in, FrameContext& c);
+QDataStream& operator<<(QDataStream& out, const DissectColumn& c);
+QDataStream& operator>>(QDataStream& in, DissectColumn& c);
 QDataStream& operator<<(QDataStream& out, const DissectField& f);
 QDataStream& operator>>(QDataStream& in, DissectField& f);
 QDataStream& operator<<(QDataStream& out, const DissectResult& r);

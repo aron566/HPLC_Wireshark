@@ -380,6 +380,12 @@ inline QByteArray serialize_entry(const PacketEntry& e, StrPool& pool) {
     // v4 追加:插件解剖器通用字段树(内置解析为空)
     write_u32(s, quint32(e.dissect_fields.size()));
     for (const DissectField& f : e.dissect_fields) write_dissect_node(s, f, pool);
+    // v5 追加:插件列能力对应的本帧列值(列 id → 文本;内置解析为空)
+    write_u32(s, quint32(e.column_values.size()));
+    for (auto it = e.column_values.cbegin(); it != e.column_values.cend(); ++it) {
+        write_str(s, it.key(), pool);
+        write_str(s, it.value(), pool);
+    }
     return buf;
 }
 
@@ -408,6 +414,14 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
     for (quint32 i = 0; i < dcnt; ++i) {
         DissectField f; read_dissect_node(s, f, table); e.dissect_fields.append(f);
     }
+    quint32 ccnt = 0; read_u32(s, ccnt);
+    e.column_values.clear();
+    for (quint32 i = 0; i < ccnt; ++i) {
+        QString id, value;
+        read_str(s, id, table);
+        read_str(s, value, table);
+        e.column_values.insert(id, value);
+    }
     if (s.status() != QDataStream::Ok)
         return false;
     if (rebuild_search)
@@ -416,9 +430,10 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
 }
 
 // ---------------------------------------------------------------------------
-// 块文件格式 v4(字符串池 + 轻量索引 + 条目分块独立压缩)
-// v4 相对 v3 仅在条目载荷尾部追加插件解剖字段树(dissect_fields),其余
-// 布局与 v3 相同;本格式仅同会话往返,不做跨版本兼容,版本不符直接判坏块。
+// 块文件格式 v5(字符串池 + 轻量索引 + 条目分块独立压缩)
+// v5 相对 v4 仅在条目载荷尾部追加插件列值(column_values);v4 相对 v3
+// 追加插件解剖字段树(dissect_fields),其余布局相同;本格式仅同会话
+// 往返,不做跨版本兼容,版本不符直接判坏块。
 // 文件布局(定长部分以 Wire* 结构体表达,sizeof 即磁盘字节数;变长段为
 // quint32 长度前缀 + 内容,QDataStream 大端序顺序写入,偏移为文件绝对字节):
 //   [WireBlockHead][pool_blob]         blob = qCompress(pool_raw) 或 pool_raw
@@ -439,7 +454,7 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
 // ---------------------------------------------------------------------------
 
 inline quint32 block_magic()   { return 0x50424C4Bu; }  // "PBLK"
-inline quint32 block_version() { return 4u; }  // v4: 条目尾追加解剖字段树(v3 为无此段)
+inline quint32 block_version() { return 5u; }  // v5: 条目尾追加插件列值(v4 为解剖字段树)
 /// @brief 独立压缩分块的条目数(随机解码粒度:解一条最多解压一个分块)
 inline constexpr int kBlockChunkEntries = 50;
 

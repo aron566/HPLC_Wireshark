@@ -218,6 +218,18 @@ QDataStream& operator>>(QDataStream& in, FrameContext& c) {
     return in;
 }
 
+// ---- DissectColumn ----
+QDataStream& operator<<(QDataStream& out, const DissectColumn& c) {
+    out << c.id << c.title << c.title_en << c.width << c.alignment
+        << c.default_visible;
+    return out;
+}
+QDataStream& operator>>(QDataStream& in, DissectColumn& c) {
+    in >> c.id >> c.title >> c.title_en >> c.width >> c.alignment
+       >> c.default_visible;
+    return in;
+}
+
 // ---- DissectField（递归） ----
 QDataStream& operator<<(QDataStream& out, const DissectField& f) {
     out << f.name << f.value << f.start << f.len << f.severity << f.children;
@@ -233,13 +245,13 @@ QDataStream& operator<<(QDataStream& out, const DissectResult& r) {
     out << r.accept << r.reject_reason << r.mpdu << r.msdu_present
         << r.msdu_summary << r.msdu_body << r.msdu_raw_base << r.topo_event
         << r.tei_mac_pairs << r.fields << r.dissected_bytes
-        << r.has_refined_ctx << r.refined_ctx;
+        << r.has_refined_ctx << r.refined_ctx << r.column_values;
     return out;
 }
 QDataStream& operator>>(QDataStream& in, DissectResult& r) {
     in >> r.accept >> r.reject_reason >> r.mpdu >> r.msdu_present
        >> r.msdu_summary >> r.msdu_body >> r.msdu_raw_base >> r.topo_event
        >> r.tei_mac_pairs >> r.fields >> r.dissected_bytes
-       >> r.has_refined_ctx >> r.refined_ctx;
+       >> r.has_refined_ctx >> r.refined_ctx >> r.column_values;
     return in;
 }
