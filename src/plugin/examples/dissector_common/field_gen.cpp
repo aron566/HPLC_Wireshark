@@ -416,34 +416,28 @@ QVector<DissectField> nw_fields(const QByteArray& raw, const ParseResult& r) {
         Sink::bit(sof, QStringLiteral("Source TEI"), QString::number(mpdu.src_tei), 1, 0, 12);
         Sink::bit(sof, QStringLiteral("Destination TEI"), QString::number(mpdu.dst_tei), 2, 4, 12);
         Sink::bit(sof, QStringLiteral("Link ID"), QString::number(mpdu.link_id), 4, 0, 8);
-        if (r.meta.is_rf) {
-            Sink::bit(sof, QStringLiteral("Frame Length"), QStringLiteral("%1 (x10us)").arg(mpdu.frame_len), 5, 0, 12);
-            Sink::bit(sof, QStringLiteral("PBLen"), QString::number(mpdu.tmi), 6, 4, 4);
-        } else {
-            // 载波 SOF(表16):保留16b(5,0,16) + PBNum(7,0,4)/TMI(7,4,4)/FrameLen(8,0,12)
-            //   + 保留9b(9,4,9) + TEI过滤(10,5,1)/重传(10,6,1)/符号数(10,7,9) + TMI_EXT(12,0,4)
-            // 与内置树 af3259e 后逐行对齐;保留字段解析器不入 MpduInfo,同内置树从原始字节取
-            const quint8* d = reinterpret_cast<const quint8*>(raw.constData());
-            const int raw_sz = raw.size();
-            const quint16 rsv0 = (raw_sz > 6) ? (quint16)(d[5] | (d[6] << 8)) : 0;
-            Sink::bit(sof, QStringLiteral("RSV"), QStringLiteral("0x%1").arg(rsv0, 4, 16, QChar('0')), 5, 0, 16);
-            Sink::bit(sof, QStringLiteral("PB Num"), QString::number(mpdu.pb_num), 7, 0, 4);
-            Sink::bit(sof, QStringLiteral("TMI"), QString::number(mpdu.tmi), 7, 4, 4);
-            Sink::bit(sof, QStringLiteral("Frame Length"), QStringLiteral("%1 (x10us)").arg(mpdu.frame_len), 8, 0, 12);
-            const quint16 rsv1 = (raw_sz > 10) ? (quint16)(((d[9] >> 4) & 0x0F) | ((d[10] & 0x1F) << 4)) : 0;
-            Sink::bit(sof, QStringLiteral("RSV"), QStringLiteral("0x%1").arg(rsv1, 3, 16, QChar('0')), 9, 4, 9);
-            const quint8 tei_filter = (raw_sz > 10) ? ((d[10] >> 5) & 0x01) : 1;
-            Sink::bit(sof, QStringLiteral("TEI Filter"),
-                      tei_filter ? QStringLiteral("1 - %1").arg(trl::L("物理层不检查报文 TEI"))
-                                 : QStringLiteral("0 - %1").arg(trl::L("物理层检查报文 TEI")),
-                      10, 5, 1);
-            Sink::bit(sof, QStringLiteral("ReSend"),
-                      mpdu.re_send_flag ? QStringLiteral("1 - %1").arg(trl::L("重传报文"))
-                                        : QStringLiteral("0 - %1").arg(trl::L("非重传报文")),
-                      10, 6, 1);
-            Sink::bit(sof, QStringLiteral("Symbol Num"), QString::number(mpdu.symbol_num), 10, 7, 9);
-            Sink::bit(sof, QStringLiteral("TMI_EXT"), QString::number(mpdu.tmi_ext), 12, 0, 4);
-        }
+        // SOF 字段集不区分载波/无线(与内置树逐行对齐,单套渲染):
+        // 字段值由解析器按介质填入 MpduInfo,保留字段同内置树从原始字节取
+        const quint8* d = reinterpret_cast<const quint8*>(raw.constData());
+        const int raw_sz = raw.size();
+        const quint16 rsv0 = (raw_sz > 6) ? (quint16)(d[5] | (d[6] << 8)) : 0;
+        Sink::bit(sof, QStringLiteral("RSV"), QStringLiteral("0x%1").arg(rsv0, 4, 16, QChar('0')), 5, 0, 16);
+        Sink::bit(sof, QStringLiteral("PB Num"), QString::number(mpdu.pb_num), 7, 0, 4);
+        Sink::bit(sof, QStringLiteral("TMI"), QString::number(mpdu.tmi), 7, 4, 4);
+        Sink::bit(sof, QStringLiteral("Frame Length"), QStringLiteral("%1 (x10us)").arg(mpdu.frame_len), 8, 0, 12);
+        const quint16 rsv1 = (raw_sz > 10) ? (quint16)(((d[9] >> 4) & 0x0F) | ((d[10] & 0x1F) << 4)) : 0;
+        Sink::bit(sof, QStringLiteral("RSV"), QStringLiteral("0x%1").arg(rsv1, 3, 16, QChar('0')), 9, 4, 9);
+        const quint8 tei_filter = (raw_sz > 10) ? ((d[10] >> 5) & 0x01) : 1;
+        Sink::bit(sof, QStringLiteral("TEI Filter"),
+                  tei_filter ? QStringLiteral("1 - %1").arg(trl::L("物理层不检查报文 TEI"))
+                             : QStringLiteral("0 - %1").arg(trl::L("物理层检查报文 TEI")),
+                  10, 5, 1);
+        Sink::bit(sof, QStringLiteral("ReSend"),
+                  mpdu.re_send_flag ? QStringLiteral("1 - %1").arg(trl::L("重传报文"))
+                                    : QStringLiteral("0 - %1").arg(trl::L("非重传报文")),
+                  10, 6, 1);
+        Sink::bit(sof, QStringLiteral("Symbol Num"), QString::number(mpdu.symbol_num), 10, 7, 9);
+        Sink::bit(sof, QStringLiteral("TMI_EXT"), QString::number(mpdu.tmi_ext), 12, 0, 4);
         Sink::add_to(sof, QStringLiteral("PB Size"), QString::number(mpdu.pb_size));
         {
             const int header_len = 4;

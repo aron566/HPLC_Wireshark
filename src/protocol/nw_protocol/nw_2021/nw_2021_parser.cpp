@@ -163,6 +163,10 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.tmi     = pblen;                       // 载荷 PB 大小(复用 tmi 承载)
             r.mpdu.pb_size = (quint16)nw_2021_rf_pb_size(pblen);
             r.mpdu.pb_num  = 1;                           // 无线信道仅 1 个物理块
+            // FCH 后段与载波同坐标,字段集与载波端一致(树渲染共用尾段)
+            r.mpdu.re_send_flag = (get_bits(p, 10, 6, 1) != 0);   // 重传标志位
+            r.mpdu.symbol_num   = (quint16)get_bits(p, 10, 7, 9); // 符号数
+            r.mpdu.tmi_ext      = (quint8) get_bits(p, 12, 0, 4); // TMI_EXT
         } else {
             r.mpdu.pb_num    = (quint8) get_bits(p, 7, 0, 4);
             r.mpdu.tmi       = (quint8) get_bits(p, 7, 4, 4);
