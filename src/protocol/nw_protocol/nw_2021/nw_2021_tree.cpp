@@ -110,39 +110,36 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         tree_add_bit_field(sof, "Source TEI", QString::number(e.mpdu.src_tei), 1, 0, 12);
         tree_add_bit_field(sof, "Destination TEI", QString::number(e.mpdu.dst_tei), 2, 4, 12);
         tree_add_bit_field(sof, "Link ID", QString::number(e.mpdu.link_id), 4, 0, 8);
-        if (e.meta.is_rf) {
-            // 无线:FrameLen(5,0,12) PBLen(6,4,4)
-            tree_add_bit_field(sof, "Frame Length", QStringLiteral("%1 (x10us)").arg(e.mpdu.frame_len), 5, 0, 12);
-            tree_add_bit_field(sof, "PBLen", QString::number(e.mpdu.tmi), 6, 4, 4);
-        } else {
-            // 载波 SOF(表16):保留16b(5,0,16) + PBNum(7,0,4)/TMI(7,4,4)/FrameLen(8,0,12)
-            //   + 保留9b(9,4,9) + TEI过滤(10,5,1)/重传(10,6,1)/符号数(10,7,9) + TMI_EXT(12,0,4)
-            const quint8* d = reinterpret_cast<const quint8*>(e.raw_bytes.constData());
-            const int raw_sz = e.raw_bytes.size();
-            // 保留 16b(字节5-6)
-            const quint16 rsv0 = (raw_sz > 6) ? (quint16)(d[5] | (d[6] << 8)) : 0;
-            tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv0, 4, 16, QChar('0')), 5, 0, 16);
-            tree_add_bit_field(sof, "PB Num", QString::number(e.mpdu.pb_num), 7, 0, 4);
-            tree_add_bit_field(sof, "TMI", QString::number(e.mpdu.tmi), 7, 4, 4);
-            tree_add_bit_field(sof, "Frame Length", QStringLiteral("%1 (x10us)").arg(e.mpdu.frame_len), 8, 0, 12);
-            // 保留 9b(字节9 bit4-7 + 字节10 bit0-4)
-            const quint16 rsv1 = (raw_sz > 10) ? (quint16)(((d[9] >> 4) & 0x0F) | ((d[10] & 0x1F) << 4)) : 0;
-            tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv1, 3, 16, QChar('0')), 9, 4, 9);
-            // TEI 过滤标志位(表17,固定为1)
-            const quint8 tei_filter = (raw_sz > 10) ? ((d[10] >> 5) & 0x01) : 1;
-            tree_add_bit_field(sof, "TEI Filter",
-                tei_filter ? QStringLiteral("1 - %1").arg(trl::L("物理层不检查报文 TEI"))
-                           : QStringLiteral("0 - %1").arg(trl::L("物理层检查报文 TEI")),
-                10, 5, 1);
-            // 重传标志位(表18)
-            tree_add_bit_field(sof, "ReSend",
-                e.mpdu.re_send_flag ? QStringLiteral("1 - %1").arg(trl::L("重传报文"))
-                                    : QStringLiteral("0 - %1").arg(trl::L("非重传报文")),
-                10, 6, 1);
-            // 符号数(表16)
-            tree_add_bit_field(sof, "Symbol Num", QString::number(e.mpdu.symbol_num), 10, 7, 9);
-            tree_add_bit_field(sof, "TMI_EXT", QString::number(e.mpdu.tmi_ext), 12, 0, 4);
-        }
+        // SOF 字段集不区分载波/无线(与国网一致,单套渲染):字段值由
+        // 解析器按介质填入 MpduInfo,保留/TEI 过滤位同载波从原始字节取。
+        // (表16):保留16b(5,0,16) + PBNum(7,0,4)/TMI(7,4,4)/FrameLen(8,0,12)
+        //   + 保留9b(9,4,9) + TEI过滤(10,5,1)/重传(10,6,1)/符号数(10,7,9)
+        //   + TMI_EXT(12,0,4)
+        const quint8* d = reinterpret_cast<const quint8*>(e.raw_bytes.constData());
+        const int raw_sz = e.raw_bytes.size();
+        // 保留 16b(字节5-6)
+        const quint16 rsv0 = (raw_sz > 6) ? (quint16)(d[5] | (d[6] << 8)) : 0;
+        tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv0, 4, 16, QChar('0')), 5, 0, 16);
+        tree_add_bit_field(sof, "PB Num", QString::number(e.mpdu.pb_num), 7, 0, 4);
+        tree_add_bit_field(sof, "TMI", QString::number(e.mpdu.tmi), 7, 4, 4);
+        tree_add_bit_field(sof, "Frame Length", QStringLiteral("%1 (x10us)").arg(e.mpdu.frame_len), 8, 0, 12);
+        // 保留 9b(字节9 bit4-7 + 字节10 bit0-4)
+        const quint16 rsv1 = (raw_sz > 10) ? (quint16)(((d[9] >> 4) & 0x0F) | ((d[10] & 0x1F) << 4)) : 0;
+        tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv1, 3, 16, QChar('0')), 9, 4, 9);
+        // TEI 过滤标志位(表17,固定为1)
+        const quint8 tei_filter = (raw_sz > 10) ? ((d[10] >> 5) & 0x01) : 1;
+        tree_add_bit_field(sof, "TEI Filter",
+            tei_filter ? QStringLiteral("1 - %1").arg(trl::L("物理层不检查报文 TEI"))
+                       : QStringLiteral("0 - %1").arg(trl::L("物理层检查报文 TEI")),
+            10, 5, 1);
+        // 重传标志位(表18)
+        tree_add_bit_field(sof, "ReSend",
+            e.mpdu.re_send_flag ? QStringLiteral("1 - %1").arg(trl::L("重传报文"))
+                                : QStringLiteral("0 - %1").arg(trl::L("非重传报文")),
+            10, 6, 1);
+        // 符号数(表16)
+        tree_add_bit_field(sof, "Symbol Num", QString::number(e.mpdu.symbol_num), 10, 7, 9);
+        tree_add_bit_field(sof, "TMI_EXT", QString::number(e.mpdu.tmi_ext), 12, 0, 4);
         tree_add_item(sof, "PB Size", QString::number(e.mpdu.pb_size));
 
         // 逐 PB 块渲染:南网 PB 头 4B + 数据 pb_size-8 B + 保留 1B + CRC24 3B
