@@ -235,6 +235,13 @@ struct MMeI18nReg {
         trl::register_en("CCO-STA 应用层报文", "CCO-STA APP Packet");
         trl::register_en("应用层报文", "Application Layer Packet");
         trl::register_en("管理消息报文", "Management Message Packet");
+        trl::register_en("抄表/数据订阅应用，LID（优先级）=%1",
+                         "Meter reading/data subscription application, LID (priority)=%1");
+        trl::register_en("网络管理报文，LID（优先级）=0-255（实现自定义）",
+                         "Network management packet, LID (priority)=0-255 (implementation-defined)");
+        trl::register_en("未定义的VLAN/MSDU Type组合", "Undefined VLAN/MSDU Type combination");
+        trl::register_en("不支持的MMe版本（仅支持1）", "Unsupported MMe version (only 1 supported)");
+        trl::register_en("校验数据缺失（已有%1/4字节）", "CRC data missing (%1/4 bytes available)");
         // 拓扑事件变更说明(TOPO 路由变更表 desc)
         trl::register_en("关联请求: STA %1 正在入网", "Assoc request: STA %1 joining");
         trl::register_en("关联确认: STA TEI=%1 入网 代理=%2", "Assoc confirm: STA TEI=%1 joined, proxy=%2");
@@ -248,6 +255,78 @@ struct MMeI18nReg {
         trl::register_en("延迟离线指示: %1 个站点离线", "Delayed leave indication: %1 stations left");
     }
 } mme_i18n_reg;
+
+// 表98：应用 VLAN 直接对应 LID；管理报文的 LID 由实现自定义。
+static QString vlan_tag_value(quint32 vlan, quint16 msdu_type, int hex_width) {
+    QString meaning;
+    if (msdu_type == static_cast<quint16>(NW_2021_MsduType::APPLICATION_PACKET) && vlan <= 3) {
+        meaning = trl::L("抄表/数据订阅应用，LID（优先级）=%1").arg(vlan);
+    } else if (msdu_type == static_cast<quint16>(NW_2021_MsduType::MANAGEMENT_MESSAGE)
+               && vlan == static_cast<quint32>(NW_2021_VlanTag::MANAGEMENT)) {
+        meaning = trl::L("网络管理报文，LID（优先级）=0-255（实现自定义）");
+    } else {
+        meaning = trl::L("未定义的VLAN/MSDU Type组合");
+    }
+    return QStringLiteral("0x%1 - %2").arg(vlan, hex_width, 16, QChar('0')).arg(meaning);
+}
+
+static void append_mme_header(MsduInfo& out, const QByteArray& mme, int rel_base) {
+    out.summary = QStringLiteral("MMe");
+    if (mme.size() >= 3) {
+        out.mme_type = (quint16)get_bits(mme, 1, 0, 16);
+        out.summary = mme_type_name(out.mme_type);
+    }
+    if (!mme.isEmpty()) {
+        const quint8 version = (quint8)mme[0];
+        MsduFieldNode mv;
+        mv.name = QStringLiteral("MMe Version [8b]");
+        mv.value = QStringLiteral("%1").arg(version);
+        if (version != 1)
+            mv.value += QStringLiteral(" - %1").arg(trl::L("不支持的MMe版本（仅支持1）"));
+        mv.rel_start = rel_base;
+        mv.rel_len   = 1;
+        out.tree.append(mv);
+    }
+    if (mme.size() >= 2) {
+        MsduFieldNode mt;
+        mt.name = QStringLiteral("MMe Type [16b]");
+        mt.value = mme.size() >= 3
+            ? QStringLiteral("0x%1 - %2").arg(out.mme_type, 4, 16, QChar('0')).arg(out.summary)
+            : QStringLiteral("0x??%1 (truncated)").arg((quint8)mme[1], 2, 16, QChar('0'));
+        mt.rel_start = rel_base + 1;
+        mt.rel_len   = qMin(2, int(mme.size()) - 1);
+        out.tree.append(mt);
+    }
+    if (mme.size() >= 4) {
+        MsduFieldNode rv;
+        rv.name = QStringLiteral("RSV [24b]");
+        rv.value = QStringLiteral("0x%1").arg(QString::fromLatin1(mme.mid(3, 3).toHex().toUpper()));
+        if (mme.size() < 6) rv.value += QStringLiteral(" (truncated)");
+        rv.rel_start = rel_base + 3;
+        rv.rel_len   = qMin(3, int(mme.size()) - 3);
+        out.tree.append(rv);
+    }
+}
+
+static void append_msdu_crc(MsduInfo& out, const QByteArray& body, int payload_start, int payload_len) {
+    const int crc_off = payload_start + payload_len;
+    const int available = qBound(0, int(body.size()) - crc_off, 4);
+    MsduFieldNode crc;
+    crc.name = QStringLiteral("MSDU CRC32");
+    crc.rel_start = available > 0 ? crc_off : -1;
+    crc.rel_len   = available;
+    if (available == 4) {
+        const quint32 stored = (quint32)get_bits(body, crc_off, 0, 32);
+        const quint32 calc = crc32_le(reinterpret_cast<const quint8*>(body.constData()) + payload_start,
+                                     payload_len + 4);
+        crc.value = QStringLiteral("0x%1 %2").arg(stored, 8, 16, QChar('0'))
+            .arg(stored == calc ? QStringLiteral("OK") : QStringLiteral("FAIL"));
+    } else {
+        crc.value = trl::L("校验数据缺失（已有%1/4字节）").arg(available);
+        out.summary += QStringLiteral(" (CRC missing)");
+    }
+    out.tree.append(crc);
+}
 
 static const FieldSpec kMMeAssocReqSpec[] = {
     { "STAMACAddr", 0, 0, 48, Fmt::MAC },
@@ -644,10 +723,6 @@ static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base, quint1
     MsduFieldNode& cci = group(out.tree, QStringLiteral("Channel Control Info [4B]"));
     cci.rel_start = rel_base; cci.rel_len = 4;
     add_fields(cci.children, app, 0, kChannelCtrlInfoSpec, kChannelCtrlInfoSpecN, rel_base);
-    // 业务报文头(表2,8B):控制域 + 业务标识 + 应用版本号 + 帧序号 + 帧长
-    MsduFieldNode& bh = group(out.tree, QStringLiteral("Business Header [8B]"));
-    bh.rel_start = rel_base + 4; bh.rel_len = 8;
-    add_fields(bh.children, app, 4, kBusinessHeaderSpec, kBusinessHeaderSpecN, rel_base);
     const quint8  port_num    = (quint8)get_bits(app, 0, 0, 8);
     const quint16 packet_id   = (quint16)get_bits(app, 1, 0, 16);
     const NW_2021_PacketType packet_type = static_cast<NW_2021_PacketType>(get_bits(app, 4, 0, 4));
@@ -661,6 +736,10 @@ static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base, quint1
         else if (n.name.startsWith(QLatin1String("PacketID")) && !pid_name.isEmpty())
             n.value = QStringLiteral("0x%1 - %2").arg(packet_id, 4, 16, QChar('0')).arg(pid_name);
     }
+    // 业务报文头(表2,8B):控制域 + 业务标识 + 应用版本号 + 帧序号 + 帧长
+    MsduFieldNode& bh = group(out.tree, QStringLiteral("Business Header [8B]"));
+    bh.rel_start = rel_base + 4; bh.rel_len = 8;
+    add_fields(bh.children, app, 4, kBusinessHeaderSpec, kBusinessHeaderSpecN, rel_base);
     // 帧类型域 + 控制域标志位 + 业务标识值解释(表4/5/6/7/8/9)
     translate_enum_i18n(bh.children, "PacketType", kPacketTypeZh, 15);
     translate_enum_i18n(bh.children, "ExtBusinessFlag", kExtBusinessFlagZh, 2);
@@ -735,6 +814,87 @@ static const FieldSpec kMMeBaseSSpec[] = {
 };
 static const int kMMeBaseSSpecN = int(sizeof(kMMeBaseSSpec)/sizeof(kMMeBaseSSpec[0]));
 
+template <size_t N>
+static int mme_fixed_length(const FieldSpec (&spec)[N]) {
+    int length = 6;
+    for (const auto& field : spec)
+        length = qMax(length, 6 + field.byte + (field.bit + field.len + 7) / 8);
+    return length;
+}
+
+static int mme_fixed_length(NW_2021_MMeType type) {
+    switch (type) {
+    case NW_2021_MMeType::MME_ASSOCREQ: return mme_fixed_length(kMMeAssocReqSpec);
+    case NW_2021_MMeType::MME_ASSOCCNF: return 50; // 固定体36B + 路由信息头8B + MMe头6B
+    case NW_2021_MMeType::MME_CHANGEPROXYREQ: return mme_fixed_length(kMMeChangeProxyReqSpec);
+    case NW_2021_MMeType::MME_ASSOCIND: return 78; // 固定体64B + 路由信息头8B + MMe头6B(与关联确认同构)
+    case NW_2021_MMeType::MME_CHANGEPROXYCNF: return mme_fixed_length(kMMeChangeProxyCnfSpec);
+    case NW_2021_MMeType::MME_ASSOCGATHERIND: return mme_fixed_length(kMMeAssocGatherIndSpec);
+    case NW_2021_MMeType::MME_CHANGEPROXYBITMAPCNF: return 145; // 本体最小长度:MMe头6B + 前段9B + 位图130B(尾部字段缺失仅警告,见 parse)
+    case NW_2021_MMeType::MME_LEAVEIND: return mme_fixed_length(kMMeLeaveIndSpec);
+    case NW_2021_MMeType::MME_HEARTBEATCHECK: return 145; // 固定体8B + 位图130B + 保留1B + MMe头6B
+    case NW_2021_MMeType::MME_DISCOVERNODELIST: return mme_fixed_length(kMMeDiscoverNodeListSpec);
+    case NW_2021_MMeType::MME_DELAYLEAVEIND: return mme_fixed_length(kMMeDelayLeaveIndSpec);
+    case NW_2021_MMeType::MME_SUCCESSRATEREPORT: return mme_fixed_length(kMMeSuccessRateReportSpec);
+    case NW_2021_MMeType::MME_NETWORKCONFLICTREPORT: return mme_fixed_length(kMMeNetworkConflictReportSpec);
+    case NW_2021_MMeType::MME_ZEROCROSSNTBCOLLECTIND: return mme_fixed_length(kMMeZeroCrossNTBCollectIndSpec);
+    case NW_2021_MMeType::MME_ZEROCROSSNTBREPORT: return mme_fixed_length(kMMeZeroCrossNTBReportSpec);
+    case NW_2021_MMeType::MME_NETDIAGNOSE: return mme_fixed_length(kMMeNetDiagnoseSpec);
+    case NW_2021_MMeType::MME_RFCHANNELCONFLICTREPORT: return mme_fixed_length(kMMeRFChannelConflictReportSpec);
+    default: return 6;
+    }
+}
+
+static bool mme_body_complete(const QByteArray& mme, NW_2021_MMeType type) {
+    if (mme.size() < mme_fixed_length(type)) return false;
+    const auto has_items = [&mme](int offset, int count, int item_size) {
+        return offset <= mme.size() && count <= (mme.size() - offset) / item_size;
+    };
+    switch (type) {
+    case NW_2021_MMeType::MME_ASSOCCNF:
+    case NW_2021_MMeType::MME_ASSOCIND: {
+        // 路由信息结构两类消息同构,仅起始偏移不同(确认 rb=42 / 指示 rb=70)
+        const int rb = type == NW_2021_MMeType::MME_ASSOCCNF ? 42 : 70;
+        const int sta_sum = int(get_bits(mme, rb, 0, 16));
+        const int pco_sum = int(get_bits(mme, rb + 2, 0, 16));
+        int offset = rb + 8;
+        if (!has_items(offset, sta_sum, 2)) return false;
+        offset += sta_sum * 2;
+        for (int i = 0; i < pco_sum; ++i) {
+            if (!has_items(offset, 1, 4)) return false;
+            const int child_sum = int(get_bits(mme, offset + 2, 0, 16));
+            offset += 4;
+            if (!has_items(offset, child_sum, 2)) return false;
+            offset += child_sum * 2;
+        }
+        return true;
+    }
+    case NW_2021_MMeType::MME_CHANGEPROXYCNF:
+        return has_items(38, int(get_bits(mme, 16, 0, 16)), 2);
+    case NW_2021_MMeType::MME_ASSOCGATHERIND:
+        return has_items(34, int(get_bits(mme, 17, 0, 8)), 8);
+    case NW_2021_MMeType::MME_DISCOVERNODELIST: {
+        const int route_num = int(get_bits(mme, 34, 0, 16));
+        const int node_num = int(get_bits(mme, 30, 0, 16));
+        if (!has_items(48, route_num, 3)) return false;
+        const int bitmap_end = 48 + route_num * 3 + 128;
+        return has_items(bitmap_end, node_num, 1);
+    }
+    case NW_2021_MMeType::MME_DELAYLEAVEIND:
+        return has_items(22, int(get_bits(mme, 8, 0, 16)), 6);
+    case NW_2021_MMeType::MME_SUCCESSRATEREPORT:
+        return has_items(10, int(get_bits(mme, 8, 0, 16)), 4);
+    case NW_2021_MMeType::MME_ZEROCROSSNTBREPORT: {
+        const int count = int(get_bits(mme, 15, 0, 8) + get_bits(mme, 16, 0, 8)
+                              + get_bits(mme, 17, 0, 8));
+        return has_items(18, count, 2);
+    }
+    case NW_2021_MMeType::MME_RFCHANNELCONFLICTREPORT:
+        return has_items(13, int(get_bits(mme, 12, 0, 8)), 2);
+    default: return true;
+    }
+}
+
 }  // namespace
 
 MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
@@ -756,22 +916,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         append_payload_hex(out, body, 4, (int)msdu_len, QStringLiteral("Payload"), 0);
         // MSDU 帧尾 4B CRC32:位置 MSDU 载荷(单跳头 4B 之后 msdu_len 字节)之后;
         // 计算覆盖 MSDU 载荷(不含单跳头)
-        const int crc_off = 4 + msdu_len;
-        if (msdu_len > 0 && crc_off + 4 <= body.size()) {
-            quint32 stored = (quint8)body[crc_off]
-                | ((quint32)(quint8)body[crc_off + 1] << 8)
-                | ((quint32)(quint8)body[crc_off + 2] << 16)
-                | ((quint32)(quint8)body[crc_off + 3] << 24);
-            quint32 calc = crc32_le(p + 4, msdu_len + 4);
-            MsduFieldNode crc;
-            crc.name = QStringLiteral("MSDU CRC32");
-            crc.value = QStringLiteral("0x%1 %2")
-                .arg(stored, 8, 16, QChar('0'))
-                .arg(stored == calc ? QStringLiteral("OK") : QStringLiteral("FAIL"));
-            crc.rel_start = crc_off;
-            crc.rel_len   = 4;
-            out.tree.append(crc);
-        }
+        append_msdu_crc(out, body, 4, msdu_len);
         out.present = true;
         return out;
     }
@@ -819,7 +964,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 out.tree.append(sm);
                 MsduFieldNode vt;
                 vt.name = QStringLiteral("VLAN Tag [32b]");
-                vt.value = QStringLiteral("0x%1").arg(out.vlan_tag, 8, 16, QChar('0'));
+                vt.value = vlan_tag_value(out.vlan_tag, out.msdu_type, 8);
                 vt.rel_start = mac_hdr_len + 12;  // VLAN 标签在 msdu_body[12..15]
                 vt.rel_len   = 4;
                 out.tree.append(vt);
@@ -843,39 +988,22 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 // MMe 头相对重组块体(msdu_body[0])的字节偏移:MAC 帧头 mac_hdr_len + MSDU 帧头 18
                 // (add_fields 的 rel_start 基准须对齐 tree_msdu_raw_of 的重组块体起点)
                 const int mme_rel_base = mac_hdr_len + 18;
-                if (mme.size() >= 6) {
-                    const quint16 mm_type = (quint16)get_bits(mme, 1, 0, 16);
-                    out.mme_type = mm_type;
-                    out.summary = mme_type_name(mm_type);
-                    // 管理消息版本(表41:报文头第 18 字节,即 mme[0];本版固定为 1,此前未呈现)
-                    {
-                        MsduFieldNode mv;
-                        mv.name = QStringLiteral("MMe Version [8b]");
-                        mv.value = QStringLiteral("%1").arg((quint8)mme[0]);
-                        mv.rel_start = mme_rel_base + 0;
-                        mv.rel_len   = 1;
-                        out.tree.append(mv);
-                    }
-                    // MMe 类型字段(管理消息类型 16b,值 + 类型名,供着色区分)
-                    {
-                        MsduFieldNode mt;
-                        mt.name = QStringLiteral("MMe Type [16b]");
-                        mt.value = QStringLiteral("0x%1 - %2")
-                                       .arg(mm_type, 4, 16, QChar('0')).arg(out.summary);
-                        mt.rel_start = mme_rel_base + 1;   // MMe 类型在 mme[1..2]
-                        mt.rel_len   = 2;
-                        out.tree.append(mt);
-                    }
-                    // 管理消息报文头保留字段(表41:报文头第 21-23 字节,即 mme[3..5],此前未呈现)
-                    {
-                        MsduFieldNode rv;
-                        rv.name = QStringLiteral("RSV [24b]");
-                        rv.value = QStringLiteral("0x%1")
-                                       .arg(QString::fromLatin1(mme.mid(3, 3).toHex().toUpper()));
-                        rv.rel_start = mme_rel_base + 3;
-                        rv.rel_len   = 3;
-                        out.tree.append(rv);
-                    }
+                append_mme_header(out, mme, mme_rel_base);
+                const quint16 mm_type = out.mme_type;
+                const quint8 mme_version = mme.isEmpty() ? 0 : (quint8)mme[0];
+                if (!mme.isEmpty() && mme_version != 1)
+                    out.summary += QStringLiteral(" (unsupported MMe version %1)").arg(mme_version);
+                if (mme.size() < 6) {
+                    out.summary += QStringLiteral(" (truncated)");
+                } else if (mme_version == 1) {
+                    if (!mme_body_complete(mme, static_cast<NW_2021_MMeType>(mm_type))) {
+                        out.summary += QStringLiteral(" (truncated)");
+                    } else {
+                    // 位图版代理变更确认:本体(至位图末尾,共 145B)完整即可解析;
+                    // 尾部保留/端到端/路径序列号(至 154B)缺失时警告,不按截断处理
+                    if (mm_type == static_cast<quint16>(NW_2021_MMeType::MME_CHANGEPROXYBITMAPCNF)
+                        && mme.size() < 154)
+                        out.summary += QStringLiteral(" (fields missing)");
                     switch (static_cast<NW_2021_MMeType>(mm_type)) {
         case NW_2021_MMeType::MME_ASSOCREQ: {
             add_fields(out.tree, mme, 6, kMMeAssocReqSpec, kMMeAssocReqSpecN, mme_rel_base);
@@ -1474,8 +1602,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                             append_payload_hex(out, mme, 6, -1, QStringLiteral("MMe Data"), mme_rel_base);
                             break;
                     }
-                } else {
-                    out.summary = QStringLiteral("MMe (truncated)");
+                    }
                 }
             } else {
                 parse_app(out, msdu_body.mid(18), mac_hdr_len + 18, out.msdu_type);   // 长帧头 APP 数据(帧头 18B 之后)
@@ -1487,6 +1614,14 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             const quint8* q = reinterpret_cast<const quint8*>(msdu_body.constData());
             out.vlan_tag  = (quint32)get_bits(q, 0, 0, 8);
             out.msdu_type = (quint16)get_bits(q, 1, 0, 8);
+            {
+                MsduFieldNode vt;
+                vt.name = QStringLiteral("VLAN Tag [8b]");
+                vt.value = vlan_tag_value(out.vlan_tag, out.msdu_type, 2);
+                vt.rel_start = mac_hdr_len;
+                vt.rel_len   = 1;
+                out.tree.append(vt);
+            }
             // MSDU 类型字段(表2:8b)
             {
                 MsduFieldNode mt;
@@ -1503,24 +1638,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
     // ---- MSDU 帧尾 4B CRC32 ----
     // 位置:MSDU 载荷(MAC 帧头 mac_hdr_len 之后 msdu_len 字节)之后紧接 4B;
     // 计算覆盖 MSDU 载荷(不含 MAC 帧头),poly=0xEDB88320
-    const int crc_off = mac_hdr_len + msdu_len;
-    if (msdu_len > 0 && crc_off + 4 <= body.size()) {
-        quint32 stored = (quint8)body[crc_off]
-            | ((quint32)(quint8)body[crc_off + 1] << 8)
-            | ((quint32)(quint8)body[crc_off + 2] << 16)
-            | ((quint32)(quint8)body[crc_off + 3] << 24);
-        quint32 calc = crc32_le(
-            reinterpret_cast<const quint8*>(msdu_body.constData()),
-            msdu_len + 4);
-        MsduFieldNode crc;
-        crc.name = QStringLiteral("MSDU CRC32");
-        crc.value = QStringLiteral("0x%1 %2")
-            .arg(stored, 8, 16, QChar('0'))
-            .arg(stored == calc ? QStringLiteral("OK") : QStringLiteral("FAIL"));
-        crc.rel_start = crc_off;
-        crc.rel_len   = 4;
-        out.tree.append(crc);
-    }
+    append_msdu_crc(out, body, mac_hdr_len, msdu_len);
     out.present = true;
     return out;
 }

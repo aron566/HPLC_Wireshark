@@ -1,0 +1,52 @@
+name: Protocol Regression
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: protocol-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Qt and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ make qt6-base-dev libqt6serialport6-dev
+
+      - name: NW MSDU Debug regression (ASan/UBSan)
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: halt_on_error=1
+        run: |
+          mkdir -p build/nw-debug
+          cd build/nw-debug
+          qmake6 ../../samples/nw_mme_test.pro CONFIG+=debug CONFIG-=release SANITIZERS=address,undefined 'QMAKE_CXXFLAGS+=-Wall -Wextra -Werror'
+          make -j2
+          ./nw_mme_test
+
+      - name: NW MSDU Release regression
+        run: |
+          mkdir -p build/nw-release
+          cd build/nw-release
+          qmake6 ../../samples/nw_mme_test.pro CONFIG+=release CONFIG-=debug 'QMAKE_CXXFLAGS+=-Wall -Wextra -Werror'
+          make -j2
+          ./nw_mme_test
+
+      - name: Lossless bin/hex replay and export regression
+        run: |
+          mkdir -p build/roundtrip
+          cd build/roundtrip
+          qmake6 ../../samples/roundtrip/roundtrip.pro CONFIG+=release CONFIG-=debug
+          make -j2
+          ./roundtrip "$GITHUB_WORKSPACE/samples/roundtrip/roundtrip_test.bin" "$GITHUB_WORKSPACE/samples/roundtrip/roundtrip_test.txt"
