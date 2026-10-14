@@ -39,6 +39,15 @@ inline QString mme_type_name(quint16 t) {
 
 // ── 枚举值解释(中文 key,经 trl 注册英文;与国网 apply_dicts 对齐) ──
 
+/// 按名查找首个同名字段节点(递归;节点名带 " [Nb]" 后缀,按前缀匹配),未找到返回 nullptr
+static MsduFieldNode* find_field_node(QVector<MsduFieldNode>& nodes, const char* name) {
+    for (auto& n : nodes) {
+        if (n.name.startsWith(QLatin1String(name))) return &n;
+        if (MsduFieldNode* hit = find_field_node(n.children, name)) return hit;
+    }
+    return nullptr;
+}
+
 /// 枚举字典翻译:name 命中则 value 改为 "值 - 释义"
 static void translate_enum_i18n(QVector<MsduFieldNode>& nodes, const char* field,
                                 const char* const* zh_dict, int dict_size) {
@@ -248,6 +257,12 @@ static const FieldSpec kMMeAssocReqSpec[] = {
     { "MACAddrType", 22, 0, 8, Fmt::DEC },
     { "RSV2", 23, 0, 8, Fmt::HEX4 },
     { "STAAssocRandomData", 24, 0, 32, Fmt::DEC },
+};
+static const int kMMeAssocReqSpecN = int(sizeof(kMMeAssocReqSpec)/sizeof(kMMeAssocReqSpec[0]));
+
+// 关联请求尾段(byte 56-67):排在厂家附加数据(28-45)与版本信息(46-55)之后渲染,
+// 使字段树顺序与报文布局一致
+static const FieldSpec kMMeAssocReqTailSpec[] = {
     { "HardRstCount", 56, 0, 16, Fmt::DEC },
     { "SoftRstCount", 58, 0, 16, Fmt::DEC },
     { "ProxyType", 60, 0, 8, Fmt::DEC },
@@ -259,7 +274,7 @@ static const FieldSpec kMMeAssocReqSpec[] = {
     { "RSV5", 63, 2, 6, Fmt::HEX4 },
     { "EndSequence", 64, 0, 32, Fmt::DEC },
 };
-static const int kMMeAssocReqSpecN = int(sizeof(kMMeAssocReqSpec)/sizeof(kMMeAssocReqSpec[0]));
+static const int kMMeAssocReqTailSpecN = int(sizeof(kMMeAssocReqTailSpec)/sizeof(kMMeAssocReqTailSpec[0]));
 
 static const FieldSpec kMMeAssocCnfSpec[] = {
     { "STAMACAddr", 0, 0, 48, Fmt::MAC },
@@ -277,7 +292,7 @@ static const FieldSpec kMMeAssocCnfSpec[] = {
     { "PathSequence", 28, 0, 32, Fmt::DEC },
     { "NetSN", 32, 0, 8, Fmt::DEC },
     { "MMeVersion", 33, 0, 4, Fmt::DEC },
-    { "detechFlag", 33, 4, 1, Fmt::DEC },
+    { "DetectBandFlag", 33, 4, 1, Fmt::DEC },
     { "RSV2", 33, 5, 19, Fmt::HEX4 },
 };
 static const int kMMeAssocCnfSpecN = int(sizeof(kMMeAssocCnfSpec)/sizeof(kMMeAssocCnfSpec[0]));
@@ -852,13 +867,8 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 out.topo_event.desc = trl::L("关联请求: STA %1 正在入网")
                     .arg(mac_str(sta_mac));
             }
-            translate_enum_i18n(out.tree, "LinePhase0", kLinePhaseZh, 4);
-            translate_enum_i18n(out.tree, "CandidateLinePhase1", kLinePhaseZh, 4);
-            translate_enum_i18n(out.tree, "CandidateLinePhase2", kLinePhaseZh, 4);
-            translate_enum_i18n(out.tree, "DeviceType", kDeviceTypeZh, 8);
-            translate_enum_i18n(out.tree, "MACAddrType", kMACAddrTypeZh, 3);
-            translate_enum_i18n(out.tree, "ProxyType", kProxyTypeZh, 3);
-            translate_enum_i18n(out.tree, "BandSupport", kBandSupportZh, 2);
+            // 厂家附加数据(报文体 byte 28-45)与版本信息(46-55)按布局顺序渲染,
+            // 尾段(56-67)排在其后,字段树顺序与报文字节序一致
             if (mme.size() >= 52) {
                 MsduFieldNode& info = group(out.tree, QStringLiteral("ManufacturerInfo [144b]"),
                     QString::fromLatin1(mme.mid(34, 18).toHex(' ').toUpper()));
@@ -866,8 +876,38 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             }
             if (mme.size() >= 62) {
                 add_fields(out.tree, mme, 52, kAssocReqSTAVerSpec, kAssocReqSTAVerSpecN, mme_rel_base);
+                // 版本区表示法(表47):BOOT/软件版本号为 BCD 码,厂商/芯片代码为 ASCII 码;
+                // 仅当数据符合对应编码时才换算呈现,否则保留原始数值
+                if (MsduFieldNode* n = find_field_node(out.tree, "BootVersion")) {
+                    const quint8 v = (quint8)mme[53];
+                    if ((v >> 4) <= 9 && (v & 0x0F) <= 9)
+                        n->value = QStringLiteral("%1%2").arg(v >> 4).arg(v & 0x0F);
+                }
+                if (MsduFieldNode* n = find_field_node(out.tree, "SoftwareVersion")) {
+                    const quint8 hi = (quint8)mme[54], lo = (quint8)mme[55];
+                    if ((hi >> 4) <= 9 && (hi & 0x0F) <= 9 && (lo >> 4) <= 9 && (lo & 0x0F) <= 9)
+                        n->value = QStringLiteral("%1%2%3%4")
+                            .arg(hi >> 4).arg(hi & 0x0F).arg(lo >> 4).arg(lo & 0x0F);
+                }
+                const auto ascii_code = [&](const char* name, int abs) {
+                    const quint8 c0 = (quint8)mme[abs], c1 = (quint8)mme[abs + 1];
+                    if (c0 >= 0x20 && c0 < 0x7F && c1 >= 0x20 && c1 < 0x7F) {
+                        if (MsduFieldNode* n = find_field_node(out.tree, name))
+                            n->value = QString::fromLatin1(mme.constData() + abs, 2);
+                    }
+                };
+                ascii_code("ManufacturerID", 58);
+                ascii_code("ChipID", 60);
                 translate_enum_i18n(out.tree, "BootReason", kBootReasonZh, 1);
             }
+            add_fields(out.tree, mme, 6, kMMeAssocReqTailSpec, kMMeAssocReqTailSpecN, mme_rel_base);
+            translate_enum_i18n(out.tree, "LinePhase0", kLinePhaseZh, 4);
+            translate_enum_i18n(out.tree, "CandidateLinePhase1", kLinePhaseZh, 4);
+            translate_enum_i18n(out.tree, "CandidateLinePhase2", kLinePhaseZh, 4);
+            translate_enum_i18n(out.tree, "DeviceType", kDeviceTypeZh, 8);
+            translate_enum_i18n(out.tree, "MACAddrType", kMACAddrTypeZh, 3);
+            translate_enum_i18n(out.tree, "ProxyType", kProxyTypeZh, 3);
+            translate_enum_i18n(out.tree, "BandSupport", kBandSupportZh, 2);
             break;
         }
         case NW_2021_MMeType::MME_ASSOCCNF: {
@@ -892,18 +932,21 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             annotate_unit(out.tree, "STAReAssocTime", QStringLiteral("ms"));
             const int rb = 42;
             if (mme.size() >= rb + 8) {
-                add_fields(out.tree, mme, rb, kRouteInfoHeadSpec, kRouteInfoHeadSpecN, mme_rel_base);
+                // 路由表信息(表55/56)整体为一个字段:头部计数与条目同组呈现
+                MsduFieldNode& rg = group(out.tree, QStringLiteral("RouteInfoTable"));
+                rg.rel_start = mme_rel_base + rb;
+                add_fields(rg.children, mme, rb, kRouteInfoHeadSpec, kRouteInfoHeadSpecN, mme_rel_base);
                 const quint16 sta_sum = (quint16)get_bits(mme, rb, 0, 16);
                 const quint16 pco_sum = (quint16)get_bits(mme, rb + 2, 0, 16);
                 int off = rb + 8;
                 for (int i = 0; i < sta_sum && off + 2 <= mme.size(); ++i) {
-                    MsduFieldNode& n = group(out.tree, QStringLiteral("StraightSTA[%1]").arg(i));
+                    MsduFieldNode& n = group(rg.children, QStringLiteral("StraightSTA[%1]").arg(i));
                     n.rel_start = mme_rel_base + (off); n.rel_len = 2;
                     add_fields(n.children, mme, off, kSTATEISpec, kSTATEISpecN, mme_rel_base);
                     off += 2;
                 }
                 for (int i = 0; i < pco_sum && off + 4 <= mme.size(); ++i) {
-                    MsduFieldNode& n = group(out.tree, QStringLiteral("StraightPCO[%1]").arg(i));
+                    MsduFieldNode& n = group(rg.children, QStringLiteral("StraightPCO[%1]").arg(i));
                     n.rel_start = mme_rel_base + (off); n.rel_len = 4;
                     add_fields(n.children, mme, off, kStraightPCOSpec, kStraightPCOSpecN, mme_rel_base);
                     const quint16 child_sum = (quint16)get_bits(mme, off + 2, 0, 16);
@@ -916,6 +959,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                     }
                     off = coff;
                 }
+                rg.rel_len = off - rb;
             }
             break;
         }
