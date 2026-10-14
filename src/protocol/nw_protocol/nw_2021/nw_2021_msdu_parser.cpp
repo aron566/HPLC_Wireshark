@@ -811,6 +811,27 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             out.msdu_src_mac = get_bits(q, 6, 0, 48);
             out.vlan_tag     = (quint32)get_bits(q, 12, 0, 32);
             out.msdu_type    = (quint16)get_bits(q, 16, 0, 16);
+            // MSDU 长帧头前段字段(表1/表41:原始目的/源地址 + VLAN 标签;此前仅入标量、树上缺失)
+            {
+                MsduFieldNode dm;
+                dm.name = QStringLiteral("Original Dst MAC [48b]");
+                dm.value = mac_str(out.msdu_dst_mac);
+                dm.rel_start = mac_hdr_len + 0;   // 原始目的地址在 msdu_body[0..5]
+                dm.rel_len   = 6;
+                out.tree.append(dm);
+                MsduFieldNode sm;
+                sm.name = QStringLiteral("Original Src MAC [48b]");
+                sm.value = mac_str(out.msdu_src_mac);
+                sm.rel_start = mac_hdr_len + 6;   // 原始源地址在 msdu_body[6..11]
+                sm.rel_len   = 6;
+                out.tree.append(sm);
+                MsduFieldNode vt;
+                vt.name = QStringLiteral("VLAN Tag [32b]");
+                vt.value = QStringLiteral("0x%1").arg(out.vlan_tag, 8, 16, QChar('0'));
+                vt.rel_start = mac_hdr_len + 12;  // VLAN 标签在 msdu_body[12..15]
+                vt.rel_len   = 4;
+                out.tree.append(vt);
+            }
             // MSDU 类型字段(表1:0x01 应用层报文 / 0x88E1 管理消息)
             {
                 MsduFieldNode mt;
@@ -834,6 +855,15 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                     const quint16 mm_type = (quint16)get_bits(mme, 1, 0, 16);
                     out.mme_type = mm_type;
                     out.summary = mme_type_name(mm_type);
+                    // 管理消息版本(表41:报文头第 18 字节,即 mme[0];本版固定为 1,此前未呈现)
+                    {
+                        MsduFieldNode mv;
+                        mv.name = QStringLiteral("MMe Version [8b]");
+                        mv.value = QStringLiteral("%1").arg((quint8)mme[0]);
+                        mv.rel_start = mme_rel_base + 0;
+                        mv.rel_len   = 1;
+                        out.tree.append(mv);
+                    }
                     // MMe 类型字段(管理消息类型 16b,值 + 类型名,供着色区分)
                     {
                         MsduFieldNode mt;
@@ -843,6 +873,16 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                         mt.rel_start = mme_rel_base + 1;   // MMe 类型在 mme[1..2]
                         mt.rel_len   = 2;
                         out.tree.append(mt);
+                    }
+                    // 管理消息报文头保留字段(表41:报文头第 21-23 字节,即 mme[3..5],此前未呈现)
+                    {
+                        MsduFieldNode rv;
+                        rv.name = QStringLiteral("RSV [24b]");
+                        rv.value = QStringLiteral("0x%1")
+                                       .arg(QString::fromLatin1(mme.mid(3, 3).toHex().toUpper()));
+                        rv.rel_start = mme_rel_base + 3;
+                        rv.rel_len   = 3;
+                        out.tree.append(rv);
                     }
                     switch (static_cast<NW_2021_MMeType>(mm_type)) {
         case NW_2021_MMeType::MME_ASSOCREQ: {
