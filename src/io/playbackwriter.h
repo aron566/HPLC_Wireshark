@@ -87,6 +87,17 @@ inline QByteArray unescape_frame_data(const QByteArray& esc) {
 // 超过该阈值视为"断段",需用新的 8B 时间标注。
 const qint64 kMaxNtbGapTicks = 25000000LL * 60;   // 25M tick/s × 60 s(1.5e9,< 2^31)
 inline qint64 ntb_to_us(quint32 dn) { return qint64(dn) * 40 / 1000; }   // tick(40ns) → µs
+inline qint64 next_delta_us(const PhysicalMeta& meta, quint32& last_ntb, bool& have_last_ntb) {
+    qint64 delta_us = 0;
+    if (have_last_ntb && !meta.seg_start && !meta.replay_time_tag) {
+        const qint64 dn = qint32(meta.timestamp - last_ntb);
+        if (dn > 0 && dn <= kMaxNtbGapTicks)
+            delta_us = ntb_to_us(quint32(dn));
+    }
+    last_ntb = meta.timestamp;
+    have_last_ntb = true;
+    return delta_us;
+}
 /// @brief 实时串口断段阈值:本地接收时间差超过 NTB u32 回绕周期(≈171.8s)
 ///        即视为断段(设备长时间无报文/NTB 已回绕,时间轴不可比)
 const qint64 kMaxLocalGapMs = 171800;   // 2^32 tick / 25 MHz ≈ 171.8 s

@@ -88,6 +88,7 @@ MainWindow::MainWindow(QWidget* parent)
       m_paused(false), m_exporting(false),
       m_follow_bottom(true),
       m_last_ntb(0),
+      m_have_last_ntb(false),
       m_index_counter(0) {
     qRegisterMetaType<ParseResult>("ParseResult");
     qRegisterMetaType<BplcFrame>("BplcFrame");
@@ -453,6 +454,7 @@ void MainWindow::on_start() {
     if (appcfg::protocol() != old_proto && confirm_protocol_rebuild())
         rebuild_dispatcher();
 
+    m_have_last_ntb = false;
     m_reader->start(cfg);
     m_status_left->setText(QString("Running: %1")
         .arg(cfg.mode == ReaderMode::SerialPort
@@ -480,6 +482,7 @@ void MainWindow::on_clear() {
     m_model->clear_all();
     m_index_counter = 0;
     m_last_ntb = 0;
+    m_have_last_ntb = false;
     {
         QMutexLocker lock(&m_pending_mutex);
         m_pending.clear();
@@ -889,17 +892,7 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
     // Delta:统一用帧内 NTB 差(tick × 40ns),实时串口与回放 bin 一致。
     // 本地接收时间(0x3C 打点 arrival_us)只作 serialreader 断段(seg_start)
     // 判断参考,不参与 Delta 计算。
-    const quint32 ntb = r.meta.timestamp;   // NTB tick(实时/回放统一)
-    if (r.meta.seg_start || r.meta.replay_time_tag) {
-        e.delta_us = 0;                     // 跨段断点:不计算与上一帧 delta
-    } else {
-        const qint64 dn = (qint32)(ntb - m_last_ntb);   // u32 回绕安全
-        if (dn > 0 && dn <= playback::kMaxNtbGapTicks)
-            e.delta_us = playback::ntb_to_us(quint32(dn));  // tick→µs
-        else
-            e.delta_us = 0;                 // NTB 异常(回绕/跳变):不计算
-    }
-    m_last_ntb = ntb;
+    e.delta_us = playback::next_delta_us(r.meta, m_last_ntb, m_have_last_ntb);
     e.meta      = r.meta;
     e.mpdu      = r.mpdu;
     e.msdu_body = r.msdu_body;
