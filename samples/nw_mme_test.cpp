@@ -4,6 +4,8 @@
 #include "nw_2021_msdu_parser.h"
 #include "common/fieldtools.h"
 #include "common/crc.h"
+#include "i18n.h"
+#include "protocol_tree_builder.h"
 
 static int checks = 0;
 
@@ -53,6 +55,41 @@ static const MsduFieldNode* node(const MsduInfo& info, const QString& name) {
     return nullptr;
 }
 
+static void header_mappings(const MsduInfo& info, const QByteArray& raw) {
+    for (const auto& field : info.tree) {
+        if (!field.name.startsWith("Original ") && !field.name.startsWith("VLAN Tag")
+            && !field.name.startsWith("MSDU Type") && !field.name.startsWith("MMe Version")
+            && !field.name.startsWith("MMe Type") && field.name != "RSV [24b]"
+            && field.name != "MSDU CRC32") continue;
+        check(field.rel_len == 0 ? field.rel_start == -1
+                                : field.rel_start >= 0 && field.rel_len > 0
+                                  && field.rel_start + field.rel_len <= raw.size(),
+              "header mapping never exceeds available bytes");
+        for (int pb_size : {0, 136, 520}) {
+            const MsduRawMap map{pb_size ? -1 : 100, 4, pb_size, 16, 4, pb_size - 8};
+            QTreeWidgetItem root;
+            tree_render_msdu(&root, {field}, map, raw);
+            const auto* item = root.child(0);
+            check(item && item->text(0) == field.name && item->text(1) == field.value,
+                  "rendered field retains its name/value");
+            check(item->data(0, kRoleBytes).toByteArray() == raw.mid(field.rel_start, field.rel_len),
+                  "rendered field copies only its actual bytes");
+            const auto ranges = tree_msdu_raw_ranges(map, field.rel_start, field.rel_len);
+            if (field.rel_len == 0) {
+                check(!item->data(0, kRoleStart).isValid() && item->data(0, kRoleRanges).toList().isEmpty(),
+                      "absent CRC has no highlight");
+            } else {
+                check(item->data(0, kRoleRanges).toList().size() == ranges.size(), "all PB highlight fragments retained");
+                check(item->data(0, kRoleStart).toInt() == (pb_size ? 20 : 100) + field.rel_start,
+                      "header first-byte raw mapping correct");
+                int covered = 0;
+                for (const auto& range : ranges) covered += range.second;
+                check(covered == field.rel_len, "PB fragments cover exactly the available field");
+            }
+        }
+    }
+}
+
 static void check_header(const MsduInfo& info, const QByteArray& data) {
     const auto* version = node(info, "MMe Version [8b]");
     const auto* type = node(info, "MMe Type [16b]");
@@ -75,13 +112,8 @@ static MsduInfo parse(const QByteArray& data) {
     return info;
 }
 
-static void truncated(const QByteArray& data) {
-    const auto info = parse(data);
+static void no_topology(const MsduInfo& info, const QString& context) {
     const auto& event = info.topo_event;
-    const QString context = QString("type=0x%1 length=%2")
-        .arg(data.size() >= 3 ? get_bits(data, 1, 0, 16) : 0, 4, 16, QChar('0'))
-        .arg(data.size());
-    check(info.summary.endsWith(" (truncated)"), "truncation marked: " + context);
     check(event.kind == TopoEventKind::Other && event.nodes.isEmpty()
           && event.routes.isEmpty() && event.up_routes.isEmpty()
           && event.leaves.isEmpty() && event.comm_rates.isEmpty()
@@ -89,6 +121,26 @@ static void truncated(const QByteArray& data) {
           && event.cco_mac == 0 && event.restart_count == -1
           && event.desc.isEmpty() && info.tei_mac_pairs.isEmpty(),
           "no partial topology or TEI/MAC learning: " + context);
+}
+
+static void truncated(const QByteArray& data) {
+    const auto info = parse(data);
+    const QString context = QString("type=0x%1 length=%2")
+        .arg(data.size() >= 3 ? get_bits(data, 1, 0, 16) : 0, 4, 16, QChar('0'))
+        .arg(data.size());
+    check(info.summary.endsWith(" (truncated)"), "truncation marked: " + context);
+    no_topology(info, context);
+}
+
+static void unsupported_version(const QByteArray& data) {
+    const auto info = NW_2021_MsduParser::parse(frame(data));
+    const auto* version = node(info, "MMe Version [8b]");
+    check(info.present && version && version->rel_start == 50 && version->rel_len == 1
+          && version->value.startsWith(QString::number(quint8(data[0])) + " - "),
+          "unsupported MMe version displayed as unsigned with original range");
+    check(info.summary.contains("unsupported MMe version") && info.tree.size() == 8,
+          "unsupported version retains common header and CRC only");
+    no_topology(info, "unsupported MMe version");
 }
 
 static MsduInfo complete(const QByteArray& data) {
@@ -101,6 +153,164 @@ static void all_prefixes(const QByteArray& data) {
     for (int length = 0; length < data.size(); ++length)
         truncated(data.left(length));
     complete(data);
+}
+
+static QByteArray vlan_frame(bool short_head, quint32 vlan, quint16 type,
+                             const QByteArray& data = QByteArray(12, char(0))) {
+    QByteArray payload(short_head ? 2 : 18, char(0));
+    put(payload, short_head ? 0 : 12, short_head ? 8 : 32, vlan);
+    put(payload, short_head ? 1 : 16, short_head ? 8 : 16, type);
+    payload += data;
+    QByteArray header(short_head ? 12 : 32, char(0));
+    header[0] = short_head ? 3 : 2;
+    put(header, 2, 16, quint64(payload.size()));
+    QByteArray crc(4, char(0));
+    put(crc, 0, 32, crc32_le(reinterpret_cast<const quint8*>(payload.constData()),
+                            int(payload.size()) + 4));
+    return header + payload + crc;
+}
+
+static void check_vlan(bool short_head, quint32 vlan, quint16 type, bool english) {
+    const auto info = NW_2021_MsduParser::parse(vlan_frame(short_head, vlan, type));
+    const auto* field = node(info, short_head ? "VLAN Tag [8b]" : "VLAN Tag [32b]");
+    check(info.present && field && info.vlan_tag == vlan && info.msdu_type == type,
+          "VLAN and MSDU Type retained for long/short header");
+    QString meaning;
+    if (type == 1 && vlan <= 3) {
+        meaning = english
+            ? QString("Meter reading/data subscription application, LID (priority)=%1").arg(vlan)
+            : QString("抄表/数据订阅应用，LID（优先级）=%1").arg(vlan);
+    } else if (type == 0x88e1 && vlan == 0x8100) {
+        meaning = english
+            ? "Network management packet, LID (priority)=0-255 (implementation-defined)"
+            : "网络管理报文，LID（优先级）=0-255（实现自定义）";
+    } else {
+        meaning = english ? "Undefined VLAN/MSDU Type combination" : "未定义的VLAN/MSDU Type组合";
+    }
+    check(field->value == QString("0x%1 - %2").arg(vlan, short_head ? 2 : 8, 16, QChar('0')).arg(meaning),
+          "VLAN meaning follows table 98 in both languages");
+    check(field->rel_start == (short_head ? 12 : 44) && field->rel_len == (short_head ? 1 : 4),
+          "VLAN highlight range covers only its raw bytes");
+    const auto* type_field = node(info, short_head ? "MSDU Type [8b]" : "MSDU Type [16b]");
+    check(type_field && type_field->rel_start == (short_head ? 13 : 48)
+          && type_field->rel_len == (short_head ? 1 : 2), "MSDU Type highlight unchanged");
+    const auto* crc = node(info, "MSDU CRC32");
+    check(crc && crc->value.endsWith("OK"), "VLAN display preserves CRC parsing");
+    check(info.summary.startsWith(!short_head && vlan == 0x8100 ? "MMe" : "APP"),
+          "VLAN display does not change payload dispatch");
+}
+
+static void vlan_tests() {
+    for (bool english : {false, true}) {
+        trl::set_enabled(english);
+        for (quint32 vlan : {0u, 1u, 2u, 3u, 4u, 0x8100u, 0x10000u, 0x81000000u, 0xffffffffu})
+            for (quint16 type : {1, 0x88e1, 0x1234})
+                check_vlan(false, vlan, type, english);
+        for (quint32 vlan = 0; vlan <= 255; ++vlan)
+            for (quint16 type : {0, 1, 2, 255})
+                check_vlan(true, vlan, type, english);
+    }
+    trl::set_enabled(false);
+    const auto management = NW_2021_MsduParser::parse(vlan_frame(false, 0x8100, 0x88e1, mme(0x0031, 50)));
+    check(management.topo_event.kind == TopoEventKind::AssocCnf, "VLAN meaning preserves complete MMe topology");
+    const auto minimal = NW_2021_MsduParser::parse(vlan_frame(true, 3, 1, QByteArray()));
+    check(node(minimal, "VLAN Tag [8b]") && minimal.summary.endsWith("(truncated)"),
+          "complete short VLAN shown even when APP is truncated");
+    QByteArray partial(13, char(0));
+    partial[0] = 3;
+    put(partial, 2, 16, 1);
+    const auto missing_type = NW_2021_MsduParser::parse(partial);
+    check(!node(missing_type, "VLAN Tag [8b]"), "incomplete short header does not invent a VLAN meaning");
+    QByteArray single_hop(4, char(0));
+    single_hop[0] = 4;
+    const auto simple = NW_2021_MsduParser::parse(single_hop);
+    check(simple.simple_head && !node(simple, "VLAN Tag [8b]") && !node(simple, "VLAN Tag [32b]"),
+          "single-hop header has no VLAN field");
+    QByteArray app(12, char(0));
+    app[0] = 0x11;
+    put(app, 1, 16, 0x0101);
+    for (bool short_head : {false, true}) {
+        const auto raw = vlan_frame(short_head, 3, 1, app);
+        const auto info = NW_2021_MsduParser::parse(raw);
+        const auto* cci = node(info, "Channel Control Info [4B]");
+        check(cci && cci->children.size() >= 2 && cci->children[0].value.startsWith("0x11 - ")
+              && cci->children[1].value.startsWith("0x0101 - "), "APP group annotations survive tree growth");
+        header_mappings(info, raw);
+    }
+}
+
+static void diagnostic_tests() {
+    for (int version : {0, 1, 2, 255}) {
+        for (int length = 0; length <= 6; ++length) {
+            auto data = mme(0x0031, length);
+            if (length) data[0] = char(version);
+            const auto raw = frame(data);
+            const auto info = NW_2021_MsduParser::parse(raw);
+            const auto* mv = node(info, "MMe Version [8b]");
+            const auto* mt = node(info, "MMe Type [16b]");
+            const auto* rsv = node(info, "RSV [24b]");
+            check(bool(mv) == (length >= 1) && bool(mt) == (length >= 2)
+                  && bool(rsv) == (length >= 4), "only available common header bytes displayed");
+            if (mv) check(mv->value.startsWith(QString::number(version)), "available version byte stays unsigned");
+            if (mt) check(mt->rel_len == qMin(2, length - 1)
+                          && (length >= 3 ? mt->value == "0x0031 - MMeAssocCnf" : mt->value == "0x??31 (truncated)"),
+                          "partial type does not invent its missing high byte");
+            if (rsv) check(rsv->rel_len == qMin(3, length - 3)
+                           && rsv->value.contains("truncated") == (length < 6), "partial RSV explicitly marked");
+            if (length < 6) check(info.summary.endsWith(" (truncated)"), "incomplete common header marked truncated");
+            no_topology(info, "incomplete/unsupported common header");
+            header_mappings(info, raw);
+        }
+    }
+    auto unknown_version = mme(0x9999, 6);
+    unknown_version[0] = char(255);
+    unsupported_version(unknown_version);
+    trl::set_enabled(true);
+    const auto english = NW_2021_MsduParser::parse(frame(unknown_version));
+    check(node(english, "MMe Version [8b]")->value.contains("Unsupported"), "unsupported version translated");
+    trl::set_enabled(false);
+
+    const auto full = frame(mme(0x0031, 50));
+    QByteArray single_payload(12, char(0));
+    QByteArray single_header(4, char(0));
+    single_header[0] = 4;
+    put(single_header, 2, 16, quint64(single_payload.size()));
+    QByteArray single_crc(4, char(0));
+    put(single_crc, 0, 32, crc32_le(reinterpret_cast<const quint8*>(single_payload.constData()), 16));
+    const QByteArray single = single_header + single_payload + single_crc;
+    for (const auto& raw : {full, vlan_frame(true, 3, 1), single}) {
+        for (int available = 0; available <= 4; ++available) {
+            const auto partial = raw.left(raw.size() - 4 + available);
+            const auto info = NW_2021_MsduParser::parse(partial);
+            const auto* crc = node(info, "MSDU CRC32");
+            check(info.present && crc && crc->rel_start == (available ? raw.size() - 4 : -1) && crc->rel_len == available,
+                  "CRC presence/absence retains parsed MSDU with exact byte range");
+            check(info.summary.contains("CRC missing") == (available < 4), "missing CRC explicit in summary");
+            check(available == 4 ? crc->value.endsWith("OK")
+                                : crc->value == QString("校验数据缺失（已有%1/4字节）").arg(available),
+                  "CRC missing never appears as OK/FAIL");
+            header_mappings(info, partial);
+        }
+        auto corrupt = raw;
+        corrupt[corrupt.size() - 1] = char(quint8(corrupt.back()) ^ 0x01);
+        const auto info = NW_2021_MsduParser::parse(corrupt);
+        check(node(info, "MSDU CRC32")->value.endsWith("FAIL") && !info.summary.contains("CRC missing"),
+              "bad complete CRC remains distinct from missing CRC");
+    }
+    trl::set_enabled(true);
+    const auto no_crc = NW_2021_MsduParser::parse(full.left(full.size() - 4));
+    check(node(no_crc, "MSDU CRC32")->value == "CRC data missing (0/4 bytes available)", "missing CRC translated");
+    trl::set_enabled(false);
+    const auto crossing = frame(mme(0x0031, 76));
+    const auto crossing_info = NW_2021_MsduParser::parse(crossing);
+    QTreeWidgetItem root;
+    const MsduRawMap map{-1, 2, 136, 16, 4, 128};
+    tree_render_msdu(&root, {*node(crossing_info, "MSDU CRC32")}, map, crossing);
+    const auto fragments = root.child(0)->data(0, kRoleRanges).toList();
+    check(fragments.size() == 2 && fragments[0].toList() == QVariantList({146, 2})
+          && fragments[1].toList() == QVariantList({156, 2})
+          && root.child(0)->data(0, kRoleBytes).toByteArray() == crossing.mid(126, 4),
+          "CRC across PB boundary has two exact highlight/copy fragments");
 }
 
 int main(int argc, char** argv) {
@@ -126,6 +336,13 @@ int main(int argc, char** argv) {
         {0x0070, 13, TopoEventKind::Other},
     };
     for (const auto& test : fixed) {
+        for (int version : {0, 2, 255}) {
+            for (int length : {6, test.minimum}) {
+                auto data = mme(test.type, length);
+                data[0] = char(version);
+                unsupported_version(data);
+            }
+        }
         all_prefixes(mme(test.type, test.minimum));
         const auto info = complete(mme(test.type, test.minimum));
         check(info.topo_event.kind == test.kind, "valid topology classification unchanged");
@@ -229,6 +446,8 @@ int main(int argc, char** argv) {
         check(!info.present && info.topo_event.kind == TopoEventKind::Other,
               "physically truncated outer MSDU rejected");
     }
-    QTextStream(stdout) << "PASS: " << checks << " NW MMe checks" << Qt::endl;
+    vlan_tests();
+    diagnostic_tests();
+    QTextStream(stdout) << "PASS: " << checks << " NW MMe/VLAN checks" << Qt::endl;
     return 0;
 }
