@@ -325,6 +325,7 @@ void ReaderWorker::try_extract_frame() {
                     bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(ft_ms);
                     m_last_ft = ft_ms;
                 } else {
+                    bf.meta.seg_start = true;
                     bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(now_ms);
                     m_last_ft = now_ms;
                 }
@@ -348,8 +349,7 @@ void ReaderWorker::try_extract_frame() {
 }
 
 void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
-    // 每行一帧裸数据(无 0x3C/0x3E/0x3D 封装):
-    //   [ts 4B LE][phr_mcs 1B][option 1B][channel 1B][isRF 1B][MPDU...]
+    // TIME 时间行由 start_reading 消费;此处解析每行一个完整 0x3C...0x3E 帧。
     // 支持 "0x01 0xd5 …" 或 "01 d5…" 写法;帧间由行分隔定界。
     QByteArray raw;
     QByteArray s = line;
@@ -366,16 +366,6 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
             if (!ok) return;
             raw.append(char(v));
         }
-    }
-    // 8B BCD 时间标注行(非 0x3C 开头,裸 hex 多段):解析记录(断点/基准)
-    if (raw.size() == 8 && (quint8)raw[0] != 0x3C
-        && playback::looks_like_bcd8(raw)) {
-        const qint64 ms = bcd_ms_of(raw);
-        if (ms >= 0) {
-            m_raw_base_ms = ms;
-            m_hex_seg_first = true;
-        }
-        return;
     }
     // 至少 ts4+media4+1B MPDU,否则无法构成可解析帧
     if (raw.size() < 9) return;

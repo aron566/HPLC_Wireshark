@@ -68,6 +68,7 @@ private slots:
     void on_serial_ready_read();
 
 private:
+    friend class ReaderWorkerTestAccess;
     void try_extract_frame();
     void process_raw_hex_line(const QByteArray& line);
     /// @brief 解析裸 hex 文本头行时间(TIME: / ISO 文本),失败返回 -1
