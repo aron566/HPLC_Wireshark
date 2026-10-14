@@ -365,16 +365,20 @@ static const FieldSpec kMMeAssocGatherIndSpec[] = {
 };
 static const int kMMeAssocGatherIndSpecN = int(sizeof(kMMeAssocGatherIndSpec)/sizeof(kMMeAssocGatherIndSpec[0]));
 
+// 位图版代理变更确认:分头/尾两段渲染,中间夹位图块(byte 9-138),使树序与字节序一致
 static const FieldSpec kMMeChangeProxyBitMapCnfSpec[] = {
     { "Result", 0, 0, 32, Fmt::DEC },
     { "STATEI", 4, 0, 16, Fmt::DEC },
     { "ProxyTEI", 6, 0, 16, Fmt::DEC },
     { "NetSN", 8, 0, 8, Fmt::DEC },
+};
+static const int kMMeChangeProxyBitMapCnfSpecN = int(sizeof(kMMeChangeProxyBitMapCnfSpec)/sizeof(kMMeChangeProxyBitMapCnfSpec[0]));
+static const FieldSpec kMMeChangeProxyBitMapCnfTailSpec[] = {
     { "RSV0", 139, 0, 8, Fmt::HEX4 },
     { "EndSequence", 140, 0, 32, Fmt::DEC },
     { "PathSequence", 144, 0, 32, Fmt::DEC },
 };
-static const int kMMeChangeProxyBitMapCnfSpecN = int(sizeof(kMMeChangeProxyBitMapCnfSpec)/sizeof(kMMeChangeProxyBitMapCnfSpec[0]));
+static const int kMMeChangeProxyBitMapCnfTailSpecN = int(sizeof(kMMeChangeProxyBitMapCnfTailSpec)/sizeof(kMMeChangeProxyBitMapCnfTailSpec[0]));
 
 static const FieldSpec kMMeLeaveIndSpec[] = {
     { "LeaveSTATEI", 0, 0, 16, Fmt::DEC },
@@ -1137,6 +1141,8 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                         .arg(bmproxy_tei ? QString::number(bmproxy_tei) : QStringLiteral("-"));
                 }
             }
+            // 尾段(保留 byte 139 + 端到端/路径序列号)排在位图块之后,与字节序一致
+            add_fields(out.tree, mme, 6, kMMeChangeProxyBitMapCnfTailSpec, kMMeChangeProxyBitMapCnfTailSpecN, mme_rel_base);
             break;
         }
         case NW_2021_MMeType::MME_LEAVEIND: {
