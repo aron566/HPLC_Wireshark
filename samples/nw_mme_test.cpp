@@ -320,7 +320,7 @@ int main(int argc, char** argv) {
         {0x0030, 74, TopoEventKind::AssocReq},
         {0x0031, 50, TopoEventKind::AssocCnf},
         {0x0032, 46, TopoEventKind::Other},
-        {0x0034, 70, TopoEventKind::AssocInd},
+        {0x0034, 78, TopoEventKind::AssocInd},
         {0x0037, 38, TopoEventKind::ChangeProxyCnf},
         {0x003a, 34, TopoEventKind::AssocGatherInd},
         {0x003b, 154, TopoEventKind::ChangeProxyCnf},
@@ -352,6 +352,7 @@ int main(int argc, char** argv) {
     struct ListCase { quint16 type; int base; int count_offset; int count_bits; int item_size; };
     const ListCase lists[] = {
         {0x0031, 50, 42, 16, 2},
+        {0x0034, 78, 70, 16, 2},
         {0x0037, 38, 16, 16, 2},
         {0x003a, 34, 17, 8, 8},
         {0x0055, 176, 30, 16, 1},
@@ -394,6 +395,30 @@ int main(int argc, char** argv) {
     auto missing_pco = mme(0x0031, 50);
     put(missing_pco, 44, 16, 65535);
     truncated(missing_pco);
+
+    // 关联指示的嵌套路由与关联确认同构(计数在 70/72,条目自 78 起):
+    // 第二个 PCO 的子列表不足时,同样不得保留部分拓扑。
+    auto ind_routes = mme(0x0034, 92);
+    put(ind_routes, 70, 16, 1);
+    put(ind_routes, 72, 16, 2);
+    put(ind_routes, 78, 16, 7);
+    put(ind_routes, 80, 16, 8);
+    put(ind_routes, 82, 16, 2);
+    put(ind_routes, 84, 16, 9);
+    put(ind_routes, 86, 16, 10);
+    put(ind_routes, 88, 16, 11);
+    put(ind_routes, 90, 16, 0);
+    all_prefixes(ind_routes);
+    put(ind_routes, 90, 16, 1);
+    truncated(ind_routes);
+    ind_routes.append(QByteArray(2, char(0)));
+    put(ind_routes, 92, 16, 12);
+    all_prefixes(ind_routes);
+    put(ind_routes, 90, 16, 65535);
+    truncated(ind_routes);
+    auto ind_missing_pco = mme(0x0034, 78);
+    put(ind_missing_pco, 72, 16, 65535);
+    truncated(ind_missing_pco);
 
     auto gather = mme(0x003a, 50);
     put(gather, 14, 16, 3);

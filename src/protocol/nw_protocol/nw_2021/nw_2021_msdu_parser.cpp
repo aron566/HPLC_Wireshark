@@ -838,7 +838,7 @@ static int mme_fixed_length(NW_2021_MMeType type) {
     case NW_2021_MMeType::MME_ASSOCREQ: return mme_fixed_length(kMMeAssocReqSpec);
     case NW_2021_MMeType::MME_ASSOCCNF: return 50; // 固定体36B + 路由信息头8B + MMe头6B
     case NW_2021_MMeType::MME_CHANGEPROXYREQ: return mme_fixed_length(kMMeChangeProxyReqSpec);
-    case NW_2021_MMeType::MME_ASSOCIND: return mme_fixed_length(kMMeAssocIndSpec);
+    case NW_2021_MMeType::MME_ASSOCIND: return 78; // 固定体64B + 路由信息头8B + MMe头6B(与关联确认同构)
     case NW_2021_MMeType::MME_CHANGEPROXYCNF: return mme_fixed_length(kMMeChangeProxyCnfSpec);
     case NW_2021_MMeType::MME_ASSOCGATHERIND: return mme_fixed_length(kMMeAssocGatherIndSpec);
     case NW_2021_MMeType::MME_CHANGEPROXYBITMAPCNF: return mme_fixed_length(kMMeChangeProxyBitMapCnfSpec);
@@ -862,10 +862,13 @@ static bool mme_body_complete(const QByteArray& mme, NW_2021_MMeType type) {
         return offset <= mme.size() && count <= (mme.size() - offset) / item_size;
     };
     switch (type) {
-    case NW_2021_MMeType::MME_ASSOCCNF: {
-        const int sta_sum = int(get_bits(mme, 42, 0, 16));
-        const int pco_sum = int(get_bits(mme, 44, 0, 16));
-        int offset = 50;
+    case NW_2021_MMeType::MME_ASSOCCNF:
+    case NW_2021_MMeType::MME_ASSOCIND: {
+        // 路由信息结构两类消息同构,仅起始偏移不同(确认 rb=42 / 指示 rb=70)
+        const int rb = type == NW_2021_MMeType::MME_ASSOCCNF ? 42 : 70;
+        const int sta_sum = int(get_bits(mme, rb, 0, 16));
+        const int pco_sum = int(get_bits(mme, rb + 2, 0, 16));
+        int offset = rb + 8;
         if (!has_items(offset, sta_sum, 2)) return false;
         offset += sta_sum * 2;
         for (int i = 0; i < pco_sum; ++i) {
