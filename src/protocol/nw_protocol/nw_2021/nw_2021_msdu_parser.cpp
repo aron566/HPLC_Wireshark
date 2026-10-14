@@ -725,6 +725,15 @@ static const FieldSpec kCommRateInfoSpec[] = {
     { "UpCommRate", 3, 0, 8, Fmt::DEC },
 };
 static const int kCommRateInfoSpecN = int(sizeof(kCommRateInfoSpec)/sizeof(kCommRateInfoSpec[0]));
+// 单跳简头 MSDU_BASE_S(4B):头标志/版本/保留/MSDU 类型/MSDU 长度(布局沿袭既有定义)
+static const FieldSpec kMMeBaseSSpec[] = {
+    { "MACHeadFlag", 0, 0, 1, Fmt::DEC },
+    { "Version", 0, 1, 2, Fmt::DEC },
+    { "RSV0", 0, 3, 5, Fmt::HEX6 },
+    { "MSDU Type", 1, 0, 8, Fmt::HEX8 },
+    { "MSDU Length", 2, 0, 16, Fmt::DEC },
+};
+static const int kMMeBaseSSpecN = int(sizeof(kMMeBaseSSpec)/sizeof(kMMeBaseSSpec[0]));
 
 }  // namespace
 
@@ -742,6 +751,9 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         out.msdu_type   = (quint16)get_bits(p, 1, 0, 8);
         const quint16 msdu_len = (quint16)get_bits(p, 2, 0, 16);
         out.total_len = 4 + msdu_len + 4;
+        // 简头字段与载荷进树(此前仅有 CRC 节点,整帧不可见)
+        add_fields(out.tree, body, 0, kMMeBaseSSpec, kMMeBaseSSpecN, 0);
+        append_payload_hex(out, body, 4, (int)msdu_len, QStringLiteral("Payload"), 0);
         // MSDU 帧尾 4B CRC32:位置 MSDU 载荷(单跳头 4B 之后 msdu_len 字节)之后;
         // 计算覆盖 MSDU 载荷(不含单跳头)
         const int crc_off = 4 + msdu_len;
@@ -1457,7 +1469,10 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         case NW_2021_MMeType::MME_NETWORKCONFLICTREPORT:
             add_fields(out.tree, mme, 6, kMMeNetworkConflictReportSpec, kMMeNetworkConflictReportSpecN, mme_rel_base);
             break;
-                        default: break;
+                        default:
+                            // 未知管理消息类型(如新规约扩展类型):报文体以原始 hex 呈现,避免整段不可见
+                            append_payload_hex(out, mme, 6, -1, QStringLiteral("MMe Data"), mme_rel_base);
+                            break;
                     }
                 } else {
                     out.summary = QStringLiteral("MMe (truncated)");
