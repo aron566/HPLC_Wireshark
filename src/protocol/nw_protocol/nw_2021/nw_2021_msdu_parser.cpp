@@ -841,7 +841,7 @@ static int mme_fixed_length(NW_2021_MMeType type) {
     case NW_2021_MMeType::MME_ASSOCIND: return 78; // 固定体64B + 路由信息头8B + MMe头6B(与关联确认同构)
     case NW_2021_MMeType::MME_CHANGEPROXYCNF: return mme_fixed_length(kMMeChangeProxyCnfSpec);
     case NW_2021_MMeType::MME_ASSOCGATHERIND: return mme_fixed_length(kMMeAssocGatherIndSpec);
-    case NW_2021_MMeType::MME_CHANGEPROXYBITMAPCNF: return mme_fixed_length(kMMeChangeProxyBitMapCnfSpec);
+    case NW_2021_MMeType::MME_CHANGEPROXYBITMAPCNF: return 145; // 本体最小长度:MMe头6B + 前段9B + 位图130B(尾部字段缺失仅警告,见 parse)
     case NW_2021_MMeType::MME_LEAVEIND: return mme_fixed_length(kMMeLeaveIndSpec);
     case NW_2021_MMeType::MME_HEARTBEATCHECK: return 145; // 固定体8B + 位图130B + 保留1B + MMe头6B
     case NW_2021_MMeType::MME_DISCOVERNODELIST: return mme_fixed_length(kMMeDiscoverNodeListSpec);
@@ -1007,6 +1007,11 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                     if (!mme_body_complete(mme, static_cast<NW_2021_MMeType>(mm_type))) {
                         out.summary += QStringLiteral(" (truncated)");
                     } else {
+                    // 位图版代理变更确认:本体(至位图末尾,共 145B)完整即可解析;
+                    // 尾部保留/端到端/路径序列号(至 154B)缺失时警告,不按截断处理
+                    if (mm_type == static_cast<quint16>(NW_2021_MMeType::MME_CHANGEPROXYBITMAPCNF)
+                        && mme.size() < 154)
+                        out.summary += QStringLiteral(" (fields missing)");
                     switch (static_cast<NW_2021_MMeType>(mm_type)) {
         case NW_2021_MMeType::MME_ASSOCREQ: {
             add_fields(out.tree, mme, 6, kMMeAssocReqSpec, kMMeAssocReqSpecN, mme_rel_base);

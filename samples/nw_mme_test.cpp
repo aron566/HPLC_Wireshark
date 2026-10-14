@@ -323,7 +323,7 @@ int main(int argc, char** argv) {
         {0x0034, 78, TopoEventKind::AssocInd},
         {0x0037, 38, TopoEventKind::ChangeProxyCnf},
         {0x003a, 34, TopoEventKind::AssocGatherInd},
-        {0x003b, 154, TopoEventKind::ChangeProxyCnf},
+        {0x003b, 145, TopoEventKind::ChangeProxyCnf},
         {0x0049, 26, TopoEventKind::LeaveInd},
         {0x0051, 145, TopoEventKind::Other},
         {0x0055, 176, TopoEventKind::DiscoverList},
@@ -419,6 +419,18 @@ int main(int argc, char** argv) {
     auto ind_missing_pco = mme(0x0034, 78);
     put(ind_missing_pco, 72, 16, 65535);
     truncated(ind_missing_pco);
+
+    // 位图版代理变更确认:本体 145B(位图完整)即可解析,尾部字段
+    // (保留/端到端/路径序列号,至 154B)缺失时警告而非按截断处理。
+    for (int len = 145; len < 154; ++len) {
+        const auto info = parse(mme(0x003b, len));
+        check(info.summary.contains("fields missing") && !info.summary.contains("truncated"),
+              "bitmap body complete but tail fields missing warns");
+        check(info.topo_event.kind == TopoEventKind::ChangeProxyCnf,
+              "bitmap topo retained when tail fields missing");
+    }
+    check(!complete(mme(0x003b, 154)).summary.contains("fields missing"),
+          "full bitmap frame has no missing-field warning");
 
     auto gather = mme(0x003a, 50);
     put(gather, 14, 16, 3);
