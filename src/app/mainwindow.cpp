@@ -890,7 +890,7 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
     // 本地接收时间(0x3C 打点 arrival_us)只作 serialreader 断段(seg_start)
     // 判断参考,不参与 Delta 计算。
     const quint32 ntb = r.meta.timestamp;   // NTB tick(实时/回放统一)
-    if (r.meta.seg_start) {
+    if (r.meta.seg_start || r.meta.replay_time_tag) {
         e.delta_us = 0;                     // 跨段断点:不计算与上一帧 delta
     } else {
         const qint64 dn = (qint32)(ntb - m_last_ntb);   // u32 回绕安全

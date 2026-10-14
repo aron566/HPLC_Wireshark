@@ -4,6 +4,7 @@
 #include <QBuffer>
 #include <QDebug>
 #include <QTemporaryDir>
+#include <algorithm>
 #include "serialreader.h"
 #include "playbackwriter.h"
 #include "packetentry_serialize.h"
@@ -40,6 +41,9 @@ QVector<PacketEntry> read(const QByteArray& input, ReaderMode mode) {
         entries.append(e);
     });
     worker.start_reading(cfg);
+    check(std::all_of(entries.cbegin(), entries.cend(), [](const PacketEntry& e) {
+        return !e.meta.seg_start;
+    }), "file replay never sets serial seg_start");
     return entries;
 }
 
@@ -109,7 +113,7 @@ void regressions() {
         last = wire(ntb - 25000, padding);
         input += last + tag2 + wire(ntb);
         const auto entries = read(input, ReaderMode::FilePlayback);
-        check(!entries.isEmpty() && entries.last().meta.seg_start
+        check(!entries.isEmpty() && entries.last().meta.replay_time_tag
                   && entries.last().epoch_ms == later, "boundary BCD resets segment time");
         bin_roundtrip(input, entries);
     }
@@ -122,15 +126,15 @@ void regressions() {
                                  + playback::hex_line_of(wire(51000));
         const auto entries = read(input, ReaderMode::RawHex);
         check(entries.size() == 3 && entries[0].epoch_ms == base
-                  && entries[1].epoch_ms == later && entries[1].meta.seg_start
-                  && entries[2].epoch_ms == later + 1 && !entries[2].meta.seg_start,
+                  && entries[1].epoch_ms == later && entries[1].meta.replay_time_tag
+                  && entries[2].epoch_ms == later + 1 && !entries[2].meta.replay_time_tag,
               bcd ? "standalone BCD hex resets next frame" : "TIME header resets next frame");
         const QByteArray bin = tag + first + tag2 + second + wire(51000);
         check(streamed(entries, false) == bin, "hex -> bin retains annotation time and position");
         bin_roundtrip(bin, read(bin, ReaderMode::FilePlayback));
         QVector<PacketEntry> stored;
         check(pser::decode_block(pser::encode_block(entries), stored)
-                  && stored.size() == 3 && stored[1].meta.seg_start
+                  && stored.size() == 3 && stored[1].meta.replay_time_tag && !stored[1].meta.seg_start
                   && stored[1].epoch_ms == later && streamed(stored, false) == bin,
               "segment and export survive disk-block round-trip");
     }
@@ -144,7 +148,7 @@ void regressions() {
         const qint64 before = QDateTime::currentMSecsSinceEpoch();
         const auto entries = read(input, mode);
         const qint64 after = QDateTime::currentMSecsSinceEpoch();
-        check(entries.size() == 2 && !entries[1].meta.seg_start
+        check(entries.size() == 2 && !entries[1].meta.replay_time_tag
                   && entries[1].epoch_ms >= before && entries[1].epoch_ms <= after,
               "missing intermediate annotation uses local time without seg_start");
         check(streamed(entries, hex) == input, "fallback does not invent export annotation");
@@ -161,7 +165,17 @@ void regressions() {
                                  + playback::hex_line_of(invalid_tag)
                                  + playback::hex_line_of(second), ReaderMode::RawHex);
     check(invalid.size() == 2 && invalid.last().epoch_ms == base + 1
-              && !invalid.last().meta.seg_start, "invalid BCD date does not reset segment");
+              && !invalid.last().meta.replay_time_tag, "invalid BCD date does not reset segment");
+    const auto no_header = read(playback::hex_line_of(first), ReaderMode::RawHex);
+    check(no_header.size() == 1 && !no_header[0].meta.replay_time_tag,
+          "headerless hex does not invent an existing annotation");
+    auto serial = read(tag + first + second, ReaderMode::FilePlayback);
+    if (serial.size() == 2) {
+        for (auto& e : serial) { e.meta.seg_start = true; e.meta.replay_time_tag = false; }
+        serial[1].epoch_ms = later;
+        check(streamed(serial, false) == tag + first + tag2 + second,
+              "serial seg_start still writes new segment timestamp");
+    } else check(false, "serial export fixture");
 }
 
 void fixtures(const QString& bin_path, const QString& hex_path) {

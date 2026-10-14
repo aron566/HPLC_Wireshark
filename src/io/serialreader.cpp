@@ -276,7 +276,7 @@ void ReaderWorker::try_extract_frame() {
                 m_last_ft = m_playback_base_ms;
                 m_last_ntb = ntb;
                 m_first_frame = false;
-                bf.meta.seg_start = true;   // 跨段断点:Delta 不计算
+                bf.meta.replay_time_tag = true;
             } else {
                 const qint64 dn = (qint32)(ntb - m_last_ntb);   // 回绕安全
                 if (dn > 0 && dn <= playback::kMaxNtbGapTicks) {
@@ -407,14 +407,14 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
         const qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
         const qint64 now_us = now_ms * 1000;
         qint64 t2_us;
-        bool seg_start = false;
+        bool replay_time_tag = false;
         if (m_hex_seg_first) {
             const qint64 base_ms = (m_raw_base_ms >= 0) ? m_raw_base_ms : now_ms;
             t2_us = base_ms * 1000;
             m_hex_seg_base_ts = ts_le2;
             m_hex_seg_base_us = t2_us;
             m_hex_seg_first = false;
-            seg_start = true;
+            replay_time_tag = m_raw_base_ms >= 0;
         } else {
             const qint64 dn = (qint32)(ts_le2 - m_hex_seg_base_ts);  // 自段首累计 tick
             if (dn > 0 && dn <= playback::kMaxNtbGapTicks)
@@ -431,7 +431,7 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
         bf.meta.from_raw = false;
         bf.meta.has_time_tag = false;
         bf.meta.frame_ts_is_ntb = true;
-        bf.meta.seg_start = seg_start;
+        bf.meta.replay_time_tag = replay_time_tag;
         bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(t2_us / 1000);
         bf.arrival_us = t2_us;
         bf.raw_wire   = raw;   // 0x3C...0x3E 原样

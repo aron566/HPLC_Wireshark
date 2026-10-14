@@ -160,8 +160,8 @@ inline QByteArray frame_to_playback(const PacketEntry& e) {
 }
 
 /// @brief 全部帧 → 完整回放 bin 文件内容(空帧自动跳过)
-/// @details 断段只认 seg_start 标志(实时串口采集按本地接收时间差标定、
-///          文件回放按段间 8B BCD 标注标定),不用 NTB 差兜底(多设备 NTB
+/// @details 实时串口断段认 seg_start,回放原有标注认 replay_time_tag,
+///          不用 NTB 差兜底(多设备 NTB
 ///          基准不同,差不可靠)。段首前写 8B BCD 标注,帧本身 raw_wire 原样。
 inline QByteArray build_playback_bin(const QVector<PacketEntry>& entries) {
     QByteArray buf;
@@ -169,7 +169,7 @@ inline QByteArray build_playback_bin(const QVector<PacketEntry>& entries) {
     bool have = false;
     for (const PacketEntry& e : entries) {
         if (!e.raw_wire.isEmpty()) {
-            if (!have || e.meta.seg_start)
+            if (!have || e.meta.seg_start || e.meta.replay_time_tag)
                 buf.append(bcd_time_tag(e.epoch_ms));   // 段起点标注
             buf.append(e.raw_wire);
             have = true;
@@ -197,8 +197,8 @@ inline QByteArray build_raw_hex_text(const QVector<PacketEntry>& entries) {
                 .arg(QDateTime::fromMSecsSinceEpoch(e.epoch_ms)
                          .toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")))
                 .toUtf8();
-        if (e.raw_wire.isEmpty() || !have || e.meta.seg_start) {
-            // 无 raw_wire / 首帧 / 段首(seg_start):标注一次
+        if (e.raw_wire.isEmpty() || !have || e.meta.seg_start || e.meta.replay_time_tag) {
+            // 无 raw_wire / 首帧 / 串口段首 / 回放原有标注:标注一次
             buf.append(ts_hdr);
         }
         // 帧字节:优先 raw_wire 原样(与 bin 导出一致,保证 round-trip 无损);
@@ -234,7 +234,7 @@ inline QByteArray build_raw_hex_text(const QVector<PacketEntry>& entries) {
     return buf;
 }
 
-/// @brief 流式回放 bin writer:逐条 add(边写 QIODevice),断段只认 seg_start。
+/// @brief 流式回放 bin writer:保留回放原有标注,串口新段写起始时间。
 ///        用于磁盘换页模型下按序遍历全部帧导出,避免一次性载入内存。
 class PlaybackBinWriter {
 public:
@@ -242,8 +242,7 @@ public:
 
     void add(const PacketEntry& e) {
         if (!e.raw_wire.isEmpty()) {
-            // 断段只认 seg_start(与批量 build_playback_bin 一致)
-            if (!have_ || e.meta.seg_start)
+            if (!have_ || e.meta.seg_start || e.meta.replay_time_tag)
                 dev_->write(bcd_time_tag(e.epoch_ms));   // 段起点标注
             dev_->write(e.raw_wire);
             have_ = true;
@@ -258,7 +257,7 @@ private:
     bool       have_;
 };
 
-/// @brief 流式裸 hex writer:逐条 add,段起点/断段(seg_start)前写 TIME: 行,
+/// @brief 流式裸 hex writer:串口新段/回放原有标注前写 TIME: 行,
 ///        帧字节 raw_wire 原样(与批量 build_raw_hex_text 一致)。
 class RawHexWriter {
 public:
@@ -271,7 +270,7 @@ public:
                 .arg(QDateTime::fromMSecsSinceEpoch(e.epoch_ms)
                          .toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")))
                 .toUtf8();
-        if (e.raw_wire.isEmpty() || !have_ || e.meta.seg_start) {
+        if (e.raw_wire.isEmpty() || !have_ || e.meta.seg_start || e.meta.replay_time_tag) {
             dev_->write(ts_hdr);
         }
         // 帧字节:优先 raw_wire 原样(round-trip 无损);无 raw_wire 才重新构造

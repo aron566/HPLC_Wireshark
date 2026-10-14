@@ -1,6 +1,6 @@
-// Round-trip test for the v3 block format (pool + filter index + chunked
+// Round-trip test for the v4 block format (pool + filter index + chunked
 // entries). Builds synthetic PacketEntries with nested trees, encodes a
-// block, decodes it back, and verifies every field, plus v3 random access
+// block, decodes it back, and verifies every field, plus v4 random access
 // (BlockReader::entry_at) and the stored search_text in the block index.
 //
 // Build & run: qmake src/common/tests/block_format_test.pro && make,
@@ -25,6 +25,8 @@ static PacketEntry make_entry(int i) {
     e.reason = e.accepted ? QString() : QStringLiteral("CRC error");
     e.raw_wire = QByteArray::fromHex("3c00ff3e");
     e.meta.timestamp = 12345 + i; e.meta.is_rf = (i % 2 == 0);
+    e.meta.seg_start = i % 3 == 0;
+    e.meta.replay_time_tag = i % 5 == 0;
     e.meta.frame_time = QDateTime::fromMSecsSinceEpoch(e.epoch_ms);
     e.mpdu.frame_type = 1; e.mpdu.src_tei = 2; e.mpdu.dst_tei = 0xFFF;
     e.mpdu.beacon_cco_mac = 0x112233445566ULL;
@@ -47,6 +49,7 @@ static bool entry_equal(const PacketEntry& a, const PacketEntry& b, QString& why
         || a.accepted != b.accepted || a.reason != b.reason
         || a.raw_wire != b.raw_wire || a.meta.timestamp != b.meta.timestamp
         || a.meta.is_rf != b.meta.is_rf
+        || a.meta.seg_start != b.meta.seg_start || a.meta.replay_time_tag != b.meta.replay_time_tag
         || a.meta.frame_time.toMSecsSinceEpoch() != b.meta.frame_time.toMSecsSinceEpoch()
         || a.mpdu.frame_type != b.mpdu.frame_type || a.mpdu.src_tei != b.mpdu.src_tei
         || a.mpdu.dst_tei != b.mpdu.dst_tei
@@ -69,7 +72,7 @@ static bool entry_equal(const PacketEntry& a, const PacketEntry& b, QString& why
             || a.msdu.tei_mac_pairs[k].mac != b.msdu.tei_mac_pairs[k].mac) {
             why = QStringLiteral("tei_mac mismatch at index %1").arg(a.index); return false;
         }
-    // search_text is stored in the v3 block index; the decoded value must
+    // search_text is stored in the v4 block index; the decoded value must
     // equal the stored original (test entries fill it via make_search_text,
     // exactly like the app's make_entry does)
     if (b.search_text.isEmpty() || b.search_text != make_search_text(b)) {
@@ -120,13 +123,15 @@ int main(int argc, char** argv) {
         if (pser::decode_block(QByteArray("garbage"), out)) ++bad;
         if (pser::decode_block(good.left(good.size() / 2), out)) ++bad;   // truncated
         if (pser::decode_block(good.left(20), out)) ++bad;                 // header cut
+        QByteArray old_version = good; old_version[7] = char(3);
+        if (pser::decode_block(old_version, out)) ++bad;                  // incompatible cache version
         QByteArray flip = good; flip[flip.size() - 1] = char(flip[flip.size() - 1] ^ 0xFF);
         if (pser::decode_block(flip, out)) ++bad;                          // bit flip
         if (bad) { qWarning() << "corrupt-input check FAIL:" << bad; ++fails; }
         else qInfo() << "corrupt-input checks OK (all rejected)";
     }
 
-    // 4) v3 random access + filter index (BlockReader)
+    // 4) v4 random access + filter index (BlockReader)
     {
         QVector<PacketEntry> src; src.reserve(2500);
         for (int i = 1; i <= 2500; ++i) { PacketEntry e = make_entry(i); e.search_text = make_search_text(e); src.append(e); }
