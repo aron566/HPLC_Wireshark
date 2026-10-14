@@ -230,6 +230,16 @@ QDataStream& operator>>(QDataStream& in, DissectColumn& c) {
     return in;
 }
 
+// ---- DissectColorRule ----
+QDataStream& operator<<(QDataStream& out, const DissectColorRule& c) {
+    out << c.id << c.name << c.name_en << c.foreground << c.background;
+    return out;
+}
+QDataStream& operator>>(QDataStream& in, DissectColorRule& c) {
+    in >> c.id >> c.name >> c.name_en >> c.foreground >> c.background;
+    return in;
+}
+
 // ---- DissectField（递归） ----
 QDataStream& operator<<(QDataStream& out, const DissectField& f) {
     out << f.name << f.value << f.start << f.len << f.severity << f.children;
@@ -245,13 +255,15 @@ QDataStream& operator<<(QDataStream& out, const DissectResult& r) {
     out << r.accept << r.reject_reason << r.mpdu << r.msdu_present
         << r.msdu_summary << r.msdu_body << r.msdu_raw_base << r.topo_event
         << r.tei_mac_pairs << r.fields << r.dissected_bytes
-        << r.has_refined_ctx << r.refined_ctx << r.column_values;
+        << r.has_refined_ctx << r.refined_ctx << r.column_values
+        << r.color_id;
     return out;
 }
 QDataStream& operator>>(QDataStream& in, DissectResult& r) {
     in >> r.accept >> r.reject_reason >> r.mpdu >> r.msdu_present
        >> r.msdu_summary >> r.msdu_body >> r.msdu_raw_base >> r.topo_event
        >> r.tei_mac_pairs >> r.fields >> r.dissected_bytes
-       >> r.has_refined_ctx >> r.refined_ctx >> r.column_values;
+       >> r.has_refined_ctx >> r.refined_ctx >> r.column_values
+       >> r.color_id;
     return in;
 }

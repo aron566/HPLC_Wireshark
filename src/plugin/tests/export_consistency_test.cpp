@@ -83,6 +83,7 @@ struct EntryMaker {
         e.raw_bytes = r.payload_for_log;
         e.dissect_fields = r.dissect_fields;
         e.column_values = r.column_values;
+        e.color_id = r.color_id;
         return e;
     }
 };
@@ -120,6 +121,45 @@ void harness_update_mac(HarnessMacMap& m, const PacketEntry& e) {
     if (e.msdu.msdu_dst_tei > 0 && e.msdu.msdu_dst_mac)
         m[nid][quint16(e.msdu.msdu_dst_tei)] = e.msdu.msdu_dst_mac;
 }
+/// 内置整行前景色期望(转录 PacketListModel::ForegroundRole 优先级
+/// 与 mme_color/bid_color/data_color 公式,作插件着色比对基准)
+QRgb expected_fg(const PacketEntry& e) {
+    if (e.msdu.present && e.msdu.mme_type != 0xFFFF) {
+        const int hue = 20 + int((quint64(e.msdu.mme_type) * 37) % 160);
+        return QColor::fromHsv(hue, 190, 220).rgba();
+    }
+    if (e.msdu.present && e.msdu.business_id != 0xFF) {
+        if (e.msdu.app_packet_type == 0) {   // 确认/否认帧
+            if (e.msdu.business_id == 0) return QColor(46, 214, 106).rgba();
+            if (e.msdu.business_id == 1) return QColor(224, 64, 64).rgba();
+        }
+        const int hue = 180 + int((quint64(e.msdu.business_id) * 37) % 160);
+        return QColor::fromHsv(hue, 190, 220).rgba();
+    }
+    if (!e.accepted) return QColor(128, 128, 128).rgba();
+    switch (e.mpdu.frame_type) {
+        case 0: return QColor(86, 156, 214).rgba();
+        case 1: return QColor(106, 153, 78).rgba();
+        case 2: return e.mpdu.ack_rx_res == 1
+                           ? QColor(224, 64, 64).rgba()
+                           : QColor(196, 181, 79).rgba();
+        case 3: return QColor(140, 110, 190).rgba();
+        default: return QColor(170, 170, 170).rgba();
+    }
+}
+
+/// 主界面对插件条目的实际前景色(转录 PacketListModel 插件着色路径:
+/// color_id 命中已声明规则且规则指定前景色则用之,否则回退内置逻辑;
+/// 插件条目 msdu 结构体为空,回退即帧型基色)
+QRgb plugin_fg(const PacketEntry& e,
+               const QHash<QString, DissectColorRule>& rules) {
+    if (!e.color_id.isEmpty()) {
+        auto it = rules.constFind(e.color_id);
+        if (it != rules.cend() && it->foreground != 0) return it->foreground;
+    }
+    return expected_fg(e);
+}
+
 QString expected_column(const QString& id, const PacketEntry& e,
                         const HarnessMacMap& macs) {
     const quint32 nid = e.mpdu.net_id;
@@ -419,6 +459,9 @@ int main(int argc, char* argv[]) {
     }
     out << "plugin entries: " << plugin_entries.size() << "\n";
     const QVector<DissectColumn> specs = pm.dissector_columns(plugin_id);
+    // 着色规则也须在 stop_all 前取:退役后 manager 按契约返回空
+    const QVector<DissectColorRule> color_rules =
+        pm.dissector_color_rules(plugin_id);
     pm.stop_all();
 
     check(builtin_entries.size() == plugin_entries.size(),
@@ -524,6 +567,7 @@ int main(int argc, char* argv[]) {
             if (!b.dissect_fields.isEmpty()) ++plugin_fields_nonempty;
             b.dissect_fields.clear();
             b.column_values.clear();   // 列值在下面第 3 节按列能力单独校验
+            b.color_id.clear();        // 着色规则 id 在下面第 4 节单独校验
             pser::StrPool pool_a, pool_b;
             const QByteArray sa = pser::serialize_entry(a, pool_a);
             const QByteArray sb = pser::serialize_entry(b, pool_b);
@@ -611,6 +655,49 @@ int main(int argc, char* argv[]) {
             << " columns, mismatches " << col_mismatch << "\n";
         check(col_mismatch == 0,
               "all plugin column values equal builtin rendering");
+    }
+
+    // ---- 4) 着色配置:声明集 + 逐帧前景色与内置着色期望一致 ----
+    {
+        const QVector<DissectColorRule>& rules = color_rules;
+        QHash<QString, DissectColorRule> by_id;
+        for (const DissectColorRule& r : rules)
+            if (!r.id.isEmpty() && !by_id.contains(r.id))
+                by_id.insert(r.id, r);
+        out << "plugin color rules: " << rules.size() << "\n";
+        check(!rules.isEmpty(), "plugin declares color rules");
+        // 基色与语义色规则必须齐全(每一种报文至少有帧型兜底)
+        for (const char* base : {"rejected", "frame_beacon", "frame_sof",
+                                 "frame_ack", "frame_ack_fail", "frame_coord",
+                                 "frame_other", "bid_confirm", "bid_deny"})
+            check(by_id.contains(QString::fromLatin1(base)),
+                  QStringLiteral("color rule declared: ")
+                      + QString::fromLatin1(base));
+        int color_mismatch = 0;
+        int undeclared_id = 0;
+        const int n = qMin(builtin_entries.size(), plugin_entries.size());
+        for (int i = 0; i < n; ++i) {
+            const PacketEntry& pe = plugin_entries[i];
+            if (!pe.color_id.isEmpty() && !by_id.contains(pe.color_id))
+                ++undeclared_id;
+            const QRgb want = expected_fg(builtin_entries[i]);
+            const QRgb got = plugin_fg(pe, by_id);
+            if (want != got) {
+                ++color_mismatch;
+                if (color_mismatch <= 3)
+                    out << "color mismatch at entry " << i << ": builtin fg 0x"
+                        << QString::number(want, 16) << " vs plugin fg 0x"
+                        << QString::number(got, 16) << " (color_id '"
+                        << pe.color_id << "')\n";
+            }
+        }
+        out << "row color compare: " << n << " entries, mismatches "
+            << color_mismatch << ", undeclared color_id refs "
+            << undeclared_id << "\n";
+        check(color_mismatch == 0,
+              "all plugin row colors equal builtin coloring");
+        check(undeclared_id == 0,
+              "every frame color_id is declared in color rules");
     }
 
     out << (failures == 0 ? "EXPORT CONSISTENCY PASS\n"

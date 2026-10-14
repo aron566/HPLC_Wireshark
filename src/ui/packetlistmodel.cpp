@@ -116,6 +116,27 @@ void PacketListModel::use_builtin_columns() {
     endResetModel();
 }
 
+void PacketListModel::set_plugin_color_rules(
+        const QVector<DissectColorRule>& rules) {
+    m_plugin_colors.clear();
+    for (const DissectColorRule& r : rules) {
+        if (r.id.isEmpty()) continue;
+        if (!m_plugin_colors.contains(r.id)) m_plugin_colors.insert(r.id, r);
+    }
+    m_plugin_colors_active = !m_plugin_colors.isEmpty();
+    if (rowCount() > 0 && columnCount() > 0)
+        emit dataChanged(index(0, 0),
+                         index(rowCount() - 1, columnCount() - 1),
+                         {Qt::ForegroundRole, Qt::BackgroundRole});
+}
+
+const DissectColorRule* PacketListModel::plugin_color_for(
+        const PacketEntry& e) const {
+    if (!m_plugin_colors_active || e.color_id.isEmpty()) return nullptr;
+    auto it = m_plugin_colors.constFind(e.color_id);
+    return it == m_plugin_colors.cend() ? nullptr : &it.value();
+}
+
 bool PacketListModel::set_plugin_column_visible(const QString& id, bool visible) {
     if (!m_plugin_columns_active) return false;
     for (int i = 0; i < m_plugin_columns.size(); ++i) {
@@ -306,6 +327,11 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
             }
         }
     } else if (role == Qt::ForegroundRole) {
+        // 插件着色配置优先:命中规则且指定了前景色则按插件声明着色
+        if (const DissectColorRule* rule = plugin_color_for(e)) {
+            if (rule->foreground != 0)
+                return QColor::fromRgba(rule->foreground);
+        }
         // 整行着色优先级:管理消息(MMe 暖色系) > APP 层(BID 冷色系) > 帧类型(DROP灰/ACK校验失败红不变)
         if (e.msdu.present && e.msdu.mme_type != kMmeTypeNone)
             return mme_color(e.msdu.mme_type);
@@ -317,6 +343,13 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
             return bid_color(e.msdu.business_id);
         }
         return data_color(e);
+    } else if (role == Qt::BackgroundRole) {
+        // 内置着色不设背景;仅插件规则可声明背景色
+        if (const DissectColorRule* rule = plugin_color_for(e)) {
+            if (rule->background != 0)
+                return QColor::fromRgba(rule->background);
+        }
+        return {};
     } else if (role == Qt::TextAlignmentRole) {
         if (const DissectColumn* c = plugin_column_for_section(idx.column()))
             return int(c->alignment);

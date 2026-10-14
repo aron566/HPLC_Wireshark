@@ -96,6 +96,15 @@ public:
     /// @brief 显示/隐藏一列插件列;返回 false=未找到该列或试图隐藏最后一列
     bool set_plugin_column_visible(const QString& id, bool visible);
 
+    // ---- 插件着色配置 ----
+    /// @brief 载入插件声明的着色规则(按 id 索引;空=清除,回退内置着色)
+    /// @details 每帧按 PacketEntry::color_id 查本表:命中且规则指定了
+    ///          前景/背景色则用之;未命中或插件未声明时沿用内置着色
+    ///          逻辑(MMe/BID/帧型)。规则只影响呈现,不改变列布局,
+    ///          故不触发模型重置,仅刷新当前视图。
+    void set_plugin_color_rules(const QVector<DissectColorRule>& rules);
+    bool plugin_colors_active() const { return m_plugin_colors_active; }
+
     /// @brief 导出快照:热区拷贝 + 已落盘块文件路径(升序),供工作线程流式导出
     /// @note 在 GUI 线程调用;快照独立于模型(热区深拷贝、盘块路径为快照值),
     ///       之后模型继续 append/滚动均不影响该快照,可安全传给工作线程。
@@ -144,10 +153,14 @@ private:
     quint64 lookup_mac(quint32 nid, quint16 tei) const;
     /// @brief 模型列 section → 插件列描述(仅插件列模式且 section≥3 时非空)
     const DissectColumn* plugin_column_for_section(int section) const;
+    /// @brief 条目命中的插件着色规则(未启用/未命中返回空)
+    const DissectColorRule* plugin_color_for(const PacketEntry& e) const;
 
     bool                   m_plugin_columns_active = false;
     QVector<DissectColumn> m_plugin_columns;        ///< 插件声明的全部列
     QVector<bool>          m_plugin_column_visible; ///< 与 m_plugin_columns 并行
+    bool                   m_plugin_colors_active = false;
+    QHash<QString, DissectColorRule> m_plugin_colors; ///< 插件着色规则(按 id)
 
     QVector<PacketEntry>  m_hot;         ///< 驻留热区(最近未 flush 条目,≤kBlockSize)
     int                    m_block_count; ///< 已落盘满块数量

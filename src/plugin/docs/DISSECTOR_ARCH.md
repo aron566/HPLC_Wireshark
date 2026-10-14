@@ -120,6 +120,22 @@ MSDU 字段替插件拼列。参考解剖器声明与内置列一一对应的 11
 插件内复刻渲染（含自持 TEI→MAC 学习表），故其列表/CSV 与内置模式
 逐格一致（export_consistency_test 逐列校验）。
 
+着色契约（2026-10-13）：着色配置与列能力同构。解剖器经
+`IDissectorPlugin::dissector_color_rules()` 列出每一种报文的颜色
+设置项（`DissectColorRule{id, name, name_en, foreground,
+background}`，颜色为 ARGB、0=不指定），握手时随列能力一并上报，
+管理器缓存、主界面在协议激活时读入 PacketListModel。每帧命中
+的规则由插件在 DissectResult::color_id 中按规则 id 返回，随
+PacketEntry 落盘（块格式 v6）；主界面按 id 查表着色整行（前景
+优先、背景仅插件可声明），未命中/插件未声明时回退内置着色
+逻辑。参考解剖器的默认清单逐项复刻主界面当前着色（MMe 按类型
+逐一列项、暖色系哈希公式；BID 按值域逐一列项、冷色系公式，
+确认亮绿/否认红；帧型基色 7 项），逐帧选择优先级与内置同序
+（MMe > BID > 帧类型），故插件模式整行颜色与内置模式逐帧一致
+（export_consistency_test 第 4 节逐帧比对前景色）。南网 MMe 为
+16 位值域：低字节全段（0x0000–0x00FF，含实测出现的未命名
+0x0081）逐一列项，高字节未定义取值回退内置逻辑。
+
 坐标约定：DissectField 的 start/len 以 **dissected_bytes**（解剖器自行
 剥除媒介/传输前缀后的字节，与内置解析器的 payload_for_log 同义，
 PacketEntry 的 raw_bytes 即此缓冲）为坐标系，与内置解析器的高亮坐标

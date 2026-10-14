@@ -94,6 +94,11 @@ QVector<DissectColumn> NativeBackend::dissector_columns() const {
                        : QVector<DissectColumn>();
 }
 
+QVector<DissectColorRule> NativeBackend::dissector_color_rules() const {
+    return m_dissector ? m_dissector->dissector_color_rules()
+                       : QVector<DissectColorRule>();
+}
+
 bool NativeBackend::dissect(const QByteArray& payload, const FrameContext& ctx,
                             DissectResult* out, QString* err) {
     if (!m_dissector) {

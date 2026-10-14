@@ -48,6 +48,7 @@ ParseResult PluginDissectorProxy::parse(const BplcFrame& in, MsduState&,
     r.msdu_raw_base = dr.msdu_raw_base;
     r.dissect_fields = dr.fields;
     r.column_values = dr.column_values;
+    r.color_id = dr.color_id;
     return r;
 }
 

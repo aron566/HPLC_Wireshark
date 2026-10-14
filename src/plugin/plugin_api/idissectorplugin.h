@@ -34,6 +34,12 @@ public:
     ///          只显示宿主固定列(#/Time/Delta)。
     virtual QVector<DissectColumn> dissector_columns() const { return {}; }
 
+    /// @brief 本解剖器的报文着色配置(每一种报文一条规则)
+    /// @details 宿主在握手后读取一次并缓存;每帧命中的规则经
+    ///          DissectResult::color_id 返回,主界面按规则的前景/
+    ///          背景色着色整行。缺省空列表=主界面沿用内置着色。
+    virtual QVector<DissectColorRule> dissector_color_rules() const { return {}; }
+
     /// @brief 解剖一帧去封装净荷
     /// @param payload 去封装后的帧字节（BplcFrame::data）
     /// @param ctx     主程序告知的帧外信息（时间戳/通道等，可忽略）

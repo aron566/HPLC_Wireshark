@@ -37,6 +37,8 @@ public:
     virtual bool has_dissector() const { return false; }
     /// @brief 解剖器声明的 PacketList 列能力(握手时上报宿主)
     virtual QVector<DissectColumn> dissector_columns() const { return {}; }
+    /// @brief 解剖器声明的报文着色配置(握手时上报宿主)
+    virtual QVector<DissectColorRule> dissector_color_rules() const { return {}; }
     /// @brief 解剖一帧去封装净荷。false=不支持/失败（err 置原因）
     virtual bool dissect(const QByteArray& payload, const FrameContext& ctx,
                          DissectResult* out, QString* err) {

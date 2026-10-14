@@ -8,6 +8,7 @@
 #include <QObject>
 #include <memory>
 
+#include "color_gen.h"
 #include "column_gen.h"
 #include "field_gen.h"
 #include "idissectorplugin.h"
@@ -70,6 +71,9 @@ public:
     QVector<DissectColumn> dissector_columns() const override {
         return dissect_gen::reference_columns();
     }
+    QVector<DissectColorRule> dissector_color_rules() const override {
+        return dissect_gen::reference_color_rules();
+    }
     DissectResult dissect(const QByteArray& payload,
                           const FrameContext& ctx) override {
         DissectResult out;
@@ -111,6 +115,7 @@ public:
         // 时先学习后渲染同序),再按列能力生成本帧各列文本
         dissect_gen::update_tei_mac(m_tei_mac, r);
         out.column_values = dissect_gen::reference_column_values(r, m_tei_mac);
+        out.color_id = dissect_gen::reference_color_id(r);
         if (r.accept) {
             // 字段生成器的字节坐标以剥前缀后的 MPDU(payload_for_log)为准,
             // 与内置构建器读 e.raw_bytes 的口径一致

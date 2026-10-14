@@ -851,10 +851,13 @@ void MainWindow::sync_packet_columns() {
     if (!m_model || !m_table_packets) return;
     auto& pm = PluginManager::instance();
     const QString proto = appcfg::protocol();
-    if (pm.is_dissector_protocol(proto))
+    if (pm.is_dissector_protocol(proto)) {
         m_model->set_plugin_columns(pm.dissector_columns(proto));
-    else
+        m_model->set_plugin_color_rules(pm.dissector_color_rules(proto));
+    } else {
         m_model->use_builtin_columns();
+        m_model->set_plugin_color_rules({});
+    }
     apply_packet_column_widths();
 }
 
@@ -1013,6 +1016,7 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
     e.raw_bytes = r.payload_for_log;
     e.dissect_fields = r.dissect_fields;   // 插件解剖器通用字段树(内置为空)
     e.column_values = r.column_values;     // 插件列能力对应的本帧列值(内置为空)
+    e.color_id = r.color_id;               // 插件着色配置对应的本帧规则 id(内置为空)
     // 拓扑:关键管理消息(关联确认/代理变更/发现列表/离网)喂给拓扑状态;
     // 同时记入回放日志:事件直接填充在 entry 内(nid/epoch_ms/is_rf),
     // 供 TOPO 历史回放调试(点击帧 → 按帧序号重放到该帧)

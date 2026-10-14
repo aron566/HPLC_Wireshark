@@ -32,6 +32,9 @@ struct ParseResult {
     /// 插件解剖器按其列能力返回的本帧列文本值(内置解析器为空;
     /// 键为 DissectColumn::id,供 PacketList 插件列与 CSV 导出共用)。
     QMap<QString, QString> column_values;
+    /// 插件解剖器按其着色配置返回的本帧规则 id(内置解析器为空;
+    /// 主界面按 dissector_color_rules() 声明查表着色)。
+    QString color_id;
 
     ParseResult() : msdu_raw_base(-1), arrival_us(0), accept(false) {}
 };

@@ -301,7 +301,9 @@ void PluginManager::handle_message(const QString& plugin_id, quint8 type,
     case plugin_ipc::MsgType::Hello: {
         int api_ver = 0; QString name, proto; bool cap_dissector = false;
         QVector<DissectColumn> cap_columns;
-        ds >> api_ver >> name >> proto >> cap_dissector >> cap_columns;
+        QVector<DissectColorRule> cap_colors;
+        ds >> api_ver >> name >> proto >> cap_dissector >> cap_columns
+           >> cap_colors;
         QByteArray p;
         QDataStream o(&p, QIODevice::WriteOnly);
         o.setVersion(plugin_ipc::kStreamVersion);
@@ -314,6 +316,7 @@ void PluginManager::handle_message(const QString& plugin_id, quint8 type,
             rt->ready = true;
             rt->has_dissector = cap_dissector;
             rt->dissector_columns = cap_columns;
+            rt->dissector_color_rules = cap_colors;
             rt->last_pong_ms = QDateTime::currentMSecsSinceEpoch();
             // 仅真解剖器插件注册到解析器工厂(插件协议 id → 解剖代理)。
             // 面板类插件不注册:避免被选为解码器产生空心解析(见设计文档)。
@@ -479,6 +482,17 @@ QVector<DissectColumn> PluginManager::dissector_columns(
         if (dissector_key(rt) == key && dissector_eligible(rt)
             && rt->ready && !rt->disabled)
             return rt->dissector_columns;
+    }
+    return {};
+}
+
+QVector<DissectColorRule> PluginManager::dissector_color_rules(
+        const QString& protocol_id) const {
+    const QString key = protocol_id.toUpper();
+    for (const PluginRuntime* rt : m_plugins) {
+        if (dissector_key(rt) == key && dissector_eligible(rt)
+            && rt->ready && !rt->disabled)
+            return rt->dissector_color_rules;
     }
     return {};
 }

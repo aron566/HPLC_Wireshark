@@ -386,6 +386,8 @@ inline QByteArray serialize_entry(const PacketEntry& e, StrPool& pool) {
         write_str(s, it.key(), pool);
         write_str(s, it.value(), pool);
     }
+    // v6 追加:插件着色配置对应的本帧规则 id(内置解析为空)
+    write_str(s, e.color_id, pool);
     return buf;
 }
 
@@ -422,6 +424,7 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
         read_str(s, value, table);
         e.column_values.insert(id, value);
     }
+    read_str(s, e.color_id, table);
     if (s.status() != QDataStream::Ok)
         return false;
     if (rebuild_search)
@@ -430,10 +433,11 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
 }
 
 // ---------------------------------------------------------------------------
-// 块文件格式 v5(字符串池 + 轻量索引 + 条目分块独立压缩)
-// v5 相对 v4 仅在条目载荷尾部追加插件列值(column_values);v4 相对 v3
-// 追加插件解剖字段树(dissect_fields),其余布局相同;本格式仅同会话
-// 往返,不做跨版本兼容,版本不符直接判坏块。
+// 块文件格式 v6(字符串池 + 轻量索引 + 条目分块独立压缩)
+// v6 相对 v5 仅在条目载荷尾部追加插件着色规则 id(color_id);v5 相对
+// v4 追加插件列值(column_values),v4 相对 v3 追加插件解剖字段树
+// (dissect_fields),其余布局相同;本格式仅同会话往返,不做跨版本
+// 兼容,版本不符直接判坏块。
 // 文件布局(定长部分以 Wire* 结构体表达,sizeof 即磁盘字节数;变长段为
 // quint32 长度前缀 + 内容,QDataStream 大端序顺序写入,偏移为文件绝对字节):
 //   [WireBlockHead][pool_blob]         blob = qCompress(pool_raw) 或 pool_raw
@@ -454,7 +458,7 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
 // ---------------------------------------------------------------------------
 
 inline quint32 block_magic()   { return 0x50424C4Bu; }  // "PBLK"
-inline quint32 block_version() { return 5u; }  // v5: 条目尾追加插件列值(v4 为解剖字段树)
+inline quint32 block_version() { return 6u; }  // v6: 条目尾追加着色规则 id(v5 为插件列值)
 /// @brief 独立压缩分块的条目数(随机解码粒度:解一条最多解压一个分块)
 inline constexpr int kBlockChunkEntries = 50;
 

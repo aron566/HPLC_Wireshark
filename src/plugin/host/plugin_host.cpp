@@ -93,7 +93,9 @@ void PluginHost::on_connected() {
     ds << plugin_ipc::kApiVersion << m_manifest.name << m_manifest.protocol_id
        << (m_backend && m_backend->has_dissector())   // 解剖能力位(注册以此为准)
        << (m_backend ? m_backend->dissector_columns()
-                     : QVector<DissectColumn>());     // 列能力(主界面据此设列)
+                     : QVector<DissectColumn>())     // 列能力(主界面据此设列)
+       << (m_backend ? m_backend->dissector_color_rules()
+                     : QVector<DissectColorRule>()); // 着色配置(主界面据此着色)
     send_message(plugin_ipc::MsgType::Hello, p);
 }
 

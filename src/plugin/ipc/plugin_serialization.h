@@ -65,6 +65,8 @@ QDataStream& operator<<(QDataStream& out, const FrameContext& c);
 QDataStream& operator>>(QDataStream& in, FrameContext& c);
 QDataStream& operator<<(QDataStream& out, const DissectColumn& c);
 QDataStream& operator>>(QDataStream& in, DissectColumn& c);
+QDataStream& operator<<(QDataStream& out, const DissectColorRule& c);
+QDataStream& operator>>(QDataStream& in, DissectColorRule& c);
 QDataStream& operator<<(QDataStream& out, const DissectField& f);
 QDataStream& operator>>(QDataStream& in, DissectField& f);
 QDataStream& operator<<(QDataStream& out, const DissectResult& r);

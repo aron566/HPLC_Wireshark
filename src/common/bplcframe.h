@@ -325,6 +325,7 @@ struct PacketEntry {
     QString      search_text;  ///< 可搜索全文缓存(小写;make_entry/反序列化时填充,过滤匹配用)
     QVector<DissectField> dissect_fields; ///< 插件解剖器通用字段树(内置解析为空)
     QMap<QString, QString> column_values; ///< 插件按其列能力返回的本帧列值(内置为空)
+    QString      color_id;     ///< 插件按其着色配置返回的本帧规则 id(内置为空)
 
     PacketEntry()
         : index(0), epoch_ms(0), delta_us(0), accepted(false),

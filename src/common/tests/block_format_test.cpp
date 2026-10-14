@@ -39,6 +39,7 @@ static PacketEntry make_entry(int i) {
     e.msdu.tei_mac_pairs.append({quint16(i & 0xFFF), 0xAABBCCDDEE00ULL + quint64(i)});
     e.column_values.insert(QStringLiteral("protocol"), QStringLiteral("TEST"));
     e.column_values.insert(QStringLiteral("info"), QStringLiteral("entry-%1").arg(i));
+    e.color_id = QStringLiteral("mme_0030");
     e.raw_bytes = QByteArray(64, char(i & 0xFF));
     e.msdu_raw_base = 10;
     return e;
@@ -58,6 +59,7 @@ static bool entry_equal(const PacketEntry& a, const PacketEntry& b, QString& why
         || a.msdu.tree.size() != b.msdu.tree.size()
         || a.msdu.tei_mac_pairs.size() != b.msdu.tei_mac_pairs.size()
         || a.column_values != b.column_values
+        || a.color_id != b.color_id
         || a.raw_bytes != b.raw_bytes || a.msdu_raw_base != b.msdu_raw_base) {
         why = QStringLiteral("scalar mismatch at index %1").arg(a.index); return false;
     }

@@ -31,6 +31,21 @@ struct DissectColumn {
     bool    default_visible = true;///< 是否默认显示(用户可在表头菜单调整)
 };
 
+/// @brief 解剖器向主界面声明的一条报文着色规则
+/// @details 着色配置与列能力同构:插件列出每一种报文的颜色设置项,
+///          经 Hello 握手声明告知主界面;解剖时每帧用 DissectResult::
+///          color_id 引用本表中的 id,主界面按此查表着色(前景/背景)。
+///          插件未声明(空表)时主界面沿用内置着色逻辑。颜色为 ARGB
+///          (0xAARRGGBB);foreground/background 为 0 表示不指定该项
+///          (主界面用其默认前景/无背景)。
+struct DissectColorRule {
+    QString id;                    ///< 稳定规则 id(同一解剖器内唯一,逐帧引用键)
+    QString name;                  ///< 报文类型名(中文)
+    QString name_en;               ///< 报文类型名(英文,空则用 name)
+    quint32 foreground = 0;        ///< 前景色 ARGB,0=不指定
+    quint32 background = 0;        ///< 背景色 ARGB,0=不指定
+};
+
 /// @brief 解剖器返回的通用结构化结果
 struct DissectResult {
     bool    accept = false;
@@ -53,6 +68,9 @@ struct DissectResult {
     /// 本帧的插件列文本值:键为 dissector_columns() 声明的列 id。
     /// 缺失 id 按空字符串显示/导出;多余 id 由宿主忽略。
     QMap<QString, QString> column_values;
+    /// 本帧命中的着色规则 id(dissector_color_rules() 声明的 id);
+    /// 空或未声明的 id 时主界面回退内置着色逻辑。
+    QString color_id;
 };
 
 #endif // BPLC_DISSECT_H
