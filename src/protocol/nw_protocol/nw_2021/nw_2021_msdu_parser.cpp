@@ -95,6 +95,10 @@ static const char* kAssocIndResultZh[] = {
     "新站点试图以自己的子站点为代理入网", "组网拓扑中存在环路", "CCO端未知原因出错" };
 /// 最后一个分包标识(表54/59:0 不是 1 是)
 static const char* kLastPacketFlagZh[] = { "不是最后一个分包", "是最后一个分包" };
+// 过零 NTB 采集站点类型值释义(表85):0=单站点 1=全网站点 其他=保留
+static const char* kZCStationTypeZh[] = { "单站点", "全网站点" };
+// 过零 NTB 采集周期值释义(表86):0=半个电力线周期 1=一个电力线周期 其他=保留
+static const char* kZCCollectPeriodZh[] = { "半个电力线周期", "一个电力线周期" };
 /// 代理变更原因(表64:0x1 周期 0x2 快速)
 static const char* kProxyChangeReasonZh[] = { nullptr, "周期代理变更", "快速代理变更" };
 /// 代理变更结果(表67/70:0x0 变更成功)
@@ -127,6 +131,10 @@ static const char* kTransDirectionFlagZh[] = { "下行方向", "上行方向" };
 /// 文件级中→英翻译注册(匿名命名空间一次性)
 struct MMeI18nReg {
     MMeI18nReg() {
+        trl::register_en("单站点", "single station");
+        trl::register_en("全网站点", "all stations");
+        trl::register_en("半个电力线周期", "half power-line cycle");
+        trl::register_en("一个电力线周期", "one power-line cycle");
         trl::register_en("未知", "Unknown");
         trl::register_en("A相线", "LineA");
         trl::register_en("B相线", "LineB");
@@ -1386,6 +1394,8 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case NW_2021_MMeType::MME_ZEROCROSSNTBCOLLECTIND: {
             add_fields(out.tree, mme, 6, kMMeZeroCrossNTBCollectIndSpec, kMMeZeroCrossNTBCollectIndSpecN, mme_rel_base);
+            translate_enum_i18n(out.tree, "StationType", kZCStationTypeZh, 2);
+            translate_enum_i18n(out.tree, "CollectPeriod", kZCCollectPeriodZh, 2);
             break;
         }
         case NW_2021_MMeType::MME_ZEROCROSSNTBREPORT: {

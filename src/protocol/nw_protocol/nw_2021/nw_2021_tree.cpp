@@ -29,6 +29,8 @@ struct I18nReg {
         trl::register_en("物理层检查报文 TEI", "physical layer checks TEI");
         trl::register_en("重传报文", "retransmitted frame");
         trl::register_en("非重传报文", "non-retransmitted frame");
+        trl::register_en("上个带宽时隙已结束", "previous band slot ended");
+        trl::register_en("上个带宽时隙未结束", "previous band slot not ended");
     }
 };
 const I18nReg g_i18n_reg_nw_tree;
@@ -312,14 +314,31 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
     }
     case NW_2021_FrameType::COORD: {
         auto* coord = tree_add_item(root, "COORD", "");
-        tree_add_bit_field(coord, "NeighbourNIDBitMap", QStringLiteral("0x%1")
-            .arg(e.mpdu.coord_neighbour_nid, 4, 16, QChar('0')), 1, 0, 16);
+        {
+            // 邻居网络位图(表22):bit i 对应 SNID i+1,置 1 表示收到过该网络报文
+            QStringList heard;
+            for (int i = 0; i < 16; ++i)
+                if (e.mpdu.coord_neighbour_nid & (1u << i))
+                    heard << QStringLiteral("SNID %1").arg(i + 1);
+            tree_add_bit_field(coord, "NeighbourNIDBitMap",
+                heard.isEmpty()
+                    ? QStringLiteral("0x%1").arg(e.mpdu.coord_neighbour_nid, 4, 16, QChar('0'))
+                    : QStringLiteral("0x%1 (%2)").arg(e.mpdu.coord_neighbour_nid, 4, 16, QChar('0'))
+                          .arg(heard.join(QLatin1String(", "))),
+                1, 0, 16);
+        }
         tree_add_bit_field(coord, "Channel", QString::number(e.mpdu.coord_rf_channel), 3, 0, 8);
         tree_add_bit_field(coord, "RSV1", QStringLiteral("0x%1")
             .arg(e.mpdu.coord_rsv1, 3, 16, QChar('0')), 4, 0, 10);
         tree_add_bit_field(coord, "TimeDuration", QStringLiteral("%1 (x40ms)").arg(e.mpdu.coord_duration), 5, 2, 14);
         tree_add_bit_field(coord, "RSV2", QString::number(e.mpdu.coord_rsv2), 7, 0, 1);
-        tree_add_bit_field(coord, "BandSlotEndFlag", QString::number(e.mpdu.coord_band_end_flag), 7, 1, 1);
+        {
+            // 带宽结束标志位(表22):1=上个带宽时隙已结束 0=未结束
+            QString flag = (e.mpdu.coord_band_end_flag == 1)
+                ? QStringLiteral("1 - %1").arg(trl::L("上个带宽时隙已结束"))
+                : QStringLiteral("0 - %1").arg(trl::L("上个带宽时隙未结束"));
+            tree_add_bit_field(coord, "BandSlotEndFlag", flag, 7, 1, 1);
+        }
         tree_add_bit_field(coord, "Option", QString::number(e.mpdu.coord_option), 7, 2, 2);
         tree_add_bit_field(coord, "RSV3", QStringLiteral("0x%1")
             .arg(e.mpdu.coord_rsv3, 1, 16, QChar('0')), 7, 4, 4);
