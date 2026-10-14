@@ -746,6 +746,84 @@ static const FieldSpec kCommRateInfoSpec[] = {
 };
 static const int kCommRateInfoSpecN = int(sizeof(kCommRateInfoSpec)/sizeof(kCommRateInfoSpec[0]));
 
+template <size_t N>
+static int mme_fixed_length(const FieldSpec (&spec)[N]) {
+    int length = 6;
+    for (const auto& field : spec)
+        length = qMax(length, 6 + field.byte + (field.bit + field.len + 7) / 8);
+    return length;
+}
+
+static int mme_fixed_length(NW_2021_MMeType type) {
+    switch (type) {
+    case NW_2021_MMeType::MME_ASSOCREQ: return mme_fixed_length(kMMeAssocReqSpec);
+    case NW_2021_MMeType::MME_ASSOCCNF: return 50; // 固定体36B + 路由信息头8B + MMe头6B
+    case NW_2021_MMeType::MME_CHANGEPROXYREQ: return mme_fixed_length(kMMeChangeProxyReqSpec);
+    case NW_2021_MMeType::MME_ASSOCIND: return mme_fixed_length(kMMeAssocIndSpec);
+    case NW_2021_MMeType::MME_CHANGEPROXYCNF: return mme_fixed_length(kMMeChangeProxyCnfSpec);
+    case NW_2021_MMeType::MME_ASSOCGATHERIND: return mme_fixed_length(kMMeAssocGatherIndSpec);
+    case NW_2021_MMeType::MME_CHANGEPROXYBITMAPCNF: return mme_fixed_length(kMMeChangeProxyBitMapCnfSpec);
+    case NW_2021_MMeType::MME_LEAVEIND: return mme_fixed_length(kMMeLeaveIndSpec);
+    case NW_2021_MMeType::MME_HEARTBEATCHECK: return 145; // 固定体8B + 位图130B + 保留1B + MMe头6B
+    case NW_2021_MMeType::MME_DISCOVERNODELIST: return mme_fixed_length(kMMeDiscoverNodeListSpec);
+    case NW_2021_MMeType::MME_DELAYLEAVEIND: return mme_fixed_length(kMMeDelayLeaveIndSpec);
+    case NW_2021_MMeType::MME_SUCCESSRATEREPORT: return mme_fixed_length(kMMeSuccessRateReportSpec);
+    case NW_2021_MMeType::MME_NETWORKCONFLICTREPORT: return mme_fixed_length(kMMeNetworkConflictReportSpec);
+    case NW_2021_MMeType::MME_ZEROCROSSNTBCOLLECTIND: return mme_fixed_length(kMMeZeroCrossNTBCollectIndSpec);
+    case NW_2021_MMeType::MME_ZEROCROSSNTBREPORT: return mme_fixed_length(kMMeZeroCrossNTBReportSpec);
+    case NW_2021_MMeType::MME_NETDIAGNOSE: return mme_fixed_length(kMMeNetDiagnoseSpec);
+    case NW_2021_MMeType::MME_RFCHANNELCONFLICTREPORT: return mme_fixed_length(kMMeRFChannelConflictReportSpec);
+    default: return 6;
+    }
+}
+
+static bool mme_body_complete(const QByteArray& mme, NW_2021_MMeType type) {
+    if (mme.size() < mme_fixed_length(type)) return false;
+    const auto has_items = [&mme](int offset, int count, int item_size) {
+        return offset <= mme.size() && count <= (mme.size() - offset) / item_size;
+    };
+    switch (type) {
+    case NW_2021_MMeType::MME_ASSOCCNF: {
+        const int sta_sum = int(get_bits(mme, 42, 0, 16));
+        const int pco_sum = int(get_bits(mme, 44, 0, 16));
+        int offset = 50;
+        if (!has_items(offset, sta_sum, 2)) return false;
+        offset += sta_sum * 2;
+        for (int i = 0; i < pco_sum; ++i) {
+            if (!has_items(offset, 1, 4)) return false;
+            const int child_sum = int(get_bits(mme, offset + 2, 0, 16));
+            offset += 4;
+            if (!has_items(offset, child_sum, 2)) return false;
+            offset += child_sum * 2;
+        }
+        return true;
+    }
+    case NW_2021_MMeType::MME_CHANGEPROXYCNF:
+        return has_items(38, int(get_bits(mme, 16, 0, 16)), 2);
+    case NW_2021_MMeType::MME_ASSOCGATHERIND:
+        return has_items(34, int(get_bits(mme, 17, 0, 8)), 8);
+    case NW_2021_MMeType::MME_DISCOVERNODELIST: {
+        const int route_num = int(get_bits(mme, 34, 0, 16));
+        const int node_num = int(get_bits(mme, 30, 0, 16));
+        if (!has_items(48, route_num, 3)) return false;
+        const int bitmap_end = 48 + route_num * 3 + 128;
+        return has_items(bitmap_end, node_num, 1);
+    }
+    case NW_2021_MMeType::MME_DELAYLEAVEIND:
+        return has_items(22, int(get_bits(mme, 8, 0, 16)), 6);
+    case NW_2021_MMeType::MME_SUCCESSRATEREPORT:
+        return has_items(10, int(get_bits(mme, 8, 0, 16)), 4);
+    case NW_2021_MMeType::MME_ZEROCROSSNTBREPORT: {
+        const int count = int(get_bits(mme, 15, 0, 8) + get_bits(mme, 16, 0, 8)
+                              + get_bits(mme, 17, 0, 8));
+        return has_items(18, count, 2);
+    }
+    case NW_2021_MMeType::MME_RFCHANNELCONFLICTREPORT:
+        return has_items(13, int(get_bits(mme, 12, 0, 8)), 2);
+    default: return true;
+    }
+}
+
 }  // namespace
 
 MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
@@ -884,6 +962,9 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                         rv.rel_len   = 3;
                         out.tree.append(rv);
                     }
+                    if (!mme_body_complete(mme, static_cast<NW_2021_MMeType>(mm_type))) {
+                        out.summary += QStringLiteral(" (truncated)");
+                    } else {
                     switch (static_cast<NW_2021_MMeType>(mm_type)) {
         case NW_2021_MMeType::MME_ASSOCREQ: {
             add_fields(out.tree, mme, 6, kMMeAssocReqSpec, kMMeAssocReqSpecN, mme_rel_base);
@@ -1448,6 +1529,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             add_fields(out.tree, mme, 6, kMMeNetworkConflictReportSpec, kMMeNetworkConflictReportSpecN, mme_rel_base);
             break;
                         default: break;
+                    }
                     }
                 } else {
                     out.summary = QStringLiteral("MMe (truncated)");
