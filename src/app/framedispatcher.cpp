@@ -19,6 +19,8 @@ void DispatcherWorker::on_frame(const BplcFrame& frame) {
     if (m_stopped.load()) return;   // 已停止:立即返回,快速清空积压帧
     QElapsedTimer t; t.start();
     auto r = m_parser->parse(frame, m_msdu, m_filter);
+    r.meta.seg_start = frame.meta.seg_start;
+    r.meta.replay_time_tag = frame.meta.replay_time_tag;
     emit parsed(r);
     // 错协议快解析(跳过 MSDU 重组/字段树,µs 级)会以数十万帧/秒洪泛
     // parsed 事件,饿死 GUI 的 flush timer 导致 pending 堆积卡顿。

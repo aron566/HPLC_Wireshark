@@ -180,6 +180,9 @@ void ReaderWorker::try_extract_frame() {
 
             int idx = m_in_buf.indexOf(char(0x3C));
             if (idx < 0) {
+                // 文件块末尾可能是下一段 BCD 的前 1~7B,留待下次 read 补齐。
+                if (m_cfg.mode == ReaderMode::FilePlayback && m_in_buf.size() < 8)
+                    return;
                 // 无 0x3C:剔除 1 字节,回到循环顶重新匹配 8B BCD(滑窗对齐帧头)
                 m_in_buf.remove(0, 1);
                 continue;
@@ -273,7 +276,7 @@ void ReaderWorker::try_extract_frame() {
                 m_last_ft = m_playback_base_ms;
                 m_last_ntb = ntb;
                 m_first_frame = false;
-                bf.meta.seg_start = true;   // 跨段断点:Delta 不计算
+                bf.meta.replay_time_tag = true;
             } else {
                 const qint64 dn = (qint32)(ntb - m_last_ntb);   // 回绕安全
                 if (dn > 0 && dn <= playback::kMaxNtbGapTicks) {
@@ -322,6 +325,7 @@ void ReaderWorker::try_extract_frame() {
                     bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(ft_ms);
                     m_last_ft = ft_ms;
                 } else {
+                    bf.meta.seg_start = true;
                     bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(now_ms);
                     m_last_ft = now_ms;
                 }
@@ -345,8 +349,7 @@ void ReaderWorker::try_extract_frame() {
 }
 
 void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
-    // 每行一帧裸数据(无 0x3C/0x3E/0x3D 封装):
-    //   [ts 4B LE][phr_mcs 1B][option 1B][channel 1B][isRF 1B][MPDU...]
+    // TIME 时间行由 start_reading 消费;此处解析每行一个完整 0x3C...0x3E 帧。
     // 支持 "0x01 0xd5 …" 或 "01 d5…" 写法;帧间由行分隔定界。
     QByteArray raw;
     QByteArray s = line;
@@ -363,12 +366,6 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
             if (!ok) return;
             raw.append(char(v));
         }
-    }
-    // 8B BCD 时间标注行(非 0x3C 开头,裸 hex 多段):解析记录(断点/基准)
-    if (raw.size() == 8 && (quint8)raw[0] != 0x3C
-        && playback::looks_like_bcd8(raw)) {
-        m_raw_base_ms = bcd_ms_of(raw);
-        return;
     }
     // 至少 ts4+media4+1B MPDU,否则无法构成可解析帧
     if (raw.size() < 9) return;
@@ -400,14 +397,14 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
         const qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
         const qint64 now_us = now_ms * 1000;
         qint64 t2_us;
-        bool seg_start = false;
+        bool replay_time_tag = false;
         if (m_hex_seg_first) {
             const qint64 base_ms = (m_raw_base_ms >= 0) ? m_raw_base_ms : now_ms;
             t2_us = base_ms * 1000;
             m_hex_seg_base_ts = ts_le2;
             m_hex_seg_base_us = t2_us;
             m_hex_seg_first = false;
-            seg_start = true;
+            replay_time_tag = m_raw_base_ms >= 0;
         } else {
             const qint64 dn = (qint32)(ts_le2 - m_hex_seg_base_ts);  // 自段首累计 tick
             if (dn > 0 && dn <= playback::kMaxNtbGapTicks)
@@ -424,7 +421,7 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
         bf.meta.from_raw = false;
         bf.meta.has_time_tag = false;
         bf.meta.frame_ts_is_ntb = true;
-        bf.meta.seg_start = seg_start;
+        bf.meta.replay_time_tag = replay_time_tag;
         bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(t2_us / 1000);
         bf.arrival_us = t2_us;
         bf.raw_wire   = raw;   // 0x3C...0x3E 原样

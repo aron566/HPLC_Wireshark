@@ -1,246 +1,394 @@
 /// @file roundtrip.cpp
-/// @brief 导出/导入 round-trip 无损验证:
-///        正向  A.bin → 导出裸hex → 导入裸hex → 导出 B.bin → 比对 B.bin == A.bin
-///        反向  A.txt → 导出bin → 导入bin → 导出 B.txt → 比对 B.txt == A.txt
-/// @note  与 serialreader 同构的切帧/断段逻辑,但 NTB 异常断点的时刻用上一帧
-///        时刻(确定性)代替 currentMSecsSinceEpoch——round-trip 需确定性,否则
-///        两次解析的本地时刻不同会导致 8B BCD/TIME 头字节不一致(假失败)。
+/// @brief 实际 ReaderWorker、Delta 计算及批量/流式导出器的回归验证。
 #include <QCoreApplication>
-#include <QFile>
 #include <QBuffer>
-#include <QDateTime>
-#include <QDate>
-#include <QTime>
-#include <QRegularExpression>
-#include <cstdio>
-#include "bplcframe.h"
+#include <QDebug>
+#include <QTemporaryDir>
+#include <algorithm>
+#include "serialreader.h"
 #include "playbackwriter.h"
+#include "packetentry_serialize.h"
 
-static qint64 bcd_ms_of(const QByteArray& b) {
-    if (!playback::looks_like_bcd8(b)) return -1;
-    auto d2 = [](quint8 x) { return int((x >> 4) * 10 + (x & 0x0F)); };
-    const QDate date(2000 + d2(quint8(b[0])), d2(quint8(b[1])), d2(quint8(b[2])));
-    const QTime time(d2(quint8(b[3])), d2(quint8(b[4])), d2(quint8(b[5])));
-    if (!date.isValid() || !time.isValid()) return -1;
-    return QDateTime(date, time).addMSecs(d2(quint8(b[6])) * 100 + d2(quint8(b[7])))
-        .toMSecsSinceEpoch();
-}
-
-static qint64 parse_time_header_ms(const QByteArray& line) {
-    static const QRegularExpression re(
-        QStringLiteral("(\\d{4}-\\d{2}-\\d{2})[ T](\\d{2}):(\\d{2}):(\\d{2})(?:\\.(\\d{1,3}))?"));
-    const QRegularExpressionMatch m = re.match(QString::fromLatin1(line));
-    if (!m.hasMatch()) return -1;
-    const QDate date = QDate::fromString(m.captured(1), QStringLiteral("yyyy-MM-dd"));
-    const QTime time(m.captured(2).toInt(), m.captured(3).toInt(),
-                     m.captured(4).toInt(),
-                     m.captured(5).isEmpty() ? 0
-                                             : m.captured(5).leftJustified(3, '0').toInt());
-    if (!date.isValid() || !time.isValid()) return -1;
-    return QDateTime(date, time).toMSecsSinceEpoch();
-}
-
-static quint32 read_ntb(const QByteArray& unesc) {
-    if (unesc.size() < 6) return 0;
-    return (quint32)(quint8)unesc[2] | ((quint32)(quint8)unesc[3] << 8)
-         | ((quint32)(quint8)unesc[4] << 16) | ((quint32)(quint8)unesc[5] << 24);
-}
-
-// 反转义 body(0x3D XX → 0xFF-XX)
-static QByteArray unescape(const QByteArray& body) {
-    QByteArray out;
-    for (int i = 0; i < body.size(); ++i) {
-        quint8 b = (quint8)body[i];
-        if (b == 0x3D && i + 1 < body.size()) {
-            ++i;
-            out.append(char(0xFF - (quint8)body[i]));
-        } else {
-            out.append(char(b));
-        }
+class ReaderWorkerTestAccess {
+public:
+    static QVector<PacketEntry> serial(const QByteArray& input, quint32 previous_ntb,
+                                      qint64 previous_time, qint64 local_gap_ms,
+                                      bool first = false) {
+        ReaderWorker worker;
+        worker.m_cfg.mode = ReaderMode::SerialPort;
+        worker.m_last_ntb = previous_ntb;
+        worker.m_last_ft = previous_time;
+        worker.m_last_local_ms = first ? 0 : QDateTime::currentMSecsSinceEpoch() - local_gap_ms;
+        worker.m_pending_seg_start = first;
+        quint32 last_ntb = previous_ntb;
+        bool have_last_ntb = !first;
+        QVector<PacketEntry> entries;
+        QObject::connect(&worker, &ReaderWorker::frame_ready, [&](const BplcFrame& frame) {
+            PacketEntry e;
+            e.meta = frame.meta;
+            e.meta.timestamp = playback::raw_wire_ntb(frame.raw_wire);
+            e.delta_us = playback::next_delta_us(e.meta, last_ntb, have_last_ntb);
+            e.raw_wire = frame.raw_wire;
+            e.raw_bytes = frame.data.mid(10);
+            e.epoch_ms = frame.meta.frame_time.toMSecsSinceEpoch();
+            entries.append(e);
+        });
+        worker.m_in_buf = input;
+        worker.try_extract_frame();
+        return entries;
     }
-    return out;
+};
+
+namespace {
+int failures = 0;
+
+void check(bool ok, const QString& name) {
+    qInfo().noquote() << (ok ? "PASS" : "FAIL") << name;
+    if (!ok) ++failures;
 }
 
-// 解析 bin:文件头/段间 8B BCD 标注 + 0x3C 帧流 → PacketEntry 序列
-static QVector<PacketEntry> parse_bin(const QByteArray& data) {
-    QVector<PacketEntry> out;
-    int pos = 0;
-    qint64 base_ms = -1;
-    bool first = false;
+QVector<PacketEntry> read(const QByteArray& input, ReaderMode mode) {
+    QTemporaryDir dir;
+    QFile file(dir.filePath("input"));
+    if (!file.open(QIODevice::WriteOnly) || file.write(input) != input.size()) {
+        check(false, "create replay input");
+        return {};
+    }
+    file.close();
+    ReaderConfig cfg;
+    cfg.mode = mode;
+    cfg.file_path = file.fileName();
     quint32 last_ntb = 0;
-    qint64 last_ft = 0;
-    if (data.size() >= 8 && playback::looks_like_bcd8(data)) {
-        base_ms = bcd_ms_of(data.left(8));
-        pos = 8;
-        first = true;
-    }
-    while (pos < data.size()) {
-        if (data.size() - pos >= 8 && (quint8)data[pos] != 0x3C
-            && playback::looks_like_bcd8(data.mid(pos, 8))) {
-            base_ms = bcd_ms_of(data.mid(pos, 8));
-            first = true;
-            pos += 8;
-            continue;
-        }
-        if ((quint8)data[pos] != 0x3C) { ++pos; continue; }
-        int idx = data.indexOf(char(0x3E), pos + 1);
-        if (idx < 0) break;
-        QByteArray body = data.mid(pos + 1, idx - pos - 1);
-        QByteArray wire;
-        wire.append(char(0x3C)).append(body).append(char(0x3E));
-        QByteArray unesc = unescape(body);
-        const quint32 ntb = read_ntb(unesc);
-        qint64 arrival;
-        bool seg = false;
-        if (first) {
-            arrival = base_ms;
-            seg = true;
-            first = false;
-        } else {
-            const qint64 dn = (qint32)(ntb - last_ntb);
-            if (dn > 0 && dn <= playback::kMaxNtbGapTicks)
-                arrival = last_ft + playback::ntb_to_us(quint32(dn)) / 1000;
-            else
-                arrival = last_ft;   // 断点:确定性用上一帧时刻(测试专用)
-        }
-        last_ntb = ntb;
-        last_ft = arrival;
+    bool have_last_ntb = false;
+    QVector<PacketEntry> entries;
+    ReaderWorker worker;
+    QObject::connect(&worker, &ReaderWorker::error_occurred,
+                     [](const QString& error) { check(false, error); });
+    QObject::connect(&worker, &ReaderWorker::frame_ready, [&](const BplcFrame& frame) {
         PacketEntry e;
-        e.raw_wire = wire;
-        e.raw_bytes = unesc;
-        e.meta.seg_start = seg;
-        e.meta.timestamp = ntb;
-        e.epoch_ms = arrival;
-        out.append(e);
-        pos = idx + 1;
-    }
-    return out;
+        e.meta = frame.meta;
+        e.meta.timestamp = playback::raw_wire_ntb(frame.raw_wire);
+        e.delta_us = playback::next_delta_us(e.meta, last_ntb, have_last_ntb);
+        e.raw_wire = frame.raw_wire;
+        e.raw_bytes = frame.data.mid(10);
+        e.epoch_ms = frame.meta.frame_time.toMSecsSinceEpoch();
+        entries.append(e);
+    });
+    worker.start_reading(cfg);
+    check(std::all_of(entries.cbegin(), entries.cend(), [](const PacketEntry& e) {
+        return !e.meta.seg_start;
+    }), "file replay never sets serial seg_start");
+    return entries;
 }
 
-// 解析裸hex:TIME 头行 + 每行 0x3C 帧 → PacketEntry 序列
-static QVector<PacketEntry> parse_rawhex(const QByteArray& data) {
-    QVector<PacketEntry> out;
-    qint64 base_ms = -1;
-    bool first = false;
-    quint32 last_ntb = 0;
-    qint64 last_ft = 0;
-    const QList<QByteArray> lines = data.split('\n');
-    for (QByteArray line0 : lines) {
-        QByteArray line = line0.trimmed();
-        if (line.isEmpty()) continue;
-        if (line.startsWith("TIME:")) {
-            const qint64 ms = parse_time_header_ms(line);
-            if (ms >= 0) { base_ms = ms; first = true; }
-            continue;
-        }
-        // 解析 hex 字节(支持 "0x3c 0x9c ..." / "3c 9c ...")
-        QByteArray raw;
-        QByteArray s = line;
-        const QList<QByteArray> toks = s.replace(',', ' ').split(' ');
-        for (QByteArray t0 : toks) {
-            QByteArray t = t0.trimmed();
-            if (t.isEmpty()) continue;
-            if ((t.startsWith("0x") || t.startsWith("0X")) && t.size() >= 3)
-                t.remove(0, 2);
-            if (t.size() < 2 || (t.size() % 2) != 0) { raw.clear(); break; }
-            bool ok = true;
-            for (int i = 0; i < t.size(); i += 2) {
-                int v = t.mid(i, 2).toInt(&ok, 16);
-                if (!ok) break;
-                raw.append(char(v));
-            }
-            if (!ok) { raw.clear(); break; }
-        }
-        if (raw.size() < 9) continue;
-        if ((quint8)raw[0] != 0x3C || (quint8)raw[raw.size() - 1] != 0x3E) continue;
-        QByteArray body = raw.mid(1, raw.size() - 2);
-        QByteArray unesc = unescape(body);
-        const quint32 ntb = read_ntb(unesc);
-        qint64 arrival;
-        bool seg = false;
-        if (first) {
-            arrival = base_ms;
-            seg = true;
-            first = false;
-        } else {
-            const qint64 dn = (qint32)(ntb - last_ntb);
-            if (dn > 0 && dn <= playback::kMaxNtbGapTicks)
-                arrival = last_ft + playback::ntb_to_us(quint32(dn)) / 1000;
-            else
-                arrival = last_ft;   // 断点:确定性用上一帧时刻(测试专用)
-        }
-        last_ntb = ntb;
-        last_ft = arrival;
-        PacketEntry e;
-        e.raw_wire = raw;
-        e.raw_bytes = unesc;
-        e.meta.seg_start = seg;
-        e.meta.timestamp = ntb;
-        e.epoch_ms = arrival;
-        out.append(e);
-    }
-    return out;
+QByteArray wire(quint32 ntb, int padding = 0) {
+    QByteArray data = QByteArray::fromHex("14000000000000000200");
+    const quint16 dlen = quint16(20 + padding);
+    data[0] = char(dlen & 0xFF);
+    data[1] = char(dlen >> 8);
+    for (int i = 0; i < 4; ++i) data[2 + i] = char(ntb >> (8 * i));
+    data += QByteArray::fromHex("02d5a1cd10013000012b0000009f0e21");
+    data += QByteArray(padding, char(0xAA));
+    return QByteArray(1, char(0x3C)) + playback::escape_frame_data(data) + char(0x3E);
 }
+
+QByteArray time_line(qint64 ms) {
+    return "TIME: " + QDateTime::fromMSecsSinceEpoch(ms)
+                             .toString("yyyy-MM-dd HH:mm:ss.zzz").toUtf8() + '\n';
+}
+
+QByteArray streamed(const QVector<PacketEntry>& entries, bool hex) {
+    QByteArray bytes;
+    QBuffer out(&bytes);
+    out.open(QIODevice::WriteOnly);
+    if (hex) {
+        playback::RawHexWriter writer(&out);
+        for (const auto& e : entries) writer.add(e);
+    } else {
+        playback::PlaybackBinWriter writer(&out);
+        for (const auto& e : entries) writer.add(e);
+    }
+    return bytes;
+}
+
+void bin_roundtrip(const QByteArray& input, const QVector<PacketEntry>& entries) {
+    check(playback::build_playback_bin(entries) == input, "bin playback -> bin equals source");
+    check(streamed(entries, false) == input, "streaming bin export equals source");
+    const QByteArray hex = playback::build_raw_hex_text(entries);
+    check(streamed(entries, true) == hex, "streaming and batch hex exports agree");
+    const auto reread = read(hex, ReaderMode::RawHex);
+    check(reread.size() == entries.size(), "hex replay preserves frame count");
+    check(playback::build_playback_bin(reread) == input, "bin -> hex -> bin equals source bytes");
+    check(streamed(reread, false) == input, "bin -> hex -> streaming bin equals source bytes");
+}
+
+void regressions() {
+    const qint64 base = QDateTime(QDate(2026, 9, 7), QTime(18, 43, 0, 123)).toMSecsSinceEpoch();
+    const qint64 later = base + 600000;
+    const QByteArray first = wire(1000);
+    const QByteArray second = wire(26000);
+    const QByteArray tag = playback::bcd_time_tag(base);
+    const QByteArray tag2 = playback::bcd_time_tag(later);
+
+    for (int split = 0; split <= 8; ++split) {
+        qInfo() << "BCD bytes before read boundary:" << split;
+        QByteArray input = tag;
+        const int target = 8 + 1024 * 1024 - split;
+        quint32 ntb = 1000;
+        QByteArray last;
+        while (input.size() + wire(ntb).size() <= target) {
+            last = wire(ntb);
+            input += last;
+            ntb += 25000;
+        }
+        // 延长最后一帧,精确对齐标注,文件不混入会被读取器丢弃的噪声。
+        const int padding = target - input.size();
+        input.chop(last.size());
+        last = wire(ntb - 25000, padding);
+        input += last + tag2 + wire(ntb);
+        const auto entries = read(input, ReaderMode::FilePlayback);
+        check(!entries.isEmpty() && entries.last().meta.replay_time_tag
+                  && entries.last().epoch_ms == later, "boundary BCD resets segment time");
+        bin_roundtrip(input, entries);
+    }
+
+    {
+        const QByteArray input = time_line(base) + playback::hex_line_of(first)
+                                 + time_line(later)
+                                 + playback::hex_line_of(second)
+                                 + playback::hex_line_of(wire(51000));
+        const auto entries = read(input, ReaderMode::RawHex);
+        check(entries.size() == 3 && entries[0].epoch_ms == base
+                  && entries[1].epoch_ms == later && entries[1].meta.replay_time_tag
+                  && entries[2].epoch_ms == later + 1 && !entries[2].meta.replay_time_tag,
+              "intermediate TIME header resets next frame and following time base");
+        check(entries.size() == 3 && entries[0].delta_us == 0
+                  && entries[1].delta_us == 0 && entries[2].delta_us == 1000,
+              "intermediate TIME resets Delta and following frame advances normally");
+        const QByteArray bin = tag + first + tag2 + second + wire(51000);
+        check(streamed(entries, false) == bin, "hex -> bin retains annotation time and position");
+        const auto bin_entries = read(bin, ReaderMode::FilePlayback);
+        check(bin_entries.size() == 3 && bin_entries[1].epoch_ms == later
+                  && bin_entries[1].meta.replay_time_tag && bin_entries[2].epoch_ms == later + 1
+                  && !bin_entries[2].meta.replay_time_tag,
+              "intermediate bin BCD resets next frame and following time base");
+        check(bin_entries.size() == 3 && bin_entries[0].delta_us == 0
+                  && bin_entries[1].delta_us == 0 && bin_entries[2].delta_us == 1000,
+              "intermediate bin BCD resets Delta and following frame advances normally");
+        bin_roundtrip(bin, bin_entries);
+        QVector<PacketEntry> stored;
+        check(pser::decode_block(pser::encode_block(entries), stored)
+                  && stored.size() == 3 && stored[1].meta.replay_time_tag && !stored[1].meta.seg_start
+                  && stored[1].epoch_ms == later && streamed(stored, false) == bin,
+              "segment and export survive disk-block round-trip");
+    }
+
+    for (ReaderMode mode : {ReaderMode::FilePlayback, ReaderMode::RawHex}) {
+        const bool hex = mode == ReaderMode::RawHex;
+        const QByteArray gap = wire(1000 + 61u * 25000000u);
+        const QByteArray input = hex ? time_line(base) + playback::hex_line_of(first)
+                                                        + playback::hex_line_of(gap)
+                                    : tag + first + gap;
+        const qint64 before = QDateTime::currentMSecsSinceEpoch();
+        const auto entries = read(input, mode);
+        const qint64 after = QDateTime::currentMSecsSinceEpoch();
+        check(entries.size() == 2 && !entries[1].meta.replay_time_tag
+                  && entries[1].epoch_ms >= before && entries[1].epoch_ms <= after,
+              "missing intermediate annotation uses local time without seg_start");
+        check(streamed(entries, hex) == input, "fallback does not invent export annotation");
+        const QByteArray bin = tag + first + gap;
+        bin_roundtrip(bin, entries);
+        if (entries.size() != 2) continue;
+        auto extra = entries;
+        extra[1].meta.seg_start = true;
+        check(streamed(extra, hex) != input, "adding seg_start at fallback changes exported file");
+    }
+
+    const auto invalid = read(time_line(base) + playback::hex_line_of(first)
+                                 + "TIME: 2026-02-31 18:43:00.123\n"
+                                 + playback::hex_line_of(second), ReaderMode::RawHex);
+    check(invalid.size() == 2 && invalid.last().epoch_ms == base + 1
+              && !invalid.last().meta.replay_time_tag, "invalid TIME date does not reset segment");
+    const auto no_header = read(playback::hex_line_of(first), ReaderMode::RawHex);
+    check(no_header.size() == 1 && !no_header[0].meta.replay_time_tag
+              && no_header[0].delta_us == 0,
+          "headerless hex does not invent an existing annotation");
+}
+
+void delta_regressions() {
+    const qint64 base = QDateTime(QDate(2026, 9, 7), QTime(18, 43, 0, 123)).toMSecsSinceEpoch();
+    for (bool header : {false, true}) {
+        for (quint32 first_ntb : {0u, 25000000u, 0xffffffffu}) {
+            const QByteArray input = (header ? time_line(base) : QByteArray())
+                + playback::hex_line_of(wire(first_ntb))
+                + playback::hex_line_of(wire(first_ntb + 25000));
+            const auto entries = read(input, ReaderMode::RawHex);
+            check(entries.size() == 2 && entries[0].meta.timestamp == first_ntb
+                      && entries[0].delta_us == 0 && entries[1].delta_us == 1000,
+                  QString("first Delta is zero and next is 1ms: TIME=%1 NTB=%2")
+                      .arg(header).arg(first_ntb));
+            if (entries.size() != 2) continue;
+            check(entries[0].meta.replay_time_tag == header
+                      && !entries[1].meta.replay_time_tag,
+                  "Delta initialization does not invent replay annotations");
+            auto different_delta = entries;
+            different_delta[0].delta_us = 1000000;
+            different_delta[1].delta_us = 500000;
+            const QByteArray bin = streamed(entries, false);
+            const QByteArray hex = streamed(entries, true);
+            check(streamed(different_delta, false) == bin
+                      && playback::build_playback_bin(different_delta) == bin
+                      && streamed(different_delta, true) == hex
+                      && playback::build_raw_hex_text(different_delta) == hex,
+                  "changing Delta leaves batch/streaming bin and hex bytes unchanged");
+            QVector<PacketEntry> stored;
+            check(pser::decode_block(pser::encode_block(entries), stored)
+                      && stored.size() == 2 && stored[0].delta_us == 0
+                      && stored[1].delta_us == 1000 && streamed(stored, false) == bin
+                      && streamed(stored, true) == hex,
+                  "correct Delta and unchanged exports survive disk cache");
+        }
+    }
+
+    for (bool clear : {false, true}) {
+        quint32 last_ntb = 1000;
+        bool have_last_ntb = true;
+        PhysicalMeta meta;
+        meta.timestamp = 26000;
+        check(playback::next_delta_us(meta, last_ntb, have_last_ntb) == 1000,
+              "Delta has a previous frame before capture reset");
+        have_last_ntb = false;
+        if (clear) last_ntb = 0;
+        meta.timestamp = 25000000;
+        const qint64 first = playback::next_delta_us(meta, last_ntb, have_last_ntb);
+        meta.timestamp += 25000;
+        check(first == 0 && playback::next_delta_us(meta, last_ntb, have_last_ntb) == 1000,
+              clear ? "clear resets Delta history" : "new capture resets Delta history");
+    }
+
+    struct Case {
+        const char* name;
+        quint32 previous;
+        quint32 current;
+        qint64 expected;
+    };
+    const Case cases[] = {
+        {"normal", 1000, 26000, 1000},
+        {"zero", 1000, 1000, 0},
+        {"backward", 1000, 999, 0},
+        {"exactly 60s", 1000, 1000u + 60u * 25000000u, 60000000},
+        {"beyond 60s", 1000, 1001u + 60u * 25000000u, 0},
+        {"signed limit", 1000, 1000u + 0x80000000u, 0},
+        {"short u32 wrap", 0xfffff000u, 0xfffff000u + 25000u, 1000},
+    };
+    for (const auto& c : cases) {
+        quint32 last_ntb = c.previous;
+        bool have_last_ntb = true;
+        PhysicalMeta meta;
+        meta.timestamp = c.current;
+        check(playback::next_delta_us(meta, last_ntb, have_last_ntb) == c.expected
+                  && last_ntb == c.current && have_last_ntb,
+              QString("Delta keeps existing NTB rules: %1").arg(c.name));
+    }
+}
+
+void serial_regressions() {
+    const qint64 base = QDateTime(QDate(2026, 9, 7), QTime(18, 43, 0, 123)).toMSecsSinceEpoch();
+    struct Case {
+        const char* name;
+        quint32 previous_ntb;
+        quint32 ticks;
+        qint64 local_gap_ms;
+        bool reset;
+    };
+    const Case cases[] = {
+        {"normal", 1000, 25000, 1, false},
+        {"below 60s", 1000, 59u * 25000000u, 59000, false},
+        {"exactly 60s", 1000, 60u * 25000000u, 60000, false},
+        {"one tick beyond 60s", 1000, 60u * 25000000u + 1, 60000, true},
+        {"61s matching local gap", 1000, 61u * 25000000u, 61000, true},
+        {"zero NTB delta", 1000, 0, 1, true},
+        {"backward NTB", 100000, quint32(-25000), 1, true},
+        {"signed delta limit", 1000, 0x80000000u, 85899, true},
+        {"short u32 wrap", 0xfffff000u, 25000, 1, false},
+        {"local/NTB mismatch", 1000, 25000000, 4000, true},
+        {"long local gap", 1000, 25000, 171801, true},
+    };
+    for (const auto& c : cases) {
+        qInfo() << "Serial timeline:" << c.name;
+        const quint32 ntb = c.previous_ntb + c.ticks;
+        const QByteArray first = wire(c.previous_ntb);
+        const QByteArray current = wire(ntb);
+        const QByteArray next = wire(ntb + 25000);
+        const qint64 before = QDateTime::currentMSecsSinceEpoch();
+        auto entries = ReaderWorkerTestAccess::serial(current + next, c.previous_ntb,
+                                                      base, c.local_gap_ms);
+        const qint64 after = QDateTime::currentMSecsSinceEpoch();
+        check(entries.size() == 2, "serial input preserves frame count");
+        if (entries.size() != 2) continue;
+        check(entries[0].meta.seg_start == c.reset && !entries[0].meta.replay_time_tag
+                  && !entries[1].meta.seg_start && !entries[1].meta.replay_time_tag,
+              "serial reset marks only the new segment first frame");
+        check(c.reset ? entries[0].epoch_ms >= before && entries[0].epoch_ms <= after
+                      : entries[0].epoch_ms == base + playback::ntb_to_us(c.ticks) / 1000,
+              "serial time uses local reset or valid NTB advance");
+        check(entries[1].epoch_ms == entries[0].epoch_ms + 1,
+              "following serial frame advances from new time base");
+        check(entries[0].delta_us == (c.reset ? 0 : playback::ntb_to_us(c.ticks))
+                  && entries[1].delta_us == 1000,
+              "serial segment resets Delta without changing following interval");
+        PacketEntry previous;
+        previous.raw_wire = first;
+        previous.raw_bytes = QByteArray::fromHex("02d5");
+        previous.epoch_ms = base;
+        previous.meta.seg_start = true;
+        entries.prepend(previous);
+        const QByteArray expected_bin = playback::bcd_time_tag(base) + first
+            + (c.reset ? playback::bcd_time_tag(entries[1].epoch_ms) : QByteArray()) + current + next;
+        const QByteArray expected_hex = time_line(base) + playback::hex_line_of(first)
+            + (c.reset ? time_line(entries[1].epoch_ms) : QByteArray())
+            + playback::hex_line_of(current) + playback::hex_line_of(next);
+        check(streamed(entries, false) == expected_bin
+                  && playback::build_playback_bin(entries) == expected_bin,
+              "serial bin export writes BCD exactly at new time base");
+        check(streamed(entries, true) == expected_hex
+                  && playback::build_raw_hex_text(entries) == expected_hex,
+              "serial hex export writes TIME exactly at new time base");
+        QVector<PacketEntry> stored;
+        check(pser::decode_block(pser::encode_block(entries), stored)
+                  && streamed(stored, false) == expected_bin && streamed(stored, true) == expected_hex,
+              "serial segment timestamp survives disk cache");
+        bin_roundtrip(expected_bin, read(expected_bin, ReaderMode::FilePlayback));
+    }
+    const auto first = ReaderWorkerTestAccess::serial(wire(1000), 0, 0, 0, true);
+    check(first.size() == 1 && first[0].meta.seg_start && !first[0].meta.replay_time_tag
+              && first[0].delta_us == 0,
+          "serial start/resume first frame remains a new segment");
+}
+
+void fixtures(const QString& bin_path, const QString& hex_path) {
+    QFile bin(bin_path), hex(hex_path);
+    if (!bin.open(QIODevice::ReadOnly) || !hex.open(QIODevice::ReadOnly)) {
+        check(false, "open fixture files");
+        return;
+    }
+    const QByteArray src_bin = bin.readAll();
+    QByteArray src_hex = hex.readAll();
+    bin_roundtrip(src_bin, read(src_bin, ReaderMode::FilePlayback));
+    const auto entries = read(src_hex, ReaderMode::RawHex);
+    const auto reread = read(streamed(entries, false), ReaderMode::FilePlayback);
+    src_hex.replace("\r\n", "\n");
+    check(streamed(reread, true) == src_hex, "canonical fixture hex -> bin -> hex");
+}
+}  // namespace
 
 int main(int argc, char* argv[]) {
-    if (argc < 3) { std::printf("usage: roundtrip <bin> <txt>\n"); return 2; }
-    int fails = 0;
-
-    // ---- 正向: bin → 裸hex → bin,比对 == 源 bin ----
-    {
-        QFile fbin(QString::fromLocal8Bit(argv[1]));
-        if (!fbin.open(QIODevice::ReadOnly)) { std::printf("open bin fail\n"); return 2; }
-        const QByteArray src_bin = fbin.readAll();
-        fbin.close();
-        const QVector<PacketEntry> e1 = parse_bin(src_bin);
-        const QByteArray txt = playback::build_raw_hex_text(e1);
-        const QVector<PacketEntry> e2 = parse_rawhex(txt);
-        const QByteArray bin2 = playback::build_playback_bin(e2);
-        const bool ok = (bin2 == src_bin);
-        std::printf("正向 bin→裸hex→bin: 帧 %d,裸hex %d B,bin %d B vs 源 %d B → %s\n",
-                    int(e1.size()), txt.size(), bin2.size(), src_bin.size(),
-                    ok ? "一致" : "不一致");
-        if (!ok) {
-            ++fails;
-            const int n = qMin(bin2.size(), src_bin.size());
-            for (int i = 0; i < n; ++i)
-                if (bin2[i] != src_bin[i]) {
-                    std::printf("  首差异 @%d (bin2=%02x src=%02x)\n",
-                                i, (quint8)bin2[i], (quint8)src_bin[i]); break;
-                }
-        }
-    }
-
-    // ---- 反向: 裸hex → bin → 裸hex,比对 == 源裸hex ----
-    {
-        QFile ftxt(QString::fromLocal8Bit(argv[2]));
-        if (!ftxt.open(QIODevice::ReadOnly)) { std::printf("open txt fail\n"); return 2; }
-        const QByteArray src_txt_raw = ftxt.readAll();
-        ftxt.close();
-        // 规范化换行:git autocrlf 可能把仓库里的 txt 检出成 CRLF,
-        // 统一转 LF 再比对,避免 CRLF/LF 差异造成假失败
-        QByteArray src_txt = src_txt_raw;
-        src_txt.replace("\r\n", "\n");
-        src_txt.replace('\r', '\n');
-        const QVector<PacketEntry> e1 = parse_rawhex(src_txt);
-        const QByteArray bin = playback::build_playback_bin(e1);
-        const QVector<PacketEntry> e2 = parse_bin(bin);
-        const QByteArray txt2 = playback::build_raw_hex_text(e2);
-        const bool ok = (txt2 == src_txt);
-        std::printf("反向 裸hex→bin→裸hex: 帧 %d,bin %d B,裸hex %d B vs 源 %d B → %s\n",
-                    int(e1.size()), bin.size(), txt2.size(), src_txt.size(),
-                    ok ? "一致" : "不一致");
-        if (!ok) {
-            ++fails;
-            const int n = qMin(txt2.size(), src_txt.size());
-            for (int i = 0; i < n; ++i)
-                if (txt2[i] != src_txt[i]) {
-                    std::printf("  首差异 @%d (txt2=%02x src=%02x)\n",
-                                i, (quint8)txt2[i], (quint8)src_txt[i]); break;
-                }
-        }
-    }
-
-    std::printf(fails == 0 ? "PASS\n" : "FAIL(fail=%d)\n", fails);
-    return fails == 0 ? 0 : 1;
+    QCoreApplication app(argc, argv);
+    regressions();
+    delta_regressions();
+    serial_regressions();
+    if (argc == 3) fixtures(app.arguments()[1], app.arguments()[2]);
+    else if (argc != 1) { qWarning() << "usage: roundtrip [bin txt]"; return 2; }
+    qInfo() << "RESULT:" << (failures == 0 ? "PASS" : "FAIL") << "failures:" << failures;
+    return failures == 0 ? 0 : 1;
 }

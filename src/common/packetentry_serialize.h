@@ -71,6 +71,7 @@ inline void write_meta(QDataStream& s, const PhysicalMeta& m) {
     write_bool(s, m.from_raw);
     write_bool(s, m.frame_ts_is_ntb);
     write_bool(s, m.seg_start);
+    write_bool(s, m.replay_time_tag);
 }
 
 inline void read_meta(QDataStream& s, PhysicalMeta& m) {
@@ -87,6 +88,7 @@ inline void read_meta(QDataStream& s, PhysicalMeta& m) {
     read_bool(s, m.from_raw);
     read_bool(s, m.frame_ts_is_ntb);
     read_bool(s, m.seg_start);
+    read_bool(s, m.replay_time_tag);
 }
 
 inline void write_mpdu(QDataStream& s, const MpduInfo& m) {
@@ -405,11 +407,11 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
 // ---------------------------------------------------------------------------
 
 inline quint32 block_magic()   { return 0x50424C4Bu; }  // "PBLK"
-inline quint32 block_version() { return 3u; }
+inline quint32 block_version() { return 4u; }
 /// @brief 独立压缩分块的条目数(随机解码粒度:解一条最多解压一个分块)
 inline constexpr int kBlockChunkEntries = 50;
 
-// ---- v3 磁盘布局结构体 -----------------------------------------------------
+// ---- v4 磁盘布局结构体 -----------------------------------------------------
 // 1 字节对齐的定长布局定义:字段顺序与 QDataStream 的写入顺序一一对应,
 // sizeof 即磁盘字节数。所有段长/偏移/条目步长一律由 sizeof 推导(禁止再
 // 手算数字);改字段必须同步改结构体,static_assert 与 round-trip 测试兜底。
