@@ -98,7 +98,6 @@ static const char* kLeaveReasonZh[] = {
 /// 延迟离线原因(表74:0x3 不在最新白名单)
 static const char* kDelayLeaveReasonZh[] = { nullptr, nullptr, nullptr, "站点不在最新白名单中" };
 /// 相位特征采集方式(表59:0 保留 1 下降沿采集 2 上升沿采集)
-static const char* kCollectModeZh[] = { "保留", "下降沿采集", "上升沿采集" };
 /// 芯片厂商ID(表90:0x0000 保留 0x0001 HS ... 0x0008 SC)
 static const char* kChipIDZh[] = { "保留", "HS", "ES", "TC", "LH", "HT", "RS", "SW", "SC" };
 /// 帧类型域(表4:0 确认/否认 1 数据转发 2 命令 3 主动上报 4 抄控器 5 广播 6 数据订阅 14 厂家调试)
@@ -235,21 +234,11 @@ struct MMeI18nReg {
 
 static const FieldSpec kMMeAssocReqSpec[] = {
     { "STAMACAddr", 0, 0, 48, Fmt::MAC },
-    { "CandidateTEI0", 6, 0, 12, Fmt::DEC },
-    { "LinkType0", 7, 4, 1, Fmt::DEC },
-    { "MMeAssocReqRSV0", 7, 5, 3, Fmt::HEX4 },
-    { "CandidateTEI1", 8, 0, 12, Fmt::DEC },
-    { "LinkType1", 9, 4, 1, Fmt::DEC },
-    { "MMeAssocReqRSV1", 9, 5, 3, Fmt::HEX4 },
-    { "CandidateTEI2", 10, 0, 12, Fmt::DEC },
-    { "LinkType2", 11, 4, 1, Fmt::DEC },
-    { "MMeAssocReqRSV2", 11, 5, 3, Fmt::HEX4 },
-    { "CandidateTEI3", 12, 0, 12, Fmt::DEC },
-    { "LinkType3", 13, 4, 1, Fmt::DEC },
-    { "MMeAssocReqRSV3", 13, 5, 3, Fmt::HEX4 },
-    { "CandidateTEI4", 14, 0, 12, Fmt::DEC },
-    { "LinkType4", 15, 4, 1, Fmt::DEC },
-    { "MMeAssocReqRSV4", 15, 5, 3, Fmt::HEX4 },
+    { "CandidateTEI0", 6, 0, 16, Fmt::DEC },
+    { "CandidateTEI1", 8, 0, 16, Fmt::DEC },
+    { "CandidateTEI2", 10, 0, 16, Fmt::DEC },
+    { "CandidateTEI3", 12, 0, 16, Fmt::DEC },
+    { "CandidateTEI4", 14, 0, 16, Fmt::DEC },
     { "LinePhase0", 16, 0, 8, Fmt::DEC },
     { "CandidateLinePhase1", 17, 0, 8, Fmt::DEC },
     { "CandidateLinePhase2", 18, 0, 8, Fmt::DEC },
@@ -257,9 +246,7 @@ static const FieldSpec kMMeAssocReqSpec[] = {
     { "MMeAssocReqRSV5", 20, 0, 8, Fmt::HEX4 },
     { "MMeAssocReqRSV6", 21, 0, 8, Fmt::HEX4 },
     { "MACAddrType", 22, 0, 8, Fmt::DEC },
-    { "ModuleType", 23, 0, 2, Fmt::DEC },
-    { "Link", 23, 2, 5, Fmt::DEC },
-    { "RSV2", 23, 7, 1, Fmt::HEX4 },
+    { "RSV2", 23, 0, 8, Fmt::HEX4 },
     { "STAAssocRandomData", 24, 0, 32, Fmt::DEC },
     { "HardRstCount", 56, 0, 16, Fmt::DEC },
     { "SoftRstCount", 58, 0, 16, Fmt::DEC },
@@ -278,15 +265,12 @@ static const FieldSpec kMMeAssocCnfSpec[] = {
     { "STAMACAddr", 0, 0, 48, Fmt::MAC },
     { "AssocResult", 6, 0, 8, Fmt::DEC },
     { "STALevel", 7, 0, 8, Fmt::DEC },
-    { "STATEI", 8, 0, 12, Fmt::DEC },
-    { "RSV0", 9, 4, 4, Fmt::HEX4 },
+    { "STATEI", 8, 0, 16, Fmt::DEC },
     { "ProxyTEI", 10, 0, 16, Fmt::DEC },
     { "TotalPacketNum", 12, 0, 8, Fmt::DEC },
     { "PacketIndex", 13, 0, 8, Fmt::DEC },
     { "LastPacketFlag", 14, 0, 8, Fmt::DEC },
-    { "LinkType", 15, 0, 1, Fmt::DEC },
-    { "CarrierFreq", 15, 1, 2, Fmt::DEC },
-    { "RSV1", 15, 3, 5, Fmt::HEX4 },
+    { "RSV1", 15, 0, 8, Fmt::HEX4 },
     { "STAAssocRandomData", 16, 0, 32, Fmt::DEC },
     { "STAReAssocTime", 20, 0, 32, Fmt::DEC },
     { "EndSequence", 24, 0, 32, Fmt::DEC },
@@ -300,29 +284,18 @@ static const int kMMeAssocCnfSpecN = int(sizeof(kMMeAssocCnfSpec)/sizeof(kMMeAss
 
 static const FieldSpec kMMeChangeProxyReqSpec[] = {
     { "STATEI", 0, 0, 16, Fmt::DEC },
-    { "NewProxyTEI0", 2, 0, 12, Fmt::DEC },
-    { "LinkType0", 3, 4, 1, Fmt::DEC },
-    { "MMeChangeProxyReqRSV1", 3, 5, 3, Fmt::HEX4 },
-    { "NewProxyTEI1", 4, 0, 12, Fmt::DEC },
-    { "LinkType1", 5, 4, 1, Fmt::DEC },
-    { "MMeChangeProxyReqRSV2", 5, 5, 3, Fmt::HEX4 },
-    { "NewProxyTEI2", 6, 0, 12, Fmt::DEC },
-    { "LinkType2", 7, 4, 1, Fmt::DEC },
-    { "MMeChangeProxyReqRSV3", 7, 5, 3, Fmt::HEX4 },
-    { "NewProxyTEI3", 8, 0, 12, Fmt::DEC },
-    { "LinkType3", 9, 4, 1, Fmt::DEC },
-    { "MMeChangeProxyReqRSV4", 9, 5, 3, Fmt::HEX4 },
-    { "NewProxyTEI4", 10, 0, 12, Fmt::DEC },
-    { "LinkType4", 11, 4, 1, Fmt::DEC },
-    { "MMeChangeProxyReqRSV5", 11, 5, 3, Fmt::HEX4 },
+    { "NewProxyTEI0", 2, 0, 16, Fmt::DEC },
+    { "NewProxyTEI1", 4, 0, 16, Fmt::DEC },
+    { "NewProxyTEI2", 6, 0, 16, Fmt::DEC },
+    { "NewProxyTEI3", 8, 0, 16, Fmt::DEC },
+    { "NewProxyTEI4", 10, 0, 16, Fmt::DEC },
     { "OldProxyTEI", 12, 0, 16, Fmt::DEC },
     { "ProxyType", 14, 0, 8, Fmt::DEC },
     { "Reason", 15, 0, 8, Fmt::DEC },
     { "LinePhase0", 16, 0, 8, Fmt::DEC },
     { "CandidateLinePhase1", 17, 0, 8, Fmt::DEC },
     { "CandidateLinePhase2", 18, 0, 8, Fmt::DEC },
-    { "Link", 19, 0, 5, Fmt::DEC },
-    { "RSV0", 19, 5, 3, Fmt::HEX4 },
+    { "RSV0", 19, 0, 8, Fmt::HEX4 },
     { "EndSequence", 20, 0, 32, Fmt::DEC },
     { "NetSN", 24, 0, 8, Fmt::DEC },
     { "RSV1", 25, 0, 120, Fmt::HEX4 },
@@ -334,16 +307,14 @@ static const FieldSpec kMMeAssocIndSpec[] = {
     { "STALevel", 1, 0, 8, Fmt::DEC },
     { "STAMACAddr", 2, 0, 48, Fmt::MAC },
     { "CCOMACAddr", 8, 0, 48, Fmt::MAC },
-    { "STATEI", 14, 0, 12, Fmt::DEC },
-    { "RSV0", 15, 4, 4, Fmt::HEX4 },
+    { "STATEI", 14, 0, 16, Fmt::DEC },
     { "ProxyTEI", 16, 0, 16, Fmt::DEC },
-    { "LinkType", 18, 0, 1, Fmt::DEC },
-    { "CarrierFreq", 18, 1, 2, Fmt::DEC },
-    { "RSV1", 18, 3, 21, Fmt::HEX4 },
-    { "TotalPacketNum", 21, 0, 8, Fmt::DEC },
-    { "PacketIndex", 22, 0, 8, Fmt::DEC },
+    { "RSV1", 18, 0, 24, Fmt::HEX4 },
+    { "PacketIndex", 21, 0, 8, Fmt::DEC },
+    { "TotalPacketNum", 22, 0, 8, Fmt::DEC },
     { "LastPacketFlag", 23, 0, 8, Fmt::DEC },
     { "STAAssocRandomData", 24, 0, 32, Fmt::DEC },
+    { "RSV2", 28, 0, 136, Fmt::HEX4 },
     { "NetSN", 45, 0, 8, Fmt::DEC },
     { "RSV3", 46, 0, 16, Fmt::HEX4 },
     { "STAReAssocTime", 48, 0, 32, Fmt::DEC },
@@ -357,14 +328,11 @@ static const FieldSpec kMMeChangeProxyCnfSpec[] = {
     { "TotalPacketNum", 4, 0, 8, Fmt::DEC },
     { "PacketIndex", 5, 0, 8, Fmt::DEC },
     { "STATEI", 6, 0, 16, Fmt::DEC },
-    { "MMeChangeProxyCnfRSV1", 7, 5, 3, Fmt::HEX4 },
     { "ProxyTEI", 8, 0, 16, Fmt::DEC },
     { "ChildSum", 10, 0, 16, Fmt::DEC },
     { "RSV", 12, 0, 8, Fmt::HEX4 },
     { "NetSN", 13, 0, 8, Fmt::DEC },
-    { "LinkType", 14, 0, 1, Fmt::DEC },
-    { "RSV0", 14, 1, 7, Fmt::HEX4 },
-    { "RSV1", 15, 0, 8, Fmt::HEX4 },
+    { "RSV0", 14, 0, 16, Fmt::HEX4 },
     { "EndSequence", 16, 0, 32, Fmt::DEC },
     { "PathSequence", 20, 0, 32, Fmt::DEC },
     { "RSV2", 24, 0, 64, Fmt::HEX4 },
@@ -375,13 +343,10 @@ static const FieldSpec kMMeAssocGatherIndSpec[] = {
     { "AssocResult", 0, 0, 8, Fmt::DEC },
     { "STALevel", 1, 0, 8, Fmt::DEC },
     { "CCOMACAddr", 2, 0, 48, Fmt::MAC },
-    { "ProxyTEI", 8, 0, 12, Fmt::DEC },
-    { "RSV1", 9, 4, 4, Fmt::HEX4 },
+    { "ProxyTEI", 8, 0, 16, Fmt::DEC },
     { "NetSN", 10, 0, 8, Fmt::DEC },
     { "NewSTANumber", 11, 0, 8, Fmt::DEC },
-    { "CarrierFreq", 12, 0, 2, Fmt::DEC },
-    { "RSV2", 12, 2, 6, Fmt::HEX4 },
-    { "RSV3", 13, 0, 120, Fmt::HEX4 },
+    { "RSV3", 12, 0, 128, Fmt::HEX4 },
 };
 static const int kMMeAssocGatherIndSpecN = int(sizeof(kMMeAssocGatherIndSpec)/sizeof(kMMeAssocGatherIndSpec[0]));
 
@@ -390,8 +355,7 @@ static const FieldSpec kMMeChangeProxyBitMapCnfSpec[] = {
     { "STATEI", 4, 0, 16, Fmt::DEC },
     { "ProxyTEI", 6, 0, 16, Fmt::DEC },
     { "NetSN", 8, 0, 8, Fmt::DEC },
-    { "LinkType", 139, 0, 1, Fmt::DEC },
-    { "RSV0", 139, 1, 7, Fmt::HEX4 },
+    { "RSV0", 139, 0, 8, Fmt::HEX4 },
     { "EndSequence", 140, 0, 32, Fmt::DEC },
     { "PathSequence", 144, 0, 32, Fmt::DEC },
 };
@@ -426,7 +390,7 @@ static const FieldSpec kMMeDiscoverNodeListSpec[] = {
     { "DiscoverNodeNum", 24, 0, 16, Fmt::DEC },
     { "SendDiscoveryPacketCount", 26, 0, 16, Fmt::DEC },
     { "UpRouteEntryNum", 28, 0, 16, Fmt::DEC },
-    { "UpRouteEntrySize", 30, 0, 8, Fmt::DEC },
+    { "ReceivedInfoEntryLen", 30, 0, 8, Fmt::DEC },
     { "RSV1", 31, 0, 16, Fmt::HEX4 },
     { "RoutePeriodLeftTime", 33, 0, 16, Fmt::DEC },
     { "CandidateLinePhase2", 35, 0, 2, Fmt::DEC },
@@ -452,27 +416,22 @@ static const FieldSpec kMMeSuccessRateReportSpec[] = {
 };
 static const int kMMeSuccessRateReportSpecN = int(sizeof(kMMeSuccessRateReportSpec)/sizeof(kMMeSuccessRateReportSpec[0]));
 
-// 相位特征采集指示(表58):采集数量 + 采集序列号 + 保留2B
+// 过零 NTB 采集指示(表84):站点 TEI + 站点类型 + 采集周期 + 采集数量
 static const FieldSpec kMMeZeroCrossNTBCollectIndSpec[] = {
-    { "CollectQuantity", 0, 0, 8,  Fmt::DEC },
-    { "CollectSeqNum",   1, 0, 8,  Fmt::DEC },
-    { "RSV0",            2, 0, 16, Fmt::HEX4 },
+    { "STATEI",          0, 0, 16, Fmt::DEC },
+    { "StationType",     2, 0, 8,  Fmt::DEC },
+    { "CollectPeriod",   3, 0, 8,  Fmt::DEC },
+    { "CollectQuantity", 4, 0, 8,  Fmt::DEC },
 };
 static const int kMMeZeroCrossNTBCollectIndSpecN = int(sizeof(kMMeZeroCrossNTBCollectIndSpec)/sizeof(kMMeZeroCrossNTBCollectIndSpec[0]));
 
-// 相位特征告知报文(表59):TEI + 采集方式 + 采集序列号 + 告知总数量 +
-// 基准NTB + 相线1/2/3差值数量;差值列表(16bit/项)在 case 里动态解析
+// 过零 NTB 上报报文(表87):站点 TEI + 上报数量 + 保留 + 基准 NTB 值;
+// 差值列表(表88:12bit/项紧凑排列)自消息体 byte 8 起,在 case 里动态解析
 static const FieldSpec kMMeZeroCrossNTBReportSpec[] = {
-    { "TEI",           0, 0, 12, Fmt::DEC },
-    { "CollectMode",   1, 4, 2,  Fmt::DEC },
-    { "RSV0",          1, 6, 2,  Fmt::HEX4 },
-    { "CollectSeqNum", 2, 0, 8,  Fmt::DEC },
-    { "TotalCount",    3, 0, 8,  Fmt::DEC },
-    { "NTBBase",       4, 0, 32, Fmt::DEC },
-    { "RSV1",          8, 0, 8,  Fmt::HEX4 },
-    { "LineACount",    9, 0, 8,  Fmt::DEC },
-    { "LineBCount",    10, 0, 8, Fmt::DEC },
-    { "LineCCount",    11, 0, 8, Fmt::DEC },
+    { "TEI",         0, 0, 16, Fmt::DEC },
+    { "ReportCount", 2, 0, 8,  Fmt::DEC },
+    { "RSV0",        3, 0, 8,  Fmt::HEX4 },
+    { "NTBBase",     4, 0, 32, Fmt::DEC },
 };
 static const int kMMeZeroCrossNTBReportSpecN = int(sizeof(kMMeZeroCrossNTBReportSpec)/sizeof(kMMeZeroCrossNTBReportSpec[0]));
 
@@ -715,27 +674,21 @@ static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base, quint1
 
 // ── 南网 MMe 循环结构条目表 ──────────────────────────
 static const FieldSpec kSTATEISpec[] = {
-    { "STATEI", 0, 0, 12, Fmt::DEC },
-    { "LinkType", 1, 4, 1, Fmt::BOOL_Y },
-    { "RSV", 1, 5, 3, Fmt::HEX4 },
+    { "STATEI", 0, 0, 16, Fmt::DEC },
 };
 static const int kSTATEISpecN = int(sizeof(kSTATEISpec)/sizeof(kSTATEISpec[0]));
 static const FieldSpec kStraightPCOSpec[] = {
-    { "PCOTEI", 0, 0, 12, Fmt::DEC },
-    { "LinkType", 1, 4, 1, Fmt::BOOL_Y },
-    { "RSV", 1, 5, 3, Fmt::HEX4 },
+    { "PCOTEI", 0, 0, 16, Fmt::DEC },
     { "PCOChildSum", 2, 0, 16, Fmt::DEC },
 };
 static const int kStraightPCOSpecN = int(sizeof(kStraightPCOSpec)/sizeof(kStraightPCOSpec[0]));
 static const FieldSpec kSTAInfoSpec[] = {
     { "STAMACAddr", 0, 0, 48, Fmt::MAC },
-    { "STATEI", 6, 0, 12, Fmt::DEC },
-    { "RSV", 7, 4, 4, Fmt::HEX4 },
+    { "STATEI", 6, 0, 16, Fmt::DEC },
 };
 static const int kSTAInfoSpecN = int(sizeof(kSTAInfoSpec)/sizeof(kSTAInfoSpec[0]));
 static const FieldSpec kUpRouteInfoSpec[] = {
-    { "NextHopTEI", 0, 0, 12, Fmt::DEC },
-    { "RSV", 1, 4, 4, Fmt::HEX4 },
+    { "NextHopTEI", 0, 0, 16, Fmt::DEC },
     { "RouteType", 2, 0, 8, Fmt::DEC },
 };
 static const int kUpRouteInfoSpecN = int(sizeof(kUpRouteInfoSpec)/sizeof(kUpRouteInfoSpec[0]));
@@ -1241,7 +1194,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             annotate_unit(out.tree, "ProxyDownCommRate", QStringLiteral("%"));
             annotate_unit(out.tree, "MinCommRate", QStringLiteral("%"));
             annotate_unit(out.tree, "RoutePeriodLeftTime", QStringLiteral("s"));
-            annotate_unit(out.tree, "UpRouteEntrySize", QStringLiteral("bit"));
+            annotate_unit(out.tree, "ReceivedInfoEntryLen", QStringLiteral("bit"));
             const quint16 route_num = (quint16)get_bits(mme, 34, 0, 16);  // UpRouteEntryNum
             const quint16 node_num  = (quint16)get_bits(mme, 30, 0, 16);  // DiscoverNodeNum
             int off = 48;  // 固定头 42B(MMeHead 6 + 消息体 42)
@@ -1383,33 +1336,26 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case NW_2021_MMeType::MME_ZEROCROSSNTBREPORT: {
             add_fields(out.tree, mme, 6, kMMeZeroCrossNTBReportSpec, kMMeZeroCrossNTBReportSpecN, mme_rel_base);
-            translate_enum_i18n(out.tree, "CollectMode", kCollectModeZh, 3);
-            // 相线1/2/3过零NTB差值列表(表59:每差值2B 16bit无符号,按相线1→3顺序)
-            if (mme.size() >= 18) {
-                const int n1 = (int)get_bits(mme, 15, 0, 8);
-                const int n2 = (int)get_bits(mme, 16, 0, 8);
-                const int n3 = (int)get_bits(mme, 17, 0, 8);
-                int off = 18;   // mme[18] = 消息体 byte 12(相线1 差值1)
-                auto add_line = [&](const char* nm, int cnt) {
-                    if (cnt <= 0) return;
-                    const int start_off = off;
-                    auto& g = group(out.tree, QStringLiteral("%1 Diff NTB List [%2]")
-                                             .arg(QLatin1String(nm)).arg(cnt));
-                    for (int i = 0; i < cnt && off + 2 <= mme.size(); ++i) {
-                        const quint16 v = (quint16)get_bits(mme, off, 0, 16);
+            // 过零 NTB 差值列表(表88:自消息体 byte 8 起按 12bit 紧凑排列;
+            // 上报数量含基准 NTB 在内,差值个数 = 上报数量 - 1)
+            if (mme.size() >= 14) {
+                const int total = (int)get_bits(mme, 8, 0, 8);
+                const int cnt = total > 0 ? total - 1 : 0;
+                const int shown = qMin(cnt, (mme.size() - 14) * 8 / 12);
+                if (shown > 0) {
+                    auto& g = group(out.tree, QStringLiteral("NTB Diff List [%1]").arg(shown));
+                    for (int i = 0; i < shown; ++i) {
+                        const int bitpos = i * 12;
                         MsduFieldNode d;
-                        d.name = QStringLiteral("DiffNTB[%1]").arg(i);
-                        d.value = QString::number(v);
-                        d.rel_start = mme_rel_base + off; d.rel_len = 2;
+                        d.name = QStringLiteral("NTBDiff[%1]").arg(i);
+                        d.value = QString::number(get_bits(mme, 14 + bitpos / 8, bitpos % 8, 12));
+                        d.rel_start = mme_rel_base + 8 + bitpos / 8;
+                        d.rel_len = (bitpos % 8 + 12 + 7) / 8;
                         g.children.append(d);
-                        off += 2;
                     }
-                    g.rel_start = mme_rel_base + start_off;
-                    g.rel_len = off - start_off;
-                };
-                add_line("LineA", n1);
-                add_line("LineB", n2);
-                add_line("LineC", n3);
+                    g.rel_start = mme_rel_base + 8;
+                    g.rel_len = (shown * 12 + 7) / 8;
+                }
             }
             break;
         }
