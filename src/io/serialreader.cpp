@@ -180,6 +180,9 @@ void ReaderWorker::try_extract_frame() {
 
             int idx = m_in_buf.indexOf(char(0x3C));
             if (idx < 0) {
+                // 文件块末尾可能是下一段 BCD 的前 1~7B,留待下次 read 补齐。
+                if (m_cfg.mode == ReaderMode::FilePlayback && m_in_buf.size() < 8)
+                    return;
                 // 无 0x3C:剔除 1 字节,回到循环顶重新匹配 8B BCD(滑窗对齐帧头)
                 m_in_buf.remove(0, 1);
                 continue;
@@ -367,7 +370,11 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
     // 8B BCD 时间标注行(非 0x3C 开头,裸 hex 多段):解析记录(断点/基准)
     if (raw.size() == 8 && (quint8)raw[0] != 0x3C
         && playback::looks_like_bcd8(raw)) {
-        m_raw_base_ms = bcd_ms_of(raw);
+        const qint64 ms = bcd_ms_of(raw);
+        if (ms >= 0) {
+            m_raw_base_ms = ms;
+            m_hex_seg_first = true;
+        }
         return;
     }
     // 至少 ts4+media4+1B MPDU,否则无法构成可解析帧
