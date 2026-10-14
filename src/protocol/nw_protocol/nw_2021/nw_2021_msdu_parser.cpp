@@ -746,6 +746,39 @@ static const FieldSpec kCommRateInfoSpec[] = {
 };
 static const int kCommRateInfoSpecN = int(sizeof(kCommRateInfoSpec)/sizeof(kCommRateInfoSpec[0]));
 
+// ── MAC 帧头字段表(6.2.1 表3 长帧头 32B / 6.2.2 表9 短帧头 12B) ──
+// 帧头类型(表5:0 长帧头 32B / 1 短帧头 12B)
+static const char* kHeaderTypeZh[] = { "长帧头(32B)", "短帧头(12B)" };
+// 版本(表6:0/2/3 保留,1 本标准协议)
+static const char* kMacVersionZh[] = { nullptr, "本标准协议", nullptr, nullptr };
+// 发送类型(表:0 单播 1 全网广播 2 本地广播 3 代理广播)
+static const char* kSendTypeZh[] = { "单播", "全网广播", "本地广播", "代理广播" };
+
+/// 公共字段(byte 0-11,长/短头共有)
+static const FieldSpec kMacHeaderSpec[] = {
+    { "HeaderType",     0, 0, 1,  Fmt::DEC },   // 帧头类型
+    { "Version",        0, 1, 2,  Fmt::DEC },   // 版本
+    { "RSV0",           0, 3, 13, Fmt::HEX4 },  // 保留(byte0 bit3-7 + byte1)
+    { "MSDULength",     2, 0, 16, Fmt::DEC },   // MSDU 长度
+    { "DstTEI",         4, 0, 12, Fmt::DEC },   // 原始目的 TEI
+    { "SrcTEI",         5, 4, 12, Fmt::DEC },   // 原始源 TEI
+    { "SNID",           7, 0, 4,  Fmt::DEC },   // 短网络标识
+    { "RestartCount",   7, 4, 4,  Fmt::DEC },   // 重启次数
+    { "RouteHop",       8, 0, 4,  Fmt::DEC },   // 路由跳数
+    { "BroadcastDir",   8, 4, 4,  Fmt::DEC },   // 广播方向
+    { "SendType",       9, 0, 3,  Fmt::DEC },   // 发送类型
+    { "SendCountLimit", 9, 3, 5,  Fmt::DEC },   // 发送次数限值
+    { "MSDUSeq",        10, 0, 16, Fmt::DEC },  // MSDU 序列号
+};
+static const int kMacHeaderSpecN = int(sizeof(kMacHeaderSpec)/sizeof(kMacHeaderSpec[0]));
+
+/// 长帧头独有字段(byte 12-21)
+static const FieldSpec kMacLongHeaderSpec[] = {
+    { "DstMAC", 12, 0, 48, Fmt::MAC },   // 目的 MAC 地址
+    { "RSV1",   18, 0, 32, Fmt::HEX8 },  // 保留
+};
+static const int kMacLongHeaderSpecN = int(sizeof(kMacLongHeaderSpec)/sizeof(kMacLongHeaderSpec[0]));
+
 }  // namespace
 
 MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
@@ -798,6 +831,31 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
     out.msdu_seq            = (quint16)get_bits(p, 10, 0, 16);
 
     const int mac_hdr_len = (mac_head_flag == static_cast<quint8>(NW_2021_MacHeadFlag::LONG_HEAD)) ? 32 : 12;
+
+    // MAC 帧头字段树(byte 0..mac_hdr_len-1):公共字段 + 长头目的 MAC/保留。
+    // 此前 HeaderType/Version/SNID/路由跳数/发送次数限值/目的 MAC/保留均未
+    // 进字段树(只作列表标量或分支判断),现补齐,保留位按 RSV 展示。
+    {
+        MsduFieldNode& mh = group(out.tree,
+            QStringLiteral("MAC Header [%1B]").arg(mac_hdr_len));
+        mh.rel_start = 0;
+        mh.rel_len = mac_hdr_len;
+        add_fields(mh.children, body, 0, kMacHeaderSpec, kMacHeaderSpecN, 0);
+        translate_enum_i18n(mh.children, "HeaderType", kHeaderTypeZh, 2);
+        translate_enum_i18n(mh.children, "Version", kMacVersionZh, 4);
+        translate_enum_i18n(mh.children, "SendType", kSendTypeZh, 4);
+        annotate_unit(mh.children, "MSDULength", QStringLiteral(" B"));
+        if (mac_head_flag == static_cast<quint8>(NW_2021_MacHeadFlag::LONG_HEAD)) {
+            add_fields(mh.children, body, 0, kMacLongHeaderSpec, kMacLongHeaderSpecN, 0);
+            // 80-bit 保留(byte 22-31):get_bits 仅支持 ≤64bit,hex dump 展示
+            if (body.size() >= 32) {
+                MsduFieldNode& rsv2 = group(mh.children, QStringLiteral("RSV2 [80b]"),
+                    QString::fromLatin1(body.mid(22, 10).toHex(' ').toUpper()));
+                rsv2.rel_start = 22; rsv2.rel_len = 10;
+            }
+        }
+    }
+
     if (body.size() < mac_hdr_len + msdu_len) return out;
     const QByteArray msdu_body = body.mid(mac_hdr_len, msdu_len);
     out.total_len = mac_hdr_len + msdu_len + 4;
