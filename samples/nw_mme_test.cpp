@@ -330,8 +330,8 @@ int main(int argc, char** argv) {
         {0x005d, 22, TopoEventKind::LeaveInd},
         {0x005e, 10, TopoEventKind::SuccessRate},
         {0x005f, 15, TopoEventKind::Other},
-        {0x0062, 10, TopoEventKind::Other},
-        {0x0063, 18, TopoEventKind::Other},
+        {0x0062, 11, TopoEventKind::Other},
+        {0x0063, 14, TopoEventKind::Other},
         {0x0064, 8, TopoEventKind::Other},
         {0x0070, 13, TopoEventKind::Other},
     };
@@ -358,9 +358,6 @@ int main(int argc, char** argv) {
         {0x0055, 176, 30, 16, 1},
         {0x005d, 22, 8, 16, 6},
         {0x005e, 10, 8, 16, 4},
-        {0x0063, 18, 15, 8, 2},
-        {0x0063, 18, 16, 8, 2},
-        {0x0063, 18, 17, 8, 2},
         {0x0070, 13, 12, 8, 2},
     };
     for (const auto& test : lists) {
@@ -465,13 +462,16 @@ int main(int argc, char** argv) {
     put(discover, 34, 16, 65535);
     truncated(discover);
 
-    auto phases = mme(0x0063, 30);
-    put(phases, 15, 8, 1);
-    put(phases, 16, 8, 2);
-    put(phases, 17, 8, 3);
-    all_prefixes(phases);
-    put(phases, 17, 8, 4);
-    truncated(phases);
+    // 过零上报(表87/88):上报数量在 mme 字节 8(含基准 NTB),差值自字节 14 起 12 位紧凑打包
+    auto zc = mme(0x0063, 19);
+    put(zc, 8, 8, 4);  // 数量 4 = 基准 + 3 个差值,需 14 + ceil(3*12/8) = 19 字节
+    all_prefixes(zc);
+    auto zc_cut = mme(0x0063, 18);
+    put(zc_cut, 8, 8, 4);
+    truncated(zc_cut);
+    auto zc_big = mme(0x0063, 19);
+    put(zc_big, 8, 8, 255);
+    truncated(zc_big);
 
     for (int length = 0; length < 6; ++length) truncated(mme(0x9999, length));
     const auto unknown = complete(mme(0x9999, 6));

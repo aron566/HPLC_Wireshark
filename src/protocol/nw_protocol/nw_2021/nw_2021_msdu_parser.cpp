@@ -824,7 +824,8 @@ static int mme_fixed_length(const FieldSpec (&spec)[N]) {
 
 static int mme_fixed_length(NW_2021_MMeType type) {
     switch (type) {
-    case NW_2021_MMeType::MME_ASSOCREQ: return mme_fixed_length(kMMeAssocReqSpec);
+    case NW_2021_MMeType::MME_ASSOCREQ: // 规约表分头(0-27)/尾(56-67)两段,取整体末端
+        return qMax(mme_fixed_length(kMMeAssocReqSpec), mme_fixed_length(kMMeAssocReqTailSpec));
     case NW_2021_MMeType::MME_ASSOCCNF: return 50; // 固定体36B + 路由信息头8B + MMe头6B
     case NW_2021_MMeType::MME_CHANGEPROXYREQ: return mme_fixed_length(kMMeChangeProxyReqSpec);
     case NW_2021_MMeType::MME_ASSOCIND: return 78; // 固定体64B + 路由信息头8B + MMe头6B(与关联确认同构)
@@ -885,9 +886,11 @@ static bool mme_body_complete(const QByteArray& mme, NW_2021_MMeType type) {
     case NW_2021_MMeType::MME_SUCCESSRATEREPORT:
         return has_items(10, int(get_bits(mme, 8, 0, 16)), 4);
     case NW_2021_MMeType::MME_ZEROCROSSNTBREPORT: {
-        const int count = int(get_bits(mme, 15, 0, 8) + get_bits(mme, 16, 0, 8)
-                              + get_bits(mme, 17, 0, 8));
-        return has_items(18, count, 2);
+        // 表87/88 布局:上报数量(mme 字节 8,含基准 NTB)在固定体(14B)之后,
+        // 差值数量为数量-1,自 mme 字节 14 起按 12 位紧凑打包
+        const int count = int(get_bits(mme, 8, 0, 8));
+        const int diffs = count > 0 ? count - 1 : 0;
+        return mme.size() >= 14 + (diffs * 12 + 7) / 8;
     }
     case NW_2021_MMeType::MME_RFCHANNELCONFLICTREPORT:
         return has_items(13, int(get_bits(mme, 12, 0, 8)), 2);
