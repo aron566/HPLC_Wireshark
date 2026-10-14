@@ -1009,18 +1009,21 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             annotate_unit(out.tree, "STAReAssocTime", QStringLiteral("ms"));
             const int rb = 70;
             if (mme.size() >= rb + 8) {
-                add_fields(out.tree, mme, rb, kRouteInfoHeadSpec, kRouteInfoHeadSpecN, mme_rel_base);
+                // 路由表信息整体为一个字段:头部计数与条目同组呈现(与 AssocCnf 一致)
+                MsduFieldNode& rg = group(out.tree, QStringLiteral("RouteInfoTable"));
+                rg.rel_start = mme_rel_base + rb;
+                add_fields(rg.children, mme, rb, kRouteInfoHeadSpec, kRouteInfoHeadSpecN, mme_rel_base);
                 const quint16 sta_sum = (quint16)get_bits(mme, rb, 0, 16);
                 const quint16 pco_sum = (quint16)get_bits(mme, rb + 2, 0, 16);
                 int off = rb + 8;
                 for (int i = 0; i < sta_sum && off + 2 <= mme.size(); ++i) {
-                    MsduFieldNode& n = group(out.tree, QStringLiteral("StraightSTA[%1]").arg(i));
+                    MsduFieldNode& n = group(rg.children, QStringLiteral("StraightSTA[%1]").arg(i));
                     n.rel_start = mme_rel_base + (off); n.rel_len = 2;
                     add_fields(n.children, mme, off, kSTATEISpec, kSTATEISpecN, mme_rel_base);
                     off += 2;
                 }
                 for (int i = 0; i < pco_sum && off + 4 <= mme.size(); ++i) {
-                    MsduFieldNode& n = group(out.tree, QStringLiteral("StraightPCO[%1]").arg(i));
+                    MsduFieldNode& n = group(rg.children, QStringLiteral("StraightPCO[%1]").arg(i));
                     n.rel_start = mme_rel_base + (off); n.rel_len = 4;
                     add_fields(n.children, mme, off, kStraightPCOSpec, kStraightPCOSpecN, mme_rel_base);
                     const quint16 child_sum = (quint16)get_bits(mme, off + 2, 0, 16);
@@ -1033,6 +1036,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                     }
                     off = coff;
                 }
+                rg.rel_len = off - rb;
             }
             break;
         }
