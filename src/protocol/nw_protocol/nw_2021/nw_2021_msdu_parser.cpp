@@ -95,6 +95,8 @@ static const char* kAssocIndResultZh[] = {
     "新站点试图以自己的子站点为代理入网", "组网拓扑中存在环路", "CCO端未知原因出错" };
 /// 最后一个分包标识(表54/59:0 不是 1 是)
 static const char* kLastPacketFlagZh[] = { "不是最后一个分包", "是最后一个分包" };
+// 探测频段标识符值释义(6.4.2.15):0=关联指示在工作频段上发送 1=在探测频段上发送
+static const char* kDetectBandFlagZh[] = { "在工作频段上发送", "在探测频段上发送" };
 // 过零 NTB 采集站点类型值释义(表85):0=单站点 1=全网站点 其他=保留
 static const char* kZCStationTypeZh[] = { "单站点", "全网站点" };
 // 过零 NTB 采集周期值释义(表86):0=半个电力线周期 1=一个电力线周期 其他=保留
@@ -131,6 +133,8 @@ static const char* kTransDirectionFlagZh[] = { "下行方向", "上行方向" };
 /// 文件级中→英翻译注册(匿名命名空间一次性)
 struct MMeI18nReg {
     MMeI18nReg() {
+        trl::register_en("在工作频段上发送", "sent on the working band");
+        trl::register_en("在探测频段上发送", "sent on the detection band");
         trl::register_en("单站点", "single station");
         trl::register_en("全网站点", "all stations");
         trl::register_en("半个电力线周期", "half power-line cycle");
@@ -1084,6 +1088,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             }
             translate_enum_i18n(out.tree, "AssocResult", kAssocCnfResultZh, 14);
             translate_enum_i18n(out.tree, "LastPacketFlag", kLastPacketFlagZh, 2);
+            translate_enum_i18n(out.tree, "DetectBandFlag", kDetectBandFlagZh, 2);
             annotate_unit(out.tree, "STAReAssocTime", QStringLiteral("ms"));
             const int rb = 42;
             if (mme.size() >= rb + 8) {
