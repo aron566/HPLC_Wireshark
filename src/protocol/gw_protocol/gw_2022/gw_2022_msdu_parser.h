@@ -87,7 +87,7 @@ enum class GW_2022_MsduType : quint8 {
 
 /// @brief 简头 MSDUType 取值(MSDU_BASE_S.MSDUType,8bit)
 enum class GW_2022_MsduSType : quint8 {
-    FIND_LIST   = 0x00,  // 查询列表消息
+    DISCOVERY_LIST = 0x00,  // 发现列表消息(表12)
     APPLICATION = 0x80,  // 应用层消息 (128)
     IPV4        = 0x81,  // IPv4 消息 (129)
 };
