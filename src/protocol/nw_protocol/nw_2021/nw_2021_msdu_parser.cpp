@@ -112,15 +112,14 @@ static const char* kLeaveReasonZh[] = {
     "站点未入网却收到其报文", nullptr, "拓扑层级超过上限", nullptr, "立即离线" };
 /// 延迟离线原因(表74:0x3 不在最新白名单)
 static const char* kDelayLeaveReasonZh[] = { nullptr, nullptr, nullptr, "站点不在最新白名单中" };
-/// 相位特征采集方式(表59:0 保留 1 下降沿采集 2 上升沿采集)
 /// 芯片厂商ID(表90:0x0000 保留 0x0001 HS ... 0x0008 SC)
 static const char* kChipIDZh[] = { "保留", "HS", "ES", "TC", "LH", "HT", "RS", "SW", "SC" };
-/// 帧类型域(表4:0 确认/否认 1 数据转发 2 命令 3 主动上报 4 抄控器 5 广播 6 数据订阅 14 厂家调试)
+/// 帧类型域(表4:0 确认/否认 1 数据转发 2 命令 3 主动上报 4 抄控器 5 广播 6 数据订阅 14 厂家调试 15 厂测帧)
 static const char* kPacketTypeZh[] = {
     "确认/否认", "数据转发帧", "命令帧", "主动上报帧",
     "抄控器相关协议", "广播命令帧", "数据订阅路由帧",
     nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-    "厂家调试" };
+    "厂家调试", "厂测帧" };
 /// 业务扩展域标识位(表5:0 无扩展域 1 有扩展域)
 static const char* kExtBusinessFlagZh[] = { "无业务扩展域", "有业务扩展域" };
 /// 响应标识位(表6:0 不需要应答 1 需要应答)
@@ -205,6 +204,7 @@ struct MMeI18nReg {
         trl::register_en("广播命令帧", "Broadcast Command Frame");
         trl::register_en("数据订阅路由帧", "Data Subscription Route Frame");
         trl::register_en("厂家调试", "Vendor Debug");
+        trl::register_en("厂测帧", "Factory Test Frame");
         trl::register_en("确认", "ACK");
         trl::register_en("否认", "NACK");
         trl::register_en("数据透传至设备", "Data Forward to Device");
@@ -745,7 +745,7 @@ static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base, quint1
     bh.rel_start = rel_base + 4; bh.rel_len = 8;
     add_fields(bh.children, app, 4, kBusinessHeaderSpec, kBusinessHeaderSpecN, rel_base);
     // 帧类型域 + 控制域标志位 + 业务标识值解释(表4/5/6/7/8/9)
-    translate_enum_i18n(bh.children, "PacketType", kPacketTypeZh, 15);
+    translate_enum_i18n(bh.children, "PacketType", kPacketTypeZh, 16);
     translate_enum_i18n(bh.children, "ExtBusinessFlag", kExtBusinessFlagZh, 2);
     translate_enum_i18n(bh.children, "RespondFlag", kRespondFlagZh, 2);
     translate_enum_i18n(bh.children, "StartFlag", kStartFlagZh, 2);
