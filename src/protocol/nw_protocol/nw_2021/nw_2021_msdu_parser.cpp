@@ -2,7 +2,7 @@
 /// @brief 南网 NW_2021 MSDU/MAC 层解析实现(头解析 + MMe 管理消息字段)
 /// @details 移植自 D:/code/HPLC_HRF/监控器/BPLCMonitorPython_SG/MSDU_Class.py
 ///          的 MSDU_Process 流程:
-///           1. 判帧类型:Version(bit1-2)=2 单跳(MSDU_BASE_S 4B);=1 标准(MSDU_BASE)
+///           1. 判帧类型:Version(bit1-2)=1 标准(MSDU_BASE);0/2/3 保留(表6),不解释
 ///           2. MAC 帧头(MSDU_BASE 32B 长/12B 短):TEI/SNID/重启次数/广播方向
 ///           3. MSDU 帧头(长 18B / 短 2B,由 MACHeadFlag 决定):MAC 48b + VLAN + 类型
 ///           4. VLAN==0x8100 → MMe 管理消息(MMType 16b 分支,字段树)
@@ -808,16 +808,6 @@ static const FieldSpec kCommRateInfoSpec[] = {
     { "UpCommRate", 3, 0, 8, Fmt::DEC },
 };
 static const int kCommRateInfoSpecN = int(sizeof(kCommRateInfoSpec)/sizeof(kCommRateInfoSpec[0]));
-// 单跳简头 MSDU_BASE_S(4B):头标志/版本/保留/MSDU 类型/MSDU 长度(布局沿袭既有定义)
-static const FieldSpec kMMeBaseSSpec[] = {
-    { "MACHeadFlag", 0, 0, 1, Fmt::DEC },
-    { "Version", 0, 1, 2, Fmt::DEC },
-    { "RSV0", 0, 3, 5, Fmt::HEX6 },
-    { "MSDU Type", 1, 0, 8, Fmt::HEX8 },
-    { "MSDU Length", 2, 0, 16, Fmt::DEC },
-};
-static const int kMMeBaseSSpecN = int(sizeof(kMMeBaseSSpec)/sizeof(kMMeBaseSSpec[0]));
-
 template <size_t N>
 static int mme_fixed_length(const FieldSpec (&spec)[N]) {
     int length = 6;
@@ -909,24 +899,12 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
     if (body.size() < 4) return out;
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
 
-    // 帧类型:Version 字段(bit1-2)。2=单跳帧(MSDU_BASE_S 4B),1=标准帧(MSDU_BASE)
+    // 帧类型:Version 字段(bit1-2)。表6:1=本标准协议,0/2/3 均为保留。
+    // 单跳简头(MSDU_BASE_S)是国网 Q/GDW 12087.42 的帧型,南网无此帧型:
+    // Version=2 旧实现按国网单跳误读,已摘除,该版本不解释帧体。
+    // Version 0/3 历史上按标准头解析且现网有真实帧(版本 0),维持原行为。
     const quint8 version = (quint8)get_bits(p, 0, 1, 2);
-
-    if (version == static_cast<quint8>(NW_2021_MacVersion::SINGLE_HOP)) {
-        // 单跳 MAC 帧头 MSDU_BASE_S(4B):MACHeadFlag Version RSV0 MSDU_Type(1,0,8) MSDULen(2,0,16)
-        out.simple_head = true;
-        out.msdu_type   = (quint16)get_bits(p, 1, 0, 8);
-        const quint16 msdu_len = (quint16)get_bits(p, 2, 0, 16);
-        out.total_len = 4 + msdu_len + 4;
-        // 简头字段与载荷进树(此前仅有 CRC 节点,整帧不可见)
-        add_fields(out.tree, body, 0, kMMeBaseSSpec, kMMeBaseSSpecN, 0);
-        append_payload_hex(out, body, 4, (int)msdu_len, QStringLiteral("Payload"), 0);
-        // MSDU 帧尾 4B CRC32:位置 MSDU 载荷(单跳头 4B 之后 msdu_len 字节)之后;
-        // 计算覆盖 MSDU 载荷(不含单跳头)
-        append_msdu_crc(out, body, 4, msdu_len);
-        out.present = true;
-        return out;
-    }
+    if (version == 2) return out;
 
     // 标准 MAC 帧头 MSDU_BASE:MACHeadFlag(0,0,1) 决定长(32B)/短(12B)
     // 短头至少 12 字节(读到 msdu_seq 在 byte 10-11),不足则无法解析。
@@ -1358,7 +1336,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 out.topo_event.kind = TopoEventKind::DiscoverList;
                 // 南网 MAC 帧头重启次数(4-bit):TopoState 据此检测 CCO 重启;
                 // 只有 CCO 本人发出(src_tei==1)才采用,防 STA 中继转发误报;
-                // 单跳帧(MSDU_BASE_S)无此字段(0xFF),不填(保持 -1 未知)
+                // 重启次数为哨兵 0xFF(未填)时不采用(保持 -1 未知)
                 if (out.restart_count != 0xFF && out.msdu_src_tei == 1)
                     out.topo_event.restart_count = (int)out.restart_count;
                 // 发现列表由 CCO 广播:发送方即 CCO,填 cco_mac 保证拓扑图根节点

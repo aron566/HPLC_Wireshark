@@ -113,10 +113,9 @@ enum class NW_2021_VlanTag : quint32 {
     MANAGEMENT = 0x8100,  ///< 管理消息 VLAN 标签
 };
 
-/// @brief MAC 帧版本(帧类型域 bit1-2:1 标准帧 2 单跳帧)
+/// @brief MAC 帧版本(帧头 bit1-2,表6:0 保留 1 本标准协议 2-3 保留)
 enum class NW_2021_MacVersion : quint8 {
     STANDARD   = 0x1,  ///< 标准帧(MSDU_BASE)
-    SINGLE_HOP = 0x2,  ///< 单跳帧(MSDU_BASE_S)
 };
 
 /// @brief MAC 帧头标志(0 长帧头 32B,1 短帧头 12B)

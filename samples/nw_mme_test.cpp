@@ -221,11 +221,11 @@ static void vlan_tests() {
     put(partial, 2, 16, 1);
     const auto missing_type = NW_2021_MsduParser::parse(partial);
     check(!node(missing_type, "VLAN Tag [8b]"), "incomplete short header does not invent a VLAN meaning");
-    QByteArray single_hop(4, char(0));
-    single_hop[0] = 4;
-    const auto simple = NW_2021_MsduParser::parse(single_hop);
-    check(simple.simple_head && !node(simple, "VLAN Tag [8b]") && !node(simple, "VLAN Tag [32b]"),
-          "single-hop header has no VLAN field");
+    QByteArray reserved_v2(4, char(0));
+    reserved_v2[0] = 4;  // Version(bit1-2)=2:南网表6为保留(单跳简头是国网帧型),不解释帧体
+    const auto simple = NW_2021_MsduParser::parse(reserved_v2);
+    check(!simple.present && !simple.simple_head,
+          "version 2 is reserved in NW (single-hop is GW-only) and not interpreted");
     QByteArray app(12, char(0));
     app[0] = 0x11;
     put(app, 1, 16, 0x0101);
@@ -271,14 +271,8 @@ static void diagnostic_tests() {
     trl::set_enabled(false);
 
     const auto full = frame(mme(0x0031, 50));
-    QByteArray single_payload(12, char(0));
-    QByteArray single_header(4, char(0));
-    single_header[0] = 4;
-    put(single_header, 2, 16, quint64(single_payload.size()));
-    QByteArray single_crc(4, char(0));
-    put(single_crc, 0, 32, crc32_le(reinterpret_cast<const quint8*>(single_payload.constData()), 16));
-    const QByteArray single = single_header + single_payload + single_crc;
-    for (const auto& raw : {full, vlan_frame(true, 3, 1), single}) {
+    // 第三种帧形取长头应用帧(原单跳 Version=2 帧形已摘除:单跳简头是国网帧型,南网不解析)
+    for (const auto& raw : {full, vlan_frame(true, 3, 1), vlan_frame(false, 3, 1)}) {
         for (int available = 0; available <= 4; ++available) {
             const auto partial = raw.left(raw.size() - 4 + available);
             const auto info = NW_2021_MsduParser::parse(partial);
