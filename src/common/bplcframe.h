@@ -63,7 +63,8 @@ struct MpduInfo {
     quint16 dst_tei;       ///< 目的 TEI(SOF/ACK 解析后)
     quint8  link_id;       ///< SOF 链路标识符(8-bit)
     quint16 frame_len;     ///< 帧长(×10µs,12-bit,SOF)
-    quint8  pb_num;        ///< 物理块个数(SOF 时,1-4)
+    quint8  pb_num;        ///< 生效物理块个数(SOF 时;无线信道固定 1,见 pb_num_field)
+    quint8  pb_num_field;  ///< PB 块数字段原始值(SOF 时);与 pb_num 仅在 RF 帧字段值 != 1 时不同
     quint16 symbol_num;    ///< 符号数 9-bit
     bool    bc_flag;       ///< SOF 广播标志位
     bool    re_send_flag;  ///< SOF 重发标志位
@@ -124,7 +125,7 @@ struct MpduInfo {
     MpduInfo()
         : frame_type(0), net_type(0), net_id(0), version(0),
           src_tei(0), dst_tei(0), link_id(0), frame_len(0),
-          pb_num(0), symbol_num(0), bc_flag(false), re_send_flag(false),
+          pb_num(0), pb_num_field(0), symbol_num(0), bc_flag(false), re_send_flag(false),
           encryp_flag(false), tmi(0), tmi_ext(0), pb_size(0),
           fch_crc_ok(false), pb_crc_ok(false), pb_index(0), pb_head(0),
           beacon_timestamp(0), beacon_line(0),

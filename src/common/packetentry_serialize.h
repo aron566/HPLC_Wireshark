@@ -101,6 +101,7 @@ inline void write_mpdu(QDataStream& s, const MpduInfo& m) {
     write_u8(s, m.link_id);
     write_u16(s, m.frame_len);
     write_u8(s, m.pb_num);
+    write_u8(s, m.pb_num_field);
     write_u16(s, m.symbol_num);
     write_bool(s, m.bc_flag);
     write_bool(s, m.re_send_flag);
@@ -164,6 +165,7 @@ inline void read_mpdu(QDataStream& s, MpduInfo& m) {
     read_u8(s, m.link_id);
     read_u16(s, m.frame_len);
     read_u8(s, m.pb_num);
+    read_u8(s, m.pb_num_field);
     read_u16(s, m.symbol_num);
     read_bool(s, m.bc_flag);
     read_bool(s, m.re_send_flag);
@@ -407,7 +409,7 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
 // ---------------------------------------------------------------------------
 
 inline quint32 block_magic()   { return 0x50424C4Bu; }  // "PBLK"
-inline quint32 block_version() { return 4u; }
+inline quint32 block_version() { return 5u; }
 /// @brief 独立压缩分块的条目数(随机解码粒度:解一条最多解压一个分块)
 inline constexpr int kBlockChunkEntries = 50;
 

@@ -175,7 +175,8 @@ GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msd
     if (ft == GW_2022_FrameType::SOF) {
         // SOF:FCH 字段 + 多 PB 重组(sof 模块)
         err = gw_2022_sof::assemble(r.payload_for_log, r.mpdu, msdu, r.msdu_body,
-                                    r.meta.is_rf ? 0xFF : (quint8)r.meta.channel);
+                                    r.meta.is_rf ? 0xFF : (quint8)r.meta.channel,
+                                    r.meta.is_rf);
         if (!err.isEmpty()) { r.reject_reason = err; r.accept = false; return r; }
         if (f.tei_filter && !f.tei_list.contains(r.mpdu.src_tei)
                         && !f.tei_list.contains(r.mpdu.dst_tei)) {
@@ -186,6 +187,9 @@ GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msd
         // MSDU 重组完整:解析 MAC 层字段
         if (!r.msdu_body.isEmpty()) {
             r.msdu = GW_2022_MsduParser::parse(r.msdu_body);
+            // 无线信道 PB 块数字段 != 1 告警(解析已按 1 块进行,见 sof 模块)
+            if (r.meta.is_rf && r.mpdu.pb_num_field != 1)
+                r.msdu.summary += QStringLiteral(" (RF PB Num != 1)");
             // MSDU body 起点在 payload_for_log 中的偏移:FCH 16B + 1B pb_head = 17。
             // 仅当单块(整条 MSDU 连续位于本帧 17..)时才能把字段映射到 raw 高亮;
             // 多块重组时各 pb_body 在 raw 中被 pb_head/CRC 隔断,不连续,置 -1。

@@ -61,7 +61,7 @@ QDataStream& operator>>(QDataStream& in, ParseFilter& f) {
 QDataStream& operator<<(QDataStream& out, const MpduInfo& m) {
     out << m.frame_type << m.net_type << m.net_id << m.version
         << m.src_tei << m.dst_tei << m.link_id << m.frame_len
-        << m.pb_num << m.symbol_num
+        << m.pb_num << m.pb_num_field << m.symbol_num
         << m.bc_flag << m.re_send_flag << m.encryp_flag
         << m.tmi << m.tmi_ext << m.pb_size
         << m.fch_crc_ok << m.pb_crc_ok << m.pb_index << m.pb_head
@@ -85,7 +85,7 @@ QDataStream& operator<<(QDataStream& out, const MpduInfo& m) {
 QDataStream& operator>>(QDataStream& in, MpduInfo& m) {
     in >> m.frame_type >> m.net_type >> m.net_id >> m.version
        >> m.src_tei >> m.dst_tei >> m.link_id >> m.frame_len
-       >> m.pb_num >> m.symbol_num
+       >> m.pb_num >> m.pb_num_field >> m.symbol_num
        >> m.bc_flag >> m.re_send_flag >> m.encryp_flag
        >> m.tmi >> m.tmi_ext >> m.pb_size
        >> m.fch_crc_ok >> m.pb_crc_ok >> m.pb_index >> m.pb_head

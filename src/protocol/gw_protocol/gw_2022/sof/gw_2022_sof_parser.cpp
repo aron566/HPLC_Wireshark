@@ -29,7 +29,7 @@ int sof_pb_size(quint8 tmi, quint8 tmi_ext) {
 namespace gw_2022_sof {
 
 QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
-                 QByteArray& complete_msdu_body, quint8 band) {
+                 QByteArray& complete_msdu_body, quint8 band, bool is_rf) {
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
 
     // FCH 业务字段(相对 FCH 起点)
@@ -37,7 +37,10 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
     info.dst_tei      = (quint16)get_bits(p, 5, 4, 12);
     info.link_id      = (quint8) get_bits(p, 7, 0, 8);
     info.frame_len    = (quint16)get_bits(p, 8, 0, 12);
-    info.pb_num       = (quint8) get_bits(p, 9, 4, 4);
+    info.pb_num_field = (quint8) get_bits(p, 9, 4, 4);
+    // 无线信道仅支持 1 个 PB 块:RF 时生效块数固定为 1,字段值不参与定块
+    // (字段值 != 1 时由呈现层据 pb_num_field 告警);载波按字段值解析
+    info.pb_num       = is_rf ? quint8(1) : info.pb_num_field;
     info.symbol_num   = (quint16)get_bits(p, 10, 0, 9);
     info.bc_flag      = (bool)   get_bits(p, 11, 1, 1);
     info.re_send_flag = (bool)   get_bits(p, 11, 2, 1);
@@ -48,10 +51,12 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
 
     const int max_pb_num = (band < 4)
         ? gw_2022_max_pb_num(band, info.tmi, info.tmi_ext) : 4;  // 非 PLC:1-4 上限
-    if (info.pb_size <= 0 || info.pb_num == 0 || info.pb_num > max_pb_num) {
+    // 块数合法性只约束载波;RF 生效块数恒 1(见上),字段值越界不拒收
+    if (info.pb_size <= 0
+        || (!is_rf && (info.pb_num == 0 || info.pb_num > max_pb_num))) {
         return QString("PB 数量非法(band=%1 tmi=%2 ext=%3 num=%4 max=%5)")
                    .arg(band).arg(info.tmi).arg(info.tmi_ext)
-                   .arg(info.pb_num).arg(max_pb_num);
+                   .arg(info.pb_num_field).arg(max_pb_num);
     }
 
     int block_offset = 16;

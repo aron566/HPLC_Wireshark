@@ -85,7 +85,13 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 7, 0, 8);
         }
         tree_add_bit_field(sof, "Frame Length", QStringLiteral("%1 (x10us)").arg(e.mpdu.frame_len), 8, 0, 12);
-        tree_add_bit_field(sof, "PB Num", QString::number(e.mpdu.pb_num), 9, 4, 4);
+        // PB Num 显示字段原始值;无线信道固定按 1 块解析,字段值 != 1 时告警标注
+        {
+            QString pb_num_text = QString::number(e.mpdu.pb_num_field);
+            if (e.meta.is_rf && e.mpdu.pb_num_field != 1)
+                pb_num_text += QStringLiteral(" (RF: parsed as 1 PB)");
+            tree_add_bit_field(sof, "PB Num", pb_num_text, 9, 4, 4);
+        }
         tree_add_bit_field(sof, "Symbol Num", QString::number(e.mpdu.symbol_num), 10, 0, 9);
         // 广播标志位(表21):0=非广播报文 1=广播报文
         tree_add_bit_field(sof, "Broadcast",
