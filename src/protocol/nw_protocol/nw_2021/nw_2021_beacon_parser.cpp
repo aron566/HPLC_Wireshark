@@ -296,10 +296,14 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
                         const quint8 bt  = (quint8)get_bits(it, o + 1, 4, 1);
                         slot_leaf(sg.children, QStringLiteral("TEI [12b]"),
                                   QString::number(tei), abs0 + o, 2);
+                        QString bt_desc;
+                        switch (bt) {
+                            case 0: bt_desc = trl::L("发现信标"); break;
+                            case 1: bt_desc = trl::L("代理信标"); break;
+                            default: bt_desc = QStringLiteral("Reserved (value=%1)").arg(bt); break;
+                        }
                         slot_leaf(sg.children, QStringLiteral("Beacon Type [1b]"),
-                                  QStringLiteral("%1 - %2").arg(bt).arg(
-                                      static_cast<NW_2021_BeaconType>(bt) == NW_2021_BeaconType::DISCOVERY
-                                          ? trl::L("发现信标") : trl::L("代理信标")),
+                                  QStringLiteral("%1 - %2").arg(bt).arg(bt_desc),
                                   abs0 + o + 1, 1);
                         slot_leaf(sg.children, QStringLiteral("RSV [3b]"),
                                   QString::number((quint8)get_bits(it, o + 1, 5, 3)),
@@ -375,6 +379,8 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
                         const quint8 b = (quint8)get_bits(it, 0, 0, 8);
                         ch.value = QStringLiteral("%1 - %2").arg(b).arg(
                             b == 1 ? QStringLiteral("Band 1") : trl::L("保留"));
+                    } else if (ch.name.startsWith(QStringLiteral("BindCSMASlotLID"))) {
+                        ch.value += QStringLiteral(" (固定77)");
                     }
                 }
                 break;
