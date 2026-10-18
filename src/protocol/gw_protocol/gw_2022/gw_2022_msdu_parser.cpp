@@ -528,8 +528,9 @@ static const FieldSpec kDiagnoseSpec[] = {
 static const int kDiagnoseSpecN = int(sizeof(kDiagnoseSpec) / sizeof(kDiagnoseSpec[0]));
 
 // ---- MMeZeroCrossNTBCollectInd (0x0B):固定 8B ----
+// 协议 L1533 表104: TEI=12bit(字节0 bit0-7 + 字节1 bit0-3), RSV=4bit(字节1 bit4-7)
 static const FieldSpec kZeroCrossCollectSpec[] = {
-    {"STATEI",            0, 0, 16, Fmt::DEC},
+    {"STATEI",            0, 0, 12, Fmt::DEC},
     {"RSV0",              1, 4, 4,  Fmt::DEC},
     {"NTBCollectionMode", 2, 0, 8,  Fmt::DEC},
     {"NTBCollectionPeriod", 3, 0, 8, Fmt::DEC},

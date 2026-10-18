@@ -1495,7 +1495,7 @@ end
 local function dissect_zc_collect(tvb, tree, off)
     local raw16 = tvb(off, 2):le_uint()
     local tei = band(raw16, 0x0FFF)
-    local rsv4 = band(math.floor(raw16 / 4096), 0x0F)
+    local rsv4 = band(bit.rshift(raw16, 12), 0x0F)
     add_val(tree, f.zc_tei, tvb, off, 2, tei)
     local rsv_item = tree:add(f.zc_tei_rsv, tvb(off, 2), rsv4)
     if rsv4 ~= 0 then
@@ -1510,7 +1510,7 @@ end
 local function dissect_zc_report(tvb, tree, off)
     local raw16 = tvb(off, 2):le_uint()
     local tei = band(raw16, 0x0FFF)
-    local rsv4 = band(math.floor(raw16 / 4096), 0x0F)
+    local rsv4 = band(bit.rshift(raw16, 12), 0x0F)
     add_val(tree, f.zr_tei, tvb, off, 2, tei)
     local rsv_item = tree:add(f.zr_tei_rsv, tvb(off, 2), rsv4)
     if rsv4 ~= 0 then
