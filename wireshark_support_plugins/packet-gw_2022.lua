@@ -699,7 +699,6 @@ f.lcrsp_seq = ProtoField.uint32 ("gw_2022.lcrsp.seq", T("路由请求序列号",
 -- 无线信道冲突上报 (表121-122)
 f.rfccr_cco_mac = ProtoField.ether ("gw_2022.rfccr.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
 f.rfccr_nbr_cnt = ProtoField.uint8 ("gw_2022.rfccr.nbr_cnt", T("邻居网络个数", "Neighbor Network Count"), base.DEC)
-f.rfccr_nbr_tei = ProtoField.uint16 ("gw_2022.rfccr.nbr_tei", T("邻居TEI", "Neighbor TEI"), base.DEC)
 f.rfccr_nbr_ch = ProtoField.uint8 ("gw_2022.rfccr.nbr_ch", T("冲突信道号", "Conflict Channel Number"), base.DEC)
 
 -- 无线发现列表 (表123-137)
@@ -796,7 +795,7 @@ gw.fields = {
     f.rack_version, f.rack_seq,
     f.lcreq_version, f.lcreq_seq, f.lcreq_sta_cnt, f.lcreq_sta_tei,
     f.lcrsp_version, f.lcrsp_level, f.lcrsp_chan_qual, f.lcrsp_path_pref, f.lcrsp_seq,
-    f.rfccr_cco_mac, f.rfccr_nbr_cnt, f.rfccr_nbr_tei, f.rfccr_nbr_ch,
+    f.rfccr_cco_mac, f.rfccr_nbr_cnt, f.rfccr_nbr_ch,
     f.rfdl_sta_mac, f.rfdl_seq, f.rfdl_ie_type, f.rfdl_ie_ltype,
     f.rfdl_ie_len, f.rfdl_ie_data,
     f.app_port, f.app_packet_id, f.app_ctrl_word, f.app_payload,
