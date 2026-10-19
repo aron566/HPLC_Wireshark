@@ -158,15 +158,17 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
         r.mpdu.dst_tei = (quint16)get_bits(p, 2, 4, 12);
         r.mpdu.link_id = (quint8) get_bits(p, 4, 0, 8);
         if (r.meta.is_rf) {
+            // 无线 SOF 可变域(第2部分表131):帧长(5,0,12,单位100µs)/载荷PB大小(6,4,4)/
+            // MCS(7,0,4)/TEI过滤(7,4,1)/重传(7,5,1);其余为保留(字节8-11 整段、
+            // (7,6,2)、(12,0,4)),无 PB 个数与符号数字段
             r.mpdu.frame_len = (quint16)get_bits(p, 5, 0, 12);
             quint8 pblen = (quint8)get_bits(p, 6, 4, 4);
             r.mpdu.tmi     = pblen;                       // 载荷 PB 大小(复用 tmi 承载)
             r.mpdu.pb_size = (quint16)nw_2021_rf_pb_size(pblen);
             r.mpdu.pb_num  = 1;                           // 无线信道仅 1 个物理块
-            // FCH 后段与载波同坐标,字段集与载波端一致(树渲染共用尾段)
-            r.mpdu.re_send_flag = (get_bits(p, 10, 6, 1) != 0);   // 重传标志位
-            r.mpdu.symbol_num   = (quint16)get_bits(p, 10, 7, 9); // 符号数
-            r.mpdu.tmi_ext      = (quint8) get_bits(p, 12, 0, 4); // TMI_EXT
+            r.mpdu.re_send_flag = (get_bits(p, 7, 5, 1) != 0);    // 重传标志位(表131)
+            r.mpdu.symbol_num   = 0;                              // 无线无符号数字段
+            r.mpdu.tmi_ext      = (quint8) get_bits(p, 12, 0, 4); // (12,0,4) 保留,存原始值
         } else {
             r.mpdu.pb_num    = (quint8) get_bits(p, 7, 0, 4);
             r.mpdu.tmi       = (quint8) get_bits(p, 7, 4, 4);
