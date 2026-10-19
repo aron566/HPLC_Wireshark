@@ -106,7 +106,9 @@ struct MpduInfo {
     quint16 coord_band_end_offset;  ///< 频段时隙结束偏移 16-bit(南网,×4ms)
     quint16 coord_band_start_offset;///< 频段时隙开始偏移 16-bit(南网,×4ms)
 
-    // ---- ACK 扩展帧类型(12,0,4):0=常规 ACK 1=Search 2=Sync 3=切频 ----
+    // ---- ACK 扩展帧类型(FCH byte12 bit0-3)----
+    // 国网 GW_2022(表25/表36):0=选择确认帧,其余保留。
+    // 南网 NW_2021(表21):0=选择确认帧,1=网络搜索帧(抄控器),2=同步帧(抄控器),其余保留。
     quint8  ack_ext_type;     ///< ACK 扩展类型
     quint8  ack_rx_res;       ///< RxRes 4-bit:0=接收成功(所有 PB CRC 通过) 1=接收失败(≥1 块 CRC 未过)
     quint8  ack_rx_status;    ///< RxStatus 4-bit:PB CRC 通过位图(bit i=第 i+1 块)
@@ -115,11 +117,11 @@ struct MpduInfo {
     quint8  ack_channel_quality; ///< 信道质量 8-bit(dB)
     quint8  ack_sta_load;     ///< STA 负载 8-bit
     quint8  ack_rsv1;         ///< RSV1 8-bit(11,0,8)
-    quint64 ack_dst_addr;     ///< 目标 MAC 48-bit(Search/切频)
-    quint16 ack_search_tei;   ///< Search STA TEI 12-bit
-    quint8  ack_search_freq;  ///< Search 频点 4-bit
-    quint32 ack_sync_timestamp; ///< Sync 时间戳 32-bit
-    quint16 ack_sync_tei;     ///< Sync TEI 12-bit
+    quint64 ack_dst_addr;     ///< 目标 MAC 48-bit(南网 NW_2021 网络搜索帧)
+    quint16 ack_search_tei;   ///< 网络搜索帧 STA TEI 12-bit(南网)
+    quint8  ack_search_freq;  ///< 网络搜索帧频点 4-bit(南网)
+    quint32 ack_sync_timestamp; ///< 同步帧时间戳 32-bit(南网)
+    quint16 ack_sync_tei;     ///< 同步帧 TEI 12-bit(南网)
 
     MpduInfo()
         : frame_type(0), net_type(0), net_id(0), version(0),

@@ -227,43 +227,36 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
         if (r.mpdu.pb_size > 0)
             r.beacon = NW_2021_BeaconParser::parse_beacon(r.payload_for_log, r.mpdu.pb_size);
     } else if (ftype == NW_2021_FrameType::ACK) {
-        // ACK(南网 MPDU_ACK_FCH 坐标,ExtType 0-3/10-12)
+        // ACK(南网 MPDU_ACK_FCH 坐标,表19/表21)
         r.mpdu.ack_ext_type = (quint8)get_bits(p, 12, 0, 4);
         switch (static_cast<NW_2021_AckExtType>(r.mpdu.ack_ext_type)) {
-            case NW_2021_AckExtType::Normal:  // 常规 ACK
+            case NW_2021_AckExtType::Search:  // 网络搜索帧(抄控器,表21)
+                r.mpdu.ack_dst_addr   = get_bits(p, 1, 0, 48);
+                r.mpdu.ack_search_tei = (quint16)get_bits(p, 7, 0, 12);
+                break;
+            case NW_2021_AckExtType::Sync:  // 同步帧(抄控器,表21)
+                r.mpdu.ack_sync_timestamp = (quint32)get_bits(p, 1, 0, 32);
+                r.mpdu.ack_sync_tei       = (quint16)get_bits(p, 5, 0, 12);
+                break;
+            case NW_2021_AckExtType::Normal:
+            default:
+                // 选择确认帧(表19);未知扩展帧类型(表21"其他")默认按选择确认帧解析
                 r.mpdu.ack_rx_res    = (quint8) get_bits(p, 1, 0, 4);
                 r.mpdu.ack_rx_status = (quint8) get_bits(p, 1, 4, 4);
                 r.mpdu.dst_tei       = (quint16)get_bits(p, 2, 0, 12);
                 r.mpdu.ack_rx_pb_num = (quint8) get_bits(p, 3, 4, 4);
                 break;
-            case NW_2021_AckExtType::Search:  // 网络搜索帧
-                r.mpdu.ack_dst_addr   = get_bits(p, 1, 0, 48);
-                r.mpdu.ack_search_tei = (quint16)get_bits(p, 7, 0, 12);
-                break;
-            case NW_2021_AckExtType::Sync:  // 同步帧
-                r.mpdu.ack_sync_timestamp = (quint32)get_bits(p, 1, 0, 32);
-                r.mpdu.ack_sync_tei       = (quint16)get_bits(p, 5, 0, 12);
-                break;
-            case NW_2021_AckExtType::SwitchChannel:  // 无线切频帧
-                r.mpdu.ack_dst_addr        = get_bits(p, 1, 0, 48);
-                r.mpdu.ack_channel_quality = (quint8)get_bits(p, 7, 0, 8);
-                r.mpdu.ack_sta_load        = (quint8)get_bits(p, 8, 0, 8);
-                break;
-            default:  // 10 时隙预约 / 11 测距响应 / 12 测距请求(南网扩展,暂缓)
-                break;
         }
     } else if (ftype == NW_2021_FrameType::COORD) {
         // COORD(南网 MPDU_COORD_FCH 坐标)
         r.mpdu.coord_neighbour_nid     = (quint32)get_bits(p, 1, 0, 16);  // 邻居 NID 位图 16b
-        r.mpdu.coord_rf_channel        = (quint8) get_bits(p, 3, 0, 8);   // 信道
         r.mpdu.coord_duration          = (quint16)get_bits(p, 5, 2, 14);  // 时长(×40ms)
         r.mpdu.coord_band_end_flag     = (quint8) get_bits(p, 7, 1, 1);
-        r.mpdu.coord_option            = (quint8) get_bits(p, 7, 2, 2);
         r.mpdu.coord_band_end_offset   = (quint16)get_bits(p, 8, 0, 16);  // ×4ms
         r.mpdu.coord_band_start_offset = (quint16)get_bits(p, 10, 0, 16); // ×4ms
         r.mpdu.coord_rsv1             = (quint16)get_bits(p, 4, 0, 10);   // 保留(4-5,10b)
         r.mpdu.coord_rsv2             = (quint8) get_bits(p, 7, 0, 1);    // 保留(7 bit0,1b)
-        r.mpdu.coord_rsv3             = (quint8) get_bits(p, 7, 4, 4);    // 保留(7 bit4-7,4b)
+        r.mpdu.coord_rsv3             = (quint8) get_bits(p, 7, 2, 6);    // 保留(7 bit2-7,6b)
         r.mpdu.coord_rsv0             = (quint8) get_bits(p, 12, 0, 4);   // 保留(12 bit0-3,4b)
     }
 

@@ -28,11 +28,9 @@ inline QString mme_type_name(quint16 t) {
         case NW_2021_MMeType::MME_DISCOVERNODELIST: return QStringLiteral("MMeDiscoverNodeList");
         case NW_2021_MMeType::MME_DELAYLEAVEIND: return QStringLiteral("MMeDelayLeaveInd");
         case NW_2021_MMeType::MME_SUCCESSRATEREPORT: return QStringLiteral("MMeSuccessRateReport");
-        case NW_2021_MMeType::MME_NETWORKCONFLICTREPORT: return QStringLiteral("MMeNetworkConflictReport");
         case NW_2021_MMeType::MME_ZEROCROSSNTBCOLLECTIND: return QStringLiteral("MMeZeroCrossNTBCollectInd");
         case NW_2021_MMeType::MME_ZEROCROSSNTBREPORT: return QStringLiteral("MMeZeroCrossNTBReport");
         case NW_2021_MMeType::MME_NETDIAGNOSE: return QStringLiteral("MMeNetDiagnose");
-        case NW_2021_MMeType::MME_RFCHANNELCONFLICTREPORT: return QStringLiteral("MMeRFChannelConflictReport");
         default: return QStringLiteral("MMe 0x%1").arg(t, 4, 16, QChar('0'));
     }
 }
@@ -550,20 +548,6 @@ static const FieldSpec kMMeNetDiagnoseSpec[] = {
 };
 static const int kMMeNetDiagnoseSpecN = int(sizeof(kMMeNetDiagnoseSpec)/sizeof(kMMeNetDiagnoseSpec[0]));
 
-static const FieldSpec kMMeRFChannelConflictReportSpec[] = {
-    { "CCOMACAddr", 0, 0, 48, Fmt::MAC },
-    { "NeighbourNetWorkCount", 6, 0, 8, Fmt::DEC },
-};
-static const int kMMeRFChannelConflictReportSpecN = int(sizeof(kMMeRFChannelConflictReportSpec)/sizeof(kMMeRFChannelConflictReportSpec[0]));
-
-// 网络冲突上报(表 204):冲突网络 CCO MAC 6B + 邻居个数 1B + 邻居 SNID 位图 2B
-static const FieldSpec kMMeNetworkConflictReportSpec[] = {
-    { "CCOMACAddr", 0, 0, 48, Fmt::MAC },
-    { "NeighbourNetWorkCount", 6, 0, 8, Fmt::DEC },
-    { "NeighbourNIDBitMap", 7, 0, 16, Fmt::HEX4 },
-};
-static const int kMMeNetworkConflictReportSpecN = int(sizeof(kMMeNetworkConflictReportSpec)/sizeof(kMMeNetworkConflictReportSpec[0]));
-
 
 
 // ── 南网 MMe 变长区字段表 ─────────────────────────────
@@ -831,11 +815,9 @@ static int mme_fixed_length(NW_2021_MMeType type) {
     case NW_2021_MMeType::MME_DISCOVERNODELIST: return mme_fixed_length(kMMeDiscoverNodeListSpec);
     case NW_2021_MMeType::MME_DELAYLEAVEIND: return mme_fixed_length(kMMeDelayLeaveIndSpec);
     case NW_2021_MMeType::MME_SUCCESSRATEREPORT: return mme_fixed_length(kMMeSuccessRateReportSpec);
-    case NW_2021_MMeType::MME_NETWORKCONFLICTREPORT: return mme_fixed_length(kMMeNetworkConflictReportSpec);
     case NW_2021_MMeType::MME_ZEROCROSSNTBCOLLECTIND: return mme_fixed_length(kMMeZeroCrossNTBCollectIndSpec);
     case NW_2021_MMeType::MME_ZEROCROSSNTBREPORT: return mme_fixed_length(kMMeZeroCrossNTBReportSpec);
     case NW_2021_MMeType::MME_NETDIAGNOSE: return mme_fixed_length(kMMeNetDiagnoseSpec);
-    case NW_2021_MMeType::MME_RFCHANNELCONFLICTREPORT: return mme_fixed_length(kMMeRFChannelConflictReportSpec);
     default: return 6;
     }
 }
@@ -886,8 +868,6 @@ static bool mme_body_complete(const QByteArray& mme, NW_2021_MMeType type) {
         const int diffs = count > 0 ? count - 1 : 0;
         return mme.size() >= 14 + (diffs * 12 + 7) / 8;
     }
-    case NW_2021_MMeType::MME_RFCHANNELCONFLICTREPORT:
-        return has_items(13, int(get_bits(mme, 12, 0, 8)), 2);
     default: return true;
     }
 }
@@ -900,11 +880,8 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
 
     // 帧类型:Version 字段(bit1-2)。表6:1=本标准协议,0/2/3 均为保留。
-    // 单跳简头(MSDU_BASE_S)是国网 Q/GDW 12087.42 的帧型,南网无此帧型:
-    // Version=2 旧实现按国网单跳误读,已摘除,该版本不解释帧体。
-    // Version 0/3 历史上按标准头解析且现网有真实帧(版本 0),维持原行为。
-    const quint8 version = (quint8)get_bits(p, 0, 1, 2);
-    if (version == 2) return out;
+    // 保留版本(0/2/3)现网有真实帧且能按标准头解析,统一回退按标准头处理,不拦截
+    // (表6 未定义其布局;按用户决策,保留字段先保持回退解析,待规约明确后再收紧)。
 
     // 标准 MAC 帧头 MSDU_BASE:MACHeadFlag(0,0,1) 决定长(32B)/短(12B)
     // 短头至少 12 字节(读到 msdu_seq 在 byte 10-11),不足则无法解析。
@@ -967,8 +944,9 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 mt.rel_len   = 2;
                 out.tree.append(mt);
             }
-            // VLAN 0x8100 = 长帧头管理消息(MMe);否则抄表业务(APP)
-            if (out.vlan_tag == static_cast<quint32>(NW_2021_VlanTag::MANAGEMENT)) {
+            // VLAN 0x8100 + MSDU类型 0x88E1 = 长帧头管理消息(MMe,表98/8.2.13 双条件);否则抄表业务(APP)
+            if (out.vlan_tag == static_cast<quint32>(NW_2021_VlanTag::MANAGEMENT)
+                && out.msdu_type == static_cast<quint16>(NW_2021_MsduType::MANAGEMENT_MESSAGE)) {
                 const QByteArray mme = msdu_body.mid(18);   // MMe 数据(帧头 18B 之后)
                 // MMe 头相对重组块体(msdu_body[0])的字节偏移:MAC 帧头 mac_hdr_len + MSDU 帧头 18
                 // (add_fields 的 rel_start 基准须对齐 tree_msdu_raw_of 的重组块体起点)
@@ -1560,29 +1538,6 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             }
             break;
         }
-        case NW_2021_MMeType::MME_RFCHANNELCONFLICTREPORT: {
-            add_fields(out.tree, mme, 6, kMMeRFChannelConflictReportSpec, kMMeRFChannelConflictReportSpecN, mme_rel_base);
-            // 邻居网络条目(表 213,交错):每条 2B = 信道号 1B + option 2bit + 保留 6bit
-            const quint8 n = (quint8)get_bits(mme, 12, 0, 8);
-            for (int i = 0; i < n && 13 + 2 * i + 1 < mme.size(); ++i) {
-                MsduFieldNode& e = group(out.tree, QStringLiteral("Neighbour[%1]").arg(i));
-                e.rel_start = mme_rel_base + (13 + 2 * i); e.rel_len = 2;
-                MsduFieldNode ch;
-                ch.name = QStringLiteral("Channel [8b]");
-                ch.value = QString::number((quint8)get_bits(mme, 13 + 2 * i, 0, 8));
-                ch.rel_start = mme_rel_base + (13 + 2 * i); ch.rel_len = 1;
-                e.children.append(ch);
-                MsduFieldNode op;
-                op.name = QStringLiteral("Option [2b]");
-                op.value = QString::number((quint8)get_bits(mme, 13 + 2 * i + 1, 0, 2));
-                op.rel_start = mme_rel_base + (13 + 2 * i + 1); op.rel_len = 1;
-                e.children.append(op);
-            }
-            break;
-        }
-        case NW_2021_MMeType::MME_NETWORKCONFLICTREPORT:
-            add_fields(out.tree, mme, 6, kMMeNetworkConflictReportSpec, kMMeNetworkConflictReportSpecN, mme_rel_base);
-            break;
                         default:
                             // 未知管理消息类型(如新规约扩展类型):报文体以原始 hex 呈现,避免整段不可见
                             append_payload_hex(out, mme, 6, -1, QStringLiteral("MMe Data"), mme_rel_base);

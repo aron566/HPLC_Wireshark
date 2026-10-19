@@ -196,8 +196,10 @@ static void check_vlan(bool short_head, quint32 vlan, quint16 type, bool english
           && type_field->rel_len == (short_head ? 1 : 2), "MSDU Type highlight unchanged");
     const auto* crc = node(info, "MSDU CRC32");
     check(crc && crc->value.endsWith("OK"), "VLAN display preserves CRC parsing");
-    check(info.summary.startsWith(!short_head && vlan == 0x8100 ? "MMe" : "APP"),
-          "VLAN display does not change payload dispatch");
+    // 分发用 VLAN+MSDU类型 双条件(表98/8.2.13):仅 VLAN=0x8100 且 类型=0x88E1 走 MMe
+    const bool is_mme = !short_head && vlan == 0x8100 && type == 0x88e1;
+    check(info.summary.startsWith(is_mme ? "MMe" : "APP"),
+          "VLAN+type double condition controls payload dispatch (表98)");
 }
 
 static void vlan_tests() {
@@ -323,11 +325,9 @@ int main(int argc, char** argv) {
         {0x0055, 176, TopoEventKind::DiscoverList},
         {0x005d, 22, TopoEventKind::LeaveInd},
         {0x005e, 10, TopoEventKind::SuccessRate},
-        {0x005f, 15, TopoEventKind::Other},
         {0x0062, 11, TopoEventKind::Other},
         {0x0063, 14, TopoEventKind::Other},
         {0x0064, 8, TopoEventKind::Other},
-        {0x0070, 13, TopoEventKind::Other},
     };
     for (const auto& test : fixed) {
         for (int version : {0, 2, 255}) {
@@ -352,7 +352,6 @@ int main(int argc, char** argv) {
         {0x0055, 176, 30, 16, 1},
         {0x005d, 22, 8, 16, 6},
         {0x005e, 10, 8, 16, 4},
-        {0x0070, 13, 12, 8, 2},
     };
     for (const auto& test : lists) {
         auto data = mme(test.type, test.base + 2 * test.item_size);

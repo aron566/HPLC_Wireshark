@@ -1598,17 +1598,16 @@ local function dissect_lcrsp(tvb, tree, off)
     add_le(tree, f.lcrsp_seq, tvb, off+4, 4)
 end
 
--- 无线信道冲突上报 (表121)
+-- 无线信道冲突上报 (表121/122)
 local function dissect_rfccr(tvb, tree, off)
     tree:add(f.rfccr_cco_mac, tvb(off, 6))
     local cnt = tvb(off+6, 1):uint()
     tree:add(f.rfccr_nbr_cnt, tvb(off+6, 1))
-    -- 每条记录固定 3 字节: 邻居TEI(2B, 小端) + 冲突信道号(1B), 无 option
+    -- 表122:邻居网络条目 = 每邻居 1 字节(该邻居无线信道号), 无 TEI/option
     for i = 0, cnt - 1 do
-        local entry_off = off + 7 + i * 3
-        if entry_off + 3 > tvb:len() then break end
-        add_le(tree, f.rfccr_nbr_tei, tvb, entry_off, 2)
-        tree:add(f.rfccr_nbr_ch, tvb(entry_off + 2, 1))
+        local entry_off = off + 7 + i
+        if entry_off + 1 > tvb:len() then break end
+        tree:add(f.rfccr_nbr_ch, tvb(entry_off, 1))
     end
 end
 
