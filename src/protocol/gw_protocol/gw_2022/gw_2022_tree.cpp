@@ -85,14 +85,20 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 7, 0, 8);
         }
         tree_add_bit_field(sof, "Frame Length", QStringLiteral("%1 (x10us)").arg(e.mpdu.frame_len), 8, 0, 12);
-        // PB Num 显示字段原始值;无线信道固定按 1 块解析,字段值 != 1 时告警标注
-        {
-            QString pb_num_text = QString::number(e.mpdu.pb_num_field);
-            if (e.meta.is_rf && e.mpdu.pb_num_field != 1)
-                pb_num_text += QStringLiteral(" (RF: parsed as 1 PB)");
-            tree_add_bit_field(sof, "PB Num", pb_num_text, 9, 4, 4);
+        // 字节9 bit4-7 / 字节10-11 bit0:载波(表19)=物理块个数/符号数;无线(表30)=载荷PB大小/保留
+        if (e.meta.is_rf) {
+            // 载荷PB大小(表29):0-5 = 16/40/72/136/264/520 字节
+            static const int kRfPbSize[] = {16, 40, 72, 136, 264, 520};
+            const quint8  idx = e.mpdu.pb_num_field;
+            const QString desc = (idx <= 5)
+                ? QStringLiteral("%1B").arg(kRfPbSize[idx]) : QStringLiteral("Reserved");
+            tree_add_bit_field(sof, "Payload PB Size",
+                QStringLiteral("%1 - %2").arg(idx).arg(desc), 9, 4, 4);
+            tree_add_bit_field(sof, "Reserved", QString::number(e.mpdu.symbol_num), 10, 0, 9);
+        } else {
+            tree_add_bit_field(sof, "PB Num", QString::number(e.mpdu.pb_num_field), 9, 4, 4);
+            tree_add_bit_field(sof, "Symbol Num", QString::number(e.mpdu.symbol_num), 10, 0, 9);
         }
-        tree_add_bit_field(sof, "Symbol Num", QString::number(e.mpdu.symbol_num), 10, 0, 9);
         // 广播标志位(表21):0=非广播报文 1=广播报文
         tree_add_bit_field(sof, "Broadcast",
             e.mpdu.bc_flag ? QStringLiteral("1 - %1").arg(trl::L("广播报文"))
@@ -107,8 +113,14 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         tree_add_bit_field(sof, "Encrypted",
             QStringLiteral("%1 (%2)").arg(e.mpdu.encryp_flag).arg(trl::L("预留信息段")),
             11, 3, 1);
-        tree_add_bit_field(sof, "TMI", QString::number(e.mpdu.tmi), 11, 4, 4);
-        tree_add_bit_field(sof, "TMI_EXT", QString::number(e.mpdu.tmi_ext), 12, 0, 4);
+        if (e.meta.is_rf) {
+            // 无线(表30):字节11 bit4-7 = MCS(表28),字节12 bit0-3 = 保留
+            tree_add_bit_field(sof, "MCS", QString::number(e.mpdu.tmi), 11, 4, 4);
+            tree_add_bit_field(sof, "Reserved", QString::number(e.mpdu.tmi_ext), 12, 0, 4);
+        } else {
+            tree_add_bit_field(sof, "TMI", QString::number(e.mpdu.tmi), 11, 4, 4);
+            tree_add_bit_field(sof, "TMI_EXT", QString::number(e.mpdu.tmi_ext), 12, 0, 4);
+        }
         tree_add_item(sof, "PB Size", QString::number(e.mpdu.pb_size));
 
         // 逐 PB 块渲染:国网 PB 头 1B + 数据 pb_size-4 B + CRC24 3B
