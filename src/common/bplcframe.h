@@ -257,7 +257,8 @@ struct MsduInfo {
     quint32 vlan_tag;            ///< VLAN 标签 32-bit(南网 MSDU 长头)
     quint16 msdu_type;           ///< MSDU 类型 16-bit(南网 MSDU 长头)
     quint8  restart_count;       ///< 重启次数 4-bit(国网 MSDU 头/南网 MAC 帧头);0xFF=未知/无此字段
-    quint8  broadcast_direction; ///< 广播方向 4-bit(南网 MAC 帧头)
+    quint8  broadcast_direction; ///< 广播方向(南网 MAC 帧头 4-bit / 国网 MSDU_BASE 2-bit;表7:1下行/2上行,南网 0=保留/国网 0=双向)
+    quint8  route_hops_left;     ///< 路由剩余跳数/跳数(国网 MSDU_BASE RouteHopsLeftNum 4-bit / 南网 MAC 帧头 RouteHop 4-bit;0xFF=未知/无此字段)
     quint8  business_id;         ///< 应用层 BID(业务标识;非应用层报文=0xFF,供整行着色)
     quint8  app_packet_type;     ///< 应用层帧类型域 4-bit(南网表4;非 NW 应用层=0xFF)
     quint16 mme_type;            ///< 管理消息 MMe 类型(16bit;非管理消息=0xFFFF,供整行着色)
@@ -271,9 +272,14 @@ struct MsduInfo {
                  msdu_src_tei(-1), msdu_dst_tei(-1), msdu_send_type(-1),
                  msdu_src_mac(0), msdu_dst_mac(0), sta_mac(0),
                  vlan_tag(0), msdu_type(0), restart_count(0xFF),
-                 broadcast_direction(0), business_id(0xFF), app_packet_type(0xFF),
+                 broadcast_direction(0), route_hops_left(0xFF),
+                 business_id(0xFF), app_packet_type(0xFF),
                  mme_type(0xFFFF), total_len(-1) {}
 };
+
+/// @brief PacketEntry::protocol 取值(与 protocol/common/protocolvariant.h 的 ProtocolVariant 对应)
+constexpr quint8 kProtocolGw2022 = 0;  ///< 国网双模标准 2022
+constexpr quint8 kProtocolNw2021 = 1;  ///< 南网双模 2021 报批版
 
 /// @brief Wireshark 风格 PacketList 的一行条目
 struct PacketEntry {
@@ -285,6 +291,7 @@ struct PacketEntry {
     QByteArray   raw_wire;     ///< 原始串口帧(0x3C...0x3E 原样,含转义;调试/复制用)
     PhysicalMeta meta;         ///< 物理层元信息
     MpduInfo     mpdu;         ///< MPDU 解析结果
+    quint8       protocol;     ///< 协议标识:kProtocolGw2022/kProtocolNw2021(决定广播方向 0 值语义)
     QByteArray   msdu_body;    ///< 重组后的 MSDU body(若完成)
     MsduInfo     msdu;         ///< MSDU/MAC 层字段解析(若重组完成)
     MsduInfo     beacon;       ///< BEACON 载荷区字段解析(仅 BEACON 帧)
@@ -294,7 +301,7 @@ struct PacketEntry {
 
     PacketEntry()
         : index(0), epoch_ms(0), delta_us(0), accepted(false),
-          msdu_raw_base(-1) {}
+          protocol(kProtocolGw2022), msdu_raw_base(-1) {}
 };
 
 /// @brief 生成一行的可搜索全文(小写),供过滤器快速匹配;缓存于 PacketEntry::search_text
@@ -321,6 +328,38 @@ inline QString make_search_text(const PacketEntry& e) {
     parts << QString::number(e.mpdu.src_tei) << QString::number(e.mpdu.dst_tei);
     if (e.msdu.present) parts << e.msdu.summary.toLower();
     return parts.join(QLatin1Char(' '));
+}
+
+/// @brief Dir 列显示(界面列表 COL_DIR 与 CSV 导出共用):
+///        广播报文(目的 TEI=0xFFF 且发送类型非单播)按 广播方向+剩余跳数 指示
+///        ↓[R]N→ / ↑[R]N→ / [R]N→,方向未知/保留→*;单播按 TEI 判定 ↑/↓(中继 ↑R/↓R)
+inline QString dir_display(const PacketEntry& e) {
+    if (!e.accepted || !e.msdu.present || e.msdu.simple_head)
+        return QStringLiteral("*");
+    const bool relay = (e.mpdu.src_tei != 0)
+                    && (e.msdu.msdu_src_tei > 0)
+                    && (quint16(e.msdu.msdu_src_tei) != e.mpdu.src_tei);
+    const quint8 bdir  = e.msdu.broadcast_direction;
+    const quint8 hops  = e.msdu.route_hops_left;
+    const bool   bcast = (e.msdu.msdu_dst_tei == 0xFFF)
+                      && (e.msdu.msdu_send_type != 0);  // 广播 = 广播目的地址 + 发送类型非单播
+    if (bcast && bdir == 1)       // 下行广播:↓[R]N→
+        return QStringLiteral("\u2193") + (relay ? QStringLiteral("R") : QString())
+               + QString::number(hops) + QStringLiteral("\u2192");
+    if (bcast && bdir == 2)       // 上行广播:↑[R]N→
+        return QStringLiteral("\u2191") + (relay ? QStringLiteral("R") : QString())
+               + QString::number(hops) + QStringLiteral("\u2192");
+    if (bcast && bdir == 0) {       // 双向/保留:国网表7 0=双向 / 南网表7 0=保留(非上下行)
+        if (e.protocol == kProtocolNw2021)   // 南网:0=保留 → *
+            return QStringLiteral("*");
+        return (relay ? QStringLiteral("R") : QString())
+               + QString::number(hops) + QStringLiteral("\u2192");  // 国网:0=双向 → [R]N→
+    }
+    if (bcast)                    // 方向未知/保留
+        return QStringLiteral("*");
+    if (e.msdu.msdu_dst_tei == 1) return relay ? QStringLiteral("\u2191R") : QStringLiteral("\u2191");
+    if (e.msdu.msdu_src_tei == 1) return relay ? QStringLiteral("\u2193R") : QStringLiteral("\u2193");
+    return QStringLiteral("*");
 }
 Q_DECLARE_METATYPE(PacketEntry)
 

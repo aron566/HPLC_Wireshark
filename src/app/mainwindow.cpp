@@ -613,27 +613,7 @@ static QStringList csv_row(const PacketEntry& e, const TeiMacMap& macs) {
         c << s;
     }
     // Dir
-    {
-        QString dir;
-        if (!e.accepted || !e.msdu.present || e.msdu.simple_head) {
-            dir = QStringLiteral("*");
-        } else {
-            const bool relay = (e.mpdu.src_tei != 0)
-                            && (e.msdu.msdu_src_tei > 0)
-                            && (quint16(e.msdu.msdu_src_tei) != e.mpdu.src_tei);
-            if (e.msdu.msdu_dst_tei == 0xFFF)
-                dir = (e.msdu.msdu_send_type == 1 || e.msdu.msdu_send_type == 3)
-                          ? QStringLiteral("\u2192") : QStringLiteral("*");
-            else if (e.msdu.msdu_dst_tei == 1)
-                dir = QStringLiteral("\u2191");
-            else if (e.msdu.msdu_src_tei == 1)
-                dir = QStringLiteral("\u2193");
-            else
-                dir = QStringLiteral("*");
-            if (relay && dir != QStringLiteral("*")) dir += QStringLiteral("R");
-        }
-        c << dir;
-    }
+    c << dir_display(e);
     // Protocol
     c << (!e.accepted ? QStringLiteral("ERR")
                       : e.meta.is_rf ? QStringLiteral("RF") : QStringLiteral("HPLC"));
@@ -895,6 +875,8 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
     e.delta_us = playback::next_delta_us(r.meta, m_last_ntb, m_have_last_ntb);
     e.meta      = r.meta;
     e.mpdu      = r.mpdu;
+    e.protocol  = (r.protocol == ProtocolVariant::NW_2021)
+                      ? kProtocolNw2021 : kProtocolGw2022;   // 协议身份来自解析器,非全局配置
     e.msdu_body = r.msdu_body;
     e.raw_wire  = r.raw_wire;
     e.msdu      = r.msdu;    // MSDU/MAC 层字段树(SOF 重组完成时非空)

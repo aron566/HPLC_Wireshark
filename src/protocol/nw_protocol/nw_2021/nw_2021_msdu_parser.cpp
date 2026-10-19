@@ -840,6 +840,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
     out.msdu_dst_tei        = (int)get_bits(p, 4, 0, 12);
     out.msdu_src_tei        = (int)get_bits(p, 5, 4, 12);
     out.restart_count       = (quint8)get_bits(p, 7, 4, 4);
+    out.route_hops_left     = (quint8)get_bits(p, 8, 0, 4);   // 路由跳数(表3 byte8 bit0-3)
     out.broadcast_direction = (quint8)get_bits(p, 8, 4, 4);
     out.msdu_send_type      = (int)get_bits(p, 9, 0, 3);
     out.msdu_seq            = (quint16)get_bits(p, 10, 0, 16);

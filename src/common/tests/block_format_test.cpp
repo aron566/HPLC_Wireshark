@@ -1,6 +1,6 @@
-// Round-trip test for the v4 block format (pool + filter index + chunked
+// Round-trip test for the v5 block format (pool + filter index + chunked
 // entries). Builds synthetic PacketEntries with nested trees, encodes a
-// block, decodes it back, and verifies every field, plus v4 random access
+// block, decodes it back, and verifies every field, plus v5 random access
 // (BlockReader::entry_at) and the stored search_text in the block index.
 //
 // Build & run: qmake src/common/tests/block_format_test.pro && make,
@@ -30,8 +30,11 @@ static PacketEntry make_entry(int i) {
     e.meta.frame_time = QDateTime::fromMSecsSinceEpoch(e.epoch_ms);
     e.mpdu.frame_type = 1; e.mpdu.src_tei = 2; e.mpdu.dst_tei = 0xFFF;
     e.mpdu.beacon_cco_mac = 0x112233445566ULL;
+    e.protocol = quint8(i % 2);   // 覆盖协议标识序列化 round-trip(0=国网/1=南网)
     e.msdu.present = true; e.msdu.msdu_seq = quint16(i);
     e.msdu.summary = QStringLiteral("summary-%1").arg(i);
+    e.msdu.broadcast_direction = quint8(i % 4);   // 覆盖广播方向序列化 round-trip
+    e.msdu.route_hops_left     = quint8(i % 16);  // 覆盖路由剩余跳数序列化 round-trip
     MsduFieldNode root = node(QStringLiteral("ItemHead [8b]"), QStringLiteral("0x12"), 0, 1);
     root.children.append(node(QStringLiteral("TEI [12b]"), QString::number(i), 1, 2));
     MsduFieldNode grp = node(QStringLiteral("Beacon Load"), QString(), -1, 0);
@@ -54,8 +57,11 @@ static bool entry_equal(const PacketEntry& a, const PacketEntry& b, QString& why
         || a.mpdu.frame_type != b.mpdu.frame_type || a.mpdu.src_tei != b.mpdu.src_tei
         || a.mpdu.dst_tei != b.mpdu.dst_tei
         || a.mpdu.beacon_cco_mac != b.mpdu.beacon_cco_mac
+        || a.protocol != b.protocol
         || a.msdu.present != b.msdu.present || a.msdu.msdu_seq != b.msdu.msdu_seq
         || a.msdu.summary != b.msdu.summary
+        || a.msdu.broadcast_direction != b.msdu.broadcast_direction
+        || a.msdu.route_hops_left != b.msdu.route_hops_left
         || a.msdu.tree.size() != b.msdu.tree.size()
         || a.msdu.tei_mac_pairs.size() != b.msdu.tei_mac_pairs.size()
         || a.raw_bytes != b.raw_bytes || a.msdu_raw_base != b.msdu_raw_base) {
@@ -72,7 +78,7 @@ static bool entry_equal(const PacketEntry& a, const PacketEntry& b, QString& why
             || a.msdu.tei_mac_pairs[k].mac != b.msdu.tei_mac_pairs[k].mac) {
             why = QStringLiteral("tei_mac mismatch at index %1").arg(a.index); return false;
         }
-    // search_text is stored in the v4 block index; the decoded value must
+    // search_text is stored in the v5 block index; the decoded value must
     // equal the stored original (test entries fill it via make_search_text,
     // exactly like the app's make_entry does)
     if (b.search_text.isEmpty() || b.search_text != make_search_text(b)) {
@@ -131,7 +137,7 @@ int main(int argc, char** argv) {
         else qInfo() << "corrupt-input checks OK (all rejected)";
     }
 
-    // 4) v4 random access + filter index (BlockReader)
+    // 4) v5 random access + filter index (BlockReader)
     {
         QVector<PacketEntry> src; src.reserve(2500);
         for (int i = 1; i <= 2500; ++i) { PacketEntry e = make_entry(i); e.search_text = make_search_text(e); src.append(e); }

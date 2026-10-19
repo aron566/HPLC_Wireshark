@@ -290,6 +290,7 @@ inline void write_msdu_info(QDataStream& s, const MsduInfo& m, StrPool& pool) {
     write_u16(s, m.msdu_type);
     write_u8(s, m.restart_count);
     write_u8(s, m.broadcast_direction);
+    write_u8(s, m.route_hops_left);
     write_u8(s, m.business_id);
     write_u8(s, m.app_packet_type);
     write_u16(s, m.mme_type);
@@ -317,6 +318,7 @@ inline void read_msdu_info(QDataStream& s, MsduInfo& m,
     read_u16(s, m.msdu_type);
     read_u8(s, m.restart_count);
     read_u8(s, m.broadcast_direction);
+    read_u8(s, m.route_hops_left);
     read_u8(s, m.business_id);
     read_u8(s, m.app_packet_type);
     read_u16(s, m.mme_type);
@@ -350,6 +352,7 @@ inline QByteArray serialize_entry(const PacketEntry& e, StrPool& pool) {
     write_bytes(s, e.raw_wire);
     write_meta(s, e.meta);
     write_mpdu(s, e.mpdu);
+    write_u8(s, e.protocol);
     write_bytes(s, e.msdu_body);
     write_msdu_info(s, e.msdu, pool);
     write_msdu_info(s, e.beacon, pool);
@@ -373,6 +376,7 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
     read_bytes(s, e.raw_wire);
     read_meta(s, e.meta);
     read_mpdu(s, e.mpdu);
+    read_u8(s, e.protocol);
     read_bytes(s, e.msdu_body);
     read_msdu_info(s, e.msdu, table);
     read_msdu_info(s, e.beacon, table);
@@ -407,7 +411,7 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
 // ---------------------------------------------------------------------------
 
 inline quint32 block_magic()   { return 0x50424C4Bu; }  // "PBLK"
-inline quint32 block_version() { return 4u; }
+inline quint32 block_version() { return 5u; }
 /// @brief 独立压缩分块的条目数(随机解码粒度:解一条最多解压一个分块)
 inline constexpr int kBlockChunkEntries = 50;
 

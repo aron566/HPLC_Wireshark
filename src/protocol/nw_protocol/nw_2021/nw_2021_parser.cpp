@@ -119,6 +119,7 @@ bool NW_2021_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QSt
 
 NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msdu, const Filter& f) {
     Result r;
+    r.protocol = ProtocolVariant::NW_2021;   // 协议身份由解析器标记
     Q_UNUSED(msdu);
     if (!decode_envelope(in, r)) {
         r.accept = false;

@@ -163,7 +163,8 @@ QDataStream& operator<<(QDataStream& out, const MsduInfo& m) {
         << m.vlan_tag << m.msdu_type << m.restart_count
         << m.broadcast_direction << m.business_id << m.app_packet_type
         << m.mme_type << m.total_len << m.summary << m.tree
-        << m.tei_mac_pairs << m.topo_event;
+        << m.tei_mac_pairs << m.topo_event
+        << m.route_hops_left;   // 新增字段:追加末尾,保证跨版本兼容
     return out;
 }
 QDataStream& operator>>(QDataStream& in, MsduInfo& m) {
@@ -174,6 +175,10 @@ QDataStream& operator>>(QDataStream& in, MsduInfo& m) {
        >> m.broadcast_direction >> m.business_id >> m.app_packet_type
        >> m.mme_type >> m.total_len >> m.summary >> m.tree
        >> m.tei_mac_pairs >> m.topo_event;
+    m.route_hops_left = 0xFF;   // 旧版数据无末尾字段时保持默认
+    if (!in.atEnd()) {           // 新版数据末尾有 route_hops_left 字节
+        in >> m.route_hops_left;
+    }
     return in;
 }
 
@@ -181,13 +186,20 @@ QDataStream& operator>>(QDataStream& in, MsduInfo& m) {
 QDataStream& operator<<(QDataStream& out, const ParseResult& r) {
     out << r.meta << r.mpdu << r.msdu_body << r.msdu
         << r.msdu_raw_base << r.beacon << r.arrival_us
-        << r.raw_wire << r.accept << r.reject_reason << r.payload_for_log;
+        << r.raw_wire << r.accept << r.reject_reason << r.payload_for_log
+        << static_cast<quint8>(r.protocol);   // 新增字段:追加末尾,保证跨版本兼容
     return out;
 }
 QDataStream& operator>>(QDataStream& in, ParseResult& r) {
     in >> r.meta >> r.mpdu >> r.msdu_body >> r.msdu
        >> r.msdu_raw_base >> r.beacon >> r.arrival_us
        >> r.raw_wire >> r.accept >> r.reject_reason >> r.payload_for_log;
+    r.protocol = ProtocolVariant::GW_2022;    // 旧版数据无末尾字段时保持默认
+    if (!in.atEnd()) {                         // 新版数据末尾有 protocol 字节
+        quint8 proto = 0;
+        in >> proto;
+        r.protocol = static_cast<ProtocolVariant>(proto);
+    }
     return in;
 }
 

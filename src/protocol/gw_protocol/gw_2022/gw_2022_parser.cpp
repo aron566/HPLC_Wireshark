@@ -134,6 +134,7 @@ bool GW_2022_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QSt
 // 主入口:帧分发
 GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msdu, const Filter& f) {
     Result r;
+    r.protocol = ProtocolVariant::GW_2022;   // 协议身份由解析器标记
     QElapsedTimer pt;
     pt.start();
     if (!decode_envelope(in, r)) {

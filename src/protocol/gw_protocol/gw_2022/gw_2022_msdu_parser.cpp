@@ -662,6 +662,8 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
     out.msdu_src_tei  = (int)get_bits(p, 0, 4, 12);
     out.msdu_dst_tei  = (int)get_bits(p, 2, 0, 12);
     out.msdu_send_type = (int)get_bits(p, 3, 4, 4);   // 广播类型判定
+    out.route_hops_left     = (quint8)get_bits(p, 10, 4, 4); // 路由剩余跳数(表4 byte10 bit4-7)
+    out.broadcast_direction = (quint8)get_bits(p, 11, 0, 2); // 广播方向(国网表7:0双向/1下行/2上行)
     out.restart_count  = (quint8)get_bits(p, 9, 3, 4); // RestartCount(国网 MSDU 头 byte9 bits3-6,发送方重启次数)
     quint8 msdu_type   = (quint8)get_bits(p, 7, 0, 8);
     int    msdu_len    = (int)get_bits(p, 8, 0, 11);

@@ -14,6 +14,7 @@
 
 /// @brief 协议无关的解析结果(展示层/过滤/导出统一消费)
 struct ParseResult {
+    ProtocolVariant protocol;   ///< 本帧由哪个协议解析(parser 填 variant();决定广播方向 0 值语义)
     PhysicalMeta meta;
     MpduInfo     mpdu;
     QByteArray   msdu_body;
@@ -26,7 +27,8 @@ struct ParseResult {
     QString      reject_reason;
     QByteArray   payload_for_log;
 
-    ParseResult() : msdu_raw_base(-1), arrival_us(0), accept(false) {}
+    ParseResult() : protocol(ProtocolVariant::GW_2022),
+                    msdu_raw_base(-1), arrival_us(0), accept(false) {}
 };
 
 /// @brief 协议无关的过滤条件(帧类型/链路/NID/TEI)

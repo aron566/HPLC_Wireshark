@@ -130,28 +130,8 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                 }
                 return QString();
             }
-            case COL_DIR: {
-                if (!e.accepted || !e.msdu.present || e.msdu.simple_head)
-                    return QStringLiteral("*");
-                // 中继判定:当前发送者(MPDU src_tei)≠原始发起者(MSDU src_tei) → 中继转发
-                const bool relay = (e.mpdu.src_tei != 0)
-                                && (e.msdu.msdu_src_tei > 0)
-                                && (quint16(e.msdu.msdu_src_tei) != e.mpdu.src_tei);
-                QString dir;
-                if (e.msdu.msdu_dst_tei == 0xFFF) {
-                    dir = (e.msdu.msdu_send_type == 1 || e.msdu.msdu_send_type == 3)
-                            ? QStringLiteral("\u2192") : QStringLiteral("*");
-                } else if (e.msdu.msdu_dst_tei == 1) {
-                    dir = QStringLiteral("\u2191");
-                } else if (e.msdu.msdu_src_tei == 1) {
-                    dir = QStringLiteral("\u2193");
-                } else {
-                    dir = QStringLiteral("*");
-                }
-                if (relay && dir != QStringLiteral("*"))
-                    dir += QStringLiteral("R");
-                return dir;
-            }
+            case COL_DIR:
+                return dir_display(e);
             case COL_SOURCE: {
                 if (!e.accepted) return QStringLiteral("DROP");
                 const quint16 tei = e.mpdu.src_tei;
