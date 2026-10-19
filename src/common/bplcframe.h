@@ -62,7 +62,7 @@ struct MpduInfo {
     quint16 src_tei;       ///< 源 TEI(BEACON/SOF/ACK 解析后)
     quint16 dst_tei;       ///< 目的 TEI(SOF/ACK 解析后)
     quint8  link_id;       ///< SOF 链路标识符(8-bit)
-    quint16 frame_len;     ///< 帧长(×10µs,12-bit,SOF)
+    quint16 frame_len;     ///< 帧长(12-bit,SOF;载波表19 ×10µs / 无线表30 ×100µs)
     quint8  pb_num;        ///< 生效物理块个数(SOF;载波=字段值 1-4,无线固定 1)
     quint8  pb_num_field;  ///< SOF 字节9 bit4-7 原始值:载波=物理块个数(表19)/无线=载荷PB大小索引(表29)
     quint16 symbol_num;    ///< 符号数 9-bit(载波 SOF 表19;无线 SOF 表30 该位段为保留,存原始值、不参与解析)
