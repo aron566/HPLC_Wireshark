@@ -51,10 +51,11 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
     int pb_size;
     if (is_rf) {
         // 无线 SOF(表30):无物理块个数字段,固定 1 块;字节9 bit4-7 为载荷PB大小(表29),
-        // 字节10-11 bit0 与字节12 bit0-3 为保留;字节11 bit4-7 为 MCS(表28)
+        // 字节10-11 bit0 与字节12 bit0-3 为保留(存原始值供呈现,不参与解析);
+        // 字节11 bit4-7 为 MCS(表28)
         info.pb_num     = 1;
-        info.symbol_num = 0;                              // 保留
-        info.tmi_ext    = 0;                              // 保留
+        info.symbol_num = (quint16)get_bits(p, 10, 0, 9);   // 保留(原始值)
+        info.tmi_ext    = (quint8) get_bits(p, 12, 0, 4);   // 保留(原始值)
         pb_size         = sof_rf_pb_size(info.pb_num_field);
     } else {
         // 载波 SOF(表19):物理块个数/符号数/分集拷贝基本模式/扩展模式

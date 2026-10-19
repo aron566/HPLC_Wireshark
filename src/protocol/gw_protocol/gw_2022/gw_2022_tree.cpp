@@ -84,7 +84,12 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 QStringLiteral("0x%1 - %2").arg(e.mpdu.link_id, 2, 16, QChar('0')).arg(link_desc),
                 7, 0, 8);
         }
-        tree_add_bit_field(sof, "Frame Length", QStringLiteral("%1 (x10us)").arg(e.mpdu.frame_len), 8, 0, 12);
+        // 帧长单位:载波(表19)10 微秒、无线(表30)100 微秒
+        tree_add_bit_field(sof, "Frame Length",
+            QStringLiteral("%1 (%2)").arg(e.mpdu.frame_len)
+                                      .arg(e.meta.is_rf ? QStringLiteral("x100us")
+                                                        : QStringLiteral("x10us")),
+            8, 0, 12);
         // 字节9 bit4-7 / 字节10-11 bit0:载波(表19)=物理块个数/符号数;无线(表30)=载荷PB大小/保留
         if (e.meta.is_rf) {
             // 载荷PB大小(表29):0-5 = 16/40/72/136/264/520 字节

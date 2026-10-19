@@ -65,12 +65,12 @@ struct MpduInfo {
     quint16 frame_len;     ///< 帧长(×10µs,12-bit,SOF)
     quint8  pb_num;        ///< 生效物理块个数(SOF;载波=字段值 1-4,无线固定 1)
     quint8  pb_num_field;  ///< SOF 字节9 bit4-7 原始值:载波=物理块个数(表19)/无线=载荷PB大小索引(表29)
-    quint16 symbol_num;    ///< 符号数 9-bit(载波 SOF 表19;无线为保留,置 0)
+    quint16 symbol_num;    ///< 符号数 9-bit(载波 SOF 表19;无线 SOF 表30 该位段为保留,存原始值、不参与解析)
     bool    bc_flag;       ///< SOF 广播标志位
     bool    re_send_flag;  ///< SOF 重发标志位
     bool    encryp_flag;   ///< SOF 加密标志位
     quint8  tmi;           ///< SOF 字节11 bit4-7 原始值:载波=分集拷贝基本模式(表19)/无线=MCS(表28)
-    quint8  tmi_ext;       ///< 分集拷贝扩展模式(载波 SOF 表19;无线为保留,置 0)
+    quint8  tmi_ext;       ///< 分集拷贝扩展模式(载波 SOF 表19;无线 SOF 表30 该位段为保留,存原始值、不参与解析)
     quint16 pb_size;       ///< PB 块大小(载波=TMI查表 72/136/264/520;无线=载荷PB大小表29 16/40/72/136/264/520)
     bool    fch_crc_ok;    ///< 控制头 CRC24 校验结果
     bool    pb_crc_ok;     ///< PB 块 CRC24 校验结果(SOF 时,全部块)
