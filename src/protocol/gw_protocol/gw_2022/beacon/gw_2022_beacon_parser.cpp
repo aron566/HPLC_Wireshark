@@ -304,7 +304,7 @@ MsduInfo GW_2022_BeaconParser::parse_beacon(const QByteArray& payload) {
         if (pos >= gb.size() - 4) break;
         int item_len, len_bytes = 1;
         quint32 len_raw;
-        if (head >= static_cast<quint8>(GW_2022_BeaconItemType::TIME_SLOT_ALLOCATION)) {  // 0xC0-0xFF:长度 2B LE(len-3=内容长);0xC1-0xFF 保留条目同为 2B(表45)
+        if (head >= static_cast<quint8>(GW_2022_BeaconItemType::TIME_SLOT_ALLOCATION)) {  // 0xC0-0xFF:长度 2B LE(len-3=内容长);0xC1-0xFF 保留条目同为 2B(表46)
             if (pos + 1 >= gb.size() - 4) break;
             len_raw = (quint8)gb[pos] | ((quint8)gb[pos + 1] << 8);
             pos += 2;

@@ -1094,8 +1094,9 @@ end
 
 -- 信标管理信息 (表44), 返回下一个 offset (填充区前位置)
 -- 条目长度语义(与 Qt beaconparser 一致):
---   长度字段值 len_raw = 头(1B) + 长度字段(2B) + 内容
---   内容长 = len_raw - 3 (所有条目统一 2B 长度字段, 表45)
+--   长度字段值 len_raw = 头(1B) + 长度字段(1B/2B) + 内容
+--   长度字段位宽: etype 0x00-0xBF 为 1B, 0xC0-0xFF 为 2B (表46)
+--   内容长 = len_raw - (1 + len_bytes)
 local function dissect_beacon_mgmt_info(tvb, tree, off)
     if off >= tvb:len() then return off end
     tree:add(f.beacon_entry_cnt, tvb(off, 1))
@@ -1106,8 +1107,8 @@ local function dissect_beacon_mgmt_info(tvb, tree, off)
         local etype = tvb(pos, 1):uint()
         tree:add(f.beacon_ent_type, tvb(pos, 1))
         pos = pos + 1
-        -- 长度字段: 所有条目统一 2 字节 (小端), 表45
-        local len_bytes = 2
+        -- 长度字段位宽: 0x00-0xBF 为 1B, 0xC0-0xFF 为 2B (表46)
+        local len_bytes = (etype >= 0xC0) and 2 or 1
         if pos + len_bytes > tvb:len() then break end
         local len_raw = tvb(pos, len_bytes):le_uint()
         tree:add(f.beacon_ent_len, tvb(pos, len_bytes), len_raw)
