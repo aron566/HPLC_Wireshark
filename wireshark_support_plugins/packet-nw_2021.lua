@@ -190,7 +190,7 @@ local dt_vals = {
 }
 local ack_ext_type_vals = {
     [0] = T("常规 ACK", "Normal ACK"), [1] = T("网络搜索帧", "Network Search"),
-    [2] = T("同步帧", "Sync"), [3] = T("无线切频帧", "RF Channel Switch"),
+    [2] = T("同步帧", "Sync"),
     [10] = T("时隙预约(南网扩展)", "Slot Reservation"), [11] = T("测距响应(南网扩展)", "Ranging Response"),
     [12] = T("测距请求(南网扩展)", "Ranging Request"),
 }
@@ -217,7 +217,32 @@ local msdu_type_long_vals = {
     [0x88E1] = T("管理消息报文", "Management message"), [0x0001] = T("应用层报文", "Application packet"),
 }
 local msdu_type_short_vals = { [0x01] = T("应用层报文", "Application packet") }
-local mac_version_vals = { [1] = T("标准帧", "Standard"), [2] = T("单跳帧", "Single-hop") }
+-- MAC 头枚举与 Qt 监控器字典对齐(南网第5部分 表6/表7/表8;字典外值即保留)
+local mac_version_vals = {
+    [0] = T("保留", "Reserved"), [1] = T("本标准协议", "This standard"),
+    [2] = T("保留", "Reserved"), [3] = T("保留", "Reserved"),
+}
+local mac_send_type_vals = {
+    [0] = T("单播,需要确认回应", "Unicast, ACK required"),
+    [1] = T("全网广播,不需要回应", "Network broadcast, no ACK"),
+    [2] = T("本地广播,不需要回应", "Local broadcast, no ACK"),
+    [3] = T("全网广播,需要确认回应", "Network broadcast, ACK required"),
+    [4] = T("本地广播,需要确认回应", "Local broadcast, ACK required"),
+}
+local mac_bcast_dir_vals = {
+    [0] = T("保留", "Reserved"), [1] = T("下行广播", "Downlink broadcast"),
+    [2] = T("上行广播", "Uplink broadcast"), [3] = T("保留", "Reserved"),
+}
+-- MCS 释义(南网第2部分 表129, 与国网表28 逐值相同)
+local mcs_vals = {
+    [0] = T("分集4次 BPSK 码率1/2", "diversity 4, BPSK, code rate 1/2"),
+    [1] = T("分集2次 BPSK 码率1/2", "diversity 2, BPSK, code rate 1/2"),
+    [2] = T("分集2次 QPSK 码率1/2", "diversity 2, QPSK, code rate 1/2"),
+    [3] = T("分集1次 QPSK 码率1/2", "diversity 1, QPSK, code rate 1/2"),
+    [4] = T("分集1次 QPSK 码率4/5", "diversity 1, QPSK, code rate 4/5"),
+    [5] = T("分集1次 16QAM 码率1/2", "diversity 1, 16QAM, code rate 1/2"),
+    [6] = T("分集1次 16QAM 码率4/5", "diversity 1, 16QAM, code rate 4/5"),
+}
 local mac_head_flag_vals = { [0] = T("长帧头(32B)", "Long head (32B)"), [1] = T("短帧头(12B)", "Short head (12B)") }
 local mme_type_vals = {
     [0x0030] = T("关联请求 MMeAssocReq", "MMeAssocReq"),
@@ -232,11 +257,9 @@ local mme_type_vals = {
     [0x0055] = T("发现列表 MMeDiscoverNodeList", "MMeDiscoverNodeList"),
     [0x005D] = T("延迟离线指示 MMeDelayLeaveInd", "MMeDelayLeaveInd"),
     [0x005E] = T("通信成功率上报 MMeSuccessRateReport", "MMeSuccessRateReport"),
-    [0x005F] = T("网络冲突上报 MMeNetworkConflictReport", "MMeNetworkConflictReport"),
     [0x0062] = T("过零NTB采集指示 MMeZeroCrossNTBCollectInd", "MMeZeroCrossNTBCollectInd"),
     [0x0063] = T("过零NTB上报 MMeZeroCrossNTBReport", "MMeZeroCrossNTBReport"),
     [0x0064] = T("网络诊断 MMeNetDiagnose", "MMeNetDiagnose"),
-    [0x0070] = T("无线信道冲突上报 MMeRFChannelConflictReport", "MMeRFChannelConflictReport"),
     [0x0083] = T("站点TEI列表请求 MMeStationTEIListRequest", "MMeStationTEIListRequest"),
     [0x0084] = T("站点TEI列表响应 MMeStationTEIListResponse", "MMeStationTEIListResponse"),
     [0x00A0] = T("汇聚数据上报 MMeConvergenceDataReport", "MMeConvergenceDataReport"),
@@ -367,6 +390,10 @@ f.beacon_tmi = ProtoField.uint8 ("nw_2021.beacon.tmi", T("载波映射表索引(
 f.beacon_symbol_cnt = ProtoField.uint16 ("nw_2021.beacon.symbol_cnt", T("符号数", "Symbol Count"), base.DEC)
 f.beacon_phase = ProtoField.uint8 ("nw_2021.beacon.phase", T("信标相线", "Beacon Line"), base.DEC, phase_unk_vals, 0x0C)
 f.beacon_pblen = ProtoField.uint8 ("nw_2021.beacon.pblen", T("载荷PB大小(无线)", "Payload PB Size (RF)"), base.DEC, nil, 0x0F)
+f.beacon_mcs = ProtoField.uint8 ("nw_2021.beacon.mcs", T("调制编码方式(MCS,无线)", "MCS (RF)"), base.DEC, mcs_vals, 0xF0)
+f.beacon_rsv1 = ProtoField.uint8 ("nw_2021.beacon.rsv1", T("保留", "Reserved"), base.HEX, nil, 0xF0)
+f.beacon_rsv2 = ProtoField.uint8 ("nw_2021.beacon.rsv2", T("保留", "Reserved"), base.HEX, nil, 0x0F)
+f.beacon_rsv3 = ProtoField.uint8 ("nw_2021.beacon.rsv3", T("保留", "Reserved"), base.HEX, nil, 0x02)
 
 -- SOF 帧可变区域 (字节1-12)
 f.sof_src_tei = ProtoField.uint16 ("nw_2021.sof.src_tei", T("源TEI", "Source TEI"), base.DEC)
@@ -377,6 +404,11 @@ f.sof_tmi = ProtoField.uint8 ("nw_2021.sof.tmi", T("载波映射表索引(TMI,�
 f.sof_frame_len = ProtoField.uint16 ("nw_2021.sof.frame_len", T("帧长", "Frame Length"), base.DEC)
 f.sof_tmi_ext = ProtoField.uint8 ("nw_2021.sof.tmi_ext", T("扩展TMI(TMI_EXT)", "Extended TMI"), base.DEC, nil, 0x0F)
 f.sof_pblen = ProtoField.uint8 ("nw_2021.sof.pblen", T("载荷PB大小(无线)", "Payload PB Size (RF)"), base.DEC, nil, 0xF0)
+f.sof_mcs = ProtoField.uint8 ("nw_2021.sof.mcs", T("调制编码方式(MCS,无线)", "MCS (RF)"), base.DEC, mcs_vals, 0x0F)
+f.sof_symbol_cnt = ProtoField.uint16 ("nw_2021.sof.symbol_cnt", T("符号数(载波)", "Symbol Count (PLC)"), base.DEC)
+f.sof_tei_filter = ProtoField.uint8 ("nw_2021.sof.tei_filter", T("目的TEI过滤标志", "Destination TEI Filter Flag"), base.DEC)
+f.sof_resend = ProtoField.uint8 ("nw_2021.sof.resend", T("重传标志", "Re-transmission Flag"), base.DEC)
+f.sof_rsv = ProtoField.uint32 ("nw_2021.sof.rsv", T("保留", "Reserved"), base.HEX)
 
 -- ACK 帧可变区域 (按扩展帧类型, 字节12 低4bit)
 f.ack_ext_type = ProtoField.uint8 ("nw_2021.ack.ext_type", T("扩展帧类型", "Extended Frame Type"), base.DEC, ack_ext_type_vals, 0x0F)
@@ -388,12 +420,14 @@ f.ack_dst_mac = ProtoField.ether ("nw_2021.ack.dst_mac", T("目的地址(MAC)", 
 f.ack_search_tei = ProtoField.uint16 ("nw_2021.ack.search_tei", T("网络搜索站点TEI", "Search STA TEI"), base.DEC)
 f.ack_sync_ts = ProtoField.uint32 ("nw_2021.ack.sync_ts", T("同步时间戳(NTB)", "Sync Timestamp (NTB)"), base.DEC)
 f.ack_sync_tei = ProtoField.uint16 ("nw_2021.ack.sync_tei", T("同步站点TEI", "Sync STA TEI"), base.DEC)
-f.ack_chan_qual = ProtoField.uint8 ("nw_2021.ack.chan_qual", T("信道质量", "Channel Quality"), base.DEC)
-f.ack_sta_load = ProtoField.uint8 ("nw_2021.ack.sta_load", T("站点负载(缓存报文数)", "STA Load (buffered packets)"), base.DEC)
+f.ack_seq = ProtoField.uint8 ("nw_2021.ack.seq", T("序号", "Sequence Number"), base.DEC)
+f.ack_rsv = ProtoField.uint32 ("nw_2021.ack.rsv", T("保留", "Reserved"), base.HEX)
 
 -- 网间协调帧可变区域 (字节1-12)
 f.coord_nbr_bmp = ProtoField.uint16 ("nw_2021.coord.nbr_bmp", T("邻居网络号位图", "Neighbor Network ID Bitmap"), base.HEX)
 f.coord_rf_ch = ProtoField.uint8 ("nw_2021.coord.rf_ch", T("本网络无线信道编号", "RF Channel Number"), base.DEC)
+f.coord_rsv_b3 = ProtoField.uint8 ("nw_2021.coord.rsv_b3", T("保留", "Reserved"), base.HEX)
+f.coord_rsv_opt = ProtoField.uint8 ("nw_2021.coord.rsv_opt", T("保留", "Reserved"), base.HEX, nil, 0x0C)
 f.coord_rsv1 = ProtoField.uint16 ("nw_2021.coord.rsv1", T("保留", "Reserved"), base.HEX, nil, 0x03FF)
 f.coord_duration = ProtoField.uint16 ("nw_2021.coord.duration", T("持续时间(×40ms)", "Duration (×40ms)"), base.DEC)
 f.coord_rsv2 = ProtoField.uint8 ("nw_2021.coord.rsv2", T("保留", "Reserved"), base.HEX, nil, 0x01)
@@ -490,8 +524,8 @@ f.mac_msdu_len = ProtoField.uint16 ("nw_2021.mac.msdu_len", T("MSDU长度", "MSD
 f.mac_dst_tei = ProtoField.uint16 ("nw_2021.mac.dst_tei", T("目的TEI", "Destination TEI"), base.DEC)
 f.mac_src_tei = ProtoField.uint16 ("nw_2021.mac.src_tei", T("源TEI", "Source TEI"), base.DEC)
 f.mac_restart_cnt = ProtoField.uint8 ("nw_2021.mac.restart_cnt", T("重启次数", "Restart Count"), base.DEC, nil, 0xF0)
-f.mac_bcast_dir = ProtoField.uint8 ("nw_2021.mac.bcast_dir", T("广播方向", "Broadcast Direction"), base.DEC, nil, 0xF0)
-f.mac_send_type = ProtoField.uint8 ("nw_2021.mac.send_type", T("发送类型", "Send Type"), base.DEC, nil, 0x07)
+f.mac_bcast_dir = ProtoField.uint8 ("nw_2021.mac.bcast_dir", T("广播方向", "Broadcast Direction"), base.DEC, mac_bcast_dir_vals, 0xF0)
+f.mac_send_type = ProtoField.uint8 ("nw_2021.mac.send_type", T("发送类型", "Send Type"), base.DEC, mac_send_type_vals, 0x07)
 f.mac_msdu_seq = ProtoField.uint16 ("nw_2021.mac.msdu_seq", T("MSDU序列号", "MSDU Sequence Number"), base.DEC)
 f.mac_hdr_rsv = ProtoField.bytes ("nw_2021.mac.hdr_rsv", T("保留", "Reserved"), base.NONE)
 -- MSDU 帧头 (长 18B: MAC48b×2 + VLAN32b + 类型16b; 短 2B: VLAN8b + 类型8b)
@@ -716,16 +750,7 @@ f.zr_diff = ProtoField.uint16 ("nw_2021.zr.diff", T("过零NTB差值", "Zero-Cro
 f.diag_chip_id = ProtoField.uint16 ("nw_2021.diag.chip_id", T("芯片厂商ID", "Chip Vendor ID"), base.DEC, chip_id_vals)
 f.diag_custom = ProtoField.bytes ("nw_2021.diag.custom", T("诊断信息", "Diagnose Info"), base.NONE)
 
--- 无线信道冲突上报 MMeRFChannelConflictReport (0x0070)
-f.rfccr_cco_mac = ProtoField.ether ("nw_2021.rfccr.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
-f.rfccr_nbr_cnt = ProtoField.uint8 ("nw_2021.rfccr.nbr_cnt", T("邻居网络个数", "Neighbor Network Count"), base.DEC)
-f.rfccr_nbr_ch = ProtoField.uint8 ("nw_2021.rfccr.nbr_ch", T("邻居网络信道号", "Neighbor Network RF Channel"), base.DEC)
-f.rfccr_nbr_option = ProtoField.uint8 ("nw_2021.rfccr.nbr_option", T("邻居网络option", "Neighbor Network Option"), base.DEC, nil, 0x03)
 
--- 网络冲突上报 MMeNetworkConflictReport (0x005F)
-f.ncr_cco_mac = ProtoField.ether ("nw_2021.ncr.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
-f.ncr_nbr_cnt = ProtoField.uint8 ("nw_2021.ncr.nbr_cnt", T("邻居网络个数", "Neighbor Network Count"), base.DEC)
-f.ncr_nbr_bmp = ProtoField.uint16 ("nw_2021.ncr.nbr_bmp", T("邻居SNID位图", "Neighbor SNID Bitmap"), base.HEX)
 
 -- 应用层报文 APP_BASE (通道控制信息 4B + 业务报文头 8B)
 f.app_port = ProtoField.uint8 ("nw_2021.app.port", T("报文端口号", "Port Number"), base.HEX, app_port_vals)
@@ -763,12 +788,14 @@ nw.fields = {
     f.fc_fccs_calc, f.fc_fccs_ok,
     f.beacon_bts, f.beacon_bts_sec, f.beacon_bpc, f.beacon_src_tei,
     f.beacon_tmi, f.beacon_symbol_cnt, f.beacon_phase, f.beacon_pblen,
+    f.beacon_mcs, f.beacon_rsv1, f.beacon_rsv2, f.beacon_rsv3,
     f.sof_src_tei, f.sof_dst_tei, f.sof_lid, f.sof_pb_num, f.sof_tmi,
     f.sof_frame_len, f.sof_tmi_ext, f.sof_pblen,
+    f.sof_mcs, f.sof_symbol_cnt, f.sof_tei_filter, f.sof_resend, f.sof_rsv,
     f.ack_ext_type, f.ack_rx_res, f.ack_rx_status, f.ack_dst_tei, f.ack_rx_pb_num,
     f.ack_dst_mac, f.ack_search_tei, f.ack_sync_ts, f.ack_sync_tei,
-    f.ack_chan_qual, f.ack_sta_load,
-    f.coord_nbr_bmp, f.coord_rf_ch, f.coord_rsv1, f.coord_duration,
+    f.ack_seq, f.ack_rsv,
+    f.coord_nbr_bmp, f.coord_rf_ch, f.coord_rsv_b3, f.coord_rsv_opt, f.coord_rsv1, f.coord_duration,
     f.coord_rsv2, f.coord_band_end_flag, f.coord_option, f.coord_rsv3,
     f.coord_band_end_offset, f.coord_band_start_offset, f.coord_rsv0,
     f.pb_hdr, f.pb_size, f.pb_body, f.pb_rsv, f.pb_pbcs, f.pb_crc_ok, f.pb_crc_calc, f.pb_padding,
@@ -833,8 +860,6 @@ nw.fields = {
     f.zr_tei, f.zr_collect_mode, f.zr_seq, f.zr_total_cnt, f.zr_base_ntb,
     f.zr_rsv, f.zr_ph1_cnt, f.zr_ph2_cnt, f.zr_ph3_cnt, f.zr_diff,
     f.diag_chip_id, f.diag_custom,
-    f.rfccr_cco_mac, f.rfccr_nbr_cnt, f.rfccr_nbr_ch, f.rfccr_nbr_option,
-    f.ncr_cco_mac, f.ncr_nbr_cnt, f.ncr_nbr_bmp,
     f.app_port, f.app_packet_id, f.app_rsv, f.app_packet_type,
     f.app_ctrl_rsv0, f.app_ctrl_rsv1, f.app_ext_flag, f.app_respond_flag,
     f.app_start_flag, f.app_trans_dir, f.app_business_id, f.app_bid_desc,
@@ -1013,10 +1038,15 @@ local function dissect_beacon_vf(tvb, tree, is_rf)
     add_le(tree, f.beacon_bpc, tvb, 5, 4)
     add_tei12(tree, f.beacon_src_tei, tvb, 9)
     if is_rf then
+        -- 无线信标(第2部分 表128): MCS(10,4,4) + 载荷PB大小(11,0,4) + 保留(11,4,4)/(12,0,4)
+        tree:add(f.beacon_mcs, tvb(10, 1))
         tree:add(f.beacon_pblen, tvb(11, 1))
+        tree:add(f.beacon_rsv1, tvb(11, 1))
+        tree:add(f.beacon_rsv2, tvb(12, 1))
     else
         tree:add(f.beacon_tmi, tvb(10, 1))
         add_val(tree, f.beacon_symbol_cnt, tvb, 11, 2, read_bits(tvb, 11 * 8, 9))
+        tree:add(f.beacon_rsv3, tvb(12, 1))
         tree:add(f.beacon_phase, tvb(12, 1))
     end
 end
@@ -1029,12 +1059,26 @@ local function dissect_sof_vf(tvb, tree, is_rf)
     add_tei12h(tree, f.sof_dst_tei, tvb, 2)
     tree:add(f.sof_lid, tvb(4, 1))
     if is_rf then
+        -- 无线 SOF(第2部分 表131): 帧长(5,0,12) + 载荷PB大小(6,4,4) + MCS(7,0,4) +
+        --   TEI过滤(7,4,1) + 重传(7,5,1) + 保留(7,6,2)/(8,0,32)/(12,0,4)
         add_val(tree, f.sof_frame_len, tvb, 5, 2, read_bits(tvb, 5 * 8, 12))
         tree:add(f.sof_pblen, tvb(6, 1))
+        tree:add(f.sof_mcs, tvb(7, 1))
+        add_val(tree, f.sof_tei_filter, tvb, 7, 1, read_bits(tvb, 7 * 8 + 4, 1))
+        add_val(tree, f.sof_resend, tvb, 7, 1, read_bits(tvb, 7 * 8 + 5, 1))
+        add_val(tree, f.sof_rsv, tvb, 7, 1, read_bits(tvb, 7 * 8 + 6, 2))
+        add_le(tree, f.sof_rsv, tvb, 8, 4)
+        add_val(tree, f.sof_rsv, tvb, 12, 1, read_bits(tvb, 12 * 8, 4))
     else
+        -- 载波 SOF(第5部分 表16): 保留(5,0,16) + PB个数/TMI(字节7) + 帧长(8,0,12) +
+        --   TEI过滤(10,5,1) + 重传(10,6,1) + 符号数(10,7,9) + TMI_EXT(12,0,4)
+        add_le(tree, f.sof_rsv, tvb, 5, 2)
         tree:add(f.sof_pb_num, tvb(7, 1))
         tree:add(f.sof_tmi, tvb(7, 1))
         add_val(tree, f.sof_frame_len, tvb, 8, 2, read_bits(tvb, 8 * 8, 12))
+        add_val(tree, f.sof_tei_filter, tvb, 10, 1, read_bits(tvb, 10 * 8 + 5, 1))
+        add_val(tree, f.sof_resend, tvb, 10, 1, read_bits(tvb, 10 * 8 + 6, 1))
+        add_val(tree, f.sof_symbol_cnt, tvb, 10, 2, read_bits(tvb, 10 * 8 + 7, 9))
         tree:add(f.sof_tmi_ext, tvb(12, 1))
     end
 end
@@ -1043,39 +1087,50 @@ end
 local function dissect_ack_vf(tvb, tree)
     local ext_type = read_bits(tvb, 12 * 8, 4)
     tree:add(f.ack_ext_type, tvb(12, 1))
-    if ext_type == 0 then
-        -- 常规 ACK
+    if ext_type == 1 then
+        -- 网络搜索帧(附录 表C-2): 目的地址(48b) + 搜索站点TEI(12b) + 保留 + 序号(字节11)
+        tree:add(f.ack_dst_mac, tvb(1, 6))
+        add_tei12(tree, f.ack_search_tei, tvb, 7)
+        add_val(tree, f.ack_rsv, tvb, 8, 1, read_bits(tvb, 8 * 8 + 4, 4))
+        add_le(tree, f.ack_rsv, tvb, 9, 2)
+        tree:add(f.ack_seq, tvb(11, 1))
+    elseif ext_type == 2 then
+        -- 同步帧(附录 表C-3): 同步时间戳(32b) + 同步站点TEI(12b) + 保留 + 序号(字节11)
+        add_le(tree, f.ack_sync_ts, tvb, 1, 4)
+        add_tei12(tree, f.ack_sync_tei, tvb, 5)
+        add_val(tree, f.ack_rsv, tvb, 6, 1, read_bits(tvb, 6 * 8 + 4, 4))
+        add_le(tree, f.ack_rsv, tvb, 7, 4)
+        tree:add(f.ack_seq, tvb(11, 1))
+    else
+        -- 常规 ACK(0);其余扩展类型(含原"切频")规约未定义,按选择确认帧解析(与 Qt 监控器一致)
         tree:add(f.ack_rx_res, tvb(1, 1))
         tree:add(f.ack_rx_status, tvb(1, 1))
         add_tei12(tree, f.ack_dst_tei, tvb, 2)
         tree:add(f.ack_rx_pb_num, tvb(3, 1))
-    elseif ext_type == 1 then
-        -- 网络搜索帧: 目的地址(48b) + 搜索站点TEI(12b)
-        tree:add(f.ack_dst_mac, tvb(1, 6))
-        add_tei12(tree, f.ack_search_tei, tvb, 7)
-    elseif ext_type == 2 then
-        -- 同步帧: 同步时间戳(32b) + 同步站点TEI(12b)
-        add_le(tree, f.ack_sync_ts, tvb, 1, 4)
-        add_tei12(tree, f.ack_sync_tei, tvb, 5)
-    elseif ext_type == 3 then
-        -- 无线切频帧: 目的地址(48b) + 信道质量 + 站点负载
-        tree:add(f.ack_dst_mac, tvb(1, 6))
-        tree:add(f.ack_chan_qual, tvb(7, 1))
-        tree:add(f.ack_sta_load, tvb(8, 1))
     end
     -- 10 时隙预约 / 11 测距响应 / 12 测距请求: 南网扩展, 暂不解析(与 Qt 监控器一致)
 end
 
 -- 网间协调帧可变区域: 邻居NID位图(16b) + 信道(8b) + 时长(14b,×40ms) +
 --   带宽截止标志/option + 带宽截止/开始偏移(16b,×4ms)
-local function dissect_coord_vf(tvb, tree)
+local function dissect_coord_vf(tvb, tree, is_rf)
     add_le(tree, f.coord_nbr_bmp, tvb, 1, 2)
-    tree:add(f.coord_rf_ch, tvb(3, 1))
+    -- 字节3 与 (7,2,2) 按介质定名(与 Qt 监控器一致): 无线=本网络无线信道编号/本网络无线option
+    -- (第2部分 表127); 载波=保留(第5部分 表22)
+    if is_rf then
+        tree:add(f.coord_rf_ch, tvb(3, 1))
+    else
+        tree:add(f.coord_rsv_b3, tvb(3, 1))
+    end
     add_val(tree, f.coord_rsv1, tvb, 4, 2, read_bits(tvb, 4 * 8, 10))
     add_val(tree, f.coord_duration, tvb, 5, 2, read_bits(tvb, 5 * 8 + 2, 14))
     tree:add(f.coord_rsv2, tvb(7, 1))
     tree:add(f.coord_band_end_flag, tvb(7, 1))
-    tree:add(f.coord_option, tvb(7, 1))
+    if is_rf then
+        tree:add(f.coord_option, tvb(7, 1))
+    else
+        tree:add(f.coord_rsv_opt, tvb(7, 1))
+    end
     tree:add(f.coord_rsv3, tvb(7, 1))
     add_le(tree, f.coord_band_end_offset, tvb, 8, 2)
     add_le(tree, f.coord_band_start_offset, tvb, 10, 2)
@@ -1617,27 +1672,6 @@ local function dissect_mme_diag(tvb, tree)
     end
 end
 
--- 无线信道冲突上报 (0x0070)
-local function dissect_mme_rfccr(tvb, tree)
-    tree:add(f.rfccr_cco_mac, tvb(6, 6))
-    local cnt = tvb(12, 1):uint()
-    tree:add(f.rfccr_nbr_cnt, tvb(12, 1))
-    -- 邻居网络条目 (@13, 交错): 每条 2B = 信道号 1B + option 2bit + 保留 6bit
-    for i = 0, cnt - 1 do
-        local p = 13 + 2 * i
-        if p + 2 > tvb:len() then break end
-        tree:add(f.rfccr_nbr_ch, tvb(p, 1))
-        tree:add(f.rfccr_nbr_option, tvb(p + 1, 1))
-    end
-end
-
--- 网络冲突上报 (0x005F)
-local function dissect_mme_ncr(tvb, tree)
-    tree:add(f.ncr_cco_mac, tvb(6, 6))
-    tree:add(f.ncr_nbr_cnt, tvb(12, 1))
-    add_le(tree, f.ncr_nbr_bmp, tvb, 13, 2)
-end
-
 -- MMe 消息体分发
 local function dissect_mme_body(tvb, tree, mmtype)
     if mmtype == 0x0030 then dissect_mme_assoc_req(tvb, tree)
@@ -1652,11 +1686,9 @@ local function dissect_mme_body(tvb, tree, mmtype)
     elseif mmtype == 0x0055 then dissect_mme_disc_list(tvb, tree)
     elseif mmtype == 0x005D then dissect_mme_delay_leave(tvb, tree)
     elseif mmtype == 0x005E then dissect_mme_succ_rate(tvb, tree)
-    elseif mmtype == 0x005F then dissect_mme_ncr(tvb, tree)
     elseif mmtype == 0x0062 then dissect_mme_zc_collect(tvb, tree)
     elseif mmtype == 0x0063 then dissect_mme_zc_report(tvb, tree)
     elseif mmtype == 0x0064 then dissect_mme_diag(tvb, tree)
-    elseif mmtype == 0x0070 then dissect_mme_rfccr(tvb, tree)
     end
     -- 0x0083/0x0084/0x00A0: 站点TEI列表请求/响应、汇聚数据上报, 暂不解析(与 Qt 监控器一致)
 end
@@ -1960,7 +1992,7 @@ function nw.dissector(tvb, pinfo, tree)
     elseif dt == 2 then
         dissect_ack_vf(tvb, vf_tree)
     elseif dt == 3 then
-        dissect_coord_vf(tvb, vf_tree)
+        dissect_coord_vf(tvb, vf_tree, is_rf)
     end
 
     fc_tree:add(f.fc_std_ver, tvb(12, 1))

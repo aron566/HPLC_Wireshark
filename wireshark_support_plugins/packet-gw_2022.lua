@@ -187,6 +187,21 @@ local std_ver_vals = { [0] = T("本标准(Q/GDW 12087.42)", "This standard (Q/GD
 local send_type_vals = {
     [0] = T("单播", "Unicast"), [1] = T("全网广播", "Full-network broadcast"), [2] = T("本地广播", "Local broadcast"), [3] = T("代理广播", "Proxy broadcast"),
 }
+-- MCS 释义(表28; 与南网第2部分表129 逐值相同)
+local mcs_vals = {
+    [0] = T("分集4次 BPSK 码率1/2", "diversity 4, BPSK, code rate 1/2"),
+    [1] = T("分集2次 BPSK 码率1/2", "diversity 2, BPSK, code rate 1/2"),
+    [2] = T("分集2次 QPSK 码率1/2", "diversity 2, QPSK, code rate 1/2"),
+    [3] = T("分集1次 QPSK 码率1/2", "diversity 1, QPSK, code rate 1/2"),
+    [4] = T("分集1次 QPSK 码率4/5", "diversity 1, QPSK, code rate 4/5"),
+    [5] = T("分集1次 16QAM 码率1/2", "diversity 1, 16QAM, code rate 1/2"),
+    [6] = T("分集1次 16QAM 码率4/5", "diversity 1, 16QAM, code rate 4/5"),
+}
+-- 无线载荷 PB 大小(表29): 大小码 -> 字节数; >5 为保留值返回 -1
+local rf_pb_sizes = { [0] = 16, [1] = 40, [2] = 72, [3] = 136, [4] = 264, [5] = 520 }
+local function rf_pb_size(code)
+    return rf_pb_sizes[code] or -1
+end
 local broadcast_dir_vals = {
     [0] = T("双向广播", "Bidirectional broadcast"), [1] = T("下行广播(CCO->STA)", "Downlink broadcast (CCO->STA)"), [2] = T("上行广播(STA->CCO)", "Uplink broadcast (STA->CCO)"),
 }
@@ -422,7 +437,7 @@ f.ent_sb_csma_len = ProtoField.uint16 ("gw_2022.beacon.sb.csma_len", T("CSMA时�
 f.sof_src_tei = ProtoField.uint16 ("gw_2022.sof.src_tei", T("源TEI", "Source TEI"), base.DEC)
 f.sof_dst_tei = ProtoField.uint16 ("gw_2022.sof.dst_tei", T("目的TEI", "Destination TEI"), base.DEC)
 f.sof_lid = ProtoField.uint8 ("gw_2022.sof.lid", T("链路标识符(LID)", "Link Identifier (LID)"), base.DEC)
-f.sof_frame_len = ProtoField.uint16 ("gw_2022.sof.frame_len", T("帧长(×10us)", "Frame Length (×10us)"), base.DEC)
+f.sof_frame_len = ProtoField.uint16 ("gw_2022.sof.frame_len", T("帧长", "Frame Length"), base.DEC)
 f.sof_pb_count = ProtoField.uint8 ("gw_2022.sof.pb_count", T("物理块个数", "PB Count"), base.DEC, nil, 0xF0)
 f.sof_symbol_cnt = ProtoField.uint16 ("gw_2022.sof.symbol_cnt", T("符号数", "Symbol Count"), base.DEC)
 f.sof_bcast = ProtoField.bool ("gw_2022.sof.bcast", T("广播标志", "Broadcast Flag"), 8, nil, 0x02)
@@ -431,7 +446,14 @@ f.sof_encrypt = ProtoField.bool ("gw_2022.sof.encrypt", T("加密标志(预留)"
 f.sof_div_mode = ProtoField.uint8 ("gw_2022.sof.div_mode", T("分集拷贝基本模式", "Diversity Copy Basic Mode"), base.DEC, nil, 0xF0)
 f.sof_div_ext = ProtoField.uint8 ("gw_2022.sof.div_ext", T("分集拷贝扩展模式", "Diversity Copy Extended Mode"), base.DEC, nil, 0x0F)
 f.sof_pb_size = ProtoField.uint8 ("gw_2022.sof.pb_size", T("载荷PB块大小(无线)", "Payload PB Size (RF)"), base.DEC, nil, 0xF0)
-f.sof_mcs = ProtoField.uint8 ("gw_2022.sof.mcs", T("MCS(无线)", "MCS (RF)"), base.DEC, nil, 0x0F)
+f.sof_mcs = ProtoField.uint8 ("gw_2022.sof.mcs", T("MCS(无线)", "MCS (RF)"), base.DEC, mcs_vals, 0xF0)
+f.sof_rsv = ProtoField.uint16 ("gw_2022.sof.rsv", T("保留", "Reserved"), base.HEX)
+f.sof_rsv4 = ProtoField.uint8 ("gw_2022.sof.rsv4", T("保留", "Reserved"), base.HEX, nil, 0x0F)
+f.beacon_mcs = ProtoField.uint8 ("gw_2022.beacon.mcs", T("MCS(无线)", "MCS (RF)"), base.DEC, mcs_vals, 0xF0)
+f.beacon_pbcode = ProtoField.uint8 ("gw_2022.beacon.pbcode", T("载荷PB大小(无线)", "Payload PB Size (RF)"), base.DEC, nil, 0x0F)
+f.beacon_rsv1 = ProtoField.uint8 ("gw_2022.beacon.rsv1", T("保留", "Reserved"), base.HEX, nil, 0xF0)
+f.beacon_rsv_b11 = ProtoField.uint8 ("gw_2022.beacon.rsv_b11", T("保留", "Reserved"), base.HEX)
+f.beacon_vf_rsv2 = ProtoField.uint8 ("gw_2022.beacon.vf.rsv2", T("保留", "Reserved"), base.HEX, nil, 0x0F)
 
 -- SACK 帧可变区域 (表23/34)
 f.sack_recv_result = ProtoField.uint8 ("gw_2022.sack.recv_result", T("接收结果", "Receive Result"), base.DEC, nil, 0x0F)
@@ -743,7 +765,8 @@ gw.fields = {
     f.ent_sb_csma_start, f.ent_sb_csma_len,
     f.sof_src_tei, f.sof_dst_tei, f.sof_lid, f.sof_frame_len, f.sof_pb_count,
     f.sof_symbol_cnt, f.sof_bcast, f.sof_retrans, f.sof_encrypt,
-    f.sof_div_mode, f.sof_div_ext, f.sof_pb_size, f.sof_mcs,
+    f.sof_div_mode, f.sof_div_ext, f.sof_pb_size, f.sof_mcs, f.sof_rsv, f.sof_rsv4,
+    f.beacon_mcs, f.beacon_pbcode, f.beacon_rsv1, f.beacon_rsv_b11, f.beacon_vf_rsv2,
     f.sack_recv_result, f.sack_recv_status, f.sack_src_tei, f.sack_dst_tei,
     f.sack_pb_count, f.sack_chan_qual, f.sack_site_load, f.sack_ext_type,
     f.coord_duration, f.coord_bw_offset, f.coord_nbr_nid, f.coord_rf_ch,
@@ -947,31 +970,53 @@ local function sof_pb_size(tmi, tmi_ext)
 end
 
 -- 信标帧可变区域 (表17 载波, 起始于 FCH 字节4)
-local function dissect_beacon_vf(tvb, tree)
+local function dissect_beacon_vf(tvb, tree, is_rf)
     local bts_raw = tvb(4, 4):le_uint()
     tree:add(f.beacon_bts, tvb(4, 4), bts_raw)
     -- NTB: 25MHz时钟, 40ns/tick, 换算秒 = NTB / 25e6
     tree:add(f.beacon_bts_sec, tvb(4, 4), bts_raw / 25000000.0)
     add_val(tree, f.beacon_src_tei, tvb, 8, 2, read_bits(tvb, 8*8, 12))
-    tree:add(f.beacon_div_mode, tvb(9, 1))
-    add_val(tree, f.beacon_symbol_cnt, tvb, 10, 2, read_bits(tvb, 10*8, 9))
-    tree:add(f.beacon_phase, tvb(11, 1))
-    tree:add(f.beacon_vf_rsv, tvb(11, 1))       -- 字节11 bit3-7 保留
+    if is_rf then
+        -- 无线信标(表27): MCS(9,4,4) + 载荷PB大小(10,0,4) + 保留(10,4,4)/(11,0,8)/(12,0,4)
+        tree:add(f.beacon_mcs, tvb(9, 1))
+        tree:add(f.beacon_pbcode, tvb(10, 1))
+        tree:add(f.beacon_rsv1, tvb(10, 1))
+        tree:add(f.beacon_rsv_b11, tvb(11, 1))
+        tree:add(f.beacon_vf_rsv2, tvb(12, 1))
+    else
+        -- 载波信标(表17): 分集拷贝基本模式(9,4,4) + 符号数(10,0,9) + 相线(11,1,2) + 保留(11,3,9)
+        tree:add(f.beacon_div_mode, tvb(9, 1))
+        add_val(tree, f.beacon_symbol_cnt, tvb, 10, 2, read_bits(tvb, 10*8, 9))
+        tree:add(f.beacon_phase, tvb(11, 1))
+        tree:add(f.beacon_vf_rsv, tvb(11, 1))       -- 字节11 bit3-7 保留
+        tree:add(f.beacon_vf_rsv2, tvb(12, 1))      -- 字节12 bit0-3 保留
+    end
 end
 
--- SOF 帧可变区域 (表19 载波, 起始于 FCH 字节4)
-local function dissect_sof_vf(tvb, tree)
+-- SOF 帧可变区域 (起始于 FCH 字节4; 载波 表19 / 无线 表30)
+local function dissect_sof_vf(tvb, tree, is_rf)
     add_val(tree, f.sof_src_tei, tvb, 4, 2, read_bits(tvb, 4*8, 12))
     add_val(tree, f.sof_dst_tei, tvb, 5, 2, read_bits(tvb, 5*8+4, 12))
     tree:add(f.sof_lid, tvb(7, 1))
     add_val(tree, f.sof_frame_len, tvb, 8, 2, read_bits(tvb, 8*8, 12))
-    tree:add(f.sof_pb_count, tvb(9, 1))
-    add_val(tree, f.sof_symbol_cnt, tvb, 10, 2, read_bits(tvb, 10*8, 9))
-    tree:add(f.sof_bcast, tvb(11, 1))
-    tree:add(f.sof_retrans, tvb(11, 1))
-    tree:add(f.sof_encrypt, tvb(11, 1))
-    tree:add(f.sof_div_mode, tvb(11, 1))
-    tree:add(f.sof_div_ext, tvb(12, 1))
+    if is_rf then
+        -- 无线 SOF(表30): 载荷PB大小(9,4,4) + 保留(10,0,9) + 标志(字节11低4b) + MCS(11,4,4) + 保留(12,0,4)
+        tree:add(f.sof_pb_size, tvb(9, 1))
+        add_val(tree, f.sof_rsv, tvb, 10, 2, read_bits(tvb, 10*8, 9))
+        tree:add(f.sof_bcast, tvb(11, 1))
+        tree:add(f.sof_retrans, tvb(11, 1))
+        tree:add(f.sof_encrypt, tvb(11, 1))
+        tree:add(f.sof_mcs, tvb(11, 1))
+        tree:add(f.sof_rsv4, tvb(12, 1))
+    else
+        tree:add(f.sof_pb_count, tvb(9, 1))
+        add_val(tree, f.sof_symbol_cnt, tvb, 10, 2, read_bits(tvb, 10*8, 9))
+        tree:add(f.sof_bcast, tvb(11, 1))
+        tree:add(f.sof_retrans, tvb(11, 1))
+        tree:add(f.sof_encrypt, tvb(11, 1))
+        tree:add(f.sof_div_mode, tvb(11, 1))
+        tree:add(f.sof_div_ext, tvb(12, 1))
+    end
 end
 
 -- SACK 帧可变区域 (表23 载波, 起始于 FCH 字节4)
@@ -1753,9 +1798,9 @@ function gw.dissector(tvb, pinfo, tree)
 
     local vf_tree = fc_tree:add(f.fc_vf, tvb(4, 9))
     if dt == 0 then
-        dissect_beacon_vf(tvb, vf_tree)
+        dissect_beacon_vf(tvb, vf_tree, is_rf)
     elseif dt == 1 then
-        dissect_sof_vf(tvb, vf_tree)
+        dissect_sof_vf(tvb, vf_tree, is_rf)
     elseif dt == 2 then
         dissect_sack_vf(tvb, vf_tree)
     elseif dt == 3 then
@@ -1773,14 +1818,19 @@ function gw.dissector(tvb, pinfo, tree)
     -- 信标帧载荷 (dt=0)
     if dt == 0 and tvb:len() > 16 then
         -- 信标物理块无物理块头, 载荷直接跟在 FCH 后
-        local tmi = read_bits(tvb, 9*8+4, 4)
-        local bpbsize = beacon_pb_size(tmi)
+        -- 块大小: 载波由 TMI 定(表17); 无线由载荷PB大小码(10,0,4)查表29
+        local bpbsize
+        if is_rf then
+            bpbsize = rf_pb_size(read_bits(tvb, 10*8, 4))
+        else
+            bpbsize = beacon_pb_size(read_bits(tvb, 9*8+4, 4))
+        end
         if bpbsize > 0 and 16 + bpbsize > tvb:len() then
-            -- 捕获截断: 帧长低于 TMI 对应物理块, 仅提示不展开(避免逐字段越界)
+            -- 捕获截断: 帧长低于对应信标物理块, 仅提示不展开(避免逐字段越界)
             root:add_expert_info(PI_MALFORMED, PI_WARN,
-                string.format(T("帧长 %d B 低于 TMI=%d 对应信标物理块 %d B(可能截断)",
-                                "Frame %d B shorter than TMI=%d beacon PB %d B (truncated?)"),
-                              tvb:len(), tmi, bpbsize))
+                string.format(T("帧长 %d B 低于信标物理块 %d B(可能截断)",
+                                "Frame %d B shorter than beacon PB %d B (truncated?)"),
+                              tvb:len(), bpbsize))
         else
             -- 精简信标标志在载荷首字节 bit4
             local simple = band(tvb(16, 1):uint(), 0x10) ~= 0
@@ -1794,11 +1844,18 @@ function gw.dissector(tvb, pinfo, tree)
 
     -- SOF 帧载荷: 物理块 -> MAC 帧 (dt=1)
     if dt == 1 and tvb:len() > 16 then
-        -- 分集拷贝模式 → PB 块大小 (5.2.5.3 分片规格)
-        local tmi = read_bits(tvb, 11*8+4, 4)
-        local tmi_ext = read_bits(tvb, 12*8, 4)
-        local pb_count = read_bits(tvb, 9*8+4, 4)
-        local pbsz = sof_pb_size(tmi, tmi_ext)
+        -- PB 块大小: 载波由分集拷贝模式(TMI/TMI_EXT)定; 无线固定 1 块,
+        --   块大小由载荷PB大小码(9,4,4)查表29, 码>5 为保留值(pbsz=-1, 不分段)
+        local pb_count, pbsz
+        if is_rf then
+            pb_count = 1
+            pbsz = rf_pb_size(read_bits(tvb, 9*8+4, 4))
+        else
+            local tmi = read_bits(tvb, 11*8+4, 4)
+            local tmi_ext = read_bits(tvb, 12*8, 4)
+            pb_count = read_bits(tvb, 9*8+4, 4)
+            pbsz = sof_pb_size(tmi, tmi_ext)
+        end
 
         -- 逐 PB 块解析: 头(1B) + 体(pbsz-4) + CRC24(3B)
         -- MAC 帧解析基准: 多块时 MSDU 跨物理块(中间夹块尾CRC24/下块头),
