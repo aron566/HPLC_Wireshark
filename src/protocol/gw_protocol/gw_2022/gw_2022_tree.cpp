@@ -16,6 +16,15 @@ struct I18nReg {
         trl::register_en("重传报文", "retransmitted frame");
         trl::register_en("非重传报文", "non-retransmitted frame");
         trl::register_en("预留信息段", "reserved for future encryption");
+        trl::register_en("保留", "Reserved");
+        // 无线 MCS 释义(表28:分集次数/调制方式/码率)
+        trl::register_en("分集4次 BPSK 码率1/2", "diversity 4, BPSK, code rate 1/2");
+        trl::register_en("分集2次 BPSK 码率1/2", "diversity 2, BPSK, code rate 1/2");
+        trl::register_en("分集2次 QPSK 码率1/2", "diversity 2, QPSK, code rate 1/2");
+        trl::register_en("分集1次 QPSK 码率1/2", "diversity 1, QPSK, code rate 1/2");
+        trl::register_en("分集1次 QPSK 码率4/5", "diversity 1, QPSK, code rate 4/5");
+        trl::register_en("分集1次 16QAM 码率1/2", "diversity 1, 16QAM, code rate 1/2");
+        trl::register_en("分集1次 16QAM 码率4/5", "diversity 1, 16QAM, code rate 4/5");
     }
 };
 const I18nReg g_i18n_reg_gw_tree;
@@ -120,7 +129,18 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             11, 3, 1);
         if (e.meta.is_rf) {
             // 无线(表30):字节11 bit4-7 = MCS(表28),字节12 bit0-3 = 保留
-            tree_add_bit_field(sof, "MCS", QString::number(e.mpdu.tmi), 11, 4, 4);
+            // 表28 MCS 取值:0-6 为分集次数/调制方式/码率组合,7 以上保留
+            static const char* const kMcsDesc[] = {
+                "分集4次 BPSK 码率1/2", "分集2次 BPSK 码率1/2",
+                "分集2次 QPSK 码率1/2", "分集1次 QPSK 码率1/2",
+                "分集1次 QPSK 码率4/5", "分集1次 16QAM 码率1/2",
+                "分集1次 16QAM 码率4/5",
+            };
+            const quint8 mcs = e.mpdu.tmi;
+            const QString mcs_desc = (mcs <= 6) ? trl::L(kMcsDesc[mcs])
+                                                : trl::L("保留");
+            tree_add_bit_field(sof, "MCS",
+                QStringLiteral("%1 - %2").arg(mcs).arg(mcs_desc), 11, 4, 4);
             tree_add_bit_field(sof, "Reserved", QString::number(e.mpdu.tmi_ext), 12, 0, 4);
         } else {
             tree_add_bit_field(sof, "TMI", QString::number(e.mpdu.tmi), 11, 4, 4);
