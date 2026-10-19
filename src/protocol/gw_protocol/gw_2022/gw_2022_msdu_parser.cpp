@@ -814,7 +814,10 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
             g.rel_start = content_abs; g.rel_len = elen;
             if (content.size() < 1) break;
             const quint8 combo = (quint8)get_bits(content, 0, 0, 4);
-            if (combo > 9) break;
+            if (combo > 9) {  // 组合类型越界(表129 仅 0-9):内容 hex 兜底,避免静默丢弃
+                g.value = QString(content.toHex(' '));
+                break;
+            }
             const RfdlChCombo& cb = kRfdlNonBitmap[combo];
             const int entry_bits = 12 + cb.rcv + cb.snr + cb.rssi;
             const int total_bits = content.size() * 8;  // 内容绝对末位(邻居自 bit8 起)
@@ -832,7 +835,10 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
             g.rel_start = content_abs; g.rel_len = elen;
             if (content.size() < 2) break;
             const quint8 combo = (quint8)get_bits(content, 0, 0, 4);
-            if (combo > 10) break;
+            if (combo > 10) {  // 组合类型越界(表137 仅 0-10):内容 hex 兜底,避免静默丢弃
+                g.value = QString(content.toHex(' '));
+                break;
+            }
             const RfdlChCombo& cb = kRfdlBitmap[combo];
             const int entry_bits = cb.rcv + cb.snr + cb.rssi;
             int off = 1;   // 跳过组合类型字节
@@ -1767,6 +1773,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                     if (!ch.name.startsWith(QStringLiteral("ChipManufacID")))
                         continue;
                     quint16 v = (quint16)get_bits(b, 0, 0, 16);
+                    // 表110 芯片厂商 ID:0x06 与 0x13 均为 "RS"(规约原文如此,非笔误)
                     static const char* mf[] = {
                         "Reserved", "HS", "ES", "TC", "LH", "HT", "RS", "SW", "SC",
                         "YM", "QJ", "HZ", "ZC", "SP", "PE", "NR", "SL", "MT", "SI", "RS", "XY"};

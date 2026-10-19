@@ -109,7 +109,9 @@ int main(int argc, char* argv[]) {
     QByteArray frame2 = make_frame_bytes(0x0B, 0x00, payload2);
     
     // Write combined test bin
-    QString out_path = "D:\\code\\gitlab\\HPLC_HRF_GW\\monitor\\BPLC_STA_QtMonitor\\samples\\zero_cross_tei_test.bin";
+    // 输出路径:argv[1] 指定,否则写当前目录(跨平台,勿写死 Windows 盘符)
+    QString out_path = (argc > 1) ? QString::fromLocal8Bit(argv[1])
+                                  : QStringLiteral("zero_cross_tei_test.bin");
     QFile f(out_path);
     if (!f.open(QIODevice::WriteOnly)) {
         qCritical() << "Cannot write:" << out_path;
