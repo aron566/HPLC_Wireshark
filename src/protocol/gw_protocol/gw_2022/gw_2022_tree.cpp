@@ -58,9 +58,46 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         tree_add_bit_field(bcn, "TimeStamp", QStringLiteral("0x%1")
             .arg(e.mpdu.beacon_timestamp, 8, 16, QChar('0')), 4, 0, 32);
         tree_add_bit_field(bcn, "Source TEI", QString::number(e.mpdu.src_tei), 8, 0, 12);
-        tree_add_bit_field(bcn, "TMI", QString::number(e.mpdu.tmi), 9, 4, 4);
-        tree_add_bit_field(bcn, "Symbol Num", QString::number(e.mpdu.symbol_num), 10, 0, 9);
-        tree_add_bit_field(bcn, "Line", QString::number(e.mpdu.beacon_line), 11, 1, 2);
+        {
+            const quint8* d = reinterpret_cast<const quint8*>(e.raw_bytes.constData());
+            const int raw_sz = e.raw_bytes.size();
+            if (e.meta.is_rf) {
+                // 无线信标(表27):MCS(9,4,4,释义表28)/载荷PB大小(10,0,4,表29)/保留16b
+                static const char* const kMcsDesc[] = {
+                    "分集4次 BPSK 码率1/2", "分集2次 BPSK 码率1/2",
+                    "分集2次 QPSK 码率1/2", "分集1次 QPSK 码率1/2",
+                    "分集1次 QPSK 码率4/5", "分集1次 16QAM 码率1/2",
+                    "分集1次 16QAM 码率4/5",
+                };
+                const quint8 mcs = e.mpdu.tmi;
+                const QString mcs_desc = (mcs <= 6) ? trl::L(kMcsDesc[mcs])
+                                                    : trl::L("保留");
+                tree_add_bit_field(bcn, "MCS",
+                    QStringLiteral("%1 - %2").arg(mcs).arg(mcs_desc), 9, 4, 4);
+                {
+                    static const int kRfPbSize[] = {16, 40, 72, 136, 264, 520};
+                    const quint8 code = e.mpdu.pb_num_field;
+                    const QString desc = (code <= 5)
+                        ? QStringLiteral("%1B").arg(kRfPbSize[code]) : QStringLiteral("Reserved");
+                    tree_add_bit_field(bcn, "Payload PB Size",
+                        QStringLiteral("%1 - %2").arg(code).arg(desc), 10, 0, 4);
+                }
+                const quint32 rsv = (raw_sz > 12)
+                    ? (quint32)((d[10] >> 4) & 0x0F) | ((quint32)d[11] << 4)
+                        | ((quint32)(d[12] & 0x0F) << 12) : 0;
+                tree_add_bit_field(bcn, "Reserved",
+                    QStringLiteral("0x%1").arg(rsv, 4, 16, QChar('0')), 10, 4, 16);
+            } else {
+                tree_add_bit_field(bcn, "TMI", QString::number(e.mpdu.tmi), 9, 4, 4);
+                tree_add_bit_field(bcn, "Symbol Num", QString::number(e.mpdu.symbol_num), 10, 0, 9);
+                tree_add_bit_field(bcn, "Line", QString::number(e.mpdu.beacon_line), 11, 1, 2);
+                // 保留(表17:(11,3,5)+(12,0,4),共 9b)
+                const quint16 rsv = (raw_sz > 12)
+                    ? (quint16)(((d[11] >> 3) & 0x1F) | ((quint16)(d[12] & 0x0F) << 5)) : 0;
+                tree_add_bit_field(bcn, "Reserved",
+                    QStringLiteral("0x%1").arg(rsv, 3, 16, QChar('0')), 11, 3, 9);
+            }
+        }
         if (e.mpdu.pb_size > 0)
             tree_add_item(bcn, "PB Size", QString::number(e.mpdu.pb_size));
         // Beacon Load(载荷区,字段树由解析器生成)
