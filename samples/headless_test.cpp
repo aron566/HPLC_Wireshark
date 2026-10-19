@@ -54,7 +54,8 @@ int main(int argc, char* argv[]) {
     qRegisterMetaType<BplcFrame>("BplcFrame");
     qRegisterMetaType<PacketEntry>("PacketEntry");
 
-    QString path = "D:\\code\\gitlab\\HPLC_HRF_GW\\monitor\\BPLC_STA_QtMonitor\\samples\\replay_test.bin";
+    QString path = (argc > 1) ? QString::fromLocal8Bit(argv[1])
+                              : QStringLiteral("D:\\code\\gitlab\\HPLC_HRF_GW\\monitor\\BPLC_STA_QtMonitor\\samples\\replay_test.bin");
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
         qCritical() << "open failed:" << path;

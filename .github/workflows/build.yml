@@ -93,6 +93,15 @@ jobs:
           mingw32-make -j4
           ./release/roundtrip.exe roundtrip_test.bin roundtrip_test.txt
 
+      - name: NW MMe 截断边界回归
+        shell: bash
+        run: |
+          mkdir -p samples/nw_mme_build
+          cd samples/nw_mme_build
+          qmake ../nw_mme_test.pro CONFIG+=release CONFIG-=debug
+          mingw32-make -j4
+          ./release/nw_mme_test.exe
+
       - name: 构建 + 打包
         shell: bash
         run: bash scripts/package_ci.sh "${{ steps.ver.outputs.version }}"

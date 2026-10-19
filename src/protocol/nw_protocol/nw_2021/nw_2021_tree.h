@@ -15,12 +15,12 @@ enum class NW_2021_FrameType : quint8 {
     COORD  = 3,  ///< 网间协调帧
 };
 
-/// 南网 NW_2021 ACK 扩展帧类型(FCH byte12 bit0-3)
+/// 南网 NW_2021 ACK 扩展帧类型(FCH byte12 bit0-3,表21)
+/// @note 表21 仅定义 0/1/2,其余为保留;南网无国网 GW_2022 的"无线切频"扩展类型。
 enum class NW_2021_AckExtType : quint8 {
-    Normal        = 0,  ///< 常规 ACK
-    Search        = 1,  ///< 网络搜索
-    Sync          = 2,  ///< 同步
-    SwitchChannel = 3,  ///< 无线切频
+    Normal        = 0,  ///< 选择确认帧
+    Search        = 1,  ///< 网络搜索帧(抄控器)
+    Sync          = 2,  ///< 同步帧(抄控器)
 };
 
 /// 南网双模 2021 报批版字段树构建器

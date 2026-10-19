@@ -15,19 +15,16 @@ enum class GW_2022_FrameType : quint8 {
     COORD  = 3,  ///< 网间协调帧
 };
 
-/// 国网 GW_2022 ACK 扩展帧类型(FCH byte12 bit0-3)
+/// 国网 GW_2022 ACK 扩展帧类型(FCH byte12 bit0-3,表25/表36)
+/// @note 表25(载波)/表36(无线)均仅定义 0=选择确认帧,其余为保留;
+///       国网无南网 NW_2021 的"网络搜索/同步"扩展类型。
 enum class GW_2022_AckExtType : quint8 {
-    Normal        = 0,  ///< 常规 ACK
-    Search        = 1,  ///< 网络搜索
-    Sync          = 2,  ///< 同步
-    SwitchChannel = 3,  ///< 无线切频
+    Normal = 0,  ///< 选择确认帧
 };
 
-/// 国网 GW_2022 标准版本号(FCH byte12 bit4-7)
+/// 国网 GW_2022 标准版本号(FCH byte12 bit4-7,表16)
 enum class GW_2022_Version : quint8 {
-    RESERVED = 0,  ///< 保留
-    BPLC     = 1,  ///< 单模(BPLC)
-    SPLC     = 2,  ///< 双模(SPLC)
+    THIS_STANDARD = 0,  ///< 本标准(表16);其他=待演进
 };
 
 /// 国网 GW_2022 ACK 常规收包结果(RxRes,FCH byte4 bit0-3)

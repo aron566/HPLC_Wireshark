@@ -183,7 +183,7 @@ local dt_vals = {
     [2] = T("SACK 选择确认帧", "SACK"), [3] = T("网间协调帧", "Coordination"),
 }
 local network_type_vals = { [0] = T("用电信息采集系统", "Electricity usage information collection system") }
-local std_ver_vals = { [0] = T("本标准", "This standard") }
+local std_ver_vals = { [0] = T("本标准(Q/GDW 12087.42)", "This standard (Q/GDW 12087.42)") }
 local send_type_vals = {
     [0] = T("单播", "Unicast"), [1] = T("全网广播", "Full-network broadcast"), [2] = T("本地广播", "Local broadcast"), [3] = T("代理广播", "Proxy broadcast"),
 }
@@ -639,12 +639,14 @@ f.ncr_nbr_nid = ProtoField.uint24 ("gw_2022.ncr.nbr_nid", T("邻居网络号", "
 
 -- 过零NTB采集指示 (表104-106)
 f.zc_tei = ProtoField.uint16 ("gw_2022.zc.tei", T("TEI", "TEI"), base.DEC)
+f.zc_tei_rsv = ProtoField.uint8 ("gw_2022.zc.tei_rsv", T("保留(4bit)", "Reserved (4bit)"), base.HEX)
 f.zc_collect_site = ProtoField.uint8 ("gw_2022.zc.collect_site", T("采集站点", "Collect Site"), base.DEC, collect_site_vals)
 f.zc_collect_period = ProtoField.uint8 ("gw_2022.zc.collect_period", T("采集周期", "Collect Period"), base.DEC, collect_period_vals)
 f.zc_collect_cnt = ProtoField.uint8 ("gw_2022.zc.collect_cnt", T("采集数量", "Collect Count"), base.DEC)
 
 -- 过零NTB上报 (表107-108)
 f.zr_tei = ProtoField.uint16 ("gw_2022.zr.tei", T("TEI", "TEI"), base.DEC)
+f.zr_tei_rsv = ProtoField.uint8 ("gw_2022.zr.tei_rsv", T("保留(4bit)", "Reserved (4bit)"), base.HEX)
 f.zr_total_cnt = ProtoField.uint8 ("gw_2022.zr.total_cnt", T("告知总数量", "Report Total Count"), base.DEC)
 f.zr_ph1_cnt = ProtoField.uint8 ("gw_2022.zr.ph1_cnt", T("相线1差值告知数量", "Line 1 Diff Report Count"), base.DEC)
 f.zr_ph2_cnt = ProtoField.uint8 ("gw_2022.zr.ph2_cnt", T("相线2差值告知数量", "Line 2 Diff Report Count"), base.DEC)
@@ -697,7 +699,7 @@ f.lcrsp_seq = ProtoField.uint32 ("gw_2022.lcrsp.seq", T("路由请求序列号",
 -- 无线信道冲突上报 (表121-122)
 f.rfccr_cco_mac = ProtoField.ether ("gw_2022.rfccr.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
 f.rfccr_nbr_cnt = ProtoField.uint8 ("gw_2022.rfccr.nbr_cnt", T("邻居网络个数", "Neighbor Network Count"), base.DEC)
-f.rfccr_nbr_ch = ProtoField.uint8 ("gw_2022.rfccr.nbr_ch", T("邻居网络无线信道号", "Neighbor Network RF Channel"), base.DEC)
+f.rfccr_nbr_ch = ProtoField.uint8 ("gw_2022.rfccr.nbr_ch", T("冲突信道号", "Conflict Channel Number"), base.DEC)
 
 -- 无线发现列表 (表123-137)
 f.rfdl_sta_mac = ProtoField.ether ("gw_2022.rfdl.sta_mac", T("站点MAC地址", "STA MAC Address"))
@@ -783,8 +785,8 @@ gw.fields = {
     f.dl_rcv_cnt, f.dl_rcv_item,
     f.sr_tei, f.sr_sta_cnt, f.sr_sta_tei, f.sr_down_rate, f.sr_up_rate,
     f.ncr_cco_mac, f.ncr_nbr_cnt, f.ncr_nid_width, f.ncr_nbr_nid,
-    f.zc_tei, f.zc_collect_site, f.zc_collect_period, f.zc_collect_cnt,
-    f.zr_tei, f.zr_total_cnt, f.zr_ph1_cnt, f.zr_ph2_cnt, f.zr_ph3_cnt,
+    f.zc_tei, f.zc_tei_rsv, f.zc_collect_site, f.zc_collect_period, f.zc_collect_cnt,
+    f.zr_tei, f.zr_tei_rsv, f.zr_total_cnt, f.zr_ph1_cnt, f.zr_ph2_cnt, f.zr_ph3_cnt,
     f.zr_base_ntb, f.zr_ph1_diff, f.zr_ph2_diff, f.zr_ph3_diff,
     f.diag_vendor_id, f.diag_custom,
     f.rreq_version, f.rreq_seq, f.rreq_path_pref, f.rreq_payload_type, f.rreq_payload_len,
@@ -1091,8 +1093,9 @@ end
 
 -- 信标管理信息 (表44), 返回下一个 offset (填充区前位置)
 -- 条目长度语义(与 Qt beaconparser 一致):
---   长度字段值 len_raw = 头(1B) + 长度字段(1/2B) + 内容
---   内容长 = len_raw - 2 (普通) / len_raw - 3 (0xC0, 长度字段2B)
+--   长度字段值 len_raw = 头(1B) + 长度字段(1B/2B) + 内容
+--   长度字段位宽: etype 0x00-0xBF 为 1B, 0xC0-0xFF 为 2B (表46)
+--   内容长 = len_raw - (1 + len_bytes)
 local function dissect_beacon_mgmt_info(tvb, tree, off)
     if off >= tvb:len() then return off end
     tree:add(f.beacon_entry_cnt, tvb(off, 1))
@@ -1103,7 +1106,7 @@ local function dissect_beacon_mgmt_info(tvb, tree, off)
         local etype = tvb(pos, 1):uint()
         tree:add(f.beacon_ent_type, tvb(pos, 1))
         pos = pos + 1
-        -- 长度字段: 0xC0 及以上为 2 字节, 其余 1 字节 (小端)
+        -- 长度字段位宽: 0x00-0xBF 为 1B, 0xC0-0xFF 为 2B (表46)
         local len_bytes = (etype >= 0xC0) and 2 or 1
         if pos + len_bytes > tvb:len() then break end
         local len_raw = tvb(pos, len_bytes):le_uint()
@@ -1490,7 +1493,14 @@ end
 
 -- 过零NTB采集指示 (表104)
 local function dissect_zc_collect(tvb, tree, off)
-    add_val(tree, f.zc_tei, tvb, off, 2, read_bits(tvb, off*8, 12))
+    local raw16 = tvb(off, 2):le_uint()
+    local tei = band(raw16, 0x0FFF)
+    local rsv4 = band(bit.rshift(raw16, 12), 0x0F)
+    add_val(tree, f.zc_tei, tvb, off, 2, tei)
+    local rsv_item = tree:add(f.zc_tei_rsv, tvb(off, 2), rsv4)
+    if rsv4 ~= 0 then
+        rsv_item:add_expert_info(PI_PROTOCOL, PI_WARN, T("[非零保留位]", "[Non-zero reserved bits]"))
+    end
     tree:add(f.zc_collect_site, tvb(off+2, 1))
     tree:add(f.zc_collect_period, tvb(off+3, 1))
     tree:add(f.zc_collect_cnt, tvb(off+4, 1))
@@ -1498,7 +1508,14 @@ end
 
 -- 过零NTB上报 (表107)
 local function dissect_zc_report(tvb, tree, off)
-    add_val(tree, f.zr_tei, tvb, off, 2, read_bits(tvb, off*8, 12))
+    local raw16 = tvb(off, 2):le_uint()
+    local tei = band(raw16, 0x0FFF)
+    local rsv4 = band(bit.rshift(raw16, 12), 0x0F)
+    add_val(tree, f.zr_tei, tvb, off, 2, tei)
+    local rsv_item = tree:add(f.zr_tei_rsv, tvb(off, 2), rsv4)
+    if rsv4 ~= 0 then
+        rsv_item:add_expert_info(PI_PROTOCOL, PI_WARN, T("[非零保留位]", "[Non-zero reserved bits]"))
+    end
     tree:add(f.zr_total_cnt, tvb(off+2, 1))
     local ph1 = tvb(off+3, 1):uint()
     local ph2 = tvb(off+4, 1):uint()
@@ -1581,13 +1598,16 @@ local function dissect_lcrsp(tvb, tree, off)
     add_le(tree, f.lcrsp_seq, tvb, off+4, 4)
 end
 
--- 无线信道冲突上报 (表121)
+-- 无线信道冲突上报 (表121/122)
 local function dissect_rfccr(tvb, tree, off)
     tree:add(f.rfccr_cco_mac, tvb(off, 6))
     local cnt = tvb(off+6, 1):uint()
     tree:add(f.rfccr_nbr_cnt, tvb(off+6, 1))
+    -- 表122:邻居网络条目 = 每邻居 1 字节(该邻居无线信道号), 无 TEI/option
     for i = 0, cnt - 1 do
-        tree:add(f.rfccr_nbr_ch, tvb(off+7+i, 1))
+        local entry_off = off + 7 + i
+        if entry_off + 1 > tvb:len() then break end
+        tree:add(f.rfccr_nbr_ch, tvb(entry_off, 1))
     end
 end
 

@@ -528,8 +528,9 @@ static const FieldSpec kDiagnoseSpec[] = {
 static const int kDiagnoseSpecN = int(sizeof(kDiagnoseSpec) / sizeof(kDiagnoseSpec[0]));
 
 // ---- MMeZeroCrossNTBCollectInd (0x0B):固定 8B ----
+// 协议 L1533 表104: TEI=12bit(字节0 bit0-7 + 字节1 bit0-3), RSV=4bit(字节1 bit4-7)
 static const FieldSpec kZeroCrossCollectSpec[] = {
-    {"STATEI",            0, 0, 16, Fmt::DEC},
+    {"STATEI",            0, 0, 12, Fmt::DEC},
     {"RSV0",              1, 4, 4,  Fmt::DEC},
     {"NTBCollectionMode", 2, 0, 8,  Fmt::DEC},
     {"NTBCollectionPeriod", 3, 0, 8, Fmt::DEC},
@@ -557,9 +558,11 @@ static void annotate_route_loaddata(QVector<MsduFieldNode>& nodes,
     for (auto& n : nodes) {
         if (!n.name.startsWith(QStringLiteral("LoadDataType"))) continue;
         const int v = n.value.toInt();
+        // 负载数据类型(表112):0=未携带负载数据 1=传播路径列表 其他=保留 / 0=none,1=propagation path list,else reserved
         n.value = QStringLiteral("%1 - %2").arg(v).arg(
-            v == 1 ? QStringLiteral("LoadData included")
-                   : QStringLiteral("No LoadData"));
+            v == 0 ? QStringLiteral("No load data")
+          : v == 1 ? QStringLiteral("Propagation path list")
+                   : QStringLiteral("Reserved"));
     }
     if (b.size() < 8) return;
     const int len = (int)get_bits(b, 6, 0, 8);   // LoadDataLength
@@ -619,6 +622,260 @@ static const FieldSpec kMsduBaseSSpec[] = {
 };
 static const int kMsduBaseSSpecN = int(sizeof(kMsduBaseSSpec) / sizeof(kMsduBaseSSpec[0]));
 
+// ================= 无线发现列表(RFDL, 表123-137) =================
+// 单跳帧(MSDU_BASE_S)消息类型0 = 无线发现列表(表123),TLV 结构。
+// 参考:§5.1.1.4 单跳MAC帧头(表11) / §5.13.23 无线发现列表报文(表123-137)。
+
+/// 邻居节点信道信息组合类型字段位宽(表129 非位图版 / 表137 位图版)
+struct RfdlChCombo {
+    quint8 rcv;   ///< 接收率位宽(0/6/8)
+    quint8 snr;   ///< 平均信噪比位宽(0/4/6)
+    quint8 rssi;  ///< 信号强度位宽(0/4/6/8)
+};
+
+// 表129:非位图版(每条固定含 TEI 12b)
+static const RfdlChCombo kRfdlNonBitmap[] = {
+    {8,0,0}, {0,4,0}, {0,0,8}, {0,0,4}, {8,4,0},
+    {6,0,6}, {0,6,6}, {8,6,6}, {0,4,4}, {8,0,4},
+};
+// 表137:位图版(无 TEI,由位图索引定位)
+static const RfdlChCombo kRfdlBitmap[] = {
+    {8,0,0}, {0,4,0}, {0,0,8}, {0,0,4}, {8,4,0},
+    {8,0,8}, {0,6,6}, {8,6,6}, {8,4,4}, {0,4,4}, {8,0,4},
+};
+
+/// 信息单元类型名(表124)
+static QString rfdl_ie_name(quint8 t) {
+    switch (t) {
+    case 0: return QStringLiteral("Station Attribute");
+    case 1: return QStringLiteral("Station Route");
+    case 2: return QStringLiteral("Neighbor Ch Info (non-bitmap)");
+    case 3: return QStringLiteral("Neighbor Ch Info (bitmap)");
+    default: return QStringLiteral("Reserved");
+    }
+}
+
+/// 路由类型(表98):0 错误 1 同级 2 上级 3 代理主路径 4 上上级
+/// 经 trl::L 走 i18n(中/英),避免 QLatin1String 对 UTF-8 中文的误解码。
+static const char* kRfdlRouteType[] = {
+    "错误路由类型", "同级路由类型", "上级路由类型",
+    "代理主路径路由类型", "上上级路由类型"};
+
+// 站点属性信息(表126):14B 定长,字节对齐
+static const FieldSpec kRfdlAttrSpec[] = {
+    {"CCOMACAddr",       0, 0, 48, Fmt::MAC},
+    {"ProxyTEI",         6, 0, 12, Fmt::DEC},
+    {"Role",             7, 4, 4,  Fmt::DEC},
+    {"Level",            8, 0, 4,  Fmt::DEC},
+    {"RFHop",            8, 4, 4,  Fmt::DEC},
+    {"ProxyUpRcvRate",   9, 0, 8,  Fmt::DEC},
+    {"ProxyDownRcvRate", 10, 0, 8, Fmt::DEC},
+    {"MinRcvRate",       11, 0, 8, Fmt::DEC},
+    {"RFDLPeriod",       12, 0, 8, Fmt::DEC},
+    {"RcvAgingCycles",   13, 0, 8, Fmt::DEC},
+};
+static const int kRfdlAttrSpecN = int(sizeof(kRfdlAttrSpec)/sizeof(kRfdlAttrSpec[0]));
+
+/// 追加一个位域节点(c 内 bitpos 起的 bits 位;cbase_abs=c[0] 在 body 的绝对偏移)
+static void rfdl_bit_field(MsduFieldNode& parent, const char* name,
+                           const QByteArray& c, int bitpos, int bits,
+                           int cbase_abs, const QString& val) {
+    MsduFieldNode n;
+    n.name = QStringLiteral("%1 [%2b]").arg(QLatin1String(name)).arg(bits);
+    n.value = val;
+    n.rel_start = cbase_abs + bitpos / 8;
+    n.rel_len   = (bitpos % 8 + bits + 7) / 8;
+    parent.children.append(n);
+}
+
+/// 渲染一条邻居信道信息(位流内,自 bitpos 起),返回下一条起始位
+static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
+                               int bitpos, const RfdlChCombo& cb,
+                               int cbase_abs, bool has_tei) {
+    int bp = bitpos;
+    if (has_tei) {
+        const quint16 tei = (quint16)get_bits(c, bp / 8, bp % 8, 12);
+        rfdl_bit_field(parent, "TEI", c, bp, 12, cbase_abs, QString::number(tei));
+        bp += 12;
+    }
+    if (cb.rcv) {
+        const quint64 v = get_bits(c, bp / 8, bp % 8, cb.rcv);
+        // 表130:6b=实际/2, 8b=实际(单位 %)
+        const quint64 pct = (cb.rcv == 6) ? v * 2 : v;
+        rfdl_bit_field(parent, "RcvRate", c, bp, cb.rcv, cbase_abs,
+                       QStringLiteral("%1 (%2%)").arg(v).arg(pct));
+        bp += cb.rcv;
+    }
+    if (cb.snr) {
+        const quint64 v = get_bits(c, bp / 8, bp % 8, cb.snr);
+        rfdl_bit_field(parent, "SNR", c, bp, cb.snr, cbase_abs,
+                       QStringLiteral("0x%1").arg(v, 1, 16, QChar('0')));
+        bp += cb.snr;
+    }
+    if (cb.rssi) {
+        const quint64 v = get_bits(c, bp / 8, bp % 8, cb.rssi);
+        rfdl_bit_field(parent, "RSSI", c, bp, cb.rssi, cbase_abs,
+                       QStringLiteral("0x%1").arg(v, 1, 16, QChar('0')));
+        bp += cb.rssi;
+    }
+    return bp;
+}
+
+/// 解析无线发现列表(RFDL)载荷,挂到 out.tree;rfdl=载荷本身,rel_base=其在 body 中的偏移
+static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
+    const QByteArray d = rfdl;
+    if (d.size() < 7) { out.summary += QStringLiteral(" (RFDL truncated)"); return; }
+
+    // 表123 头:站点MAC 6B + 统计序号 1B
+    {
+        MsduFieldNode mac;
+        mac.name = QStringLiteral("STA MAC [48b]");
+        mac.value = mac_str(get_bits(d, 0, 0, 48));
+        mac.rel_start = rel_base; mac.rel_len = 6;
+        out.tree.append(mac);
+        MsduFieldNode seq;
+        seq.name = QStringLiteral("Seq [8b]");
+        seq.value = QString::number((quint8)d[6]);
+        seq.rel_start = rel_base + 6; seq.rel_len = 1;
+        out.tree.append(seq);
+    }
+
+    // TLV 循环:信息单元类型(7b)+长度类型(1b)+长度(1/2B)+内容
+    int pos = 7;
+    int ie_idx = 0;
+    while (pos + 1 < d.size()) {
+        const quint8 hdr = (quint8)d[pos];
+        const quint8 ie_type = hdr & 0x7F;         // 信息单元类型(bit0-6)
+        const bool  long_len = (hdr & 0x80) != 0;  // 长度类型(bit7,表125:0=1B 1=2B)
+        {
+            MsduFieldNode t;
+            t.name = QStringLiteral("IE[%1] Type [7b]").arg(ie_idx);
+            t.value = QStringLiteral("%1 - %2").arg(ie_type).arg(rfdl_ie_name(ie_type));
+            t.rel_start = rel_base + pos; t.rel_len = 1;
+            out.tree.append(t);
+        }
+        ++pos;
+        if (pos >= d.size()) break;
+        const int len_bytes = long_len ? 2 : 1;
+        if (pos + len_bytes > d.size()) break;
+        quint32 elen = (quint8)d[pos];
+        if (len_bytes == 2) elen = ((quint32)(quint8)d[pos] << 8) | (quint8)d[pos + 1];
+        {
+            MsduFieldNode l;
+            l.name = QStringLiteral("IE[%1] Len [%2b]").arg(ie_idx).arg(len_bytes * 8);
+            l.value = QString::number(elen);
+            l.rel_start = rel_base + pos; l.rel_len = len_bytes;
+            out.tree.append(l);
+        }
+        pos += len_bytes;
+        if (pos + elen > d.size()) break;
+        const QByteArray content = d.mid(pos, elen);
+        const int content_abs = rel_base + pos;
+
+        // 按信息单元类型解析内容(表124)
+        switch (ie_type) {
+        case 0: {  // 站点属性信息(表126,14B 定长)
+            auto& g = group(out.tree, QStringLiteral("IE[%1] Station Attribute [%2B]").arg(ie_idx).arg(elen));
+            g.rel_start = content_abs; g.rel_len = elen;
+            add_fields(g.children, content, 0, kRfdlAttrSpec, kRfdlAttrSpecN, content_abs);
+            translate_enum(g.children, "Role", kRole, 5);
+            annotate_unit(g.children, "ProxyUpRcvRate", QStringLiteral("%"));
+            annotate_unit(g.children, "ProxyDownRcvRate", QStringLiteral("%"));
+            annotate_unit(g.children, "MinRcvRate", QStringLiteral("%"));
+            annotate_unit(g.children, "RFDLPeriod", QStringLiteral("s"));
+            break;
+        }
+        case 1: {  // 站点路由信息(表127):每条 16b = TEI 12b + 路由类型 4b
+            auto& g = group(out.tree, QStringLiteral("IE[%1] Station Route [%2B]").arg(ie_idx).arg(elen));
+            g.rel_start = content_abs; g.rel_len = elen;
+            const int n = elen / 2;
+            for (int i = 0; i < n; ++i) {
+                const quint16 v = (quint16)get_bits(content, i * 2, 0, 16);
+                const quint16 tei = v & 0x0FFF;
+                const quint8  rt  = (quint8)((v >> 12) & 0x0F);
+                auto& e = group(g.children, QStringLiteral("Route[%1]").arg(i));
+                e.rel_start = content_abs + i * 2; e.rel_len = 2;
+                MsduFieldNode tn;
+                tn.name = QStringLiteral("TEI [12b]");
+                tn.value = QString::number(tei);
+                tn.rel_start = content_abs + i * 2; tn.rel_len = 2;
+                e.children.append(tn);
+                MsduFieldNode rn;
+                rn.name = QStringLiteral("RouteType [4b]");
+                rn.value = (rt < 5) ? QStringLiteral("%1 - %2").arg(rt).arg(trl::L(kRfdlRouteType[rt]))
+                                    : QStringLiteral("%1 - %2").arg(rt).arg(trl::L("保留"));
+                rn.rel_start = content_abs + i * 2 + 1; rn.rel_len = 1;
+                e.children.append(rn);
+            }
+            break;
+        }
+        case 2: {  // 邻居信道信息非位图版(表128/129)
+            auto& g = group(out.tree, QStringLiteral("IE[%1] Neighbor Ch Info [%2B]").arg(ie_idx).arg(elen));
+            g.rel_start = content_abs; g.rel_len = elen;
+            if (content.size() < 1) break;
+            const quint8 combo = (quint8)get_bits(content, 0, 0, 4);
+            if (combo > 9) {  // 组合类型越界(表129 仅 0-9):内容 hex 兜底,避免静默丢弃
+                g.value = QString(content.toHex(' '));
+                break;
+            }
+            const RfdlChCombo& cb = kRfdlNonBitmap[combo];
+            const int entry_bits = 12 + cb.rcv + cb.snr + cb.rssi;
+            const int total_bits = content.size() * 8;  // 内容绝对末位(邻居自 bit8 起)
+            int bitpos = 8;   // 跳过组合类型字节
+            int i = 0;
+            while (bitpos + entry_bits <= total_bits) {
+                auto& e = group(g.children, QStringLiteral("Neighbor[%1]").arg(i));
+                bitpos = rfdl_neighbour_bits(e, content, bitpos, cb, content_abs, /*has_tei=*/true);
+                ++i;
+            }
+            break;
+        }
+        case 3: {  // 邻居信道信息位图版(表136/137)
+            auto& g = group(out.tree, QStringLiteral("IE[%1] Neighbor Ch Bitmap [%2B]").arg(ie_idx).arg(elen));
+            g.rel_start = content_abs; g.rel_len = elen;
+            if (content.size() < 2) break;
+            const quint8 combo = (quint8)get_bits(content, 0, 0, 4);
+            if (combo > 10) {  // 组合类型越界(表137 仅 0-10):内容 hex 兜底,避免静默丢弃
+                g.value = QString(content.toHex(' '));
+                break;
+            }
+            const RfdlChCombo& cb = kRfdlBitmap[combo];
+            const int entry_bits = cb.rcv + cb.snr + cb.rssi;
+            int off = 1;   // 跳过组合类型字节
+            int k = 0;
+            while (off + 4 <= content.size()) {
+                const quint16 start_tei = (quint16)get_bits(content, off, 0, 12);
+                const quint8  bmp_size  = (quint8)content[off + 2];
+                if (off + 3 + bmp_size > content.size()) break;
+                const QByteArray bmp = content.mid(off + 3, bmp_size);
+                int nk = 0;
+                for (int i = 0; i < bmp.size(); ++i)
+                    for (int j = 0; j < 8; ++j)
+                        if (bmp[i] & (1u << j)) ++nk;
+                auto& kg = group(g.children, QStringLiteral("Group[%1] StartTEI=%2").arg(k).arg(start_tei));
+                kg.rel_start = content_abs + off; kg.rel_len = 3 + bmp_size + (nk * entry_bits + 7) / 8;
+                int bitpos = (off + 3 + bmp_size) * 8;  // 邻居信道信息起始位
+                for (int i = 0; i < nk; ++i) {
+                    auto& e = group(kg.children, QStringLiteral("Neighbor[%1]").arg(i));
+                    bitpos = rfdl_neighbour_bits(e, content, bitpos, cb, content_abs, /*has_tei=*/false);
+                }
+                off = off + 3 + bmp_size + (nk * entry_bits + 7) / 8;
+                ++k;
+            }
+            break;
+        }
+        default: {  // 保留/未知类型:整段 hex
+            auto& g = group(out.tree, QStringLiteral("IE[%1] Reserved [%2B]").arg(ie_idx).arg(elen),
+                            QString(content.toHex(' ')));
+            g.rel_start = content_abs; g.rel_len = elen;
+            break;
+        }
+        }
+        pos += elen;
+        ++ie_idx;
+    }
+}
+
 // ================= 主解析 =================
 MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
     MsduInfo out;
@@ -644,12 +901,13 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
         if (msdu_len > body.size() - 4) msdu_len = body.size() - 4;  // 防声明长度越界
         QByteArray msdu_body = body.mid(4, msdu_len);
         if (static_cast<GW_2022_MsduSType>(msdu_type) == GW_2022_MsduSType::FIND_LIST) {
+            // 消息类型0 = 无线发现列表(表123),按 TLV 逐字段解析
             out.summary = QStringLiteral("Find List Message");
+            parse_rfdl(out, msdu_body, 4);   // RFDL 载荷自单跳头(4B)之后
         } else {
             out.summary = QStringLiteral("Simple MSDU type %1").arg(msdu_type);
         }
         out.present = true;
-        // 简头暂不深解析子字段(回放数据为 0,不出现)
         return out;
     }
 
@@ -971,6 +1229,14 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                     }
                 }
                 apply_dicts(root.children);
+                // 代理类型(表81):0=站点动态选择的代理,其他保留 / 0=station-dynamic proxy, else reserved
+                for (auto& ch : root.children) {
+                    if (ch.name.startsWith(QStringLiteral("ProxyType"))) {
+                        quint8 pt = (quint8)get_bits(b, 14, 0, 8);
+                        ch.value = QStringLiteral("%1 - %2").arg(pt).arg(
+                            pt == 0 ? trl::L("站点动态选择的代理") : trl::L("保留"));
+                    }
+                }
                 break;
             case GW_2022_MMeType::MME_CHANGE_PROXY_BITMAP_CNF: {
                 // MMeChangeProxyBitMapCnf:固定头到 b[20],随后 BitMap(BitMapSize 字节)
@@ -1321,8 +1587,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                         quint16 e = (quint16)get_bits(b, off, 0, 16);
                         MsduFieldNode cn;
                         cn.name = QStringLiteral("Child[%1]").arg(i);
-                        cn.value = QStringLiteral("TEI=%1 LinkType=%2")
-                                       .arg(e & 0x0FFF).arg((e >> 12) & 0x01);
+                        cn.value = QStringLiteral("TEI=%1").arg(e & 0x0FFF);  // 表87:子站点=TEI12b+保留4b,无链路类型
                         cn.rel_start = head_size + 4 + off;
                         cn.rel_len   = 2;
                         cg.children.append(cn);
@@ -1335,6 +1600,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 // MMeLeaveInd(离线指示):固定 16B + 离线站点 MAC 6B×N
                 add_fields(root.children, b, 0, kLeaveIndSpec, kLeaveIndSpecN,
                            head_size + 4);
+                annotate_unit(root.children, "LeaveDelayTime", QStringLiteral("s"));  // 表91:延迟时间,单位秒 / seconds
                 for (auto& ch : root.children) {
                     if (!ch.name.startsWith(QStringLiteral("Reason"))) continue;
                     quint16 r = (quint16)get_bits(b, 0, 0, 16);
@@ -1395,22 +1661,21 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 break;
             }
             case GW_2022_MMeType::MME_RF_CHANNEL_CONFLICT_REPORT: {
-                // MMeRFChannelConflictReport(无线信道冲突上报):CCO MAC + 邻居数;
-                // 随后 Count 字节信道 + Count 字节 option(每邻居一对)
+                // MMeRFChannelConflictReport(无线信道冲突上报,表121/122):CCO MAC + 邻居数;
+                // 邻居网络条目 = 每邻居 1 字节(该邻居无线信道号)
                 add_fields(root.children, b, 0, kRFChannelConflictSpec,
                            kRFChannelConflictSpecN, head_size + 4);
                 int cnt = (int)get_bits(b, 6, 0, 8);
                 int ch_off = 7;
-                if (cnt > 0 && ch_off + cnt * 2 <= b.size()) {
+                if (cnt > 0 && ch_off + cnt <= b.size()) {
                     auto& rg = group(root.children,
                                      QStringLiteral("NeighbourRFNetworkList [%1]")
                                          .arg(cnt));
                     for (int i = 0; i < cnt; ++i) {
                         quint8 ch = (quint8)b[ch_off + i];
-                        quint8 op = (quint8)b[ch_off + cnt + i];
                         MsduFieldNode nd;
                         nd.name  = QStringLiteral("Neighbour[%1]").arg(i);
-                        nd.value = QStringLiteral("ch=%1 op=%2").arg(ch).arg(op);
+                        nd.value = QStringLiteral("ch=%1").arg(ch);
                         nd.rel_start = head_size + 4 + ch_off + i;
                         nd.rel_len   = 1;
                         rg.children.append(nd);
@@ -1451,8 +1716,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                         quint16 e = (quint16)get_bits(b, off, 0, 16);
                         MsduFieldNode sn;
                         sn.name  = QStringLiteral("UnReachableSTA[%1]").arg(i);
-                        sn.value = QStringLiteral("TEI=%1 LinkType=%2")
-                                       .arg(e & 0x0FFF).arg((e >> 12) & 0x01);
+                        sn.value = QStringLiteral("TEI=%1").arg(e & 0x0FFF);  // 表117:不可达站点=2B TEI,无链路类型
                         sn.rel_start = head_size + 4 + off;
                         sn.rel_len   = 2;
                         ug.children.append(sn);
@@ -1480,8 +1744,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                         quint16 e = (quint16)get_bits(b, off, 0, 16);
                         MsduFieldNode sn;
                         sn.name  = QStringLiteral("AckSTA[%1]").arg(i);
-                        sn.value = QStringLiteral("TEI=%1 LinkType=%2")
-                                       .arg(e & 0x0FFF).arg((e >> 12) & 0x01);
+                        sn.value = QStringLiteral("TEI=%1").arg(e & 0x0FFF);  // 表119:确认站点=2B TEI,无链路类型
                         sn.rel_start = head_size + 4 + off;
                         sn.rel_len   = 2;
                         ag.children.append(sn);
@@ -1505,19 +1768,29 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 break;
             }
             case GW_2022_MMeType::MME_DIAGNOSE: {
-                // MMeDiagnose(网络诊断):芯片厂商 ID(1-HS 2-ES 3-TC 4-LH
-                // 5-HT 6-RS 7-SW 8-SC,0 与其它保留)
+                // MMeDiagnose(网络诊断,表109):芯片厂商 ID(表110,0x00-0x14)+ 厂家自定义(可变长)
                 add_fields(root.children, b, 0, kDiagnoseSpec, kDiagnoseSpecN,
                            head_size + 4);
                 for (auto& ch : root.children) {
                     if (!ch.name.startsWith(QStringLiteral("ChipManufacID")))
                         continue;
                     quint16 v = (quint16)get_bits(b, 0, 0, 16);
+                    // 表110 芯片厂商 ID:0x06 与 0x13 均为 "RS"(规约原文如此,非笔误)
                     static const char* mf[] = {
-                        "Reserved", "HS", "ES", "TC", "LH", "HT", "RS", "SW", "SC"};
-                    ch.value = (v <= 8)
+                        "Reserved", "HS", "ES", "TC", "LH", "HT", "RS", "SW", "SC",
+                        "YM", "QJ", "HZ", "ZC", "SP", "PE", "NR", "SL", "MT", "SI", "RS", "XY"};
+                    ch.value = (v <= 0x14)
                         ? QStringLiteral("%1 - %2").arg(v).arg(QLatin1String(mf[v]))
-                        : QString::number(v);
+                        : QStringLiteral("%1 - Reserved").arg(v);
+                }
+                // 厂家自定义区(表109:byte2 起,可变长)——此前不可见,现以 hex 呈现
+                if (b.size() > 2) {
+                    MsduFieldNode d;
+                    d.name = QStringLiteral("Vendor Data [%1B]").arg(b.size() - 2);
+                    d.value = QString(b.mid(2).toHex(' '));
+                    d.rel_start = head_size + 4 + 2;
+                    d.rel_len   = b.size() - 2;
+                    root.children.append(d);
                 }
                 break;
             }
@@ -1527,16 +1800,20 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                            kZeroCrossCollectSpecN, head_size + 4);
                 for (auto& ch : root.children) {
                     if (ch.name.startsWith(QStringLiteral("NTBCollectionMode"))) {
+                        // 采集站点(表105):0=指定单站点 1=指定全网站点 其他=保留 / 0=single,1=all,else reserved
                         quint8 m = (quint8)get_bits(b, 2, 0, 8);
                         ch.value = QStringLiteral("%1 - %2").arg(m).arg(
-                            m == 1 ? QStringLiteral("All STAs collect zero-cross NTB")
-                                   : QStringLiteral("Appointed STA (STATEI) collects"));
+                            m == 0 ? QStringLiteral("Appointed single STA")
+                          : m == 1 ? QStringLiteral("All STAs collect zero-cross NTB")
+                                   : QStringLiteral("Reserved"));
                     } else if (ch.name.startsWith(
                                    QStringLiteral("NTBCollectionPeriod"))) {
+                        // 采集周期(表106):0=二分之一电力线周期 1=一个电力线周期 其他=保留 / 0=half cycle,1=one cycle,else reserved
                         quint8 p = (quint8)get_bits(b, 3, 0, 8);
                         ch.value = QStringLiteral("%1 - %2").arg(p).arg(
-                            p == 1 ? QStringLiteral("One power line cycle")
-                                   : QStringLiteral("Half power line cycle"));
+                            p == 0 ? QStringLiteral("Half power line cycle")
+                          : p == 1 ? QStringLiteral("One power line cycle")
+                                   : QStringLiteral("Reserved"));
                     }
                 }
                 break;
@@ -1599,7 +1876,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 break;
             }
         }
-    } else if (static_cast<GW_2022_MsduType>(msdu_type) == GW_2022_MsduType::APPLICATION || static_cast<GW_2022_MsduType>(msdu_type) == GW_2022_MsduType::IP) {
+    } else if (static_cast<GW_2022_MsduType>(msdu_type) == GW_2022_MsduType::APPLICATION) {
         // ---- 应用层报文:APP_BASE(4B) ----
         quint16 packet_id = (quint16)get_bits(msdu_body, 1, 0, 16);
         out.summary = QStringLiteral("APP %1 (0x%2)")
@@ -1628,6 +1905,16 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
             raw.rel_len   = msdu_body.size() - 4;
             root.children.append(raw);
         }
+    } else if (static_cast<GW_2022_MsduType>(msdu_type) == GW_2022_MsduType::IP) {
+        // ---- IP 报文(表10:49):独立于应用层报文(48),内部格式见应用层分册,此处仅呈现 hex ----
+        out.summary = QStringLiteral("IP Packet");
+        auto& ipg = group(out.tree, QStringLiteral("IP"));
+        MsduFieldNode raw;
+        raw.name = QStringLiteral("IP Payload");
+        raw.value = QString(msdu_body.toHex(' '));
+        raw.rel_start = head_size;
+        raw.rel_len   = msdu_body.size();
+        ipg.children.append(raw);
     } else {
         out.summary = QStringLiteral("MSDUType %1").arg(msdu_type);
     }

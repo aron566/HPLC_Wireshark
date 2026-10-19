@@ -10,6 +10,9 @@ namespace {
 struct I18nReg {
     I18nReg() {
         trl::register_en("保留", "reserved");
+        trl::register_en("保留(按选择确认帧解析)", "Reserved (parsed as selective ACK)");
+        trl::register_en("应用报文 LID(优先级)", "App LID (priority)");
+        trl::register_en("网络管理 LID(自定义 0-255)", "Network-mgmt LID (custom 0-255)");
         trl::register_en("载波接入网络传输", "HPLC access network");
         trl::register_en("本标准版本号", "this standard version");
         trl::register_en("未知相线", "unknown phase");
@@ -19,7 +22,6 @@ struct I18nReg {
         trl::register_en("选择确认帧", "selective ACK frame");
         trl::register_en("网络搜索帧(抄控器)", "network search frame (meter reader)");
         trl::register_en("同步帧(抄控器)", "sync frame (meter reader)");
-        trl::register_en("无线切频", "wireless channel switch");
         trl::register_en("SOF帧全部接收成功", "SOF frame fully received OK");
         trl::register_en("物理块存在CRC校验失败", "some PB CRC failed");
         trl::register_en("校验成功", "CRC ok");
@@ -29,9 +31,31 @@ struct I18nReg {
         trl::register_en("物理层检查报文 TEI", "physical layer checks TEI");
         trl::register_en("重传报文", "retransmitted frame");
         trl::register_en("非重传报文", "non-retransmitted frame");
+        trl::register_en("上个带宽时隙已结束", "previous band slot ended");
+        trl::register_en("上个带宽时隙未结束", "previous band slot not ended");
+        // 无线 MCS 释义(第2部分表129:分集次数/调制方式/码率)
+        trl::register_en("分集4次 BPSK 码率1/2", "diversity 4, BPSK, code rate 1/2");
+        trl::register_en("分集2次 BPSK 码率1/2", "diversity 2, BPSK, code rate 1/2");
+        trl::register_en("分集2次 QPSK 码率1/2", "diversity 2, QPSK, code rate 1/2");
+        trl::register_en("分集1次 QPSK 码率1/2", "diversity 1, QPSK, code rate 1/2");
+        trl::register_en("分集1次 QPSK 码率4/5", "diversity 1, QPSK, code rate 4/5");
+        trl::register_en("分集1次 16QAM 码率1/2", "diversity 1, 16QAM, code rate 1/2");
+        trl::register_en("分集1次 16QAM 码率4/5", "diversity 1, 16QAM, code rate 4/5");
     }
 };
 const I18nReg g_i18n_reg_nw_tree;
+
+// MCS 取值文本「值 - 释义」(第2部分表129;7 以上为保留)
+QString nw_mcs_text(quint8 mcs) {
+    static const char* const kDesc[] = {
+        "分集4次 BPSK 码率1/2", "分集2次 BPSK 码率1/2",
+        "分集2次 QPSK 码率1/2", "分集1次 QPSK 码率1/2",
+        "分集1次 QPSK 码率4/5", "分集1次 16QAM 码率1/2",
+        "分集1次 16QAM 码率4/5",
+    };
+    const QString desc = (mcs <= 6) ? trl::L(kDesc[mcs]) : trl::L("保留");
+    return QStringLiteral("%1 - %2").arg(mcs).arg(desc);
+}
 
 }  // namespace
 
@@ -67,8 +91,18 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         tree_add_bit_field(bcn, "BeaconPeriodCount", QString::number(e.mpdu.beacon_period_cnt), 5, 0, 32);
         tree_add_bit_field(bcn, "Source TEI", QString::number(e.mpdu.src_tei), 9, 0, 12);
         if (e.meta.is_rf) {
-            // 无线:PBLen(11,0,4)
+            // 无线(第2部分表128):MCS(10,4,4,释义见表129) + PBLen 载荷PB大小(11,0,4)
+            const quint8 mcs = (e.raw_bytes.size() > 10)
+                ? (quint8)(((quint8)e.raw_bytes[10] >> 4) & 0x0F) : 0;
+            tree_add_bit_field(bcn, "MCS", nw_mcs_text(mcs), 10, 4, 4);
             tree_add_bit_field(bcn, "PBLen", QString::number(e.mpdu.tmi), 11, 0, 4);
+            // 保留(表128:(11,4,4)+(12,0,4))
+            const quint8 rsv_hi = (e.raw_bytes.size() > 11)
+                ? (quint8)(((quint8)e.raw_bytes[11] >> 4) & 0x0F) : 0;
+            tree_add_bit_field(bcn, "RSV", QStringLiteral("0x%1").arg(rsv_hi, 1, 16, QChar('0')), 11, 4, 4);
+            const quint8 rsv_lo = (e.raw_bytes.size() > 12)
+                ? (quint8)((quint8)e.raw_bytes[12] & 0x0F) : 0;
+            tree_add_bit_field(bcn, "RSV", QStringLiteral("0x%1").arg(rsv_lo, 1, 16, QChar('0')), 12, 0, 4);
         } else {
             // 载波:TMI(10,4,4) SymbolNum(11,0,9) 保留(12,1,1) 相线(12,2,2)
             tree_add_bit_field(bcn, "TMI", QString::number(e.mpdu.tmi), 10, 4, 4);
@@ -109,22 +143,57 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         auto* sof = tree_add_item(root, "SOF", "");
         tree_add_bit_field(sof, "Source TEI", QString::number(e.mpdu.src_tei), 1, 0, 12);
         tree_add_bit_field(sof, "Destination TEI", QString::number(e.mpdu.dst_tei), 2, 4, 12);
-        tree_add_bit_field(sof, "Link ID", QString::number(e.mpdu.link_id), 4, 0, 8);
+        // 链路标识符(LID)= 优先级/业务分类(表98/8.2.13):应用报文 LID 0-3,网络管理 LID 0-255 自定义
+        tree_add_bit_field(sof, "Link ID",
+            QStringLiteral("%1 - %2").arg(e.mpdu.link_id)
+                .arg(e.mpdu.link_id <= 3 ? trl::L("应用报文 LID(优先级)")
+                                         : trl::L("网络管理 LID(自定义 0-255)")),
+            4, 0, 8);
+        // SOF 可变域按介质分表独立渲染:载波走第5部分表16、无线走第2部分表131
+        // (源/目的 TEI 与链路标识符两介质同坐标,已在上方共用渲染)
+        const quint8* d = reinterpret_cast<const quint8*>(e.raw_bytes.constData());
+        const int raw_sz = e.raw_bytes.size();
         if (e.meta.is_rf) {
-            // 无线:FrameLen(5,0,12) PBLen(6,4,4)
-            tree_add_bit_field(sof, "Frame Length", QStringLiteral("%1 (x10us)").arg(e.mpdu.frame_len), 5, 0, 12);
-            tree_add_bit_field(sof, "PBLen", QString::number(e.mpdu.tmi), 6, 4, 4);
+            // 无线 SOF(第2部分表131):帧长(5,0,12)/载荷PB大小(6,4,4)/MCS(7,0,4)/
+            // TEI过滤(7,4,1)/重传(7,5,1)/保留(7,6,2)/保留(8,0,32)/保留(12,0,4)
+            tree_add_bit_field(sof, "Frame Length",
+                QStringLiteral("%1 (x100us)").arg(e.mpdu.frame_len), 5, 0, 12);
+            {
+                // 载荷 PB 大小(第2部分表130):0-5 = 16/40/72/136/264/520 字节,其他保留
+                static const int kRfPbSize[] = {16, 40, 72, 136, 264, 520};
+                const quint8 code = e.mpdu.tmi;   // 解析器以 tmi 承载 PBLen
+                const QString desc = (code <= 5)
+                    ? QStringLiteral("%1B").arg(kRfPbSize[code]) : trl::L("保留");
+                tree_add_bit_field(sof, "PBLen",
+                    QStringLiteral("%1 - %2").arg(code).arg(desc), 6, 4, 4);
+            }
+            const quint8 mcs = (raw_sz > 7) ? (quint8)(d[7] & 0x0F) : 0;
+            tree_add_bit_field(sof, "MCS", nw_mcs_text(mcs), 7, 0, 4);
+            const quint8 tei_filter = (raw_sz > 7) ? ((d[7] >> 4) & 0x01) : 1;
+            tree_add_bit_field(sof, "TEI Filter",
+                tei_filter ? QStringLiteral("1 - %1").arg(trl::L("物理层不检查报文 TEI"))
+                           : QStringLiteral("0 - %1").arg(trl::L("物理层检查报文 TEI")),
+                7, 4, 1);
+            tree_add_bit_field(sof, "ReSend",
+                e.mpdu.re_send_flag ? QStringLiteral("1 - %1").arg(trl::L("重传报文"))
+                                    : QStringLiteral("0 - %1").arg(trl::L("非重传报文")),
+                7, 5, 1);
+            const quint8 rsv2 = (raw_sz > 7) ? (quint8)((d[7] >> 6) & 0x03) : 0;
+            tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv2, 1, 16, QChar('0')), 7, 6, 2);
+            const quint32 rsv32 = (raw_sz > 11)
+                ? (quint32)d[8] | ((quint32)d[9] << 8) | ((quint32)d[10] << 16) | ((quint32)d[11] << 24) : 0;
+            tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv32, 8, 16, QChar('0')), 8, 0, 32);
+            tree_add_bit_field(sof, "RSV", QString::number(e.mpdu.tmi_ext), 12, 0, 4);
         } else {
             // 载波 SOF(表16):保留16b(5,0,16) + PBNum(7,0,4)/TMI(7,4,4)/FrameLen(8,0,12)
             //   + 保留9b(9,4,9) + TEI过滤(10,5,1)/重传(10,6,1)/符号数(10,7,9) + TMI_EXT(12,0,4)
-            const quint8* d = reinterpret_cast<const quint8*>(e.raw_bytes.constData());
-            const int raw_sz = e.raw_bytes.size();
             // 保留 16b(字节5-6)
             const quint16 rsv0 = (raw_sz > 6) ? (quint16)(d[5] | (d[6] << 8)) : 0;
             tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv0, 4, 16, QChar('0')), 5, 0, 16);
             tree_add_bit_field(sof, "PB Num", QString::number(e.mpdu.pb_num), 7, 0, 4);
             tree_add_bit_field(sof, "TMI", QString::number(e.mpdu.tmi), 7, 4, 4);
-            tree_add_bit_field(sof, "Frame Length", QStringLiteral("%1 (x10us)").arg(e.mpdu.frame_len), 8, 0, 12);
+            tree_add_bit_field(sof, "Frame Length",
+                QStringLiteral("%1 (x10us)").arg(e.mpdu.frame_len), 8, 0, 12);
             // 保留 9b(字节9 bit4-7 + 字节10 bit0-4)
             const quint16 rsv1 = (raw_sz > 10) ? (quint16)(((d[9] >> 4) & 0x0F) | ((d[10] & 0x1F) << 4)) : 0;
             tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv1, 3, 16, QChar('0')), 9, 4, 9);
@@ -242,17 +311,54 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
     case NW_2021_FrameType::ACK: {
         auto* ack = tree_add_item(root, "ACK", "");
         // 扩展帧类型值释义(表21):0=选择确认帧 1=网络搜索帧 2=同步帧 其他=保留
+        // (未知扩展帧类型默认按选择确认帧解析并给出警告)
         const quint8 et = e.mpdu.ack_ext_type;
         QString ext_ev;
         switch (static_cast<NW_2021_AckExtType>(et)) {
         case NW_2021_AckExtType::Normal:        ext_ev = QStringLiteral("0 - %1").arg(trl::L("选择确认帧")); break;
         case NW_2021_AckExtType::Search:        ext_ev = QStringLiteral("1 - %1").arg(trl::L("网络搜索帧(抄控器)")); break;
         case NW_2021_AckExtType::Sync:          ext_ev = QStringLiteral("2 - %1").arg(trl::L("同步帧(抄控器)")); break;
-        case NW_2021_AckExtType::SwitchChannel: ext_ev = QStringLiteral("3 - %1").arg(trl::L("无线切频")); break;
-        default: ext_ev = QStringLiteral("%1 - %2").arg(et).arg(trl::L("保留")); break;
+        default: ext_ev = QStringLiteral("%1 - %2").arg(et).arg(trl::L("保留(按选择确认帧解析)")); break;
         }
         switch (static_cast<NW_2021_AckExtType>(et)) {
-        case NW_2021_AckExtType::Normal: {
+        case NW_2021_AckExtType::Search:
+            tree_add_bit_field(ack, "DstAddr", QStringLiteral("0x%1")
+                .arg(e.mpdu.ack_dst_addr, 12, 16, QChar('0')), 1, 0, 48);
+            tree_add_bit_field(ack, "SearchTEI", QString::number(e.mpdu.ack_search_tei), 7, 0, 12);
+            // 保留(表C-2:(8,4,4)、字节9-10)与序号(字节11):解析器未存,按原始字节呈现
+            {
+                const quint8* d = reinterpret_cast<const quint8*>(e.raw_bytes.constData());
+                const int raw_sz = e.raw_bytes.size();
+                const quint8 rsv0 = (raw_sz > 8) ? (quint8)((d[8] >> 4) & 0x0F) : 0;
+                tree_add_bit_field(ack, "Reserved", QStringLiteral("0x%1").arg(rsv0, 1, 16, QChar('0')), 8, 4, 4);
+                const quint16 rsv1 = (raw_sz > 10) ? (quint16)(d[9] | (d[10] << 8)) : 0;
+                tree_add_bit_field(ack, "Reserved", QStringLiteral("0x%1").arg(rsv1, 4, 16, QChar('0')), 9, 0, 16);
+                const quint8 seq = (raw_sz > 11) ? (quint8)d[11] : 0;
+                tree_add_bit_field(ack, "SeqNum", QString::number(seq), 11, 0, 8);
+            }
+            tree_add_bit_field(ack, "ExtType", ext_ev, 12, 0, 4);
+            break;
+        case NW_2021_AckExtType::Sync:
+            tree_add_bit_field(ack, "Timestamp", QStringLiteral("0x%1")
+                .arg(e.mpdu.ack_sync_timestamp, 8, 16, QChar('0')), 1, 0, 32);
+            tree_add_bit_field(ack, "SyncTEI", QString::number(e.mpdu.ack_sync_tei), 5, 0, 12);
+            // 保留(表C-3:(6,4,4)、字节7-10)与序号(字节11):解析器未存,按原始字节呈现
+            {
+                const quint8* d = reinterpret_cast<const quint8*>(e.raw_bytes.constData());
+                const int raw_sz = e.raw_bytes.size();
+                const quint8 rsv0 = (raw_sz > 6) ? (quint8)((d[6] >> 4) & 0x0F) : 0;
+                tree_add_bit_field(ack, "Reserved", QStringLiteral("0x%1").arg(rsv0, 1, 16, QChar('0')), 6, 4, 4);
+                const quint32 rsv1 = (raw_sz > 10)
+                    ? (quint32)d[7] | ((quint32)d[8] << 8) | ((quint32)d[9] << 16) | ((quint32)d[10] << 24) : 0;
+                tree_add_bit_field(ack, "Reserved", QStringLiteral("0x%1").arg(rsv1, 8, 16, QChar('0')), 7, 0, 32);
+                const quint8 seq = (raw_sz > 11) ? (quint8)d[11] : 0;
+                tree_add_bit_field(ack, "SeqNum", QString::number(seq), 11, 0, 8);
+            }
+            tree_add_bit_field(ack, "ExtType", ext_ev, 12, 0, 4);
+            break;
+        case NW_2021_AckExtType::Normal:
+        default: {
+            // 选择确认帧(表19);未知扩展帧类型默认按选择确认帧解析
             const quint8 r = e.mpdu.ack_rx_res;
             QString rv;
             if (r == 0) rv = QStringLiteral("0 - %1").arg(trl::L("SOF帧全部接收成功"));
@@ -288,44 +394,53 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             tree_add_bit_field(ack, "ExtType", ext_ev, 12, 0, 4);
             break;
         }
-        case NW_2021_AckExtType::Search:
-            tree_add_bit_field(ack, "DstAddr", QStringLiteral("0x%1")
-                .arg(e.mpdu.ack_dst_addr, 12, 16, QChar('0')), 1, 0, 48);
-            tree_add_bit_field(ack, "SearchTEI", QString::number(e.mpdu.ack_search_tei), 7, 0, 12);
-            tree_add_bit_field(ack, "ExtType", ext_ev, 12, 0, 4);
-            break;
-        case NW_2021_AckExtType::Sync:
-            tree_add_bit_field(ack, "Timestamp", QStringLiteral("0x%1")
-                .arg(e.mpdu.ack_sync_timestamp, 8, 16, QChar('0')), 1, 0, 32);
-            tree_add_bit_field(ack, "SyncTEI", QString::number(e.mpdu.ack_sync_tei), 5, 0, 12);
-            tree_add_bit_field(ack, "ExtType", ext_ev, 12, 0, 4);
-            break;
-        case NW_2021_AckExtType::SwitchChannel:
-            tree_add_bit_field(ack, "DstAddr", QStringLiteral("0x%1")
-                .arg(e.mpdu.ack_dst_addr, 12, 16, QChar('0')), 1, 0, 48);
-            tree_add_bit_field(ack, "Channel", QString::number(e.mpdu.ack_channel_quality), 7, 0, 8);
-            tree_add_bit_field(ack, "Option", QString::number(e.mpdu.ack_sta_load), 8, 0, 8);
-            tree_add_bit_field(ack, "ExtType", ext_ev, 12, 0, 4);
-            break;
-        default:
-            tree_add_item(ack, "Reserved ExtType", QString::number(e.mpdu.ack_ext_type));
-            break;
         }
         break;
     }
     case NW_2021_FrameType::COORD: {
         auto* coord = tree_add_item(root, "COORD", "");
-        tree_add_bit_field(coord, "NeighbourNIDBitMap", QStringLiteral("0x%1")
-            .arg(e.mpdu.coord_neighbour_nid, 4, 16, QChar('0')), 1, 0, 16);
-        tree_add_bit_field(coord, "Channel", QString::number(e.mpdu.coord_rf_channel), 3, 0, 8);
+        {
+            // 邻居网络位图(表22):bit i 对应 SNID i+1,置 1 表示收到过该网络报文
+            QStringList heard;
+            for (int i = 0; i < 16; ++i)
+                if (e.mpdu.coord_neighbour_nid & (1u << i))
+                    heard << QStringLiteral("SNID %1").arg(i + 1);
+            tree_add_bit_field(coord, "NeighbourNIDBitMap",
+                heard.isEmpty()
+                    ? QStringLiteral("0x%1").arg(e.mpdu.coord_neighbour_nid, 4, 16, QChar('0'))
+                    : QStringLiteral("0x%1 (%2)").arg(e.mpdu.coord_neighbour_nid, 4, 16, QChar('0'))
+                          .arg(heard.join(QLatin1String(", "))),
+                1, 0, 16);
+        }
+        // 字节3:载波为保留(表22);无线为本网络无线信道编号(第2部分表127)
+        {
+            const quint8 b3 = (e.raw_bytes.size() > 3) ? (quint8)e.raw_bytes[3] : 0;
+            if (e.meta.is_rf)
+                tree_add_bit_field(coord, "RF Channel", QString::number(b3), 3, 0, 8);
+            else
+                tree_add_bit_field(coord, "RSV", QStringLiteral("0x%1").arg(b3, 2, 16, QChar('0')), 3, 0, 8);
+        }
         tree_add_bit_field(coord, "RSV1", QStringLiteral("0x%1")
             .arg(e.mpdu.coord_rsv1, 3, 16, QChar('0')), 4, 0, 10);
         tree_add_bit_field(coord, "TimeDuration", QStringLiteral("%1 (x40ms)").arg(e.mpdu.coord_duration), 5, 2, 14);
         tree_add_bit_field(coord, "RSV2", QString::number(e.mpdu.coord_rsv2), 7, 0, 1);
-        tree_add_bit_field(coord, "BandSlotEndFlag", QString::number(e.mpdu.coord_band_end_flag), 7, 1, 1);
-        tree_add_bit_field(coord, "Option", QString::number(e.mpdu.coord_option), 7, 2, 2);
-        tree_add_bit_field(coord, "RSV3", QStringLiteral("0x%1")
-            .arg(e.mpdu.coord_rsv3, 1, 16, QChar('0')), 7, 4, 4);
+        {
+            // 带宽结束标志位(表22):1=上个带宽时隙已结束 0=未结束
+            QString flag = (e.mpdu.coord_band_end_flag == 1)
+                ? QStringLiteral("1 - %1").arg(trl::L("上个带宽时隙已结束"))
+                : QStringLiteral("0 - %1").arg(trl::L("上个带宽时隙未结束"));
+            tree_add_bit_field(coord, "BandSlotEndFlag", flag, 7, 1, 1);
+        }
+        if (e.meta.is_rf) {
+            // 无线(第2部分表127):(7,2,2) 为本网络无线 option,(7,4,4) 为保留
+            tree_add_bit_field(coord, "RF Option", QString::number(e.mpdu.coord_rsv3 & 0x03), 7, 2, 2);
+            tree_add_bit_field(coord, "RSV", QStringLiteral("0x%1")
+                .arg((e.mpdu.coord_rsv3 >> 2) & 0x0F, 1, 16, QChar('0')), 7, 4, 4);
+        } else {
+            // 保留(表22:byte7 bit2-7, 6b)
+            tree_add_bit_field(coord, "RSV3", QStringLiteral("0x%1")
+                .arg(e.mpdu.coord_rsv3, 2, 16, QChar('0')), 7, 2, 6);
+        }
         tree_add_bit_field(coord, "BandSlotEndOffset", QStringLiteral("%1 (x4ms)").arg(e.mpdu.coord_band_end_offset), 8, 0, 16);
         tree_add_bit_field(coord, "BandSlotStartOffset", QStringLiteral("%1 (x4ms)").arg(e.mpdu.coord_band_start_offset), 10, 0, 16);
         tree_add_bit_field(coord, "RSV0", QStringLiteral("0x%1")

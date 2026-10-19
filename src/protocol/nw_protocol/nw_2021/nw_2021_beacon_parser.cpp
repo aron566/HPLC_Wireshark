@@ -126,6 +126,13 @@ static const FieldSpec kBandChangeSpec[] = {
 };
 static const int kBandChangeSpecN = int(sizeof(kBandChangeSpec) / sizeof(kBandChangeSpec[0]));
 
+// 频段探测条目 0x0A(附录B 表B-1,内容 2B)
+static const FieldSpec kBandProbeSpec[] = {
+    {"ProbeBand",       0, 0, 8,  Fmt::DEC},   // 探测频段
+    {"BindCSMASlotLID", 1, 0, 8,  Fmt::DEC},   // 对应的绑定CSMA时隙LID(固定77)
+};
+static const int kBandProbeSpecN = int(sizeof(kBandProbeSpec) / sizeof(kBandProbeSpec[0]));
+
 // 万年历同步条目 0x0B(表40,内容 8B)
 static const FieldSpec kCalendarSyncSpec[] = {
     {"CCOCalendarTime", 0, 0, 32, Fmt::DEC},   // CCO 万年历(秒)
@@ -289,10 +296,14 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
                         const quint8 bt  = (quint8)get_bits(it, o + 1, 4, 1);
                         slot_leaf(sg.children, QStringLiteral("TEI [12b]"),
                                   QString::number(tei), abs0 + o, 2);
+                        QString bt_desc;
+                        switch (bt) {
+                            case 0: bt_desc = trl::L("发现信标"); break;
+                            case 1: bt_desc = trl::L("代理信标"); break;
+                            default: break;  // 信标类型为 1 位字段,仅 0/1,default 不可达
+                        }
                         slot_leaf(sg.children, QStringLiteral("Beacon Type [1b]"),
-                                  QStringLiteral("%1 - %2").arg(bt).arg(
-                                      static_cast<NW_2021_BeaconType>(bt) == NW_2021_BeaconType::DISCOVERY
-                                          ? trl::L("发现信标") : trl::L("代理信标")),
+                                  QStringLiteral("%1 - %2").arg(bt).arg(bt_desc),
                                   abs0 + o + 1, 1);
                         slot_leaf(sg.children, QStringLiteral("RSV [3b]"),
                                   QString::number((quint8)get_bits(it, o + 1, 5, 3)),
@@ -361,7 +372,20 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
                 }
                 break;
             }
-            default: {  // 频段探测(0x0A)/厂家自定义/保留:内容 hex
+            case NW_2021_BeaconItemType::BAND_PROBE: {  // 频段探测条目(附录B 表B-1)
+                add_fields(grp.children, it, 0, kBandProbeSpec, kBandProbeSpecN, abs0);
+                for (auto& ch : grp.children) {
+                    if (ch.name.startsWith(QStringLiteral("ProbeBand"))) {
+                        const quint8 b = (quint8)get_bits(it, 0, 0, 8);
+                        ch.value = QStringLiteral("%1 - %2").arg(b).arg(
+                            b == 1 ? QStringLiteral("Band 1") : trl::L("保留"));
+                    } else if (ch.name.startsWith(QStringLiteral("BindCSMASlotLID"))) {
+                        ch.value += trl::L(" (固定77)");
+                    }
+                }
+                break;
+            }
+            default: {  // 厂家自定义/保留:内容 hex
                 MsduFieldNode body;
                 body.name      = QStringLiteral("Content [%1B]").arg(item_len);
                 body.value     = QString::fromLatin1(it.toHex(' ').toUpper());
@@ -466,6 +490,7 @@ struct I18nReg {
         trl::register_en("不使用信标评估信道", "Beacon not used for channel estimation");
         trl::register_en(" s (自 2000-01-01 00:00:00 起)", " s (since 2000-01-01 00:00:00)");
         trl::register_en(" (40ns/tick)", " (40ns/tick)");
+        trl::register_en(" (固定77)", " (fixed 77)");
         trl::register_en("%1 B (含非 0x00: %2 ...)", "%1 B (non-zero bytes: %2 ...)");
     }
 };

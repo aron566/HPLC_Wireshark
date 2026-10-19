@@ -304,7 +304,7 @@ MsduInfo GW_2022_BeaconParser::parse_beacon(const QByteArray& payload) {
         if (pos >= gb.size() - 4) break;
         int item_len, len_bytes = 1;
         quint32 len_raw;
-        if (head == static_cast<quint8>(GW_2022_BeaconItemType::TIME_SLOT_ALLOCATION)) {  // TSA:长度 2B LE,len-3 = 内容长
+        if (head >= static_cast<quint8>(GW_2022_BeaconItemType::TIME_SLOT_ALLOCATION)) {  // 0xC0-0xFF:长度 2B LE(len-3=内容长);0xC1-0xFF 保留条目同为 2B(表46)
             if (pos + 1 >= gb.size() - 4) break;
             len_raw = (quint8)gb[pos] | ((quint8)gb[pos + 1] << 8);
             pos += 2;
@@ -319,7 +319,7 @@ MsduInfo GW_2022_BeaconParser::parse_beacon(const QByteArray& payload) {
         int abs0 = pos;  // 条目数据在 gb 中的绝对偏移(供高亮)
         pos += item_len;
 
-        // 条目头/条目长度显式成行(表44/表46):长度字段大小 0xC0 为 2B,其余 1B
+        // 条目头/条目长度显式成行(表44/表46):长度字段大小 0xC0-0xFF 为 2B,0x00-0xBF 为 1B
         MsduFieldNode hd;
         hd.name      = QStringLiteral("ItemHead [8b]");
         hd.value     = QStringLiteral("0x%1 - %2 - %3")

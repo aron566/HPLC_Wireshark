@@ -84,11 +84,9 @@ enum class NW_2021_MMeType : quint16 {
     MME_DISCOVERNODELIST    = 0x0055,
     MME_DELAYLEAVEIND       = 0x005D,
     MME_SUCCESSRATEREPORT   = 0x005E,
-    MME_NETWORKCONFLICTREPORT = 0x005F,
     MME_ZEROCROSSNTBCOLLECTIND = 0x0062,
     MME_ZEROCROSSNTBREPORT  = 0x0063,
     MME_NETDIAGNOSE         = 0x0064,
-    MME_RFCHANNELCONFLICTREPORT = 0x0070,
 };
 
 /// @brief 报文端口号(6.1:0x11 业务报文 0x13 管理报文)
@@ -113,10 +111,9 @@ enum class NW_2021_VlanTag : quint32 {
     MANAGEMENT = 0x8100,  ///< 管理消息 VLAN 标签
 };
 
-/// @brief MAC 帧版本(帧类型域 bit1-2:1 标准帧 2 单跳帧)
+/// @brief MAC 帧版本(帧头 bit1-2,表6:0 保留 1 本标准协议 2-3 保留)
 enum class NW_2021_MacVersion : quint8 {
     STANDARD   = 0x1,  ///< 标准帧(MSDU_BASE)
-    SINGLE_HOP = 0x2,  ///< 单跳帧(MSDU_BASE_S)
 };
 
 /// @brief MAC 帧头标志(0 长帧头 32B,1 短帧头 12B)

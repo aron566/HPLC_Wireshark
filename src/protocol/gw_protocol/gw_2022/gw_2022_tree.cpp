@@ -28,17 +28,20 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
     tree_add_bit_field(mpdu_base, "Frame Type",
         QStringLiteral("%1 (%2)").arg(e.mpdu.frame_type_name()).arg(e.mpdu.frame_type),
         0, 0, 3);
-    tree_add_bit_field(mpdu_base, "Net Type", QString::number(e.mpdu.net_type), 0, 3, 5);
+    {
+        // 网络类型(表15):0=MPDU在用电信息采集系统中传输,其他=保留 / 0=metering info collection, else reserved
+        const QString nt = (e.mpdu.net_type == 0)
+            ? QStringLiteral("0 - Metering info collection")
+            : QStringLiteral("%1 - Reserved").arg(e.mpdu.net_type);
+        tree_add_bit_field(mpdu_base, "Net Type", nt, 0, 3, 5);
+    }
     tree_add_bit_field(mpdu_base, "Net ID", QStringLiteral("0x%1")
         .arg(e.mpdu.net_id, 6, 16, QChar('0')), 1, 0, 24);
     {
-        // 版本号:0=保留 1=BPLC 2=SPLC
-        QString ver;
-        switch (static_cast<GW_2022_Version>(e.mpdu.version)) {
-        case GW_2022_Version::BPLC: ver = QStringLiteral("1 (BPLC)"); break;
-        case GW_2022_Version::SPLC: ver = QStringLiteral("2 (SPLC)"); break;
-        default: ver = QStringLiteral("%1 (Reserved)").arg(e.mpdu.version); break;
-        }
+        // 标准版本号(表16):0=本标准,其他=待演进
+        const QString ver = (e.mpdu.version == static_cast<quint8>(GW_2022_Version::THIS_STANDARD))
+            ? QStringLiteral("0 (This standard)")
+            : QStringLiteral("%1 (Reserved / to evolve)").arg(e.mpdu.version);
         tree_add_bit_field(mpdu_base, "Version", ver, 12, 4, 4);
     }
     tree_add_bit_field(mpdu_base, "FCH CRC24", e.mpdu.fch_crc_ok ? "OK" : "FAIL", 13, 0, 24);
@@ -51,7 +54,15 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         tree_add_bit_field(bcn, "Source TEI", QString::number(e.mpdu.src_tei), 8, 0, 12);
         tree_add_bit_field(bcn, "TMI", QString::number(e.mpdu.tmi), 9, 4, 4);
         tree_add_bit_field(bcn, "Symbol Num", QString::number(e.mpdu.symbol_num), 10, 0, 9);
-        tree_add_bit_field(bcn, "Line", QString::number(e.mpdu.beacon_line), 11, 1, 2);
+        {
+            // 相线(表18):0=未知相线 1=A 2=B 3=C / 0=unknown, 1=A, 2=B, 3=C
+            static const char* ph[] = {"Unknown", "LineA", "LineB", "LineC"};
+            const quint8 pl = e.mpdu.beacon_line;
+            tree_add_bit_field(bcn, "Line",
+                (pl <= 3) ? QStringLiteral("%1 - %2").arg(pl).arg(QLatin1String(ph[pl]))
+                          : QStringLiteral("%1 - Reserved").arg(pl),
+                11, 1, 2);
+        }
         if (e.mpdu.pb_size > 0)
             tree_add_item(bcn, "PB Size", QString::number(e.mpdu.pb_size));
         // Beacon Load(载荷区,字段树由解析器生成)
@@ -193,8 +204,10 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
     }
     case GW_2022_FrameType::ACK: {
         auto* ack = tree_add_item(root, "ACK", "");
-        switch (static_cast<GW_2022_AckExtType>(e.mpdu.ack_ext_type)) {
-        case GW_2022_AckExtType::Normal: {
+        // 选择确认帧(表23,载波);未知扩展帧类型(表25/表36"其他")默认按选择确认帧解析并警告
+        const quint8 et = e.mpdu.ack_ext_type;
+        const bool known = (et == static_cast<quint8>(GW_2022_AckExtType::Normal));
+        {
             const quint8 rxres = e.mpdu.ack_rx_res;
             QString rv;
             if (static_cast<GW_2022_AckRxRes>(rxres) == GW_2022_AckRxRes::RECEIPT_OK)
@@ -222,29 +235,10 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             tree_add_bit_field(ack, "ChannelQuality", QStringLiteral("%1 dB").arg(e.mpdu.ack_channel_quality), 9, 0, 8);
             tree_add_bit_field(ack, "STALoad", QString::number(e.mpdu.ack_sta_load), 10, 0, 8);
             tree_add_bit_field(ack, "RSV1", QString::number(e.mpdu.ack_rsv1), 11, 0, 8);
-            tree_add_bit_field(ack, "ExtFrameType", QString::number(e.mpdu.ack_ext_type), 12, 0, 4);
-            break;
-        }
-        case GW_2022_AckExtType::Search:
-            tree_add_bit_field(ack, "DstAddr", QStringLiteral("0x%1")
-                .arg(e.mpdu.ack_dst_addr, 12, 16, QChar('0')), 4, 0, 48);
-            tree_add_bit_field(ack, "SearchTEI", QString::number(e.mpdu.ack_search_tei), 10, 0, 12);
-            tree_add_bit_field(ack, "SearchFreq", QString::number(e.mpdu.ack_search_freq), 11, 4, 4);
-            break;
-        case GW_2022_AckExtType::Sync:
-            tree_add_bit_field(ack, "Timestamp", QStringLiteral("0x%1")
-                .arg(e.mpdu.ack_sync_timestamp, 8, 16, QChar('0')), 4, 0, 32);
-            tree_add_bit_field(ack, "SyncTEI", QString::number(e.mpdu.ack_sync_tei), 8, 0, 12);
-            break;
-        case GW_2022_AckExtType::SwitchChannel:
-            tree_add_bit_field(ack, "DstAddr", QStringLiteral("0x%1")
-                .arg(e.mpdu.ack_dst_addr, 12, 16, QChar('0')), 4, 0, 48);
-            tree_add_bit_field(ack, "HRF Channel", QString::number(e.mpdu.ack_rx_pb_num), 10, 0, 8);
-            tree_add_bit_field(ack, "HRF Option", QString::number(e.mpdu.ack_sta_load), 11, 0, 8);
-            break;
-        default:
-            tree_add_item(ack, "Reserved ExtFrameType", QString::number(e.mpdu.ack_ext_type));
-            break;
+            tree_add_bit_field(ack, "ExtFrameType",
+                known ? QString::number(et)
+                      : QStringLiteral("%1 - Reserved (parsed as selective ACK)").arg(et),
+                12, 0, 4);
         }
         break;
     }
