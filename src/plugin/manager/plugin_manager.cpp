@@ -202,13 +202,19 @@ void PluginManager::handle_message(const QString& plugin_id, quint8 type,
     case plugin_ipc::MsgType::Hello: {
         int api_ver = 0; QString name, proto;
         ds >> api_ver >> name >> proto;
+        int wire_ver = 1;   // 旧版 host 的 Hello 无格式版本字段,按 v1 布局对待(下方校验会拒绝)
+        if (!ds.atEnd()) ds >> wire_ver;
         QByteArray p;
         QDataStream o(&p, QIODevice::WriteOnly);
         o.setVersion(plugin_ipc::kStreamVersion);
-        const bool ok = (api_ver == plugin_ipc::kApiVersion)
-                     && (proto == rt->manifest.protocol_id);
+        QString reason;
+        if (api_ver != plugin_ipc::kApiVersion || proto != rt->manifest.protocol_id)
+            reason = QStringLiteral("api_version/protocol mismatch");
+        else if (wire_ver != plugin_ipc::kWireFormatVersion)
+            reason = QStringLiteral("wire_format_version mismatch");
+        const bool ok = reason.isEmpty();
         o << ok;
-        o << (ok ? QString() : QStringLiteral("api_version/protocol mismatch"));
+        o << reason;
         send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::HelloAck), p);
         if (ok) {
             rt->ready = true;

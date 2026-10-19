@@ -80,7 +80,8 @@ void PluginHost::on_connected() {
     QByteArray p;
     QDataStream ds(&p, QIODevice::WriteOnly);
     ds.setVersion(plugin_ipc::kStreamVersion);
-    ds << plugin_ipc::kApiVersion << m_manifest.name << m_manifest.protocol_id;
+    ds << plugin_ipc::kApiVersion << m_manifest.name << m_manifest.protocol_id
+       << plugin_ipc::kWireFormatVersion;
     send_message(plugin_ipc::MsgType::Hello, p);
 }
 

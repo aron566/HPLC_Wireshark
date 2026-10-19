@@ -15,6 +15,15 @@ namespace plugin_ipc {
 /// @brief 插件 API 版本(主程序与 host 握手时校验,不一致则拒绝)
 constexpr int kApiVersion = 1;
 
+/// @brief IPC 载荷序列化格式版本(plugin_serialization 的 QDataStream 算子布局)
+/// @details 与 kApiVersion 分开:kApiVersion 是插件清单声明的 API 级别,本项
+///          只约束 app↔host 之间的载荷布局。布局变更必须升版,握手时随
+///          Hello 一并校验,不一致则拒绝连接——不做跨版本布局兼容,避免
+///          新旧两端按不同布局静默错位反序列化。
+///          v1:旧布局(MsduInfo 无 route_hops_left、ParseResult 无 protocol)
+///          v2:MsduInfo 增 route_hops_left、ParseResult 增 protocol
+constexpr int kWireFormatVersion = 2;
+
 /// @brief QDataStream 序列化版本(双方必须一致)
 constexpr int kStreamVersion = QDataStream::Qt_6_5;
 

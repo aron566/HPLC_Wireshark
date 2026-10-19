@@ -1,7 +1,8 @@
 /// @file plugin_serialization.h
 /// @brief 插件 IPC 用 QDataStream 序列化(BplcFrame/ParseResult 等)
 /// @details 主程序与 bplc-plugin-host 共享。所有算子按固定顺序读写,
-///          新增字段必须追加在末尾(保证跨版本兼容)。
+///          新增字段必须追加在末尾,并同步提升 plugin_ipc::kWireFormatVersion
+///          (握手校验,不一致拒绝连接;不做跨版本布局兼容)。
 #ifndef BPLC_PLUGIN_SERIALIZATION_H
 #define BPLC_PLUGIN_SERIALIZATION_H
 
