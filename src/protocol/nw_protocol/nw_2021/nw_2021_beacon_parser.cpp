@@ -300,7 +300,7 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
                         switch (bt) {
                             case 0: bt_desc = trl::L("发现信标"); break;
                             case 1: bt_desc = trl::L("代理信标"); break;
-                            default: bt_desc = QStringLiteral("Reserved (value=%1)").arg(bt); break;
+                            default: break;  // 信标类型为 1 位字段,仅 0/1,default 不可达
                         }
                         slot_leaf(sg.children, QStringLiteral("Beacon Type [1b]"),
                                   QStringLiteral("%1 - %2").arg(bt).arg(bt_desc),
@@ -380,7 +380,7 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
                         ch.value = QStringLiteral("%1 - %2").arg(b).arg(
                             b == 1 ? QStringLiteral("Band 1") : trl::L("保留"));
                     } else if (ch.name.startsWith(QStringLiteral("BindCSMASlotLID"))) {
-                        ch.value += QStringLiteral(" (固定77)");
+                        ch.value += trl::L(" (固定77)");
                     }
                 }
                 break;
@@ -490,6 +490,7 @@ struct I18nReg {
         trl::register_en("不使用信标评估信道", "Beacon not used for channel estimation");
         trl::register_en(" s (自 2000-01-01 00:00:00 起)", " s (since 2000-01-01 00:00:00)");
         trl::register_en(" (40ns/tick)", " (40ns/tick)");
+        trl::register_en(" (固定77)", " (fixed 77)");
         trl::register_en("%1 B (含非 0x00: %2 ...)", "%1 B (non-zero bytes: %2 ...)");
     }
 };
