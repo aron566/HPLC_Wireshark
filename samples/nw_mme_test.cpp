@@ -138,7 +138,9 @@ static void unsupported_version(const QByteArray& data) {
     check(info.present && version && version->rel_start == 50 && version->rel_len == 1
           && version->value.startsWith(QString::number(quint8(data[0])) + " - "),
           "unsupported MMe version displayed as unsigned with original range");
-    check(info.summary.contains("unsupported MMe version") && info.tree.size() == 8,
+    // 合并 MAC 头分支后树多出 "MAC Header" 段根节点(其字段为子节点),总数 8 -> 9;
+    // 断言意图不变:不支持版本时仅保留公共头与 CRC,不解释报文体
+    check(info.summary.contains("unsupported MMe version") && info.tree.size() == 9,
           "unsupported version retains common header and CRC only");
     no_topology(info, "unsupported MMe version");
 }
