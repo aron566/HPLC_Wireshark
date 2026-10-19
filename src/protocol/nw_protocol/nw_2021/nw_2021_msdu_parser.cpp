@@ -230,6 +230,17 @@ struct MMeI18nReg {
         trl::register_en("代理变更(批量): %1 个站点代理→%2", "Proxy change (batch): %1 stations proxy→%2");
         trl::register_en("离线指示: STA TEI=%1 离线", "Leave indication: STA TEI=%1 left");
         trl::register_en("延迟离线指示: %1 个站点离线", "Delayed leave indication: %1 stations left");
+        // MAC 帧头字段释义(6.2.1 表3/表5/表6/表8)
+        trl::register_en("长帧头(32B)", "Long header (32B)");
+        trl::register_en("短帧头(12B)", "Short header (12B)");
+        trl::register_en("本标准协议", "This standard");
+        trl::register_en("单播,需要确认回应", "Unicast, ACK required");
+        trl::register_en("全网广播,不需要回应", "Network broadcast, no ACK");
+        trl::register_en("本地广播,不需要回应", "Local broadcast, no ACK");
+        trl::register_en("全网广播,需要确认回应", "Network broadcast, ACK required");
+        trl::register_en("本地广播,需要确认回应", "Local broadcast, ACK required");
+        trl::register_en("下行广播", "Downlink broadcast");
+        trl::register_en("上行广播", "Uplink broadcast");
     }
 } mme_i18n_reg;
 
@@ -751,8 +762,11 @@ static const int kCommRateInfoSpecN = int(sizeof(kCommRateInfoSpec)/sizeof(kComm
 static const char* kHeaderTypeZh[] = { "长帧头(32B)", "短帧头(12B)" };
 // 版本(表6:0/2/3 保留,1 本标准协议)
 static const char* kMacVersionZh[] = { nullptr, "本标准协议", nullptr, nullptr };
-// 发送类型(表:0 单播 1 全网广播 2 本地广播 3 代理广播)
-static const char* kSendTypeZh[] = { "单播", "全网广播", "本地广播", "代理广播" };
+// 发送类型(南网 §6.2.1.10 表8:0 单播需确认 / 1 全网广播不需 / 2 本地广播不需 / 3 全网广播需确认 / 4 本地广播需确认)
+// 注:国网 GW_2022 表5 是 0单播/1全网/2本地/3代理广播,与本表不同,勿混用。
+static const char* kSendTypeZh[] = { "单播,需要确认回应", "全网广播,不需要回应", "本地广播,不需要回应", "全网广播,需要确认回应", "本地广播,需要确认回应" };
+// 广播方向(§6.2.1.9 表7:0x0 保留 / 0x1 下行广播 / 0x2 上行广播 / 其他 保留)
+static const char* kBroadcastDirZh[] = { nullptr, "下行广播", "上行广播", nullptr };
 
 /// 公共字段(byte 0-11,长/短头共有)
 static const FieldSpec kMacHeaderSpec[] = {
@@ -772,7 +786,7 @@ static const FieldSpec kMacHeaderSpec[] = {
 };
 static const int kMacHeaderSpecN = int(sizeof(kMacHeaderSpec)/sizeof(kMacHeaderSpec[0]));
 
-/// 长帧头独有字段(byte 12-21)
+/// 长帧头独有字段(相对短头多出的 byte 12-31;RSV2 22-31 在下方单独 hex 处理)
 static const FieldSpec kMacLongHeaderSpec[] = {
     { "DstMAC", 12, 0, 48, Fmt::MAC },   // 目的 MAC 地址
     { "RSV1",   18, 0, 32, Fmt::HEX8 },  // 保留
@@ -843,7 +857,8 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         add_fields(mh.children, body, 0, kMacHeaderSpec, kMacHeaderSpecN, 0);
         translate_enum_i18n(mh.children, "HeaderType", kHeaderTypeZh, 2);
         translate_enum_i18n(mh.children, "Version", kMacVersionZh, 4);
-        translate_enum_i18n(mh.children, "SendType", kSendTypeZh, 4);
+        translate_enum_i18n(mh.children, "SendType", kSendTypeZh, 5);
+        translate_enum_i18n(mh.children, "BroadcastDir", kBroadcastDirZh, 4);
         annotate_unit(mh.children, "MSDULength", QStringLiteral(" B"));
         if (mac_head_flag == static_cast<quint8>(NW_2021_MacHeadFlag::LONG_HEAD)) {
             add_fields(mh.children, body, 0, kMacLongHeaderSpec, kMacLongHeaderSpecN, 0);
