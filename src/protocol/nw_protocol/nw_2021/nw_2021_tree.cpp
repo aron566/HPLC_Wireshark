@@ -33,9 +33,29 @@ struct I18nReg {
         trl::register_en("非重传报文", "non-retransmitted frame");
         trl::register_en("上个带宽时隙已结束", "previous band slot ended");
         trl::register_en("上个带宽时隙未结束", "previous band slot not ended");
+        // 无线 MCS 释义(第2部分表129:分集次数/调制方式/码率)
+        trl::register_en("分集4次 BPSK 码率1/2", "diversity 4, BPSK, code rate 1/2");
+        trl::register_en("分集2次 BPSK 码率1/2", "diversity 2, BPSK, code rate 1/2");
+        trl::register_en("分集2次 QPSK 码率1/2", "diversity 2, QPSK, code rate 1/2");
+        trl::register_en("分集1次 QPSK 码率1/2", "diversity 1, QPSK, code rate 1/2");
+        trl::register_en("分集1次 QPSK 码率4/5", "diversity 1, QPSK, code rate 4/5");
+        trl::register_en("分集1次 16QAM 码率1/2", "diversity 1, 16QAM, code rate 1/2");
+        trl::register_en("分集1次 16QAM 码率4/5", "diversity 1, 16QAM, code rate 4/5");
     }
 };
 const I18nReg g_i18n_reg_nw_tree;
+
+// MCS 取值文本「值 - 释义」(第2部分表129;7 以上为保留)
+QString nw_mcs_text(quint8 mcs) {
+    static const char* const kDesc[] = {
+        "分集4次 BPSK 码率1/2", "分集2次 BPSK 码率1/2",
+        "分集2次 QPSK 码率1/2", "分集1次 QPSK 码率1/2",
+        "分集1次 QPSK 码率4/5", "分集1次 16QAM 码率1/2",
+        "分集1次 16QAM 码率4/5",
+    };
+    const QString desc = (mcs <= 6) ? trl::L(kDesc[mcs]) : trl::L("保留");
+    return QStringLiteral("%1 - %2").arg(mcs).arg(desc);
+}
 
 }  // namespace
 
@@ -71,7 +91,10 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         tree_add_bit_field(bcn, "BeaconPeriodCount", QString::number(e.mpdu.beacon_period_cnt), 5, 0, 32);
         tree_add_bit_field(bcn, "Source TEI", QString::number(e.mpdu.src_tei), 9, 0, 12);
         if (e.meta.is_rf) {
-            // 无线:PBLen(11,0,4)
+            // 无线(第2部分表128):MCS(10,4,4,释义见表129) + PBLen 载荷PB大小(11,0,4)
+            const quint8 mcs = (e.raw_bytes.size() > 10)
+                ? (quint8)(((quint8)e.raw_bytes[10] >> 4) & 0x0F) : 0;
+            tree_add_bit_field(bcn, "MCS", nw_mcs_text(mcs), 10, 4, 4);
             tree_add_bit_field(bcn, "PBLen", QString::number(e.mpdu.tmi), 11, 0, 4);
         } else {
             // 载波:TMI(10,4,4) SymbolNum(11,0,9) 保留(12,1,1) 相线(12,2,2)
@@ -131,6 +154,11 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv0, 4, 16, QChar('0')), 5, 0, 16);
         tree_add_bit_field(sof, "PB Num", QString::number(e.mpdu.pb_num), 7, 0, 4);
         tree_add_bit_field(sof, "TMI", QString::number(e.mpdu.tmi), 7, 4, 4);
+        // 无线 SOF 的 MCS 在 (7,0,4)(第2部分表131,释义见表129),载波无此字段;从原始字节取
+        if (e.meta.is_rf) {
+            const quint8 mcs = (raw_sz > 7) ? (quint8)(d[7] & 0x0F) : 0;
+            tree_add_bit_field(sof, "MCS", nw_mcs_text(mcs), 7, 0, 4);
+        }
         tree_add_bit_field(sof, "Frame Length", QStringLiteral("%1 (x10us)").arg(e.mpdu.frame_len), 8, 0, 12);
         // 保留 9b(字节9 bit4-7 + 字节10 bit0-4)
         const quint16 rsv1 = (raw_sz > 10) ? (quint16)(((d[9] >> 4) & 0x0F) | ((d[10] & 0x1F) << 4)) : 0;
