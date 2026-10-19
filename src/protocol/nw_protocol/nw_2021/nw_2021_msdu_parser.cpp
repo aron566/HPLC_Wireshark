@@ -46,8 +46,11 @@ static void translate_enum_i18n(QVector<MsduFieldNode>& nodes, const char* field
         if (!n.name.startsWith(QLatin1String(field))) continue;
         bool ok = false;
         const int v = n.value.toInt(&ok);
-        if (ok && v >= 0 && v < dict_size && zh_dict[v])
+        if (!ok) continue;
+        if (v >= 0 && v < dict_size && zh_dict[v])
             n.value = QStringLiteral("%1 - %2").arg(v).arg(trl::L(zh_dict[v]));
+        else
+            n.value = QStringLiteral("%1 - %2").arg(v).arg(trl::L("保留"));  // 字典内 nullptr 或越界值显式标注"保留"
     }
 }
 
