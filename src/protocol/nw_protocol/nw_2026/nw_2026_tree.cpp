@@ -23,6 +23,9 @@ struct I18nReg {
         trl::register_en("选择确认帧", "selective ACK frame");
         trl::register_en("网络搜索帧(抄控器)", "network search frame (meter reader)");
         trl::register_en("同步帧(抄控器)", "sync frame (meter reader)");
+        trl::register_en("不携带SNR信息", "no SNR info");
+        trl::register_en("接收当前帧SNR信息", "current frame SNR info");
+        trl::register_en("反馈TF评估基础RU信息", "TF basic RU SNR info");
         trl::register_en("SOF帧全部接收成功", "SOF frame fully received OK");
         trl::register_en("物理块存在CRC校验失败", "some PB CRC failed");
         trl::register_en("校验成功", "CRC ok");
@@ -388,14 +391,42 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             tree_add_bit_field(ack, "RxPBNum",
                 QStringLiteral("%1 (%2)").arg(e.mpdu.ack_rx_pb_num).arg(trl::L("含解析错误")),
                 3, 4, 4);
-            // 保留(表19:byte4-11, 64bit)
+            // 短网络标识高位 + SNR类型 + 保留 + SNR评估信息 + 保留(表30)
             {
-                quint64 rsv = 0;
-                const int avail = e.raw_bytes.size() - 4;
-                for (int i = 0; i < 8 && i < avail; ++i)
-                    rsv = (rsv << 8) | (quint8)e.raw_bytes[4 + i];
+                const quint8* d = reinterpret_cast<const quint8*>(e.raw_bytes.constData());
+                const int raw_sz = e.raw_bytes.size();
+                const quint8 snid_high = (raw_sz > 4) ? (quint8)(d[4] & 0x01) : 0;
+                tree_add_bit_field(ack, "SNID High", QString::number(snid_high), 4, 0, 1);
+                // SNR类型(表32):0不携带 / 1当前帧SNR / 2基础RU / 3保留
+                const quint8 snr_type = (raw_sz > 4) ? (quint8)((d[4] >> 1) & 0x03) : 0;
+                QString snr_desc;
+                switch (snr_type) {
+                case 0: snr_desc = trl::L("不携带SNR信息"); break;
+                case 1: snr_desc = trl::L("接收当前帧SNR信息"); break;
+                case 2: snr_desc = trl::L("反馈TF评估基础RU信息"); break;
+                default: snr_desc = trl::L("保留"); break;
+                }
+                tree_add_bit_field(ack, "SNR Type",
+                    QStringLiteral("%1 - %2").arg(snr_type).arg(snr_desc), 4, 1, 2);
+                const quint8 rsv4 = (raw_sz > 4) ? (quint8)((d[4] >> 3) & 0x1F) : 0;
                 tree_add_bit_field(ack, "Reserved",
-                    QStringLiteral("0x%1").arg(rsv, 16, 16, QChar('0')), 4, 0, 64);
+                    QStringLiteral("0x%1").arg(rsv4, 2, 16, QChar('0')), 4, 3, 5);
+                // SNR评估信息(表30:(5,0,30)):SNR类型1=当前帧5bit SNR,类型2=RU0-5各5bit
+                quint32 snr = 0;
+                if (raw_sz >= 9)
+                    snr = (quint32)(quint8)d[5] | ((quint32)(quint8)d[6] << 8)
+                        | ((quint32)(quint8)d[7] << 16) | ((quint32)((quint8)d[8] & 0x3F) << 24);
+                tree_add_bit_field(ack, "SNR Info",
+                    QStringLiteral("0x%1").arg(snr, 8, 16, QChar('0')), 5, 0, 30);
+                const quint8 rsv8 = (raw_sz > 8) ? (quint8)((d[8] >> 6) & 0x03) : 0;
+                tree_add_bit_field(ack, "Reserved",
+                    QStringLiteral("0x%1").arg(rsv8, 1, 16, QChar('0')), 8, 6, 2);
+                quint32 rsv9 = 0;
+                if (raw_sz >= 12)
+                    rsv9 = (quint32)(quint8)d[9] | ((quint32)(quint8)d[10] << 8)
+                        | ((quint32)(quint8)d[11] << 16);
+                tree_add_bit_field(ack, "Reserved",
+                    QStringLiteral("0x%1").arg(rsv9, 6, 16, QChar('0')), 9, 0, 24);
             }
             // 扩展帧类型(表19:byte12 bit0-3)
             tree_add_bit_field(ack, "ExtType", ext_ev, 12, 0, 4);
@@ -406,52 +437,69 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
     }
     case NW_2026_FrameType::COORD: {
         auto* coord = tree_add_item(root, "COORD", "");
+        const quint8* d = reinterpret_cast<const quint8*>(e.raw_bytes.constData());
+        const int raw_sz = e.raw_bytes.size();
+        // 邻居网络比特图1(表41:1,0,16):bit0=SNID1 ... bit15=SNID16
+        const quint16 bm1 = (raw_sz > 2) ? (quint16)((quint8)d[1] | ((quint8)d[2] << 8)) : 0;
         {
-            // 邻居网络位图(表22):bit i 对应 SNID i+1,置 1 表示收到过该网络报文
             QStringList heard;
             for (int i = 0; i < 16; ++i)
-                if (e.mpdu.coord_neighbour_nid & (1u << i))
-                    heard << QStringLiteral("SNID %1").arg(i + 1);
-            tree_add_bit_field(coord, "NeighbourNIDBitMap",
-                heard.isEmpty()
-                    ? QStringLiteral("0x%1").arg(e.mpdu.coord_neighbour_nid, 4, 16, QChar('0'))
-                    : QStringLiteral("0x%1 (%2)").arg(e.mpdu.coord_neighbour_nid, 4, 16, QChar('0'))
-                          .arg(heard.join(QLatin1String(", "))),
+                if (bm1 & (1u << i)) heard << QStringLiteral("SNID %1").arg(i + 1);
+            tree_add_bit_field(coord, "NeighbourNIDBitMap1",
+                heard.isEmpty() ? QStringLiteral("0x%1").arg(bm1, 4, 16, QChar('0'))
+                                : QStringLiteral("0x%1 (%2)").arg(bm1, 4, 16, QChar('0'))
+                                      .arg(heard.join(QLatin1String(", "))),
                 1, 0, 16);
         }
-        // 字节3:载波为保留(表22);无线为本网络无线信道编号(第2部分表127)
+        // 本网络无线信道编号(表41:3,0,8,不分介质)
+        const quint8 rf_ch = (raw_sz > 3) ? (quint8)d[3] : 0;
+        tree_add_bit_field(coord, "RF Channel", QString::number(rf_ch), 3, 0, 8);
+        // 邻居网络比特图2(表41:4,0,10):bit0=SNID17 ... bit9=SNID26
+        const quint16 bm2 = (raw_sz > 5)
+            ? (quint16)((quint8)d[4] | ((quint16)(d[5] & 0x03) << 8)) : 0;
         {
-            const quint8 b3 = (e.raw_bytes.size() > 3) ? (quint8)e.raw_bytes[3] : 0;
-            if (e.meta.is_rf)
-                tree_add_bit_field(coord, "RF Channel", QString::number(b3), 3, 0, 8);
-            else
-                tree_add_bit_field(coord, "RSV", QStringLiteral("0x%1").arg(b3, 2, 16, QChar('0')), 3, 0, 8);
+            QStringList heard;
+            for (int i = 0; i < 10; ++i)
+                if (bm2 & (1u << i)) heard << QStringLiteral("SNID %1").arg(i + 17);
+            tree_add_bit_field(coord, "NeighbourNIDBitMap2",
+                heard.isEmpty() ? QStringLiteral("0x%1").arg(bm2, 3, 16, QChar('0'))
+                                : QStringLiteral("0x%1 (%2)").arg(bm2, 3, 16, QChar('0'))
+                                      .arg(heard.join(QLatin1String(", "))),
+                4, 0, 10);
         }
-        tree_add_bit_field(coord, "RSV1", QStringLiteral("0x%1")
-            .arg(e.mpdu.coord_rsv1, 3, 16, QChar('0')), 4, 0, 10);
         tree_add_bit_field(coord, "TimeDuration", QStringLiteral("%1 (x40ms)").arg(e.mpdu.coord_duration), 5, 2, 14);
-        tree_add_bit_field(coord, "RSV2", QString::number(e.mpdu.coord_rsv2), 7, 0, 1);
+        // 邻居网络比特图3(表41:7,0,1):bit0=SNID27
+        const quint8 bm3 = (raw_sz > 7) ? (quint8)(d[7] & 0x01) : 0;
+        tree_add_bit_field(coord, "NeighbourNIDBitMap3", QString::number(bm3), 7, 0, 1);
         {
-            // 带宽结束标志位(表22):1=上个带宽时隙已结束 0=未结束
+            // 带宽结束标志位(表41:7,1,1):1=上个带宽时隙已结束 0=未结束
             QString flag = (e.mpdu.coord_band_end_flag == 1)
                 ? QStringLiteral("1 - %1").arg(trl::L("上个带宽时隙已结束"))
                 : QStringLiteral("0 - %1").arg(trl::L("上个带宽时隙未结束"));
             tree_add_bit_field(coord, "BandSlotEndFlag", flag, 7, 1, 1);
         }
-        if (e.meta.is_rf) {
-            // 无线(第2部分表127):(7,2,2) 为本网络无线 option,(7,4,4) 为保留
-            tree_add_bit_field(coord, "RF Option", QString::number(e.mpdu.coord_rsv3 & 0x03), 7, 2, 2);
-            tree_add_bit_field(coord, "RSV", QStringLiteral("0x%1")
-                .arg((e.mpdu.coord_rsv3 >> 2) & 0x0F, 1, 16, QChar('0')), 7, 4, 4);
-        } else {
-            // 保留(表22:byte7 bit2-7, 6b)
-            tree_add_bit_field(coord, "RSV3", QStringLiteral("0x%1")
-                .arg(e.mpdu.coord_rsv3, 2, 16, QChar('0')), 7, 2, 6);
+        // 本网络无线 option(表41:7,2,2,不分介质)
+        const quint8 rf_opt = (raw_sz > 7) ? (quint8)((d[7] >> 2) & 0x03) : 0;
+        tree_add_bit_field(coord, "RF Option", QString::number(rf_opt), 7, 2, 2);
+        // 邻居网络比特图4(表41:7,4,4):bit0=SNID28 ... bit3=SNID31
+        const quint8 bm4 = (raw_sz > 7) ? (quint8)((d[7] >> 4) & 0x0F) : 0;
+        {
+            QStringList heard;
+            for (int i = 0; i < 4; ++i)
+                if (bm4 & (1u << i)) heard << QStringLiteral("SNID %1").arg(i + 28);
+            tree_add_bit_field(coord, "NeighbourNIDBitMap4",
+                heard.isEmpty() ? QStringLiteral("0x%1").arg(bm4, 1, 16, QChar('0'))
+                                : QStringLiteral("0x%1 (%2)").arg(bm4, 1, 16, QChar('0'))
+                                      .arg(heard.join(QLatin1String(", "))),
+                7, 4, 4);
         }
         tree_add_bit_field(coord, "BandSlotEndOffset", QStringLiteral("%1 (x4ms)").arg(e.mpdu.coord_band_end_offset), 8, 0, 16);
         tree_add_bit_field(coord, "BandSlotStartOffset", QStringLiteral("%1 (x4ms)").arg(e.mpdu.coord_band_start_offset), 10, 0, 16);
-        tree_add_bit_field(coord, "RSV0", QStringLiteral("0x%1")
-            .arg(e.mpdu.coord_rsv0, 1, 16, QChar('0')), 12, 0, 4);
+        // 短网络标识高位(表41:12,0,1) + 保留(12,1,3)
+        const quint8 snid_high = (raw_sz > 12) ? (quint8)(d[12] & 0x01) : 0;
+        tree_add_bit_field(coord, "SNID High", QString::number(snid_high), 12, 0, 1);
+        const quint8 rsv12 = (raw_sz > 12) ? (quint8)((d[12] >> 1) & 0x07) : 0;
+        tree_add_bit_field(coord, "RSV", QStringLiteral("0x%1").arg(rsv12, 1, 16, QChar('0')), 12, 1, 3);
         break;
     }
     }
