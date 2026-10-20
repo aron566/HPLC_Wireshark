@@ -909,6 +909,9 @@ static bool mme_body_complete(const QByteArray& mme, NW_2021_MMeType type) {
         const int diffs = count > 0 ? count - 1 : 0;
         return mme.size() >= 14 + (diffs * 12 + 7) / 8;
     }
+    case NW_2021_MMeType::MME_RFCHANNELCONFLICTREPORT:
+        // 邻居网络条目(表213,每条 2B)完整性:固定头 7B 之后自 mme[13] 起 nb_num 条
+        return has_items(13, int(get_bits(mme, 12, 0, 8)), 2);
     default: return true;
     }
 }
