@@ -16,6 +16,15 @@ struct I18nReg {
         trl::register_en("重传报文", "retransmitted frame");
         trl::register_en("非重传报文", "non-retransmitted frame");
         trl::register_en("预留信息段", "reserved for future encryption");
+        trl::register_en("保留", "Reserved");
+        // 无线 MCS 释义(表28:分集次数/调制方式/码率)
+        trl::register_en("分集4次 BPSK 码率1/2", "diversity 4, BPSK, code rate 1/2");
+        trl::register_en("分集2次 BPSK 码率1/2", "diversity 2, BPSK, code rate 1/2");
+        trl::register_en("分集2次 QPSK 码率1/2", "diversity 2, QPSK, code rate 1/2");
+        trl::register_en("分集1次 QPSK 码率1/2", "diversity 1, QPSK, code rate 1/2");
+        trl::register_en("分集1次 QPSK 码率4/5", "diversity 1, QPSK, code rate 4/5");
+        trl::register_en("分集1次 16QAM 码率1/2", "diversity 1, 16QAM, code rate 1/2");
+        trl::register_en("分集1次 16QAM 码率4/5", "diversity 1, 16QAM, code rate 4/5");
     }
 };
 const I18nReg g_i18n_reg_gw_tree;
@@ -52,16 +61,53 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         tree_add_bit_field(bcn, "TimeStamp", QStringLiteral("0x%1")
             .arg(e.mpdu.beacon_timestamp, 8, 16, QChar('0')), 4, 0, 32);
         tree_add_bit_field(bcn, "Source TEI", QString::number(e.mpdu.src_tei), 8, 0, 12);
-        tree_add_bit_field(bcn, "TMI", QString::number(e.mpdu.tmi), 9, 4, 4);
-        tree_add_bit_field(bcn, "Symbol Num", QString::number(e.mpdu.symbol_num), 10, 0, 9);
         {
-            // 相线(表18):0=未知相线 1=A 2=B 3=C / 0=unknown, 1=A, 2=B, 3=C
-            static const char* ph[] = {"Unknown", "LineA", "LineB", "LineC"};
-            const quint8 pl = e.mpdu.beacon_line;
-            tree_add_bit_field(bcn, "Line",
-                (pl <= 3) ? QStringLiteral("%1 - %2").arg(pl).arg(QLatin1String(ph[pl]))
-                          : QStringLiteral("%1 - Reserved").arg(pl),
-                11, 1, 2);
+            const quint8* d = reinterpret_cast<const quint8*>(e.raw_bytes.constData());
+            const int raw_sz = e.raw_bytes.size();
+            if (e.meta.is_rf) {
+                // 无线信标(表27):MCS(9,4,4,释义表28)/载荷PB大小(10,0,4,表29)/保留16b
+                static const char* const kMcsDesc[] = {
+                    "分集4次 BPSK 码率1/2", "分集2次 BPSK 码率1/2",
+                    "分集2次 QPSK 码率1/2", "分集1次 QPSK 码率1/2",
+                    "分集1次 QPSK 码率4/5", "分集1次 16QAM 码率1/2",
+                    "分集1次 16QAM 码率4/5",
+                };
+                const quint8 mcs = e.mpdu.tmi;
+                const QString mcs_desc = (mcs <= 6) ? trl::L(kMcsDesc[mcs])
+                                                    : trl::L("保留");
+                tree_add_bit_field(bcn, "MCS",
+                    QStringLiteral("%1 - %2").arg(mcs).arg(mcs_desc), 9, 4, 4);
+                {
+                    static const int kRfPbSize[] = {16, 40, 72, 136, 264, 520};
+                    const quint8 code = e.mpdu.pb_num_field;
+                    const QString desc = (code <= 5)
+                        ? QStringLiteral("%1B").arg(kRfPbSize[code]) : QStringLiteral("Reserved");
+                    tree_add_bit_field(bcn, "Payload PB Size",
+                        QStringLiteral("%1 - %2").arg(code).arg(desc), 10, 0, 4);
+                }
+                const quint32 rsv = (raw_sz > 12)
+                    ? (quint32)((d[10] >> 4) & 0x0F) | ((quint32)d[11] << 4)
+                        | ((quint32)(d[12] & 0x0F) << 12) : 0;
+                tree_add_bit_field(bcn, "Reserved",
+                    QStringLiteral("0x%1").arg(rsv, 4, 16, QChar('0')), 10, 4, 16);
+            } else {
+                tree_add_bit_field(bcn, "TMI", QString::number(e.mpdu.tmi), 9, 4, 4);
+                tree_add_bit_field(bcn, "Symbol Num", QString::number(e.mpdu.symbol_num), 10, 0, 9);
+                {
+                    // 相线(表18):0=未知相线 1=A 2=B 3=C / 0=unknown, 1=A, 2=B, 3=C
+                    static const char* ph[] = {"Unknown", "LineA", "LineB", "LineC"};
+                    const quint8 pl = e.mpdu.beacon_line;
+                    tree_add_bit_field(bcn, "Line",
+                        (pl <= 3) ? QStringLiteral("%1 - %2").arg(pl).arg(QLatin1String(ph[pl]))
+                                  : QStringLiteral("%1 - Reserved").arg(pl),
+                        11, 1, 2);
+                }
+                // 保留(表17:(11,3,5)+(12,0,4),共 9b)
+                const quint16 rsv = (raw_sz > 12)
+                    ? (quint16)(((d[11] >> 3) & 0x1F) | ((quint16)(d[12] & 0x0F) << 5)) : 0;
+                tree_add_bit_field(bcn, "Reserved",
+                    QStringLiteral("0x%1").arg(rsv, 3, 16, QChar('0')), 11, 3, 9);
+            }
         }
         if (e.mpdu.pb_size > 0)
             tree_add_item(bcn, "PB Size", QString::number(e.mpdu.pb_size));
@@ -95,9 +141,26 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 QStringLiteral("0x%1 - %2").arg(e.mpdu.link_id, 2, 16, QChar('0')).arg(link_desc),
                 7, 0, 8);
         }
-        tree_add_bit_field(sof, "Frame Length", QStringLiteral("%1 (x10us)").arg(e.mpdu.frame_len), 8, 0, 12);
-        tree_add_bit_field(sof, "PB Num", QString::number(e.mpdu.pb_num), 9, 4, 4);
-        tree_add_bit_field(sof, "Symbol Num", QString::number(e.mpdu.symbol_num), 10, 0, 9);
+        // 帧长单位:载波(表19)10 微秒、无线(表30)100 微秒
+        tree_add_bit_field(sof, "Frame Length",
+            QStringLiteral("%1 (%2)").arg(e.mpdu.frame_len)
+                                      .arg(e.meta.is_rf ? QStringLiteral("x100us")
+                                                        : QStringLiteral("x10us")),
+            8, 0, 12);
+        // 字节9 bit4-7 / 字节10-11 bit0:载波(表19)=物理块个数/符号数;无线(表30)=载荷PB大小/保留
+        if (e.meta.is_rf) {
+            // 载荷PB大小(表29):0-5 = 16/40/72/136/264/520 字节
+            static const int kRfPbSize[] = {16, 40, 72, 136, 264, 520};
+            const quint8  idx = e.mpdu.pb_num_field;
+            const QString desc = (idx <= 5)
+                ? QStringLiteral("%1B").arg(kRfPbSize[idx]) : QStringLiteral("Reserved");
+            tree_add_bit_field(sof, "Payload PB Size",
+                QStringLiteral("%1 - %2").arg(idx).arg(desc), 9, 4, 4);
+            tree_add_bit_field(sof, "Reserved", QString::number(e.mpdu.symbol_num), 10, 0, 9);
+        } else {
+            tree_add_bit_field(sof, "PB Num", QString::number(e.mpdu.pb_num_field), 9, 4, 4);
+            tree_add_bit_field(sof, "Symbol Num", QString::number(e.mpdu.symbol_num), 10, 0, 9);
+        }
         // 广播标志位(表21):0=非广播报文 1=广播报文
         tree_add_bit_field(sof, "Broadcast",
             e.mpdu.bc_flag ? QStringLiteral("1 - %1").arg(trl::L("广播报文"))
@@ -112,8 +175,25 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         tree_add_bit_field(sof, "Encrypted",
             QStringLiteral("%1 (%2)").arg(e.mpdu.encryp_flag).arg(trl::L("预留信息段")),
             11, 3, 1);
-        tree_add_bit_field(sof, "TMI", QString::number(e.mpdu.tmi), 11, 4, 4);
-        tree_add_bit_field(sof, "TMI_EXT", QString::number(e.mpdu.tmi_ext), 12, 0, 4);
+        if (e.meta.is_rf) {
+            // 无线(表30):字节11 bit4-7 = MCS(表28),字节12 bit0-3 = 保留
+            // 表28 MCS 取值:0-6 为分集次数/调制方式/码率组合,7 以上保留
+            static const char* const kMcsDesc[] = {
+                "分集4次 BPSK 码率1/2", "分集2次 BPSK 码率1/2",
+                "分集2次 QPSK 码率1/2", "分集1次 QPSK 码率1/2",
+                "分集1次 QPSK 码率4/5", "分集1次 16QAM 码率1/2",
+                "分集1次 16QAM 码率4/5",
+            };
+            const quint8 mcs = e.mpdu.tmi;
+            const QString mcs_desc = (mcs <= 6) ? trl::L(kMcsDesc[mcs])
+                                                : trl::L("保留");
+            tree_add_bit_field(sof, "MCS",
+                QStringLiteral("%1 - %2").arg(mcs).arg(mcs_desc), 11, 4, 4);
+            tree_add_bit_field(sof, "Reserved", QString::number(e.mpdu.tmi_ext), 12, 0, 4);
+        } else {
+            tree_add_bit_field(sof, "TMI", QString::number(e.mpdu.tmi), 11, 4, 4);
+            tree_add_bit_field(sof, "TMI_EXT", QString::number(e.mpdu.tmi_ext), 12, 0, 4);
+        }
         tree_add_item(sof, "PB Size", QString::number(e.mpdu.pb_size));
 
         // 逐 PB 块渲染:国网 PB 头 1B + 数据 pb_size-4 B + CRC24 3B

@@ -176,7 +176,8 @@ GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msd
     if (ft == GW_2022_FrameType::SOF) {
         // SOF:FCH 字段 + 多 PB 重组(sof 模块)
         err = gw_2022_sof::assemble(r.payload_for_log, r.mpdu, msdu, r.msdu_body,
-                                    r.meta.is_rf ? 0xFF : (quint8)r.meta.channel);
+                                    r.meta.is_rf ? 0xFF : (quint8)r.meta.channel,
+                                    r.meta.is_rf);
         if (!err.isEmpty()) { r.reject_reason = err; r.accept = false; return r; }
         if (f.tei_filter && !f.tei_list.contains(r.mpdu.src_tei)
                         && !f.tei_list.contains(r.mpdu.dst_tei)) {
@@ -197,9 +198,21 @@ GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msd
         r.mpdu.beacon_timestamp = (quint32)get_bits(p, 4, 0, 32);
         r.mpdu.src_tei          = (quint16)get_bits(p, 8, 0, 12);
         r.mpdu.tmi              = (quint8) get_bits(p, 9, 4, 4);
-        r.mpdu.pb_size          = (quint16)gw_2022_pb_size(r.mpdu.tmi);  // 单块帧块长
-        r.mpdu.symbol_num       = (quint16)get_bits(p, 10, 0, 9);
-        r.mpdu.beacon_line      = (quint8) get_bits(p, 11, 1, 2);
+        if (r.meta.is_rf) {
+            // 无线信标(表27):(9,4,4) 为 MCS(tmi 承载)、(10,0,4) 为载荷 PB 大小码(表29),
+            // 其余 (10,4,4)+(11,0,8)+(12,0,4) 为保留,无符号数/相线字段
+            r.mpdu.pb_num_field = (quint8) get_bits(p, 10, 0, 4);   // 载荷 PB 大小码
+            const int sz = gw_2022_rf_pb_size(r.mpdu.pb_num_field);
+            r.mpdu.pb_size    = (quint16)(sz > 0 ? sz : 0);
+            r.mpdu.symbol_num = 0;
+            r.mpdu.beacon_line = 0;
+        } else {
+            // 载波信标(表17):PB 大小由分集拷贝基本模式(tmi)查表;无效 TMI 不再把 -1 铸成 65535
+            const int sz = gw_2022_pb_size(r.mpdu.tmi);
+            r.mpdu.pb_size    = (quint16)(sz > 0 ? sz : 0);  // 单块帧块长
+            r.mpdu.symbol_num = (quint16)get_bits(p, 10, 0, 9);
+            r.mpdu.beacon_line = (quint8) get_bits(p, 11, 1, 2);
+        }
         r.beacon = GW_2022_BeaconParser::parse_beacon(r.payload_for_log);
         if (r.beacon.present) {
             const QByteArray& gb = r.payload_for_log;

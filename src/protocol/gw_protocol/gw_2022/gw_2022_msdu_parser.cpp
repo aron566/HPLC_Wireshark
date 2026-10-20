@@ -884,15 +884,16 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
     if (body.size() < 8) return out;
 
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
-    // 单跳帧判定:data[0] bit0 = 1 时是简头(MSDU_BASE_S)
-    bool simple = (p[0] & 0x01) != 0;
+    // 单跳帧判定:版本字段(字节0 低4位)==1 为单跳帧协议(表2/5.1.1.4.2);
+    // 0 为标准帧协议,其余为保留(旧实现只判 bit0,保留奇数值会误判)
+    bool simple = (p[0] & 0x0F) == 0x01;
 
     if (simple) {
         out.simple_head = true;
         add_fields(out.tree, body, 0, kMsduBaseSSpec, kMsduBaseSSpecN);
-        // MSDUType 简头字典(与 Python MSDU_BASE_S 一致):0/128/129
+        // MSDUType 简头字典(表12):0 发现列表消息 128 应用层报文 129 IPv4 报文
         translate_enum_sparse(out.tree, "MSDUType", {
-            {0, QStringLiteral("Find List Message")},
+            {0, QStringLiteral("Discovery List Message")},
             {128, QStringLiteral("Application Level Message")},
             {129, QStringLiteral("IPv4 Message")},
         });
@@ -900,9 +901,9 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
         int   msdu_len   = (int)get_bits(p, 2, 0, 11);
         if (msdu_len > body.size() - 4) msdu_len = body.size() - 4;  // 防声明长度越界
         QByteArray msdu_body = body.mid(4, msdu_len);
-        if (static_cast<GW_2022_MsduSType>(msdu_type) == GW_2022_MsduSType::FIND_LIST) {
+        if (static_cast<GW_2022_MsduSType>(msdu_type) == GW_2022_MsduSType::DISCOVERY_LIST) {
             // 消息类型0 = 无线发现列表(表123),按 TLV 逐字段解析
-            out.summary = QStringLiteral("Find List Message");
+            out.summary = QStringLiteral("Discovery List Message");
             parse_rfdl(out, msdu_body, 4);   // RFDL 载荷自单跳头(4B)之后
         } else {
             out.summary = QStringLiteral("Simple MSDU type %1").arg(msdu_type);

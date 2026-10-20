@@ -62,15 +62,16 @@ struct MpduInfo {
     quint16 src_tei;       ///< 源 TEI(BEACON/SOF/ACK 解析后)
     quint16 dst_tei;       ///< 目的 TEI(SOF/ACK 解析后)
     quint8  link_id;       ///< SOF 链路标识符(8-bit)
-    quint16 frame_len;     ///< 帧长(×10µs,12-bit,SOF)
-    quint8  pb_num;        ///< 物理块个数(SOF 时,1-4)
-    quint16 symbol_num;    ///< 符号数 9-bit
+    quint16 frame_len;     ///< 帧长(12-bit,SOF;载波表19 ×10µs / 无线表30 ×100µs)
+    quint8  pb_num;        ///< 生效物理块个数(SOF;载波=字段值 1-4,无线固定 1)
+    quint8  pb_num_field;  ///< SOF 字节9 bit4-7 原始值:载波=物理块个数(表19)/无线=载荷PB大小索引(表29)
+    quint16 symbol_num;    ///< 符号数 9-bit(载波 SOF 表19;无线 SOF 表30 该位段为保留,存原始值、不参与解析)
     bool    bc_flag;       ///< SOF 广播标志位
     bool    re_send_flag;  ///< SOF 重发标志位
     bool    encryp_flag;   ///< SOF 加密标志位
-    quint8  tmi;           ///< 分级拷贝基本模式(决定 PB Size)
-    quint8  tmi_ext;       ///< 分级拷贝扩展模式
-    quint16 pb_size;       ///< 由 TMI/TMI_EXT 查表得出的 PB 块大小(72/136/264/520)
+    quint8  tmi;           ///< SOF 字节11 bit4-7 原始值:载波=分集拷贝基本模式(表19)/无线=MCS(表28)
+    quint8  tmi_ext;       ///< 分集拷贝扩展模式(载波 SOF 表19;无线 SOF 表30 该位段为保留,存原始值、不参与解析)
+    quint16 pb_size;       ///< PB 块大小(载波=TMI查表 72/136/264/520;无线=载荷PB大小表29 16/40/72/136/264/520)
     bool    fch_crc_ok;    ///< 控制头 CRC24 校验结果
     bool    pb_crc_ok;     ///< PB 块 CRC24 校验结果(SOF 时,全部块)
     int     pb_index;      ///< PB 序号(分片重组时)
@@ -126,7 +127,7 @@ struct MpduInfo {
     MpduInfo()
         : frame_type(0), net_type(0), net_id(0), version(0),
           src_tei(0), dst_tei(0), link_id(0), frame_len(0),
-          pb_num(0), symbol_num(0), bc_flag(false), re_send_flag(false),
+          pb_num(0), pb_num_field(0), symbol_num(0), bc_flag(false), re_send_flag(false),
           encryp_flag(false), tmi(0), tmi_ext(0), pb_size(0),
           fch_crc_ok(false), pb_crc_ok(false), pb_index(0), pb_head(0),
           beacon_timestamp(0), beacon_line(0),

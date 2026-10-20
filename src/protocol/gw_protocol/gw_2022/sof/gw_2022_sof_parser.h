@@ -16,10 +16,14 @@ namespace gw_2022_sof {
 /// @param msdu      跨帧重组状态(多帧分段时由调用方在帧间保留)
 /// @param complete_msdu_body [out] 重组完成的 MSDU body(未完成则为空)
 /// @param band      PLC 频段号(0-3),用于查 gw_2022_pb_num_table 校验 PB 块数;
-///                  0xFF(默认)= 非 PLC(HRF 等),按通用 1-4 上限校验
+///                  0xFF(默认)= 非 PLC(HRF 等)
+/// @param is_rf     是否无线信道帧:无线 SOF 走表30 字段格式——固定 1 个 PB 块,
+///                  字节9 bit4-7 为载荷PB大小(表29)定 PB 大小、字节11 bit4-7 为 MCS,
+///                  字节10-11 bit0/字节12 bit0-3 为保留;载波走表19(物理块个数/TMI)
 /// @return 空字符串 = 成功;非空 = 错误文案(调用方拒收该帧)
 QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
-                 QByteArray& complete_msdu_body, quint8 band = 0xFF);
+                 QByteArray& complete_msdu_body, quint8 band = 0xFF,
+                 bool is_rf = false);
 
 }  // namespace gw_2022_sof
 

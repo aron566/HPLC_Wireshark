@@ -24,12 +24,18 @@ int sof_pb_size(quint8 tmi, quint8 tmi_ext) {
     return -1;
 }
 
+// 无线 SOF 载荷PB大小(表29):索引 0-5 对应 16/40/72/136/264/520 字节
+int sof_rf_pb_size(quint8 idx) {
+    static const quint16 table[] = {16, 40, 72, 136, 264, 520};
+    return (idx <= 5) ? int(table[idx]) : -1;
+}
+
 }  // namespace
 
 namespace gw_2022_sof {
 
 QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
-                 QByteArray& complete_msdu_body, quint8 band) {
+                 QByteArray& complete_msdu_body, quint8 band, bool is_rf) {
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
 
     // FCH 业务字段(相对 FCH 起点)
@@ -37,22 +43,38 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
     info.dst_tei      = (quint16)get_bits(p, 5, 4, 12);
     info.link_id      = (quint8) get_bits(p, 7, 0, 8);
     info.frame_len    = (quint16)get_bits(p, 8, 0, 12);
-    info.pb_num       = (quint8) get_bits(p, 9, 4, 4);
-    info.symbol_num   = (quint16)get_bits(p, 10, 0, 9);
+    info.pb_num_field = (quint8) get_bits(p, 9, 4, 4);
     info.bc_flag      = (bool)   get_bits(p, 11, 1, 1);
     info.re_send_flag = (bool)   get_bits(p, 11, 2, 1);
     info.encryp_flag  = (bool)   get_bits(p, 11, 3, 1);
     info.tmi          = (quint8) get_bits(p, 11, 4, 4);
-    info.tmi_ext      = (quint8) get_bits(p, 12, 0, 4);
-    info.pb_size      = (quint16)sof_pb_size(info.tmi, info.tmi_ext);
+    int pb_size;
+    if (is_rf) {
+        // 无线 SOF(表30):无物理块个数字段,固定 1 块;字节9 bit4-7 为载荷PB大小(表29),
+        // 字节10-11 bit0 与字节12 bit0-3 为保留(存原始值供呈现,不参与解析);
+        // 字节11 bit4-7 为 MCS(表28)
+        info.pb_num     = 1;
+        info.symbol_num = (quint16)get_bits(p, 10, 0, 9);   // 保留(原始值)
+        info.tmi_ext    = (quint8) get_bits(p, 12, 0, 4);   // 保留(原始值)
+        pb_size         = sof_rf_pb_size(info.pb_num_field);
+    } else {
+        // 载波 SOF(表19):物理块个数/符号数/分集拷贝基本模式/扩展模式
+        info.pb_num     = info.pb_num_field;
+        info.symbol_num = (quint16)get_bits(p, 10, 0, 9);
+        info.tmi_ext    = (quint8) get_bits(p, 12, 0, 4);
+        pb_size         = sof_pb_size(info.tmi, info.tmi_ext);
+    }
 
     const int max_pb_num = (band < 4)
         ? gw_2022_max_pb_num(band, info.tmi, info.tmi_ext) : 4;  // 非 PLC:1-4 上限
-    if (info.pb_size <= 0 || info.pb_num == 0 || info.pb_num > max_pb_num) {
-        return QString("PB 数量非法(band=%1 tmi=%2 ext=%3 num=%4 max=%5)")
+    // 块数合法性只约束载波;RF 生效块数恒 1(见上);PB 大小非法(-1)对载波/无线均拒收
+    if (pb_size <= 0
+        || (!is_rf && (info.pb_num == 0 || info.pb_num > max_pb_num))) {
+        return QString("PB 大小/数量非法(band=%1 tmi=%2 ext=%3 num=%4 max=%5)")
                    .arg(band).arg(info.tmi).arg(info.tmi_ext)
-                   .arg(info.pb_num).arg(max_pb_num);
+                   .arg(info.pb_num_field).arg(max_pb_num);
     }
+    info.pb_size = (quint16)pb_size;
 
     int block_offset = 16;
     bool all_pb_ok = true;

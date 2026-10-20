@@ -22,7 +22,8 @@ constexpr int kApiVersion = 1;
 ///          新旧两端按不同布局静默错位反序列化。
 ///          v1:旧布局(MsduInfo 无 route_hops_left、ParseResult 无 protocol)
 ///          v2:MsduInfo 增 route_hops_left、ParseResult 增 protocol
-constexpr int kWireFormatVersion = 2;
+///          v3:三线合流并集,MpduInfo 增 pb_num_field(GW 线载波块数/无线大小码)
+constexpr int kWireFormatVersion = 3;
 
 /// @brief QDataStream 序列化版本(双方必须一致)
 constexpr int kStreamVersion = QDataStream::Qt_6_5;
