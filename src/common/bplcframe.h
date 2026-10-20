@@ -216,6 +216,7 @@ struct TopoEvent {
     QVector<quint64> leaves;                    ///< 离网节点 MAC 列表
     QVector<CommRateInfo> comm_rates;           ///< 成功率上报条目(SuccessRate 事件)
     bool is_rf = false;                         ///< 接入方式:false=PLC 载波;true=HRF 无线
+    bool is_rf_known = false;                   ///< is_rf 是否明确判定(链路类型字段/物理层介质);false=未知(默认载波)
     int restart_count = -1;                     ///< 发送方重启次数(南网 MAC 帧头 4-bit;-1=未知/无)
     QString desc;                               ///< 变更说明(路由变更了什么)
     qint64 epoch_ms = 0;                        ///< 时间点(epoch ms)

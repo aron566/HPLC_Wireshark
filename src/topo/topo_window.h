@@ -7,11 +7,11 @@
 #define TOPO_WINDOW_H
 
 #include "topo_state.h"
+#include <QComboBox>
 #include <QHash>
 #include <QList>
 #include <QWidget>
 
-class QComboBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -19,6 +19,34 @@ class QTableView;
 class QStandardItemModel;
 class QPixmap;
 class QTimer;
+class QEvent;
+
+/// @brief NID 下拉框:展开下拉列表期间暂停内容刷新
+/// @details 实时刷新(refresh_nids)会清空重建下拉项,若用户在展开状态下选择,
+///          列表会不停重建导致无法点选。本子类在 showPopup/hidePopup 置标志,
+///         刷新方据此跳过重建。
+class NidComboBox : public QComboBox {
+    Q_OBJECT
+public:
+    explicit NidComboBox(QWidget* parent = nullptr) : QComboBox(parent) {}
+    /// @brief 是否正处于下拉展开状态
+    bool popup_open() const { return m_popup_open; }
+
+signals:
+    /// @brief 下拉列表收起(供外部在收起后强制刷新一次 NID 列表,避免展开期跳过的更新变成过期列表)
+    void popup_closed();
+
+protected:
+    void showPopup() override { m_popup_open = true;  QComboBox::showPopup(); }
+    void hidePopup() override {
+        m_popup_open = false;
+        QComboBox::hidePopup();
+        emit popup_closed();
+    }
+
+private:
+    bool m_popup_open = false;
+};
 
 /// @brief 自绘层次拓扑图(CCO 顶层,STA 按层级向下展开,父子连线)
 class TopoGraphWidget : public QWidget {
@@ -28,6 +56,8 @@ public:
     void set_state(const TopoState* state);
     /// @brief 一键适应视图:缩放+平移使整张拓扑图居中铺满控件
     void fit_view();
+    /// @brief 聚焦某个 STA 节点:平移视图使其居中并高亮(TEI-MAC 表双击跳转用)
+    void focus_node(quint16 tei);
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -68,6 +98,7 @@ private:
     QPointF m_drag_start;     ///< 拖拽起点(widget 坐标)
     QPointF m_press_widget;   ///< 按下位置(判断点击 vs 拖拽)
     bool    m_dragging = false;
+    quint16 m_focus_tei = 0;  ///< 当前高亮聚焦的 TEI(0=无;TEI-MAC 表双击跳转)
 };
 
 /// @brief 拓扑独立窗口(支持历史回放调试模式)
@@ -113,6 +144,8 @@ signals:
 protected:
     /// @brief 关闭 = 隐藏(保留状态,下次打开复用)
     void closeEvent(QCloseEvent* e) override;
+    /// @brief TEI-MAC 表滚轮翻看时暂停实时刷新(捕获 viewport 的 Wheel 事件)
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private slots:
     void on_nid_changed(int idx);
@@ -132,10 +165,12 @@ private:
     /// @brief 历史回放模式下高亮冻结帧对应的路由表行(不滚动,不移除其他行)
     void highlight_history_row();
     void update_mode_ui();
+    /// @brief TEI-MAC 表翻看/双击时暂停实时刷新(冻结当前视图,避免跳转/选择被刷新覆盖)
+    void pause_live();
     /// @brief 向路由变更表追加 [from, to) 区间的事件行(供全量重建/增量追加复用)
     void append_routes_rows(const TopoState* st, const QString& filter, int from, int to);
 
-    QComboBox*          m_nid_combo;
+    NidComboBox*        m_nid_combo;
     QLabel*             m_mode_label = nullptr;  ///< 模式标签:实时 / 历史回放 @ #N
     QPushButton*        m_btn_live = nullptr;    ///< 回到实时按钮(仅回放模式可见)
     TopoGraphWidget*    m_graph;
@@ -149,6 +184,7 @@ private:
     const QHash<quint32, TopoState>* m_states = nullptr;
     const QHash<quint32, TopoState>* m_hist_states = nullptr; ///< 回放快照(不拥有)
     bool m_hist_mode = false;         ///< 历史回放(冻结)模式
+    bool m_pause_live = false;        ///< TEI-MAC 表交互导致的暂停实时刷新(与历史回放共用「回到实时」恢复)
     qint64 m_hist_frame = -1;         ///< 历史回放冻结到的帧序号(路由表高亮用;-1=无)
     quint32 m_current_nid = 0;
     bool    m_dirty = false;         ///< 有新拓扑数据待刷新

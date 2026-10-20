@@ -1067,6 +1067,9 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                         // 关联失败:不更新拓扑(但保留字段解析)
                     } else {
                     out.topo_event.kind = TopoEventKind::AssocCnf;
+                    // 链路类型(关联确认 kAssocCnfSpec):0=HPLC载波/1=HRF无线,确认 STA 接入方式
+                    out.topo_event.is_rf = (get_bits(b, 15, 4, 1) != 0);
+                    out.topo_event.is_rf_known = true;
                     if (cco_mac) out.topo_event.cco_mac = cco_mac;
                     if (sta_tei && sta_mac) out.topo_event.nodes.append({sta_tei, sta_mac});
                     if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
@@ -1252,7 +1255,12 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                     const quint16 bmproxy_tei = (quint16)get_bits(b, 6, 0, 12);
                     const bool bm_ok = (bmres == 0);
                     int bm_cnt = 0;
-                    if (bm_ok) out.topo_event.kind = TopoEventKind::ChangeProxyCnf;
+                    if (bm_ok) {
+                        out.topo_event.kind = TopoEventKind::ChangeProxyCnf;
+                        // 链路类型(位图确认 kChangeProxyBitMapCnfSpec):0=HPLC载波/1=HRF无线
+                        out.topo_event.is_rf = (get_bits(b, 5, 4, 1) != 0);
+                        out.topo_event.is_rf_known = true;
+                    }
                     QString teis;
                     for (int i = 0; i < bm.size(); ++i) {
                         quint8 byte = (quint8)bm[i];
@@ -1565,6 +1573,9 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                         // 变更失败:不更新拓扑(但保留字段解析)
                     } else {
                     out.topo_event.kind = TopoEventKind::ChangeProxyCnf;
+                    // 链路类型(代理变更确认 kChangeProxyCnfSpec):0=HPLC载波/1=HRF无线
+                    out.topo_event.is_rf = (get_bits(b, 5, 4, 1) != 0);
+                    out.topo_event.is_rf_known = true;
                     if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
                     out.topo_event.desc = trl::L("代理变更: STA TEI=%1 代理→%2")
                         .arg(sta_tei)

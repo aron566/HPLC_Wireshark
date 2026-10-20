@@ -200,6 +200,7 @@ struct I18nRegTopoWindow {
         trl::register_en("实时", "Live");
         trl::register_en("历史回放", "History replay");
         trl::register_en("回到实时", "Back to Live");
+        trl::register_en("已暂停", "Paused");
         trl::register_en("适应视图", "Fit view");
         trl::register_en("缩放并居中显示整张拓扑图", "Zoom to fit and center the whole topology");
     }
@@ -301,16 +302,27 @@ void TopoGraphWidget::paintEvent(QPaintEvent*) {
     const qreal node_h = icon_h + label_h;
 
     // 1) 连线:正式节点父→子;正在入网节点连到 CCO
+    //    连线颜色按子节点接入方式区分,从 palette 派生以适配深浅主题:
+    //    载波=主题高亮色(蓝),无线=高亮色互补偏移(琥珀)
+    const QColor hl = palette().highlight().color();
+    QColor edge_plc = hl;
+    QColor edge_rf = hl;
+    const int hue = hl.hue() >= 0 ? hl.hue() : 220;   // 无色相(灰)时按蓝
+    edge_rf.setHsv((hue + 180) % 360, 210, 225);      // 蓝→琥珀(互补色),固定饱和度/明度保证两主题清晰
     for (const NodePos& np : m_layout) {
         QPointF parent_center;
+        bool child_is_rf = false;
         if (np.tei == 0) {
             // 正在入网(关联请求)节点 → 连 CCO(TEI=1)
             auto cit = m_pos.constFind(1);
             if (cit == m_pos.constEnd()) continue;
             parent_center = cit.value();
+            auto pit = m_state->pending.constFind(np.mac);
+            if (pit != m_state->pending.constEnd()) child_is_rf = pit.value().is_rf;
         } else {
             auto it = m_state->nodes.constFind(np.tei);
             if (it == m_state->nodes.constEnd()) continue;
+            child_is_rf = it.value().is_rf;
             const quint16 parent = it.value().parent_tei;
             if (parent == 0xFFFF || parent == np.tei) continue;
             auto pit = m_pos.constFind(parent);
@@ -319,8 +331,8 @@ void TopoGraphWidget::paintEvent(QPaintEvent*) {
         }
         const QPointF child_top(np.pos.x() + node_w / 2, np.pos.y());
         const QPointF parent_bot(parent_center.x(), parent_center.y() + node_h / 2);
-        QColor edge = palette().text().color();
-        edge.setAlpha(150);
+        QColor edge = child_is_rf ? edge_rf : edge_plc;
+        edge.setAlpha(200);
         p.setPen(QPen(edge, 1.2));
         p.drawLine(parent_bot, child_top);
     }
@@ -340,6 +352,14 @@ void TopoGraphWidget::paintEvent(QPaintEvent*) {
         }
         const bool is_cco = (np.tei == 1);
         const bool is_pending = (np.tei == 0);
+
+        // 高亮聚焦节点(TEI-MAC 表双击跳转):橙色粗边框醒目标识
+        if (np.tei != 0 && np.tei == m_focus_tei) {
+            p.setPen(QPen(QColor(255, 140, 0), 3.0));
+            p.setBrush(Qt::NoBrush);
+            p.drawRoundedRect(QRectF(np.pos.x() - 3, np.pos.y() - 3,
+                                     node_w + 6, node_h + 6), 8, 8);
+        }
 
         // 图标:CCO 路由器 / STA 电表(按入网状态三态)
         QPixmap* icon = nullptr;
@@ -482,9 +502,10 @@ void TopoGraphWidget::mouseReleaseEvent(QMouseEvent* e) {
 
 void TopoGraphWidget::wheelEvent(QWheelEvent* e) {
     const qreal factor = (e->angleDelta().y() > 0) ? 1.15 : (1.0 / 1.15);
-    m_scale = qBound(0.2, m_scale * factor, 8.0);
-    // 以鼠标位置为锚点缩放(保持鼠标下内容不动)
+    // 以鼠标位置为锚点缩放:先用「旧 scale」反算鼠标下的世界坐标,
+    // 再更新 scale 并重算偏移,使缩放前后鼠标下内容不动
     const QPointF world = to_world(e->position());
+    m_scale = qBound(0.2, m_scale * factor, 8.0);
     m_offset = e->position() - world * m_scale;
     update();
     e->accept();
@@ -503,6 +524,18 @@ void TopoGraphWidget::fit_view() {
     update();
 }
 
+void TopoGraphWidget::focus_node(quint16 tei) {
+    m_focus_tei = tei;
+    auto it = m_pos.constFind(tei);
+    if (it != m_pos.constEnd()) {
+        // 平移视图使该节点中心对齐控件中心(保持缩放不变)
+        const QPointF world = it.value();
+        m_offset = QPointF(width() / 2.0 - world.x() * m_scale,
+                           height() / 2.0 - world.y() * m_scale);
+    }
+    update();
+}
+
 // =============================== TopoWindow ===============================
 
 TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
@@ -512,9 +545,11 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     resize(1000, 700);
 
     // 顶部:NID 下拉
-    m_nid_combo = new QComboBox(this);
+    m_nid_combo = new NidComboBox(this);
     connect(m_nid_combo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &TopoWindow::on_nid_changed);
+    // 下拉收起后强制刷新一次 NID 列表:展开期间跳过的更新在此补齐,避免残留过期列表
+    connect(m_nid_combo, &NidComboBox::popup_closed, this, [this] { refresh_nids(); });
 
     // 左:拓扑图
     m_graph = new TopoGraphWidget(this);
@@ -541,6 +576,13 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     connect(m_teimac_table, &QTableView::doubleClicked,
             this, &TopoWindow::on_teimac_double_clicked);
     enable_table_copy(m_teimac_table);
+    // TEI-MAC 表翻看时暂停实时刷新:仅用户拖动滑块(sliderMoved)与滚轮(wheel)触发;
+    // resize 导致的程序性 value 钳制 / 重建 setValue 只发 valueChanged,不会误触发
+    connect(m_teimac_table->verticalScrollBar(), &QScrollBar::sliderMoved,
+            this, [this](int) { pause_live(); });
+    connect(m_teimac_table->horizontalScrollBar(), &QScrollBar::sliderMoved,
+            this, [this](int) { pause_live(); });
+    m_teimac_table->viewport()->installEventFilter(this);  // 滚轮翻看
 
     // 底部:路由变更表(筛选)
     m_routes_filter = new QLineEdit(this);
@@ -598,7 +640,11 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     top_lay->addWidget(m_mode_label);
     m_btn_live = new QPushButton(trl::L("回到实时"), this);
     m_btn_live->setVisible(false);
-    connect(m_btn_live, &QPushButton::clicked, this, &TopoWindow::request_live);
+    connect(m_btn_live, &QPushButton::clicked, this, [this] {
+        m_pause_live = false;      // 恢复 TEI-MAC 交互暂停
+        update_mode_ui();
+        request_live();            // 恢复历史回放(无历史回放时无副作用)
+    });
     top_lay->addWidget(m_btn_live);
     // 一键适应视图:缩小/拖拽后找回整张拓扑图
     auto* btn_fit = new QPushButton(trl::L("适应视图"), this);
@@ -616,7 +662,7 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     m_refresh_timer = new QTimer(this);
     m_refresh_timer->setInterval(200);
     connect(m_refresh_timer, &QTimer::timeout, this, [this] {
-        if (m_dirty && isVisible() && !m_hist_mode) {
+        if (m_dirty && isVisible() && !m_hist_mode && !m_pause_live) {
             m_dirty = false;
             refresh_nids();
             rebuild_all();
@@ -631,6 +677,9 @@ void TopoWindow::set_state_map(const QHash<quint32, TopoState>* map) {
 }
 
 void TopoWindow::refresh_nids() {
+    // 下拉展开状态下跳过重建:否则实时刷新会清空重建下拉项,用户无法点选
+    if (m_nid_combo->popup_open())
+        return;
     const quint32 prev = m_current_nid;
     const auto* states = view_states();
     m_nid_combo->blockSignals(true);
@@ -743,6 +792,7 @@ void TopoWindow::show_history(const QHash<quint32, TopoState>* hist, bool active
 
 void TopoWindow::show_live() {
     m_hist_mode = false;
+    m_pause_live = false;   // 恢复 TEI-MAC 交互暂停
     m_hist_states = nullptr;
     m_hist_frame = -1;
     if (m_routes_table && m_routes_table->selectionModel())
@@ -753,9 +803,24 @@ void TopoWindow::show_live() {
 }
 
 void TopoWindow::update_mode_ui() {
-    if (!m_hist_mode)
+    if (m_pause_live && !m_hist_mode)
+        m_mode_label->setText(trl::L("已暂停"));   // TEI-MAC 交互暂停
+    else if (!m_hist_mode)
         m_mode_label->setText(trl::L("实时"));
-    m_btn_live->setVisible(m_hist_mode);
+    m_btn_live->setVisible(m_hist_mode || m_pause_live);
+}
+
+void TopoWindow::pause_live() {
+    if (m_hist_mode || m_pause_live) return;   // 历史回放已冻结,或已暂停
+    m_pause_live = true;
+    update_mode_ui();
+}
+
+bool TopoWindow::eventFilter(QObject* watched, QEvent* event) {
+    // TEI-MAC 表滚轮翻看:viewport 收到 Wheel 事件 → 暂停实时刷新
+    if (watched == m_teimac_table->viewport() && event->type() == QEvent::Wheel)
+        pause_live();
+    return QWidget::eventFilter(watched, event);
 }
 
 void TopoWindow::append_routes_rows(const TopoState* st, const QString& filter,
@@ -801,10 +866,20 @@ void TopoWindow::on_routes_double_clicked(const QModelIndex& idx) {
 
 /// @brief TEI→MAC 表邻居表单元格双击 → 弹出独立窗口显示邻居 TEI/MAC/层级
 void TopoWindow::on_teimac_double_clicked(const QModelIndex& idx) {
-    if (!idx.isValid() || idx.column() != 4) return;  // 仅邻居表列
+    if (!idx.isValid()) return;
+    pause_live();   // 双击 TEI-MAC 表:暂停实时刷新,避免跳转/弹窗被刷新覆盖
     const QStandardItem* tei_item = m_teimac_model->item(idx.row(), 0);
     if (!tei_item) return;
     const quint16 sta_tei = (quint16)tei_item->data(Qt::UserRole).toUInt();
+
+    // 非邻居表列(TEI/MAC/状态/层级/代理 TEI)双击 → 跳转到 TOPO 图对应 STA
+    if (idx.column() != 4) {
+        if (sta_tei != 0)
+            m_graph->focus_node(sta_tei);
+        return;
+    }
+
+    // 邻居表列(4)双击 → 弹独立窗口显示邻居明细(原有行为)
     if (sta_tei == 0) return;  // 未分配 TEI 的入网中节点无邻居表
 
     const TopoState* st = nullptr;
@@ -915,6 +990,9 @@ void TopoWindow::rebuild_routes_table() {
 }
 
 void TopoWindow::rebuild_teimac_table() {
+    // 保存水平滚动位置:实时刷新全量重建会重置滚动条,用户向右滑动查看邻居表
+    // 时被反复拉回最左;重建后恢复原位置
+    const int saved_hscroll = m_teimac_table->horizontalScrollBar()->value();
     m_teimac_model->clear();
     m_teimac_model->setHorizontalHeaderLabels(
         {trl::L("TEI"), trl::L("MAC"), trl::L("状态"), trl::L("层级"),
@@ -1030,4 +1108,7 @@ void TopoWindow::rebuild_teimac_table() {
             << new QStandardItem(s_parent);
         m_teimac_model->appendRow(row);
     }
+
+    // 恢复水平滚动位置(见函数开头注释)
+    m_teimac_table->horizontalScrollBar()->setValue(saved_hscroll);
 }

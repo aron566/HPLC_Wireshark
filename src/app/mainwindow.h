@@ -71,6 +71,7 @@ private slots:
     void on_export();
     void on_settings();
     void on_apply_filter();
+    void on_goto();   ///< 跳转到指定序号帧(goto 输入框)
     void on_parsed(const ParseResult& r);
     void on_status_message(const QString& s);
     void on_error(const QString& e);
@@ -121,6 +122,8 @@ private:
     QToolButton*   m_btn_update;   ///< 发现新版本时显示的"立即更新"按钮(菜单栏右上角,默认隐藏)
     QLineEdit*     m_edt_filter;
     QToolButton*   m_btn_apply_filter;
+    QLineEdit*     m_edt_goto;   ///< 跳转帧序号输入框(应用按钮右侧)
+    QToolButton*   m_btn_goto;   ///< 跳转按钮
 
     QSplitter*     m_splitter_main;
     QTableView*    m_table_packets;

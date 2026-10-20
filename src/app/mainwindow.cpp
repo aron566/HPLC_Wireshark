@@ -79,6 +79,7 @@ MainWindow::MainWindow(QWidget* parent)
       m_toolbar(nullptr), m_btn_start(nullptr), m_btn_stop(nullptr),
       m_btn_pause(nullptr), m_btn_clear(nullptr), m_btn_export(nullptr),
       m_btn_settings(nullptr), m_btn_topo(nullptr), m_edt_filter(nullptr), m_btn_apply_filter(nullptr),
+      m_edt_goto(nullptr), m_btn_goto(nullptr),
       m_splitter_main(nullptr), m_table_packets(nullptr),
       m_splitter_bottom(nullptr), m_tree_protocol(nullptr),
       m_hex_view(nullptr), m_lbl_hex_title(nullptr),
@@ -190,6 +191,15 @@ void MainWindow::build_ui() {
     m_btn_apply_filter = new QToolButton(m_toolbar);
     m_btn_apply_filter->setText(trl::L("应用"));
     m_toolbar->addWidget(m_btn_apply_filter);
+    // 跳转帧序号:输入序号回车/点击跳转,直接定位到该帧(应用按钮右侧)
+    m_toolbar->addWidget(new QLabel(trl::L("  跳转帧:"), m_toolbar));
+    m_edt_goto = new QLineEdit(m_toolbar);
+    m_edt_goto->setPlaceholderText(trl::L("帧序号"));
+    m_edt_goto->setMinimumWidth(70);
+    m_toolbar->addWidget(m_edt_goto);
+    m_btn_goto = new QToolButton(m_toolbar);
+    m_btn_goto->setText(trl::L("跳转"));
+    m_toolbar->addWidget(m_btn_goto);
 
     m_splitter_main = new QSplitter(Qt::Vertical, this);
 
@@ -377,6 +387,8 @@ void MainWindow::wire_signals() {
     connect(m_btn_topo,        &QToolButton::clicked, this, &MainWindow::open_topo_window);
     connect(m_btn_apply_filter, &QToolButton::clicked, this, &MainWindow::on_apply_filter);
     connect(m_edt_filter,      &QLineEdit::returnPressed, this, &MainWindow::on_apply_filter);
+    connect(m_btn_goto,        &QToolButton::clicked, this, &MainWindow::on_goto);
+    connect(m_edt_goto,        &QLineEdit::returnPressed, this, &MainWindow::on_goto);
 
     connect(m_table_packets, &QTableView::doubleClicked, this,
             [this](const QModelIndex& idx) {
@@ -859,6 +871,17 @@ void MainWindow::on_apply_filter() {
     appcfg::set_filter(expr);              // 记忆到 config.ini,下次启动恢复
 }
 
+void MainWindow::on_goto() {
+    if (!m_edt_goto) return;
+    bool ok = false;
+    const qint64 idx = m_edt_goto->text().trimmed().toLongLong(&ok);
+    if (!ok || idx < 1) {
+        m_status_left->setText(trl::L("跳转帧序号无效"));
+        return;
+    }
+    jump_packet_to_frame(idx);
+}
+
 PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
     PacketEntry e;
     e.index     = ++m_index_counter;
@@ -890,7 +913,14 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
         TopoEvent& te = e.msdu.topo_event;
         te.nid = e.mpdu.net_id;
         te.epoch_ms = e.epoch_ms;
-        te.is_rf = e.meta.is_rf;   // 接入方式(载波/RF)
+        // 接入方式判定口径:
+        // - 国网(GW_2022)关联确认/代理变更确认:解析层已从「链路类型」字段判定
+        //   (is_rf + is_rf_known 已填);其余帧保持默认载波(is_rf_known=false)
+        // - 南网(NW_2021):无链路类型字段,统一用物理层介质 meta.is_rf 判定
+        if (e.protocol == kProtocolNw2021) {
+            te.is_rf = e.meta.is_rf;
+            te.is_rf_known = true;
+        }
         te.frame_index = e.index;  // 来源帧序号(路由表序号列/双击追溯)
         m_topo_states[e.mpdu.net_id].apply(te);
         m_topo_log.append({e.index, te});
@@ -1242,6 +1272,10 @@ struct I18nRegMainWindow {
         trl::register_en("拓扑", "Topology");
         trl::register_en("自动列宽", "Auto fit");
         trl::register_en("按内容自动调整列表各列宽度", "Auto-resize all columns to fit their content");
+        trl::register_en("  跳转帧:", "  Goto frame:");
+        trl::register_en("跳转", "Goto");
+        trl::register_en("跳转帧序号无效", "Invalid frame index");
+        trl::register_en("帧序号", "Frame index");
     }
 };
 const I18nRegMainWindow g_i18n_reg_mainwindow;

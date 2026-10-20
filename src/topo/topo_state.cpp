@@ -158,7 +158,7 @@ void TopoState::apply(const TopoEvent& e) {
         cco.parent_tei = 0;
         cco.status = NodeStatus::Online;
         cco.last_seen_ms = e.epoch_ms;
-        cco.is_rf = e.is_rf;
+        if (e.is_rf_known) cco.is_rf = e.is_rf;
     }
     // TEI→MAC 学习对(节点出现,按事件类型定入网状态)
     for (const TeiMacPair& p : e.nodes) {
@@ -174,7 +174,7 @@ void TopoState::apply(const TopoEvent& e) {
             n.mac = p.mac;
             n.status = NodeStatus::OnlineGoing;
             n.last_seen_ms = e.epoch_ms;
-            n.is_rf = e.is_rf;
+            if (e.is_rf_known) n.is_rf = e.is_rf;
             pending[p.mac] = n;
             continue;
         }
@@ -184,7 +184,7 @@ void TopoState::apply(const TopoEvent& e) {
         n.mac = p.mac;
         n.status = status_for(e.kind);
         n.last_seen_ms = e.epoch_ms;
-        n.is_rf = e.is_rf;
+        if (e.is_rf_known) n.is_rf = e.is_rf;
         // 若该 MAC 之前正在入网(关联请求),现已分配到 TEI → 移除 pending。
         // pending 的 key 恒等于 TopoNode.mac(写入处 pending[p.mac]=n),等价于哈希直接删除。
         pending.remove(p.mac);
@@ -197,7 +197,7 @@ void TopoState::apply(const TopoEvent& e) {
         n.parent_tei = r.second;
         n.status = status_for(e.kind);
         n.last_seen_ms = e.epoch_ms;
-        n.is_rf = e.is_rf;
+        if (e.is_rf_known) n.is_rf = e.is_rf;
     }
     // 离网节点(按 MAC 匹配,标记离线):先走 MAC→TEI 索引 O(1),索引不一致时回退线性扫描
     for (quint64 mac : e.leaves) {
