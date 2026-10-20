@@ -29,6 +29,7 @@ static PacketEntry make_entry(int i) {
     e.meta.replay_time_tag = i % 5 == 0;
     e.meta.frame_time = QDateTime::fromMSecsSinceEpoch(e.epoch_ms);
     e.mpdu.frame_type = 1; e.mpdu.src_tei = 2; e.mpdu.dst_tei = 0xFFF;
+    e.mpdu.pb_num_field = quint8(i % 7);   // 覆盖载荷PB大小索引(表29 0-5)+保留值 6 的序列化 round-trip
     e.mpdu.beacon_cco_mac = 0x112233445566ULL;
     e.protocol = quint8(i % 2);   // 覆盖协议标识序列化 round-trip(0=国网/1=南网)
     e.msdu.present = true; e.msdu.msdu_seq = quint16(i);
@@ -56,6 +57,7 @@ static bool entry_equal(const PacketEntry& a, const PacketEntry& b, QString& why
         || a.meta.frame_time.toMSecsSinceEpoch() != b.meta.frame_time.toMSecsSinceEpoch()
         || a.mpdu.frame_type != b.mpdu.frame_type || a.mpdu.src_tei != b.mpdu.src_tei
         || a.mpdu.dst_tei != b.mpdu.dst_tei
+        || a.mpdu.pb_num_field != b.mpdu.pb_num_field
         || a.mpdu.beacon_cco_mac != b.mpdu.beacon_cco_mac
         || a.protocol != b.protocol
         || a.msdu.present != b.msdu.present || a.msdu.msdu_seq != b.msdu.msdu_seq

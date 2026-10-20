@@ -61,7 +61,7 @@ QDataStream& operator>>(QDataStream& in, ParseFilter& f) {
 QDataStream& operator<<(QDataStream& out, const MpduInfo& m) {
     out << m.frame_type << m.net_type << m.net_id << m.version
         << m.src_tei << m.dst_tei << m.link_id << m.frame_len
-        << m.pb_num << m.pb_num_field << m.symbol_num   // pb_num_field 自 v3(见 plugin_ipc::kWireFormatVersion)
+        << m.pb_num << m.symbol_num
         << m.bc_flag << m.re_send_flag << m.encryp_flag
         << m.tmi << m.tmi_ext << m.pb_size
         << m.fch_crc_ok << m.pb_crc_ok << m.pb_index << m.pb_head
@@ -79,13 +79,14 @@ QDataStream& operator<<(QDataStream& out, const MpduInfo& m) {
         << m.ack_rsv0 << m.ack_channel_quality << m.ack_sta_load << m.ack_rsv1
         << m.ack_dst_addr
         << m.ack_search_tei << m.ack_search_freq
-        << m.ack_sync_timestamp << m.ack_sync_tei;
+        << m.ack_sync_timestamp << m.ack_sync_tei
+        << m.pb_num_field;   // v3 新增字段(追加末尾,见 plugin_ipc::kWireFormatVersion)
     return out;
 }
 QDataStream& operator>>(QDataStream& in, MpduInfo& m) {
     in >> m.frame_type >> m.net_type >> m.net_id >> m.version
        >> m.src_tei >> m.dst_tei >> m.link_id >> m.frame_len
-       >> m.pb_num >> m.pb_num_field >> m.symbol_num
+       >> m.pb_num >> m.symbol_num
        >> m.bc_flag >> m.re_send_flag >> m.encryp_flag
        >> m.tmi >> m.tmi_ext >> m.pb_size
        >> m.fch_crc_ok >> m.pb_crc_ok >> m.pb_index >> m.pb_head
@@ -103,7 +104,8 @@ QDataStream& operator>>(QDataStream& in, MpduInfo& m) {
        >> m.ack_rsv0 >> m.ack_channel_quality >> m.ack_sta_load >> m.ack_rsv1
        >> m.ack_dst_addr
        >> m.ack_search_tei >> m.ack_search_freq
-       >> m.ack_sync_timestamp >> m.ack_sync_tei;
+       >> m.ack_sync_timestamp >> m.ack_sync_tei
+       >> m.pb_num_field;
     return in;
 }
 

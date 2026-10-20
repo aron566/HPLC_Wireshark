@@ -101,7 +101,6 @@ inline void write_mpdu(QDataStream& s, const MpduInfo& m) {
     write_u8(s, m.link_id);
     write_u16(s, m.frame_len);
     write_u8(s, m.pb_num);
-    write_u8(s, m.pb_num_field);
     write_u16(s, m.symbol_num);
     write_bool(s, m.bc_flag);
     write_bool(s, m.re_send_flag);
@@ -153,6 +152,7 @@ inline void write_mpdu(QDataStream& s, const MpduInfo& m) {
     write_u8(s, m.ack_search_freq);
     write_u32(s, m.ack_sync_timestamp);
     write_u16(s, m.ack_sync_tei);
+    write_u8(s, m.pb_num_field);   // 追加末尾(统一追加式布局)
 }
 
 inline void read_mpdu(QDataStream& s, MpduInfo& m) {
@@ -165,7 +165,6 @@ inline void read_mpdu(QDataStream& s, MpduInfo& m) {
     read_u8(s, m.link_id);
     read_u16(s, m.frame_len);
     read_u8(s, m.pb_num);
-    read_u8(s, m.pb_num_field);
     read_u16(s, m.symbol_num);
     read_bool(s, m.bc_flag);
     read_bool(s, m.re_send_flag);
@@ -214,6 +213,7 @@ inline void read_mpdu(QDataStream& s, MpduInfo& m) {
     read_u8(s, m.ack_search_freq);
     read_u32(s, m.ack_sync_timestamp);
     read_u16(s, m.ack_sync_tei);
+    read_u8(s, m.pb_num_field);   // 追加末尾(统一追加式布局)
 }
 
 inline void write_field_node(QDataStream& s, const MsduFieldNode& n, StrPool& pool) {
