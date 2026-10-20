@@ -155,6 +155,7 @@ inline void write_mpdu(QDataStream& s, const MpduInfo& m) {
     write_u8(s, m.pb_num_field);   // 追加末尾(统一追加式布局)
     write_u16(s, m.beacon_rsv);    // 追加末尾(信标保留原始值)
     write_u8(s, m.pblen);          // 追加末尾(南网无线载荷PB大小索引)
+    write_u8(s, m.mcs);            // 追加末尾(无线 MCS)
 }
 
 inline void read_mpdu(QDataStream& s, MpduInfo& m) {
@@ -218,6 +219,7 @@ inline void read_mpdu(QDataStream& s, MpduInfo& m) {
     read_u8(s, m.pb_num_field);   // 追加末尾(统一追加式布局)
     read_u16(s, m.beacon_rsv);    // 追加末尾(信标保留原始值)
     read_u8(s, m.pblen);          // 追加末尾(南网无线载荷PB大小索引)
+    read_u8(s, m.mcs);            // 追加末尾(无线 MCS)
 }
 
 inline void write_field_node(QDataStream& s, const MsduFieldNode& n, StrPool& pool) {
@@ -417,7 +419,7 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
 // ---------------------------------------------------------------------------
 
 inline quint32 block_magic()   { return 0x50424C4Bu; }  // "PBLK"
-inline quint32 block_version() { return 8u; }  // v8: 新增 MpduInfo.pblen(南网无线载荷PB大小索引);v7 增 beacon_rsv;v6 三线合流并集
+inline quint32 block_version() { return 9u; }  // v9: 新增 MpduInfo.mcs(无线 MCS);v8 增 pblen;v7 增 beacon_rsv;v6 三线合流并集
 /// @brief 独立压缩分块的条目数(随机解码粒度:解一条最多解压一个分块)
 inline constexpr int kBlockChunkEntries = 50;
 

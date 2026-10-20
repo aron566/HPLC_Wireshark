@@ -66,6 +66,7 @@ struct MpduInfo {
     quint8  pb_num;        ///< 生效物理块个数(SOF;载波=字段值 1-4,无线固定 1)
     quint8  pb_num_field;  ///< SOF 字节9 bit4-7 原始值:载波=物理块个数(表19)/无线=载荷PB大小索引(表29)
     quint8  pblen;         ///< 南网无线载荷PB大小索引(表130:0-5=16/40/72/136/264/520;载波/国网无效,填 0)
+    quint8  mcs;           ///< 无线 MCS(国网表28 / 南网表129:0-6=分集/调制/码率;载波无此字段,填 0)
     quint16 symbol_num;    ///< 符号数 9-bit(载波 SOF 表19;无线 SOF 表30 该位段为保留,存原始值、不参与解析)
     bool    bc_flag;       ///< SOF 广播标志位
     bool    re_send_flag;  ///< SOF 重发标志位
@@ -129,7 +130,7 @@ struct MpduInfo {
     MpduInfo()
         : frame_type(0), net_type(0), net_id(0), version(0),
           src_tei(0), dst_tei(0), link_id(0), frame_len(0),
-          pb_num(0), pb_num_field(0), pblen(0), symbol_num(0), bc_flag(false), re_send_flag(false),
+          pb_num(0), pb_num_field(0), pblen(0), mcs(0), symbol_num(0), bc_flag(false), re_send_flag(false),
           encryp_flag(false), tmi(0), tmi_ext(0), pb_size(0),
           fch_crc_ok(false), pb_crc_ok(false), pb_index(0), pb_head(0),
           beacon_timestamp(0), beacon_line(0), beacon_rsv(0),

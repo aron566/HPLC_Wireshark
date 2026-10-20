@@ -31,6 +31,7 @@ static PacketEntry make_entry(int i) {
     e.mpdu.frame_type = 1; e.mpdu.src_tei = 2; e.mpdu.dst_tei = 0xFFF;
     e.mpdu.pb_num_field = quint8(i % 7);   // 覆盖载荷PB大小索引(表29 0-5)+保留值 6 的序列化 round-trip
     e.mpdu.pblen = quint8(i % 6);          // 覆盖南网无线载荷PB大小索引(表130 0-5)序列化 round-trip
+    e.mpdu.mcs = quint8(i % 7);            // 覆盖无线 MCS(表28/129 0-6)序列化 round-trip
     e.mpdu.beacon_rsv = quint16(i % 1024); // 覆盖信标保留原始值(无线16b/载波9b)序列化 round-trip
     e.mpdu.beacon_cco_mac = 0x112233445566ULL;
     e.protocol = quint8(i % 2);   // 覆盖协议标识序列化 round-trip(0=国网/1=南网)
@@ -61,6 +62,7 @@ static bool entry_equal(const PacketEntry& a, const PacketEntry& b, QString& why
         || a.mpdu.dst_tei != b.mpdu.dst_tei
         || a.mpdu.pb_num_field != b.mpdu.pb_num_field
         || a.mpdu.pblen != b.mpdu.pblen
+        || a.mpdu.mcs != b.mpdu.mcs
         || a.mpdu.beacon_rsv != b.mpdu.beacon_rsv
         || a.mpdu.beacon_cco_mac != b.mpdu.beacon_cco_mac
         || a.protocol != b.protocol

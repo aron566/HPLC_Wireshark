@@ -92,9 +92,7 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         tree_add_bit_field(bcn, "Source TEI", QString::number(e.mpdu.src_tei), 9, 0, 12);
         if (e.meta.is_rf) {
             // 无线(第2部分表128):MCS(10,4,4,释义见表129) + PBLen 载荷PB大小(11,0,4)
-            const quint8 mcs = (e.raw_bytes.size() > 10)
-                ? (quint8)(((quint8)e.raw_bytes[10] >> 4) & 0x0F) : 0;
-            tree_add_bit_field(bcn, "MCS", nw_mcs_text(mcs), 10, 4, 4);
+            tree_add_bit_field(bcn, "MCS", nw_mcs_text(e.mpdu.mcs), 10, 4, 4);
             tree_add_bit_field(bcn, "PBLen", QString::number(e.mpdu.pblen), 11, 0, 4);
             // 保留(表128:(11,4,4)+(12,0,4))
             const quint8 rsv_hi = (e.raw_bytes.size() > 11)
@@ -167,8 +165,7 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 tree_add_bit_field(sof, "PBLen",
                     QStringLiteral("%1 - %2").arg(code).arg(desc), 6, 4, 4);
             }
-            const quint8 mcs = (raw_sz > 7) ? (quint8)(d[7] & 0x0F) : 0;
-            tree_add_bit_field(sof, "MCS", nw_mcs_text(mcs), 7, 0, 4);
+            tree_add_bit_field(sof, "MCS", nw_mcs_text(e.mpdu.mcs), 7, 0, 4);
             const quint8 tei_filter = (raw_sz > 7) ? ((d[7] >> 4) & 0x01) : 1;
             tree_add_bit_field(sof, "TEI Filter",
                 tei_filter ? QStringLiteral("1 - %1").arg(trl::L("物理层不检查报文 TEI"))

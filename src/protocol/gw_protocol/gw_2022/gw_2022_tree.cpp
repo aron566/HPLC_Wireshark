@@ -65,7 +65,7 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         {
             if (e.meta.is_rf) {
                 // 无线信标(表27):MCS(9,4,4,释义表28)/载荷PB大小(10,0,4,表29)/保留16b
-                const quint8 mcs = e.mpdu.tmi;
+                const quint8 mcs = e.mpdu.mcs;
                 const char* mcs_zh = gw_2022_mcs_desc(mcs);
                 const QString mcs_desc = mcs_zh ? trl::L(mcs_zh) : trl::L("保留");
                 tree_add_bit_field(bcn, "MCS",
@@ -166,7 +166,7 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         if (e.meta.is_rf) {
             // 无线(表30):字节11 bit4-7 = MCS(表28),字节12 bit0-3 = 保留
             // 表28 MCS 取值:0-6 为分集次数/调制方式/码率组合,7 以上保留
-            const quint8 mcs = e.mpdu.tmi;
+            const quint8 mcs = e.mpdu.mcs;
             const char* mcs_zh = gw_2022_mcs_desc(mcs);
             const QString mcs_desc = mcs_zh ? trl::L(mcs_zh) : trl::L("保留");
             tree_add_bit_field(sof, "MCS",
