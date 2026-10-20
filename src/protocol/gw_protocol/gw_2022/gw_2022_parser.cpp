@@ -206,12 +206,14 @@ GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.pb_size    = (quint16)(sz > 0 ? sz : 0);
             r.mpdu.symbol_num = 0;
             r.mpdu.beacon_line = 0;
+            r.mpdu.beacon_rsv = (quint16)get_bits(p, 10, 4, 16);    // 保留原始值(供字段树呈现)
         } else {
             // 载波信标(表17):PB 大小由分集拷贝基本模式(tmi)查表;无效 TMI 不再把 -1 铸成 65535
             const int sz = gw_2022_pb_size(r.mpdu.tmi);
             r.mpdu.pb_size    = (quint16)(sz > 0 ? sz : 0);  // 单块帧块长
             r.mpdu.symbol_num = (quint16)get_bits(p, 10, 0, 9);
             r.mpdu.beacon_line = (quint8) get_bits(p, 11, 1, 2);
+            r.mpdu.beacon_rsv = (quint16)get_bits(p, 11, 3, 9);     // 保留原始值(供字段树呈现)
         }
         r.beacon = GW_2022_BeaconParser::parse_beacon(r.payload_for_log);
         if (r.beacon.present) {

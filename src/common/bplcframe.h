@@ -65,6 +65,7 @@ struct MpduInfo {
     quint16 frame_len;     ///< 帧长(12-bit,SOF;载波表19 ×10µs / 无线表30 ×100µs)
     quint8  pb_num;        ///< 生效物理块个数(SOF;载波=字段值 1-4,无线固定 1)
     quint8  pb_num_field;  ///< SOF 字节9 bit4-7 原始值:载波=物理块个数(表19)/无线=载荷PB大小索引(表29)
+    quint8  pblen;         ///< 南网无线载荷PB大小索引(表130:0-5=16/40/72/136/264/520;载波/国网无效,填 0)
     quint16 symbol_num;    ///< 符号数 9-bit(载波 SOF 表19;无线 SOF 表30 该位段为保留,存原始值、不参与解析)
     bool    bc_flag;       ///< SOF 广播标志位
     bool    re_send_flag;  ///< SOF 重发标志位
@@ -82,6 +83,7 @@ struct MpduInfo {
     // ---- BEACON(帧内时间戳/相线)----
     quint32 beacon_timestamp; ///< 信标帧内时间戳 32-bit(b4..b7)
     quint8  beacon_line;      ///< 相线 2-bit(b11,1):0=Unknown 1=A 2=B 3=C
+    quint16 beacon_rsv;       ///< 信标保留原始值(无线表27 (10,4,16) / 载波表17 (11,3,9);不参与解析)
 
     // ---- BEACON 载荷区(16B FCH 之后,经 PBSize 定位)----
     quint8  beacon_type;      ///< 信标类型 3-bit(载荷区 0,0):0=STA 1=PCO 2=CCO
@@ -127,10 +129,10 @@ struct MpduInfo {
     MpduInfo()
         : frame_type(0), net_type(0), net_id(0), version(0),
           src_tei(0), dst_tei(0), link_id(0), frame_len(0),
-          pb_num(0), pb_num_field(0), symbol_num(0), bc_flag(false), re_send_flag(false),
+          pb_num(0), pb_num_field(0), pblen(0), symbol_num(0), bc_flag(false), re_send_flag(false),
           encryp_flag(false), tmi(0), tmi_ext(0), pb_size(0),
           fch_crc_ok(false), pb_crc_ok(false), pb_index(0), pb_head(0),
-          beacon_timestamp(0), beacon_line(0),
+          beacon_timestamp(0), beacon_line(0), beacon_rsv(0),
           beacon_type(0), beacon_netsn(0), beacon_cco_mac(0),
           beacon_period_cnt(0), beacon_rf_channel(0), beacon_rf_option(0),
           beacon_item_num(0),
@@ -260,7 +262,7 @@ struct MsduInfo {
     quint32 vlan_tag;            ///< VLAN 标签 32-bit(南网 MSDU 长头)
     quint16 msdu_type;           ///< MSDU 类型 16-bit(南网 MSDU 长头)
     quint8  restart_count;       ///< 重启次数 4-bit(国网 MSDU 头/南网 MAC 帧头);0xFF=未知/无此字段
-    quint8  broadcast_direction; ///< 广播方向(南网 MAC 帧头 4-bit / 国网 MSDU_BASE 2-bit;表7:1下行/2上行,南网 0=保留/国网 0=双向)
+    quint8  broadcast_direction; ///< 广播方向(南网 MAC 帧头 4-bit / 国网 MSDU_BASE 2-bit;表7:1下行/2上行,南网 0=保留/国网 0=双向;0xFF=未知/无此字段)
     quint8  route_hops_left;     ///< 路由剩余跳数/跳数(国网 MSDU_BASE RouteHopsLeftNum 4-bit / 南网 MAC 帧头 RouteHop 4-bit;0xFF=未知/无此字段)
     quint8  business_id;         ///< 应用层 BID(业务标识;非应用层报文=0xFF,供整行着色)
     quint8  app_packet_type;     ///< 应用层帧类型域 4-bit(南网表4;非 NW 应用层=0xFF)
@@ -275,7 +277,7 @@ struct MsduInfo {
                  msdu_src_tei(-1), msdu_dst_tei(-1), msdu_send_type(-1),
                  msdu_src_mac(0), msdu_dst_mac(0), sta_mac(0),
                  vlan_tag(0), msdu_type(0), restart_count(0xFF),
-                 broadcast_direction(0), route_hops_left(0xFF),
+                 broadcast_direction(0xFF), route_hops_left(0xFF),
                  business_id(0xFF), app_packet_type(0xFF),
                  mme_type(0xFFFF), total_len(-1) {}
 };
@@ -358,7 +360,9 @@ inline QString dir_display(const PacketEntry& e) {
         return (relay ? QStringLiteral("R") : QString())
                + QString::number(hops) + QStringLiteral("\u2192");  // 国网:0=双向 → [R]N→
     }
-    if (bcast)                    // 方向未知/保留
+    if (bcast && bdir == 0xFF)    // 未知/漏填(解析器未填广播方向)
+        return QStringLiteral("*");
+    if (bcast)                    // 保留值(3-15)
         return QStringLiteral("*");
     if (e.msdu.msdu_dst_tei == 1) return relay ? QStringLiteral("\u2191R") : QStringLiteral("\u2191");
     if (e.msdu.msdu_src_tei == 1) return relay ? QStringLiteral("\u2193R") : QStringLiteral("\u2193");

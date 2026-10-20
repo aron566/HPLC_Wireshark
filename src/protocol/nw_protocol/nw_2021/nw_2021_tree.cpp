@@ -95,7 +95,7 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             const quint8 mcs = (e.raw_bytes.size() > 10)
                 ? (quint8)(((quint8)e.raw_bytes[10] >> 4) & 0x0F) : 0;
             tree_add_bit_field(bcn, "MCS", nw_mcs_text(mcs), 10, 4, 4);
-            tree_add_bit_field(bcn, "PBLen", QString::number(e.mpdu.tmi), 11, 0, 4);
+            tree_add_bit_field(bcn, "PBLen", QString::number(e.mpdu.pblen), 11, 0, 4);
             // 保留(表128:(11,4,4)+(12,0,4))
             const quint8 rsv_hi = (e.raw_bytes.size() > 11)
                 ? (quint8)(((quint8)e.raw_bytes[11] >> 4) & 0x0F) : 0;
@@ -161,7 +161,7 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             {
                 // 载荷 PB 大小(第2部分表130):0-5 = 16/40/72/136/264/520 字节,其他保留
                 static const int kRfPbSize[] = {16, 40, 72, 136, 264, 520};
-                const quint8 code = e.mpdu.tmi;   // 解析器以 tmi 承载 PBLen
+                const quint8 code = e.mpdu.pblen;   // 载荷 PB 大小索引(表130)
                 const QString desc = (code <= 5)
                     ? QStringLiteral("%1B").arg(kRfPbSize[code]) : trl::L("保留");
                 tree_add_bit_field(sof, "PBLen",

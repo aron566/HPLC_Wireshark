@@ -2,6 +2,7 @@
 /// @brief 国网 GW_2022 协议字段树构建器实现
 #include "gw_2022_tree.h"
 #include "i18n.h"
+#include "gw_2022_mcs.h"
 
 namespace {
 
@@ -62,19 +63,11 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             .arg(e.mpdu.beacon_timestamp, 8, 16, QChar('0')), 4, 0, 32);
         tree_add_bit_field(bcn, "Source TEI", QString::number(e.mpdu.src_tei), 8, 0, 12);
         {
-            const quint8* d = reinterpret_cast<const quint8*>(e.raw_bytes.constData());
-            const int raw_sz = e.raw_bytes.size();
             if (e.meta.is_rf) {
                 // 无线信标(表27):MCS(9,4,4,释义表28)/载荷PB大小(10,0,4,表29)/保留16b
-                static const char* const kMcsDesc[] = {
-                    "分集4次 BPSK 码率1/2", "分集2次 BPSK 码率1/2",
-                    "分集2次 QPSK 码率1/2", "分集1次 QPSK 码率1/2",
-                    "分集1次 QPSK 码率4/5", "分集1次 16QAM 码率1/2",
-                    "分集1次 16QAM 码率4/5",
-                };
                 const quint8 mcs = e.mpdu.tmi;
-                const QString mcs_desc = (mcs <= 6) ? trl::L(kMcsDesc[mcs])
-                                                    : trl::L("保留");
+                const char* mcs_zh = gw_2022_mcs_desc(mcs);
+                const QString mcs_desc = mcs_zh ? trl::L(mcs_zh) : trl::L("保留");
                 tree_add_bit_field(bcn, "MCS",
                     QStringLiteral("%1 - %2").arg(mcs).arg(mcs_desc), 9, 4, 4);
                 {
@@ -85,11 +78,8 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     tree_add_bit_field(bcn, "Payload PB Size",
                         QStringLiteral("%1 - %2").arg(code).arg(desc), 10, 0, 4);
                 }
-                const quint32 rsv = (raw_sz > 12)
-                    ? (quint32)((d[10] >> 4) & 0x0F) | ((quint32)d[11] << 4)
-                        | ((quint32)(d[12] & 0x0F) << 12) : 0;
                 tree_add_bit_field(bcn, "Reserved",
-                    QStringLiteral("0x%1").arg(rsv, 4, 16, QChar('0')), 10, 4, 16);
+                    QStringLiteral("0x%1").arg(e.mpdu.beacon_rsv, 4, 16, QChar('0')), 10, 4, 16);
             } else {
                 tree_add_bit_field(bcn, "TMI", QString::number(e.mpdu.tmi), 9, 4, 4);
                 tree_add_bit_field(bcn, "Symbol Num", QString::number(e.mpdu.symbol_num), 10, 0, 9);
@@ -103,10 +93,8 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                         11, 1, 2);
                 }
                 // 保留(表17:(11,3,5)+(12,0,4),共 9b)
-                const quint16 rsv = (raw_sz > 12)
-                    ? (quint16)(((d[11] >> 3) & 0x1F) | ((quint16)(d[12] & 0x0F) << 5)) : 0;
                 tree_add_bit_field(bcn, "Reserved",
-                    QStringLiteral("0x%1").arg(rsv, 3, 16, QChar('0')), 11, 3, 9);
+                    QStringLiteral("0x%1").arg(e.mpdu.beacon_rsv & 0x1FF, 3, 16, QChar('0')), 11, 3, 9);
             }
         }
         if (e.mpdu.pb_size > 0)
@@ -178,15 +166,9 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         if (e.meta.is_rf) {
             // 无线(表30):字节11 bit4-7 = MCS(表28),字节12 bit0-3 = 保留
             // 表28 MCS 取值:0-6 为分集次数/调制方式/码率组合,7 以上保留
-            static const char* const kMcsDesc[] = {
-                "分集4次 BPSK 码率1/2", "分集2次 BPSK 码率1/2",
-                "分集2次 QPSK 码率1/2", "分集1次 QPSK 码率1/2",
-                "分集1次 QPSK 码率4/5", "分集1次 16QAM 码率1/2",
-                "分集1次 16QAM 码率4/5",
-            };
             const quint8 mcs = e.mpdu.tmi;
-            const QString mcs_desc = (mcs <= 6) ? trl::L(kMcsDesc[mcs])
-                                                : trl::L("保留");
+            const char* mcs_zh = gw_2022_mcs_desc(mcs);
+            const QString mcs_desc = mcs_zh ? trl::L(mcs_zh) : trl::L("保留");
             tree_add_bit_field(sof, "MCS",
                 QStringLiteral("%1 - %2").arg(mcs).arg(mcs_desc), 11, 4, 4);
             tree_add_bit_field(sof, "Reserved", QString::number(e.mpdu.tmi_ext), 12, 0, 4);

@@ -80,7 +80,9 @@ QDataStream& operator<<(QDataStream& out, const MpduInfo& m) {
         << m.ack_dst_addr
         << m.ack_search_tei << m.ack_search_freq
         << m.ack_sync_timestamp << m.ack_sync_tei
-        << m.pb_num_field;   // v3 新增字段(追加末尾,见 plugin_ipc::kWireFormatVersion)
+        << m.pb_num_field    // v3 新增字段(追加末尾,见 plugin_ipc::kWireFormatVersion)
+        << m.beacon_rsv      // v4 新增字段(信标保留原始值,见 plugin_ipc::kWireFormatVersion)
+        << m.pblen;          // v5 新增字段(南网无线载荷PB大小索引,见 plugin_ipc::kWireFormatVersion)
     return out;
 }
 QDataStream& operator>>(QDataStream& in, MpduInfo& m) {
@@ -105,7 +107,9 @@ QDataStream& operator>>(QDataStream& in, MpduInfo& m) {
        >> m.ack_dst_addr
        >> m.ack_search_tei >> m.ack_search_freq
        >> m.ack_sync_timestamp >> m.ack_sync_tei
-       >> m.pb_num_field;
+       >> m.pb_num_field
+       >> m.beacon_rsv
+       >> m.pblen;
     return in;
 }
 

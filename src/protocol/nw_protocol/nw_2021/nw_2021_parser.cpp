@@ -164,7 +164,7 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
             // (7,6,2)、(12,0,4)),无 PB 个数与符号数字段
             r.mpdu.frame_len = (quint16)get_bits(p, 5, 0, 12);
             quint8 pblen = (quint8)get_bits(p, 6, 4, 4);
-            r.mpdu.tmi     = pblen;                       // 载荷 PB 大小(复用 tmi 承载)
+            r.mpdu.pblen   = pblen;                       // 载荷 PB 大小索引(表130)
             r.mpdu.pb_size = (quint16)nw_2021_rf_pb_size(pblen);
             r.mpdu.pb_num  = 1;                           // 无线信道仅 1 个物理块
             r.mpdu.re_send_flag = (get_bits(p, 7, 5, 1) != 0);    // 重传标志位(表131)
@@ -218,8 +218,8 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
         r.mpdu.beacon_period_cnt = (quint32)get_bits(p, 5, 0, 32);
         r.mpdu.src_tei           = (quint16)get_bits(p, 9, 0, 12);
         if (r.meta.is_rf) {
-            r.mpdu.tmi     = (quint8)get_bits(p, 11, 0, 4);   // 载荷 PB 大小
-            r.mpdu.pb_size = (quint16)nw_2021_rf_pb_size(r.mpdu.tmi);
+            r.mpdu.pblen   = (quint8)get_bits(p, 11, 0, 4);   // 载荷 PB 大小索引(表130)
+            r.mpdu.pb_size = (quint16)nw_2021_rf_pb_size(r.mpdu.pblen);
         } else {
             r.mpdu.tmi       = (quint8)get_bits(p, 10, 4, 4); // 载波映射表索引
             r.mpdu.symbol_num = (quint16)get_bits(p, 11, 0, 9);
