@@ -54,7 +54,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.rfile.readline()
         elif length:
             body = self.rfile.read(length)
-        ts = time.strftime("%Y%m%d_%H%M%S")
+        # 毫秒后缀:多线程并发落盘时避免同秒同大小文件互相覆盖(检测靠目录新增文件)
+        ts = time.strftime("%Y%m%d_%H%M%S") + "_{:03d}".format(int((time.time() % 1) * 1000))
         # 从路径提取 project id
         proj = parsed.path.strip("/").split("/")[-2] if "envelope" in parsed.path else "x"
         fname = os.path.join(OUTDIR, f"envelope_{proj}_{ts}_{len(body)}b.bin")
@@ -80,6 +81,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    srv = http.server.HTTPServer(("127.0.0.1", PORT), Handler)
+    # 必须多线程:单线程 HTTPServer 一次只处理一个连接,某个连接卡住(客户端
+    # 进程崩溃/退出留下的半开连接、慢发送)会把后续所有上报堵在队列里;
+    # CI 实测出现过 120s 内 envelope 未达的超时(后端切换矩阵 both+sentry 用例)。
+    # ThreadingHTTPServer 每连接一线程,卡住的连接只影响它自己。
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"[mock_sentry] listening on 127.0.0.1:{PORT}, saving to {OUTDIR}", flush=True)
     srv.serve_forever()
