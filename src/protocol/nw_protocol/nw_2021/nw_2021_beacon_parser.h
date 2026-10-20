@@ -47,9 +47,11 @@ namespace NW_2021_BeaconParser {
 /// @brief 解析南网信标帧载荷区
 /// @param payload 整帧 MPDU(payload_for_log,自 FrameType 起含 16B FCH)
 /// @param pbsize  信标物理块大小(由 FCH TMI 决定,如 136/520)
+/// @param is_rf   无线介质时固定头按第2部分表134(含精简信标标志/本网络无线
+///                option/信道编号),载波按数据链路层表24
 /// @return MsduInfo.tree 为字段树(相对载荷区起点,即 payload 偏移 16);
 ///         present=false 表示载荷不可解析
-MsduInfo parse_beacon(const QByteArray& payload, int pbsize);
+MsduInfo parse_beacon(const QByteArray& payload, int pbsize, bool is_rf);
 
 }  // namespace NW_2021_BeaconParser
 

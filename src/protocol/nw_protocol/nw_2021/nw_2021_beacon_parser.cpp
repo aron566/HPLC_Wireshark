@@ -74,6 +74,25 @@ static const FieldSpec kBeaconLoadSpec[] = {
 };
 static const int kBeaconLoadSpecN = int(sizeof(kBeaconLoadSpec) / sizeof(kBeaconLoadSpec[0]));
 
+// 无线信标帧载荷固定头(第2部分表134):与载波表24 同坐标,但字节0 bit4 为
+// 精简信标标志(表137)、字节2 bit4-5 为本网络无线 option、字节3 为本网络
+// 无线信道编号、字节4-5 保留,无载波的 RSV0/RSV2 整段保留
+static const FieldSpec kBeaconLoadRfSpec[] = {
+    {"BeaconType",             0, 0, 3,  Fmt::DEC},
+    {"NetWorkingFlag",         0, 3, 1,  Fmt::DEC},
+    {"ReduceBeaconFlag",       0, 4, 1,  Fmt::DEC},   // 精简信标标志(表137)
+    {"MultiNetChooseFuncFlag", 0, 5, 1,  Fmt::DEC},
+    {"AssociationFlag",        0, 6, 1,  Fmt::DEC},
+    {"RSV0",                   0, 7, 1,  Fmt::DEC},
+    {"NetSN",                  1, 0, 8,  Fmt::DEC},
+    {"ShortNIDBeacon",         2, 0, 4,  Fmt::DEC},
+    {"RFOption",               2, 4, 2,  Fmt::DEC},   // 本网络无线 option
+    {"RSV1",                   2, 6, 2,  Fmt::DEC},
+    {"RFChannel",              3, 0, 8,  Fmt::DEC},   // 本网络无线信道编号
+    {"RSV2",                   4, 0, 16, Fmt::DEC},
+};
+static const int kBeaconLoadRfSpecN = int(sizeof(kBeaconLoadRfSpec) / sizeof(kBeaconLoadRfSpec[0]));
+
 // ── 信标条目字段表(相对条目内容 it,即条目头/长度之后) ──
 
 // 站点能力条目 0x01(表33,内容 20B)
@@ -153,7 +172,7 @@ static void slot_leaf(QVector<MsduFieldNode>& out, const QString& name,
 
 }  // namespace
 
-MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsize) {
+MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsize, bool is_rf) {
     MsduInfo out;
     out.present = false;
     if (pbsize < 16 || payload.size() < 16 + pbsize) return out;
@@ -182,10 +201,14 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
 
     auto& root = group(out.tree, QStringLiteral("Beacon Load [%1B]").arg(gb.size()));
 
-    // 固定头(表24)
-    add_fields(root.children, gb, 0, kBeaconLoadSpec, kBeaconLoadSpecN);
+    // 固定头(载波表24 / 无线第2部分表134)
+    if (is_rf)
+        add_fields(root.children, gb, 0, kBeaconLoadRfSpec, kBeaconLoadRfSpecN);
+    else
+        add_fields(root.children, gb, 0, kBeaconLoadSpec, kBeaconLoadSpecN);
 
-    // 值解释:信标类型(表25)/组网标志(表26)/多网络优选(表27)/开始关联(表28)
+    // 值解释:信标类型(表25)/组网标志(表26)/多网络优选(表27)/开始关联(表28)/
+    //         精简信标标志(表137,仅无线)
     const quint8 beacon_type = (quint8)get_bits(gb, 0, 0, 3);
     for (auto& ch : root.children) {
         if (ch.name.startsWith(QStringLiteral("BeaconType"))) {
@@ -203,6 +226,10 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
             ch.value = QStringLiteral("%1 - %2").arg(v).arg(
                 v ? trl::L("允许站点发起关联请求")
                   : trl::L("不允许站点发起关联请求"));
+        } else if (ch.name.startsWith(QStringLiteral("ReduceBeaconFlag"))) {
+            const quint8 v = (quint8)get_bits(gb, 0, 4, 1);
+            ch.value = QStringLiteral("%1 - %2").arg(v).arg(
+                v ? trl::L("精简信标帧") : trl::L("标准信标帧"));
         }
     }
 
@@ -472,6 +499,8 @@ struct I18nReg {
         trl::register_en("未使能网络评估", "Network estimation disabled");
         trl::register_en("允许站点发起关联请求", "Association request allowed");
         trl::register_en("不允许站点发起关联请求", "Association request not allowed");
+        trl::register_en("精简信标帧", "Reduced beacon frame");
+        trl::register_en("标准信标帧", "Standard beacon frame");
         trl::register_en("站点能力条目", "STA Capability Item");
         trl::register_en("时隙分配条目", "Time Slot Allocation Item");
         trl::register_en("路由参数条目", "Route Parameter Item");
