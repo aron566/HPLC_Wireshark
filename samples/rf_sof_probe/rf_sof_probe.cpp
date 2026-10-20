@@ -34,11 +34,11 @@ int main(int argc, char* argv[]) {
         MpduInfo info; MsduState msdu; QByteArray mb;
         QString err = gw_2022_sof::assemble(body, info, msdu, mb, 0xFF, true);
         bool ok = (info.pb_num == 1 && info.pb_size == 136
-                   && info.pb_num_field == 3 && info.tmi == 5
+                   && info.pb_num_field == 3 && info.mcs == 5
                    && info.symbol_num == 0 && info.tmi_ext == 0);
         std::printf("[RF 136B] err='%s' pb_num=%d pb_size=%d field=%d mcs=%d sym=%d ext=%d => %s\n",
                     qPrintable(err), info.pb_num, info.pb_size, info.pb_num_field,
-                    info.tmi, info.symbol_num, info.tmi_ext, ok ? "PASS" : "FAIL");
+                    info.mcs, info.symbol_num, info.tmi_ext, ok ? "PASS" : "FAIL");
         if (!ok) ++fails;
     }
     // 测试2: 无线 SOF, 载荷PB大小=0(16B)
