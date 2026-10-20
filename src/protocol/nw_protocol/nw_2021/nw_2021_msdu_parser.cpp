@@ -1650,8 +1650,8 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         case NW_2021_MMeType::MME_RFCHANNELCONFLICTREPORT: {
             // 无线信道冲突上报(第2部分无线表212):固定头 7B + 变长邻居网络条目(表213,每条 2B)
             add_fields(out.tree, mme, 6, kMMeRFChannelConflictReportSpec, kMMeRFChannelConflictReportSpecN, mme_rel_base);
-            const quint8 nb_num = (quint8)get_bits(mme, 6, 0, 8);
-            int off = 7;  // 消息体 byte 1(MMeHeadSize 6 + 1)
+            const quint8 nb_num = (quint8)get_bits(mme, 12, 0, 8);  // 邻居网络个数(mme byte 12 = 6 头 + 报文体 byte 6)
+            int off = 13;  // 条目起点(mme byte 13 = 6 头 + 7 固定头)
             for (int i = 0; i < nb_num && off + 2 <= mme.size(); ++i) {
                 auto& g = group(out.tree, QStringLiteral("Neighbor[%1] (2B)").arg(i));
                 g.rel_start = mme_rel_base + off; g.rel_len = 2;
