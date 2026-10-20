@@ -84,9 +84,11 @@ enum class NW_2021_MMeType : quint16 {
     MME_DISCOVERNODELIST    = 0x0055,
     MME_DELAYLEAVEIND       = 0x005D,
     MME_SUCCESSRATEREPORT   = 0x005E,
+    MME_NETWORKCONFLICTREPORT = 0x005F,  ///< 网络冲突上报(第2部分无线表158)
     MME_ZEROCROSSNTBCOLLECTIND = 0x0062,
     MME_ZEROCROSSNTBREPORT  = 0x0063,
     MME_NETDIAGNOSE         = 0x0064,
+    MME_RFCHANNELCONFLICTREPORT = 0x0070,  ///< 无线信道冲突上报(第2部分无线表158)
 };
 
 /// @brief 报文端口号(6.1:0x11 业务报文 0x13 管理报文)

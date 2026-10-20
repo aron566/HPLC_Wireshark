@@ -31,6 +31,8 @@ inline QString mme_type_name(quint16 t) {
         case NW_2021_MMeType::MME_ZEROCROSSNTBCOLLECTIND: return QStringLiteral("MMeZeroCrossNTBCollectInd");
         case NW_2021_MMeType::MME_ZEROCROSSNTBREPORT: return QStringLiteral("MMeZeroCrossNTBReport");
         case NW_2021_MMeType::MME_NETDIAGNOSE: return QStringLiteral("MMeNetDiagnose");
+        case NW_2021_MMeType::MME_NETWORKCONFLICTREPORT: return QStringLiteral("MMeNetworkConflictReport");
+        case NW_2021_MMeType::MME_RFCHANNELCONFLICTREPORT: return QStringLiteral("MMeRFChannelConflictReport");
         default: return QStringLiteral("MMe 0x%1").arg(t, 4, 16, QChar('0'));
     }
 }
@@ -562,6 +564,29 @@ static const FieldSpec kMMeNetDiagnoseSpec[] = {
 };
 static const int kMMeNetDiagnoseSpecN = int(sizeof(kMMeNetDiagnoseSpec)/sizeof(kMMeNetDiagnoseSpec[0]));
 
+// 网络冲突上报 0x005F(第2部分无线表204,固定体 9B)
+static const FieldSpec kMMeNetworkConflictReportSpec[] = {
+    { "ConflictCCOMACAddr", 0, 0, 48, Fmt::MAC },   // 冲突网络 CCO MAC 地址(6B)
+    { "NeighborNetNum",     6, 0, 8,  Fmt::DEC },   // 邻居网络个数(1B)
+    { "NeighborSNIDBitmap", 7, 0, 16, Fmt::HEX4 },  // 邻居网络 SNID 位图(2B)
+};
+static const int kMMeNetworkConflictReportSpecN = int(sizeof(kMMeNetworkConflictReportSpec)/sizeof(kMMeNetworkConflictReportSpec[0]));
+
+// 无线信道冲突上报 0x0070(第2部分无线表212,固定头 7B + 变长条目)
+static const FieldSpec kMMeRFChannelConflictReportSpec[] = {
+    { "ConflictCCOMACAddr", 0, 0, 48, Fmt::MAC },   // 冲突网络 CCO MAC 地址(6B)
+    { "NeighborNetNum",     6, 0, 8,  Fmt::DEC },   // 邻居网络个数(1B)
+};
+static const int kMMeRFChannelConflictReportSpecN = int(sizeof(kMMeRFChannelConflictReportSpec)/sizeof(kMMeRFChannelConflictReportSpec[0]));
+
+// 邻居网络条目(第2部分无线表213,每条 2B):无线信道号 1B + option 2bit + 保留 6bit
+static const FieldSpec kRFChannelNeighborSpec[] = {
+    { "RFChannel", 0, 0, 8, Fmt::DEC },   // 无线信道号
+    { "RFOption",  1, 0, 2, Fmt::DEC },   // 无线 option
+    { "RSV",       1, 2, 6, Fmt::HEX4 },  // 保留 6bit
+};
+static const int kRFChannelNeighborSpecN = int(sizeof(kRFChannelNeighborSpec)/sizeof(kRFChannelNeighborSpec[0]));
+
 
 
 // ── 南网 MMe 变长区字段表 ─────────────────────────────
@@ -832,6 +857,8 @@ static int mme_fixed_length(NW_2021_MMeType type) {
     case NW_2021_MMeType::MME_ZEROCROSSNTBCOLLECTIND: return mme_fixed_length(kMMeZeroCrossNTBCollectIndSpec);
     case NW_2021_MMeType::MME_ZEROCROSSNTBREPORT: return mme_fixed_length(kMMeZeroCrossNTBReportSpec);
     case NW_2021_MMeType::MME_NETDIAGNOSE: return mme_fixed_length(kMMeNetDiagnoseSpec);
+    case NW_2021_MMeType::MME_NETWORKCONFLICTREPORT: return mme_fixed_length(kMMeNetworkConflictReportSpec);
+    case NW_2021_MMeType::MME_RFCHANNELCONFLICTREPORT: return mme_fixed_length(kMMeRFChannelConflictReportSpec);
     default: return 6;
     }
 }
@@ -1612,6 +1639,24 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 MsduFieldNode& d = group(out.tree, QStringLiteral("DiagInfo [%1 B]").arg(mme.size() - 8),
                     QString::fromLatin1(mme.mid(8).toHex(' ').toUpper()));
                 d.rel_start = mme_rel_base + (8); d.rel_len = mme.size() - 8;
+            }
+            break;
+        }
+        case NW_2021_MMeType::MME_NETWORKCONFLICTREPORT: {
+            // 网络冲突上报(第2部分无线表204,固定体 9B):冲突网络 CCO MAC + 邻居网络个数 + SNID 位图
+            add_fields(out.tree, mme, 6, kMMeNetworkConflictReportSpec, kMMeNetworkConflictReportSpecN, mme_rel_base);
+            break;
+        }
+        case NW_2021_MMeType::MME_RFCHANNELCONFLICTREPORT: {
+            // 无线信道冲突上报(第2部分无线表212):固定头 7B + 变长邻居网络条目(表213,每条 2B)
+            add_fields(out.tree, mme, 6, kMMeRFChannelConflictReportSpec, kMMeRFChannelConflictReportSpecN, mme_rel_base);
+            const quint8 nb_num = (quint8)get_bits(mme, 6, 0, 8);
+            int off = 7;  // 消息体 byte 1(MMeHeadSize 6 + 1)
+            for (int i = 0; i < nb_num && off + 2 <= mme.size(); ++i) {
+                auto& g = group(out.tree, QStringLiteral("Neighbor[%1] (2B)").arg(i));
+                g.rel_start = mme_rel_base + off; g.rel_len = 2;
+                add_fields(g.children, mme, off, kRFChannelNeighborSpec, kRFChannelNeighborSpecN, mme_rel_base);
+                off += 2;
             }
             break;
         }
