@@ -16,7 +16,8 @@ permissions:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    # 8 核 larger runner(公共仓库免费):主构建/依赖编译 -j8,较 4 核标准 runner 约省一半编译时间
+    runs-on: windows-latest-8-cores
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -90,7 +91,7 @@ jobs:
         run: |
           cd samples/roundtrip
           qmake roundtrip.pro
-          mingw32-make -j4
+          mingw32-make -j"$(nproc)"
           ./release/roundtrip.exe roundtrip_test.bin roundtrip_test.txt
 
       - name: NW MMe 截断边界回归
@@ -99,7 +100,7 @@ jobs:
           mkdir -p samples/nw_mme_build
           cd samples/nw_mme_build
           qmake ../nw_mme_test.pro CONFIG+=release CONFIG-=debug
-          mingw32-make -j4
+          mingw32-make -j"$(nproc)"
           ./release/nw_mme_test.exe
 
       - name: 构建 + 打包

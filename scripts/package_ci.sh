@@ -9,10 +9,10 @@ VER="${1:?用法: package_ci.sh <版本号>}"
 echo "== 1/3 qmake + 构建"
 rm -rf release Makefile* .qmake.stash
 qmake BPLC_STA_Monitor.pro
-mingw32-make -j4
+mingw32-make -j"$(nproc)"
 # 插件宿主进程 bplc-plugin-host.exe:独立工程,主程序经 QLocalServer IPC
 # 启动它(须与主程序同目录),不在主 .pro 里,须单独构建并复制。
-( cd src/plugin/host && qmake bplc-plugin-host.pro && mingw32-make -j4 )
+( cd src/plugin/host && qmake bplc-plugin-host.pro && mingw32-make -j"$(nproc)" )
 cp -f src/plugin/host/release/bplc-plugin-host.exe release/
 
 echo "== 1.5/3 符号分离:存档带符号 exe(供符号化),再 strip 发布版"
