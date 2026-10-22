@@ -21,6 +21,7 @@ class QTabWidget;
 #include "topo_state.h"
 
 class QComboBox;
+class UpdateMirrorResolver;
 class QToolBar;
 class QToolButton;
 class QLineEdit;
@@ -88,6 +89,7 @@ private slots:
     void on_flush_buffer();
     void refresh_status_bar();
     void on_check_finished(const QString& url);   // 检查更新结束(QSimpleUpdater)
+    void on_mirror_resolved(const QString& effectiveUrl, const QString& prefix); // 更新加速解析完成 → 正式发起检查
     void on_plugin_loaded(const PluginLoadedInfo& info);  // 插件就绪 → 建功能面板
     void on_choose_plugin_dir();                  // 插件菜单:选择插件目录
     void on_open_plugin_market();                 // 插件菜单:插件市场
@@ -120,6 +122,9 @@ private:
     QToolButton*   m_btn_settings;
     QToolButton*   m_btn_topo;
     QToolButton*   m_btn_update;   ///< 发现新版本时显示的"立即更新"按钮(菜单栏右上角,默认隐藏)
+    UpdateMirrorResolver* m_mirror_resolver = nullptr; ///< 更新下载加速解析器(每次检查重建,防并发链重叠)
+    QString        m_last_check_url;   ///< 本次检查实际使用的清单地址(可能带代理前缀)
+    bool           m_check_silent = true; ///< 本次检查是否静默(启动自动检查)
     QLineEdit*     m_edt_filter;
     QToolButton*   m_btn_apply_filter;
     QLineEdit*     m_edt_goto;   ///< 跳转帧序号输入框(应用按钮右侧)

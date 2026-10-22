@@ -334,6 +334,8 @@ Main settings:
 [general]
 lang=auto
 update_url=https://raw.githubusercontent.com/aron566/HPLC_Wireshark/main/update.json
+mirror_mode=auto
+mirror_list=
 filter=
 theme=auto
 protocol=gw_2022
@@ -358,6 +360,8 @@ db_path=
 | `theme` | `auto`, `dark`, `light` |
 | `filter` | Frame-list display filter |
 | `update_url` | `update.json` manifest URL |
+| `mirror_mode` | Update download acceleration: `auto` (default, route by egress IP region), `native` (always direct to GitHub), `proxy` (always via mirror) |
+| `mirror_list` | Mirror prefixes (comma-separated, probed in order, first working one wins); empty = built-in: `https://ghfast.top/`, `https://gh-proxy.com/`, `https://ghproxy.net/` |
 | `mode` | `0` serial, `1` `.bin` replay, `2` raw hex |
 | `com` | Serial port name |
 | `baud` | Baud rate |
@@ -405,6 +409,14 @@ Manifest format:
 ```
 
 The changelog string may contain `<br/>`.
+
+### 9.1 Update Download Acceleration (automatic mirror for China networks)
+
+Before each update check, the application identifies the region of the current network egress IP (`general/mirror_mode=auto`, the default):
+
+- For a China egress, the mirrors in `general/mirror_list` are probed in order with the real manifest URL — a mirror only counts as usable if it returns a valid manifest; the first working mirror is then used for both the manifest and the installer download. Non-China egresses connect to GitHub directly.
+- If region detection fails, all mirrors are down, or a mirror stops working, the check automatically falls back to a direct GitHub connection, so acceleration can never make update checks worse than before. Look for the `[update-mirror]` prefix in the log to see which route was taken.
+- Set `mirror_mode=native` to always connect directly, or `mirror_mode=proxy` to always use a mirror (e.g. to test mirror availability). If a built-in mirror dies, edit `mirror_list` with any working prefixes (each ending with `/`, comma-separated) — no application update needed.
 
 ## 10. Input File Formats
 

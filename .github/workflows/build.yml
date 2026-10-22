@@ -73,11 +73,23 @@ jobs:
           # wkhtmltopdf:浏览器全灭时的兜底(不依赖 Chrome/Edge,确保 PDF 一定打出)
           choco install wkhtmltopdf -y --no-progress || echo "::warning::wkhtmltopdf 安装失败,仅剩浏览器链路"
 
+      # crash 依赖产物跨版本稳定(sentry-native 锁固定 ref,补丁在 3rdparty/patches):
+      # 缓存命中直接跳过 crashpad+sentry 两步编译(约省 4.5 分钟)。
+      # 后续测试/打包只引用 3rdparty/install 产物,不需要 sentry-native 源码。
+      - name: 缓存 crash 依赖产物
+        id: crashdeps
+        uses: actions/cache@v4
+        with:
+          path: 3rdparty/install
+          key: crashdeps-win-${{ hashFiles('3rdparty/build_crash_deps.sh', '3rdparty/patches/**') }}
+
       - name: 构建 crashpad 依赖(MinGW)
+        if: steps.crashdeps.outputs.cache-hit != 'true'
         shell: bash
         run: bash 3rdparty/build_crash_deps.sh crashpad
 
       - name: 构建 sentry 依赖(MinGW)
+        if: steps.crashdeps.outputs.cache-hit != 'true'
         shell: bash
         run: SENTRY_TRANSPORT=none bash 3rdparty/build_crash_deps.sh sentry
 
@@ -90,7 +102,7 @@ jobs:
         run: |
           cd samples/roundtrip
           qmake roundtrip.pro
-          mingw32-make -j4
+          mingw32-make -j"$(nproc)"
           ./release/roundtrip.exe roundtrip_test.bin roundtrip_test.txt
 
       - name: NW MMe 截断边界回归
@@ -99,7 +111,7 @@ jobs:
           mkdir -p samples/nw_mme_build
           cd samples/nw_mme_build
           qmake ../nw_mme_test.pro CONFIG+=release CONFIG-=debug
-          mingw32-make -j4
+          mingw32-make -j"$(nproc)"
           ./release/nw_mme_test.exe
 
       - name: 构建 + 打包

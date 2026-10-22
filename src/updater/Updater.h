@@ -53,6 +53,7 @@ public:
   QString changelog() const;
   QString moduleName() const;
   QString downloadUrl() const;
+  void setDownloadPrefix(const QString& prefix);
   QString platformKey() const;
   QString moduleVersion() const;
   QString latestVersion() const;
@@ -106,6 +107,7 @@ private:
   QString m_changelog;
   QString m_moduleName;
   QString m_downloadUrl;
+  QString m_downloadPrefix;
   QString m_moduleVersion;
   QString m_latestVersion;
   QString m_downloadUserName;

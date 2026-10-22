@@ -342,6 +342,8 @@ TIME: 2026-09-07 18:43:00.123
 [general]
 lang=auto
 update_url=https://raw.githubusercontent.com/aron566/HPLC_Wireshark/main/update.json
+mirror_mode=auto
+mirror_list=
 filter=
 theme=auto
 protocol=gw_2022
@@ -366,6 +368,8 @@ db_path=
 | `theme` | `auto`、`dark`、`light` |
 | `filter` | 帧列表显示过滤器 |
 | `update_url` | `update.json` 更新清单地址 |
+| `mirror_mode` | 更新下载加速：`auto`（默认，按出口 IP 区域自动选路）、`native`（始终直连 GitHub）、`proxy`（始终走代理） |
+| `mirror_list` | 代理前缀列表（逗号分隔，按序探活、首个可用生效）；留空使用内置：`https://ghfast.top/`、`https://gh-proxy.com/`、`https://ghproxy.net/` |
 | `mode` | `0` 串口、`1` `.bin` 回放、`2` 裸 hex |
 | `com` | 串口名称 |
 | `baud` | 波特率 |
@@ -413,6 +417,14 @@ db_path=
 ```
 
 更新说明字符串支持 `<br/>`。
+
+### 9.1 更新下载加速（中国网络自动走代理）
+
+每次检查更新前，程序先识别当前网络出口 IP 所在区域（`general/mirror_mode=auto`，默认）：
+
+- 出口在中国时，按 `general/mirror_list` 的顺序逐个代理探活——用更新清单地址实际请求，必须返回合法清单才算可用；第一个可用的代理同时用于清单获取和安装包下载，非中国出口则直连 GitHub。
+- 区域识别失败、代理全部不可用或代理中途失效时，自动回退直连 GitHub，不会让检查更新比不加速时更差；整个选路过程可在日志中以 `[update-mirror]` 前缀查看。
+- `mirror_mode=native` 可强制始终直连；`mirror_mode=proxy` 可强制始终走代理（例如排查代理可用性时）。某个内置代理失效时，可直接编辑 `mirror_list` 换成其他可用前缀（每项以 `/` 结尾、逗号分隔），无需更新程序。
 
 ## 10. 输入文件格式
 

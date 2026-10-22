@@ -92,6 +92,7 @@ public slots:
   void setNotifyOnFinish(const QString& url, const bool notify);
   void setPlatformKey(const QString& url, const QString& platform);
   void setModuleVersion(const QString& url, const QString& version);
+  void setDownloadPrefix(const QString& url, const QString& prefix);
   void setDownloaderEnabled(const QString& url, const bool enabled);
   void setUserAgentString(const QString& url, const QString& agent);
   void setUseCustomAppcast(const QString& url, const bool customAppcast);
