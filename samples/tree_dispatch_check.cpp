@@ -18,6 +18,8 @@
 #include "protocolfactory.h"
 #include "protocoltree.h"
 #include "protocol/common/crc.h"
+#include "packetlistmodel.h"
+#include <QColor>
 
 static void collect(QTreeWidgetItem* it, QStringList& out) {
     if (!it) return;
@@ -380,6 +382,51 @@ int main(int argc, char** argv) {
             if (!pass) ++bad8;
         }
         bad += bad8;
+    }
+
+    // ── 第九阶段:PacketListModel 整行着色——CRC 失败红(用户需求) ──
+    // 优先级:CRC 失败红(FCH CRC24 FAIL / 任一 PB CRC24 FAIL,最高) >
+    // MMe 暖色 > APP BID 冷色 > data_color;MSDU CRC32 FAIL 不改颜色。
+    {
+        struct ColorCase {
+            const char* what;
+            bool   fch_ok;
+            QVector<bool> pb_oks;
+            quint8 frame_type;      // 1=SOF(走 data_color 绿,便于区分)
+            int    want_r, want_g, want_b;  // -1 = 断言"非红"即可
+        };
+        const ColorCase cc[] = {
+            { "FCH CRC24 FAIL -> 红",            false, {true},            1, 224, 64, 64 },
+            { "PB CRC24 FAIL -> 红",             true,  {true, false},     1, 224, 64, 64 },
+            { "FCH/PB 全 OK(MSDU CRC FAIL) -> 非红", true, {true, true},   1,  -1, -1, -1 },
+        };
+        PacketListModel model;
+        int bad9 = 0;
+        const int m9 = int(sizeof(cc) / sizeof(cc[0]));
+        total += m9;
+        for (int i = 0; i < m9; ++i) {
+            PacketEntry e;
+            e.accepted = true;
+            e.protocol = kProtocolNw2026;
+            e.mpdu.frame_type = cc[i].frame_type;
+            e.mpdu.fch_crc_ok = cc[i].fch_ok;
+            e.mpdu.pb_crc_oks = cc[i].pb_oks;
+            model.append_packet(e);
+            const QVariant v = model.data(model.index(i, 0), Qt::ForegroundRole);
+            const QColor got = v.value<QColor>();
+            bool pass;
+            if (cc[i].want_r < 0) {
+                // 非红:不应命中 CRC 失败红(224,64,64)
+                pass = !(got == QColor(224, 64, 64));
+            } else {
+                pass = (got == QColor(cc[i].want_r, cc[i].want_g, cc[i].want_b));
+            }
+            std::printf("[crc color] %s: got rgb(%d,%d,%d) -> %s\n",
+                        cc[i].what, got.red(), got.green(), got.blue(),
+                        pass ? "PASS" : "FAIL");
+            if (!pass) ++bad9;
+        }
+        bad += bad9;
     }
 
     std::printf("RESULT: %s  (%d/%d passed)\n",

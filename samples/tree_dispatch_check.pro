@@ -1,4 +1,4 @@
-QT       += core gui widgets
+QT       += core gui widgets concurrent
 CONFIG   += c++17 console
 CONFIG   -= app_bundle
 
@@ -18,6 +18,7 @@ include($$PWD/../src/protocol/protocol.pri)
 SOURCES += \
     tree_dispatch_check.cpp \
     ../src/ui/protocoltree.cpp \
+    ../src/ui/packetlistmodel.cpp \
     ../3rdparty/qslog/QsLog.cpp \
     ../3rdparty/qslog/QsLogDest.cpp \
     ../3rdparty/qslog/QsLogDestConsole.cpp \
@@ -27,4 +28,5 @@ SOURCES += \
 HEADERS += \
     ../src/common/bplcframe.h \
     ../src/ui/protocoltree.h \
+    ../src/ui/packetlistmodel.h \
     ../3rdparty/qslog/QsLogDestFunctor.h

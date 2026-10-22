@@ -208,7 +208,15 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
             }
         }
     } else if (role == Qt::ForegroundRole) {
-        // 整行着色优先级:管理消息(MMe 暖色系) > APP 层(BID 冷色系) > 帧类型(DROP灰/ACK校验失败红不变)
+        // 整行着色优先级:CRC 失败红(FCH/PB 物理层校验,最高) > 管理消息(MMe 暖色系)
+        // > APP 层(BID 冷色系) > 帧类型(DROP灰/ACK校验失败红不变)
+        // 仅 FCH CRC24 FAIL 或任一 PB CRC24 FAIL 标红(与 ACK 失败同色);MSDU CRC32
+        // FAIL 不改颜色(应用层校验,常因抓包截断/设备异常,不掩盖业务着色)
+        if (!e.mpdu.fch_crc_ok)
+            return QColor(224, 64, 64);   // FCH CRC24 校验失败(表7)
+        if (std::any_of(e.mpdu.pb_crc_oks.cbegin(), e.mpdu.pb_crc_oks.cend(),
+                        [](bool ok) { return !ok; }))
+            return QColor(224, 64, 64);   // 任一物理块 CRC24 校验失败
         if (e.msdu.present && e.msdu.mme_type != kMmeTypeNone)
             return mme_color(e.msdu.mme_type);
         if (e.msdu.present && e.msdu.business_id != 0xFF) {
