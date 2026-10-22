@@ -3,7 +3,9 @@
 /// @details 决策流程(单次检查内完成,结果仅本次有效):
 ///          - config general/mirror_mode=native → 原生地址;
 ///          - =proxy → 跳过区域识别,直接探活镜像列表;
-///          - =auto(默认)→ 先识别出口 IP 国家(Cloudflare trace,ipapi 兜底):
+///          - =auto(默认)→ 先识别出口 IP 国家(Cloudflare trace →
+///            country.is → ipwho.is 三源依次兜底;原 ipapi.co 免费额度
+///            按出口 IP 限流、实测常处于 RateLimited,已弃用):
 ///            中国(CN)走镜像探活;非中国走原生;识别失败则先探原生、
 ///            不通再探镜像。镜像按 config general/mirror_list 顺序逐个用
 ///            清单 URL 探活(须返回合法清单 JSON 才算可用),首个可用者生效,
@@ -37,6 +39,7 @@ private:
     void get(const QString& url, int timeoutMs,
              const std::function<void(QNetworkReply*)>& done);
     void detectRegion();
+    void detectFromSource(int idx);   // 区域识别源链:0=trace,1=country.is,2=ipwho.is
     void onRegion(const QString& countryCode);   // "" = 识别失败
     void probeNative();
     void probeMirror(int index);

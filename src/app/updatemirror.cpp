@@ -15,8 +15,9 @@
 namespace {
 constexpr int kRegionTimeoutMs  = 3500;   // 出口区域识别(每源)
 constexpr int kProbeTimeoutMs   = 4500;   // 清单探活(原生/每个镜像)
-const char* kTraceUrl  = "https://www.cloudflare.com/cdn-cgi/trace";
-const char* kIpapiUrl  = "https://ipapi.co/country/";
+const char* kTraceUrl     = "https://www.cloudflare.com/cdn-cgi/trace";
+const char* kCountryIsUrl = "https://api.country.is/";
+const char* kIpwhoUrl     = "https://ipwho.is/";
 } // namespace
 
 UpdateMirrorResolver::UpdateMirrorResolver(QObject* parent)
@@ -67,25 +68,60 @@ void UpdateMirrorResolver::resolve(const QString& updateUrl) {
     }
 }
 
-void UpdateMirrorResolver::detectRegion() {
-    get(QString::fromLatin1(kTraceUrl), kRegionTimeoutMs, [this](QNetworkReply* r) {
-        QString loc;
-        if (r->error() == QNetworkReply::NoError) {
-            const QString body = QString::fromUtf8(r->readAll());
-            for (const QString& line : body.split(QLatin1Char('\n'))) {
-                if (line.startsWith(QStringLiteral("loc=")))
-                    loc = line.mid(4).trimmed().toUpper();
+void UpdateMirrorResolver::detectRegion() { detectFromSource(0); }
+
+void UpdateMirrorResolver::detectFromSource(int idx) {
+    if (idx == 0) {
+        // 源 1:Cloudflare cdn-cgi/trace(纯文本,loc=XX)
+        get(QString::fromLatin1(kTraceUrl), kRegionTimeoutMs, [this](QNetworkReply* r) {
+            QString loc;
+            if (r->error() == QNetworkReply::NoError) {
+                const QString body = QString::fromUtf8(r->readAll());
+                for (const QString& line : body.split(QLatin1Char('\n'))) {
+                    if (line.startsWith(QStringLiteral("loc=")))
+                        loc = line.mid(4).trimmed().toUpper();
+                }
             }
-        }
-        if (!loc.isEmpty()) { onRegion(loc); return; }
-        // Cloudflare trace 无结果 → ipapi 兜底
-        get(QString::fromLatin1(kIpapiUrl), kRegionTimeoutMs, [this](QNetworkReply* r2) {
-            QString cc;
-            if (r2->error() == QNetworkReply::NoError)
-                cc = QString::fromUtf8(r2->readAll()).trimmed().toUpper();
-            onRegion(cc.size() == 2 ? cc : QString());
+            if (loc.size() == 2) {
+                qInfo("[update-mirror] region source cloudflare-trace reports %s",
+                      qPrintable(loc));
+                onRegion(loc);
+            } else {
+                detectFromSource(1);
+            }
         });
-    });
+        return;
+    }
+    // 源 2/3:JSON 接口,取国家码字段;字段名不同,逐源声明
+    struct JsonSource { const char* name; const char* url; const char* key; };
+    static const JsonSource kJsonSources[] = {
+        { "country.is", kCountryIsUrl, "country" },
+        { "ipwho.is",   kIpwhoUrl,     "country_code" },
+    };
+    const int si = idx - 1;
+    if (si >= int(sizeof(kJsonSources) / sizeof(kJsonSources[0]))) {
+        onRegion(QString());   // 三源全灭 → 未知,走原生探活链
+        return;
+    }
+    const JsonSource src = kJsonSources[si];
+    get(QString::fromLatin1(src.url), kRegionTimeoutMs,
+        [this, idx, src](QNetworkReply* r) {
+            QString cc;
+            if (r->error() == QNetworkReply::NoError) {
+                const QJsonObject obj =
+                    QJsonDocument::fromJson(r->readAll()).object();
+                if (obj.value(QStringLiteral("success")).toBool(true))
+                    cc = obj.value(QLatin1String(src.key)).toString()
+                             .trimmed().toUpper();
+            }
+            if (cc.size() == 2) {
+                qInfo("[update-mirror] region source %s reports %s",
+                      src.name, qPrintable(cc));
+                onRegion(cc);
+            } else {
+                detectFromSource(idx + 1);
+            }
+        });
 }
 
 void UpdateMirrorResolver::onRegion(const QString& countryCode) {
