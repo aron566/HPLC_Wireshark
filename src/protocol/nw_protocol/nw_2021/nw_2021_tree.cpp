@@ -75,7 +75,8 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
     tree_add_bit_field(mpdu_base, "SNID", QStringLiteral("0x%1")
         .arg(e.mpdu.net_id, 1, 16, QChar('0')), 0, 4, 4);
     {
-        // 标准版本号(表13):0=保留 1=本标准版本号
+        // 标准版本号(表13):0=保留 1=本标准版本号(2=SPLC 帧由 NW_2026 会话解析;
+        // NW_2021 会话下 version=2 帧按默认解析展示,"2 - 保留"为预期行为,用户决策)
         QString ver = (e.mpdu.version == 1)
             ? QStringLiteral("1 - %1").arg(trl::L("本标准版本号"))
             : QStringLiteral("%1 - %2").arg(e.mpdu.version).arg(trl::L("保留"));

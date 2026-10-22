@@ -6,12 +6,14 @@
 #   - crc.h              CRC32 / CRC24
 #   - bcd.h              BCD 编解码
 #   - fieldspec.h        字段树构建工具(FieldSpec/add_fields/group/annotate_unit)
+#   - pb_assembler.h     多物理块(PB)组装(逐块 CRC24/块体提取/聚合级联拆分,header-only)
 
 HEADERS += \
     $$PWD/protocolvariant.h \
     $$PWD/fieldtools.h \
     $$PWD/crc.h \
     $$PWD/bcd.h \
-    $$PWD/fieldspec.h
+    $$PWD/fieldspec.h \
+    $$PWD/pb_assembler.h
 
 INCLUDEPATH += $$PWD

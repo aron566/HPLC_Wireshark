@@ -541,9 +541,12 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             }
         }
 
-        // MSDU 字段树挂载
+        // MSDU 字段树挂载(聚合帧:cascade=true,msdu_body=级联体流,
+        // Cascade MAC Frame 组已在 parser 侧挂入)
         if (e.msdu.present) {
-            auto* msdu = tree_add_item(root, "MSDU (Reassembled)",
+            const bool cascade_only = e.msdu.cascade;
+            auto* msdu = tree_add_item(root,
+                cascade_only ? "MSDU (Cascade Frames)" : "MSDU (Reassembled)",
                 QStringLiteral("%1 B  %2").arg(e.msdu_body.size()).arg(e.msdu.summary));
             MsduRawMap rm;
             rm.base = e.msdu_raw_base;

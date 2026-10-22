@@ -9,6 +9,7 @@
 #include "gw_2026_pb_table.h"
 #include "gw_2026_tree.h"
 #include "crc.h"
+#include "pb_assembler.h"
 #include "i18n.h"
 #include "fieldtools.h"
 #include <algorithm>
@@ -129,38 +130,35 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
     info.pb_size = (quint16)pb_size;
 
     int block_offset = 16;
-    bool all_pb_ok = true;
-    for (int i = 0; i < info.pb_num; ++i) {
-        int block_start = block_offset + i * info.pb_size;
-        if (block_start + info.pb_size > body.size()) {
-            msdu = MsduState{};
-            return trl::L("PB 块超出帧长");
-        }
-        const quint8* blk =
-            reinterpret_cast<const quint8*>(body.constData()) + block_start;
-        quint32 calc = crc24_lsb(blk, info.pb_size);
-        quint32 rx   = (quint32)blk[info.pb_size - 3]
-                     | ((quint32)blk[info.pb_size - 2] << 8)
-                     | ((quint32)blk[info.pb_size - 1] << 16);
-        if (calc != rx) {
-            all_pb_ok = false;
-            // 失败块同样记录,供 UI 逐块展示(头仍可读,CRC 状态 FAIL)
-            info.pb_heads.append(blk[0]);
-            info.pb_crc_oks.append(false);
+    // 逐块 CRC24 + 块体提取(公共 pb_assembler;国网布局:pb_head 1B + 块体 +
+    // CRC24 3B,无聚合标志字段;序列号状态机重组逻辑保持原语义不变)
+    const pb_asm::PbLayout layout{/*head*/1, /*rsv*/0, /*crc*/3,
+                                  /*agg_byte*/-1, /*agg_bit*/-1,
+                                  /*base*/block_offset};
+    const pb_asm::AssembleResult res =
+        pb_asm::assemble_pb_blocks(body, info.pb_num, info.pb_size, layout);
+    if (res.truncated) {
+        msdu = MsduState{};
+        return trl::L("PB 块超出帧长");
+    }
+    const bool all_pb_ok = res.all_crc_ok;
+    int block_idx = 0;   // 块序(truncated 时仅完整块,但截断已提前报错,序号一致)
+    for (const auto& b : res.blocks) {
+        info.pb_heads.append(b.head_byte);
+        info.pb_crc_oks.append(b.crc_ok);
+        if (!b.crc_ok) {   // 失败块同样记录,供 UI 逐块展示(头仍可读,CRC 状态 FAIL)
+            ++block_idx;
             continue;
         }
-        quint8 pb_head = blk[0];
-        bool   is_start = (pb_head & 0x40) != 0;
-        bool   is_end   = (pb_head & 0x80) != 0;
-        quint8 seq     = pb_head & 0x3F;
+        const quint8 pb_head = b.head_byte;
+        const bool   is_start = (pb_head & 0x40) != 0;
+        const bool   is_end   = (pb_head & 0x80) != 0;
+        const quint8 seq      = pb_head & 0x3F;
         // 保存首块(起始块)的 PB 头原始字节供 UI 显示;多块时后块不覆盖
-        if (i == 0) info.pb_head = pb_head;
-        info.pb_heads.append(pb_head);       // 按块序保存(UI 逐块展示)
-        info.pb_crc_oks.append(true);        // 各块 CRC24 结果(此处已通过)
-
-        int body_len = info.pb_size - 4;
-        QByteArray pb_body(reinterpret_cast<const char*>(blk + 1), body_len);
-
+        if (block_idx == 0) info.pb_head = pb_head;
+        const int body_len = b.body_len;
+        const QByteArray pb_body = body.mid(b.body_raw_offset, body_len);
+        ++block_idx;
         if (is_start && msdu.received_count == 0) {
             msdu.expected_len = body_len;
             msdu.buffer.resize(info.pb_num * body_len);

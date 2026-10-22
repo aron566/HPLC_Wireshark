@@ -16,6 +16,7 @@
 #include "../nw_2021/nw_2021_parser.h"   // 标准版本号==1(BPLC)委托旧解析器:nw_2021 是 nw_2026 的子集
 #include "common/fieldtools.h"
 #include "crc.h"
+#include "pb_assembler.h"
 #include "bcd.h"
 #include "i18n.h"
 #include <QDateTime>
@@ -121,6 +122,22 @@ bool NW_2026_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QSt
     info.net_id     = (quint32)get_bits(p, 0, 4, 4);  // 短网络标识 SNID 4b
     info.version    = (quint8)get_bits(p, 12, 4, 4);  // 标准版本号
     return true;
+}
+
+namespace {
+/// i18n 注册(本 TU 概要文本)
+struct I18nReg {
+    I18nReg() {
+        trl::register_en("聚合帧(%1 个级联 MAC 帧)", "aggregated frame (%1 cascade MAC frames)");
+    }
+};
+const I18nReg g_i18n_reg_nw2026_parser;
+
+/// 级联子树 rel 坐标平移:单条 MAC 帧系 → 级联体流系(rel_start>=0 才有字节映射)
+void shift_msdu_rel(MsduFieldNode& n, int base) {
+    if (n.rel_start >= 0) n.rel_start += base;
+    for (auto& ch : n.children) shift_msdu_rel(ch, base);
+}
 }
 
 NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msdu, const Filter& f) {
@@ -272,37 +289,57 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
             r.accept = false;
             return r;
         }
-        // PB 块重组 + CRC24 校验(南网:块 = PB头4B + 块体(pb_size-8) + 保留1B + CRC24 3B)
+        // PB 块逐块 CRC24 + 块体提取 + 聚合级联拆分(公共 pb_assembler;南网布局:
+        // PB头4B 表47 + 块体 + 保留1B + CRC24 3B,聚合标志 byte2 bit0,§5.1.3.2.1)
         if (r.mpdu.pb_size > 8 && r.mpdu.pb_num > 0) {
-            const int body_len = r.mpdu.pb_size - 8;
-            QByteArray msdu_body;
-            bool all_pb_ok = true;
-            for (int i = 0; i < r.mpdu.pb_num; ++i) {
-                const int block_start = pb_base + i * r.mpdu.pb_size;
-                if (block_start + r.mpdu.pb_size > r.payload_for_log.size()) break;
-                // PB CRC24:覆盖 PB 头 + 块体 + 保留字节(块内前 pb_size-3 字节,表7)
-                const quint8* blk = reinterpret_cast<const quint8*>(
-                    r.payload_for_log.constData()) + block_start;
-                const quint32 calc = crc24_lsb(blk, r.mpdu.pb_size);
-                const quint32 rx = (quint32)blk[r.mpdu.pb_size - 3]
-                                 | ((quint32)blk[r.mpdu.pb_size - 2] << 8)
-                                 | ((quint32)blk[r.mpdu.pb_size - 1] << 16);
-                const bool ok = (calc == rx);
-                all_pb_ok = all_pb_ok && ok;
-                r.mpdu.pb_crc_oks.append(ok);
-                msdu_body += r.payload_for_log.mid(block_start + 4, body_len);
-            }
-            r.mpdu.pb_crc_ok = all_pb_ok;
-            if (!msdu_body.isEmpty()) {
-                r.msdu_body = msdu_body;
+            const pb_asm::PbLayout layout{/*head*/4, /*rsv*/1, /*crc*/3,
+                                          /*agg_byte*/2, /*agg_bit*/0,
+                                          /*base*/pb_base};
+            const pb_asm::AssembleResult res =
+                pb_asm::assemble_pb_blocks(r.payload_for_log, r.mpdu.pb_num,
+                                           r.mpdu.pb_size, layout);
+            for (const auto& b : res.blocks) r.mpdu.pb_crc_oks.append(b.crc_ok);
+            r.mpdu.pb_crc_ok = res.all_crc_ok;
+            if (res.any_aggregated) {
+                // 聚合帧(SPLC 图11 多块聚合,用户决策:不参与 MSDU 拼接):级联 MAC 帧
+                // 逐帧独立解析展示——级联记录可跨 PB 体边界(实测锚点:4 条记录
+                // [2d 10]/[2d 00]/[2d 00]/[2d 20],首记录 Start=1、末记录 End=1)
+                // 子树坐标平移:msdu parser 产出 rel 相对单条 MAC 帧,统一平移到
+                // 级联体流(msdu_body)坐标系,树层 MsduRawMap 按块换算 raw 多段高亮
+                int cas_cnt = 0;
+                for (const auto& c : res.cascade) {
+                    const MsduInfo cm = NW_2026_MsduParser::parse(c.mac);
+                    MsduFieldNode grp;
+                    grp.name = QStringLiteral("Cascade MAC Frame[%1]").arg(cas_cnt);
+                    grp.value = QStringLiteral("%1 B%2%3")
+                                    .arg(c.mac_len)
+                                    .arg(c.start_flag ? QStringLiteral(" (Start)") : QString())
+                                    .arg(c.end_flag ? QStringLiteral(" (End)") : QString());
+                    // 高亮映射:rel 相对级联体流(msdu_body=各块体依序拼接)
+                    grp.rel_start = c.body_start + 2;   // 跳过级联头 2B
+                    grp.rel_len   = c.mac_len;
+                    const int base = grp.rel_start;
+                    for (MsduFieldNode n : cm.tree) {
+                        shift_msdu_rel(n, base);
+                        grp.children.append(n);
+                    }
+                    r.msdu.tree.append(grp);
+                    r.msdu.present = true;
+                    ++cas_cnt;
+                }
+                r.msdu.summary = trl::L("聚合帧(%1 个级联 MAC 帧)").arg(cas_cnt);
+                // msdu_body 保留为级联体流供高亮映射,非重组 MSDU 语义(见 msdu.cascade)
+                r.msdu.cascade = true;
+            } else if (!res.msdu_body.isEmpty()) {
+                r.msdu_body = res.msdu_body;
                 // 表6:单跳帧协议(版本=2)仅无线信道支持;载波信道收到属异常(排查信道/串口错配)
-                if (!r.meta.is_rf && (((quint8)msdu_body[0] >> 1) & 0x03) == 2)
+                if (!r.meta.is_rf && (((quint8)res.msdu_body[0] >> 1) & 0x03) == 2)
                     qWarning("NW_2026: single-hop MAC version=2 on PLC channel (isRF=0)");
-                r.msdu = NW_2026_MsduParser::parse(msdu_body);
-                // MSDU body 在 raw_bytes(自 FCH 起)中的偏移 = 物理块起点 + 物理块头 4B。
-                // 普通/无线帧物理块自 16(FCH) 起;DL-OFDMA(表27 eFC 16B)自 32 起,
-                // 故统一用 pb_base + 4(§5.1.3.2.1:物理块头 4B + 块体 + 保留 + CRC24)。
-                r.msdu_raw_base = (r.mpdu.pb_num == 1) ? (pb_base + 4) : -1;
+                r.msdu = NW_2026_MsduParser::parse(res.msdu_body);
+                // 高亮:单块连续 = 首块块体起点(块体在 raw_bytes 中的绝对偏移);
+                // 多块重组时各块体被 PB 头/保留/CRC 隔断,不连续 → -1(沿用国网约定)
+                r.msdu_raw_base = (r.mpdu.pb_num == 1 && !res.blocks.isEmpty())
+                                      ? res.blocks.first().body_raw_offset : -1;
             }
         }
     } else if (ftype == NW_2026_FrameType::BEACON) {

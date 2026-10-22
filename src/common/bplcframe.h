@@ -296,6 +296,8 @@ struct MsduInfo {
     quint8  app_packet_type;     ///< 应用层帧类型域 4-bit(南网表4;非 NW 应用层=0xFF)
     quint16 mme_type;            ///< 管理消息 MMe 类型(16bit;非管理消息=0xFFFF,供整行着色)
     int     total_len;       ///< MSDU 帧总长(头+数据+CRC,不含 PB 填充;-1=未知)
+    bool    cascade;         ///< 聚合帧级联拆分(SPLC 表47/48;msdu_body=级联体流,
+                              ///< tree=Cascade MAC Frame 组,rel 相对级联体流)
     QString summary;         ///< 概要,如 "MMeDiscoverNodeList" / "APP EventPacket"
     QVector<MsduFieldNode> tree;  ///< 字段树(协议树直接挂载显示)
     QVector<TeiMacPair> tei_mac_pairs; ///< 本帧携带的 TEI→MAC 学习对(发现列表等)
@@ -307,7 +309,7 @@ struct MsduInfo {
                  vlan_tag(0), msdu_type(0), restart_count(0xFF),
                  broadcast_direction(0xFF), route_hops_left(0xFF),
                  business_id(0xFF), app_packet_type(0xFF),
-                 mme_type(0xFFFF), total_len(-1) {}
+                 mme_type(0xFFFF), total_len(-1), cascade(false) {}
 };
 
 /// @brief 通用解剖字段节点(自递归树)
