@@ -41,6 +41,10 @@ inline void ensure_default_file() {
         "theme=auto\n"
         "; 启动时自动检查更新(true=检查 / false=不检查)\n"
         "auto_check=true\n"
+        "; 更新下载加速:auto=按出口IP区域自动(中国IP走代理)/ native=始终原生GitHub / proxy=始终走代理\n"
+        "mirror_mode=auto\n"
+        "; 代理前缀列表(逗号分隔,按序探活取首个可用;留空=内置 ghfast.top/gh-proxy.com/ghproxy.net)\n"
+        "mirror_list=\n"
         "; 协议:gw_2022=国网双模标准2022 / nw_2021=南网双模2021报批版\n"
         "protocol=gw_2022\n"
         "\n"
@@ -103,6 +107,32 @@ inline void set_theme(const QString& t) {
 inline bool auto_check() {
     ensure_default_file();
     return settings().value(QStringLiteral("general/auto_check"), true).toBool();
+}
+
+/// @brief 更新加速模式:auto(按出口区域)/ native(强制原生)/ proxy(强制代理)
+inline QString mirror_mode() {
+    ensure_default_file();
+    return settings().value(QStringLiteral("general/mirror_mode"),
+                            QStringLiteral("auto")).toString().trimmed().toLower();
+}
+
+/// @brief 更新加速代理前缀列表(按序探活);config 留空时用内置实测可用三家
+inline QStringList mirror_list() {
+    ensure_default_file();
+    const QString raw = settings().value(QStringLiteral("general/mirror_list"),
+                                         QString()).toString();
+    QStringList out;
+    for (QString s : raw.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+        s = s.trimmed();
+        if (!s.isEmpty()) {
+            if (!s.endsWith(QLatin1Char('/'))) s += QLatin1Char('/');
+            out += s;
+        }
+    }
+    if (!out.isEmpty()) return out;
+    return { QStringLiteral("https://ghfast.top/"),
+             QStringLiteral("https://gh-proxy.com/"),
+             QStringLiteral("https://ghproxy.net/") };
 }
 inline void set_auto_check(bool v) {
     settings().setValue(QStringLiteral("general/auto_check"), v);

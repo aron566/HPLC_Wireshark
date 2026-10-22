@@ -9,6 +9,7 @@
 #include "commconfigdialog.h"
 #include "QSimpleUpdater.h"
 #include "appconfig.h"
+#include "updatemirror.h"
 #include "playbackwriter.h"
 #include "i18n.h"
 #include "packetentry_serialize.h"
@@ -371,7 +372,8 @@ void MainWindow::build_ui() {
     m_btn_update->setVisible(false);
     menuBar()->setCornerWidget(m_btn_update, Qt::TopRightCorner);
     connect(m_btn_update, &QToolButton::clicked, this, [this]() {
-        const QString u = appcfg::update_url();
+        // 用本次检查实际的清单地址取下载地址(内置下载器/此处打开均已含代理前缀改写)
+        const QString u = m_last_check_url.isEmpty() ? appcfg::update_url() : m_last_check_url;
         const QString dl = QSimpleUpdater::getInstance()->getDownloadUrl(u);
         if (!dl.isEmpty())
             QDesktopServices::openUrl(QUrl(dl));
@@ -1143,19 +1145,35 @@ void MainWindow::on_ranges_selected(const QList<QPair<int, int>>& ranges,
 }
 
 void MainWindow::check_for_updates(bool silent) {
+    m_check_silent = silent;
+    // 先经加速解析(区域识别 + 镜像探活)选出实际清单地址,再正式检查;
+    // 每次检查重建解析器,避免上一次未完成的探活链与本次重叠。
+    if (m_mirror_resolver) {
+        m_mirror_resolver->disconnect(this);
+        m_mirror_resolver->deleteLater();
+    }
+    m_mirror_resolver = new UpdateMirrorResolver(this);
+    connect(m_mirror_resolver, &UpdateMirrorResolver::resolved,
+            this, &MainWindow::on_mirror_resolved);
+    m_mirror_resolver->resolve(appcfg::update_url());   // 更新地址来自 config.ini
+}
+
+void MainWindow::on_mirror_resolved(const QString& effectiveUrl, const QString& prefix) {
+    m_last_check_url = effectiveUrl;
     auto* su = QSimpleUpdater::getInstance();
-    const QString up_url = appcfg::update_url();   // 更新地址来自 config.ini
-    su->setModuleVersion(up_url, kAppVersion);
-    su->setModuleName(up_url, kModuleName);
-    su->setNotifyOnUpdate(up_url, true);      // 有新版本 → 弹窗 + 显示"立即更新"按钮
-    su->setNotifyOnFinish(up_url, !silent);   // 静默(启动):无新版本不弹窗
-    if (!silent)
+    su->setModuleVersion(effectiveUrl, kAppVersion);
+    su->setModuleName(effectiveUrl, kModuleName);
+    su->setNotifyOnUpdate(effectiveUrl, true);      // 有新版本 → 弹窗 + 显示"立即更新"按钮
+    su->setNotifyOnFinish(effectiveUrl, !m_check_silent);   // 静默(启动):无新版本不弹窗
+    su->setDownloadPrefix(effectiveUrl, prefix);   // 安装包下载地址同步走命中的代理前缀
+    if (!m_check_silent)
         m_status_left->setText(trl::L("正在检查更新…"));
-    su->checkForUpdates(up_url);
+    su->checkForUpdates(effectiveUrl);
 }
 
 void MainWindow::on_check_finished(const QString& url) {
-    if (url != appcfg::update_url()) return;
+    const QString key = m_last_check_url.isEmpty() ? appcfg::update_url() : m_last_check_url;
+    if (url != key) return;
     bool avail = QSimpleUpdater::getInstance()->getUpdateAvailable(url);
     if (m_btn_update)
         m_btn_update->setVisible(avail);   // 有新版本 → 显示"立即更新"按钮

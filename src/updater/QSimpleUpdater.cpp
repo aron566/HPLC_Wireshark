@@ -400,6 +400,16 @@ void QSimpleUpdater::setModuleVersion(const QString& url, const QString& version
 }
 
 /**
+ * @brief Sets a mirror prefix for the download URL of the Updater
+ *        registered with the given @a url (local extension, used for
+ *        GitHub download acceleration; empty = no mirroring).
+ */
+void QSimpleUpdater::setDownloadPrefix(const QString& url, const QString& prefix)
+{
+  getUpdater(url)->setDownloadPrefix(prefix);
+}
+
+/**
  * @brief Enables or disables the integrated downloader for the Updater
  *        registered with the given @a url.
  *

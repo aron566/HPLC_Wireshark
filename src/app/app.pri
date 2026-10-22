@@ -12,12 +12,14 @@ HEADERS += \
     $$PWD/commconfigdialog.h \
     $$PWD/framedispatcher.h \
     $$PWD/appconfig.h \
+    $$PWD/updatemirror.h \
     $$PWD/theme.h
 
 SOURCES += \
     $$PWD/mainwindow.cpp \
     $$PWD/commconfigdialog.cpp \
     $$PWD/framedispatcher.cpp \
+    $$PWD/updatemirror.cpp \
     $$PWD/theme.cpp
 
 # QDarkStyleSheet 深色主题资源(MIT,见 qdarkstyle/LICENSE.rst)
