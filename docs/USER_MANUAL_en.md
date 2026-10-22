@@ -20,6 +20,15 @@ BPLC STA Monitor is a Windows desktop application for monitoring BPLC/HRF (HPLC)
 - Export CSV tables (locale-aware encoding, opens directly in Excel).
 - Generates a minidump crash dump (`*.dmp`) on crash, with optional Sentry upload.
 
+### 1.1 Southern Grid NW_2026 (SPLC) Frame Parsing Strategy
+
+For Southern Grid dual-mode frames (BPLC 2021 / SPLC 2026), the parser applies the following strategy by frame type:
+
+1. **SOF frames**: dispatched by the FCH standard version number (Table 16, high nibble of byte 12) — `1` = BPLC, parsed by the legacy parser (NW_2021); `2` = SPLC, parsed by the new parser (NW_2026). (PB/TMI layouts differ greatly between generations, so version dispatch is required.)
+2. **BEACON / ACK / COORD frames**: no version check — always parsed by the new protocol (SPLC). SPLC is a "reserved-bit enablement" extension of BPLC (beacon Table 119→18, ACK Table 7→30, COORD Table 15→41 are all reserved-bit enablements with no field conflicts), so the new parser is backward-compatible with legacy frames.
+3. **Automatic fallback**: if a non-SOF frame fails to parse under the new protocol (incomplete structure / insufficient payload), the parser automatically falls back to the legacy protocol (BPLC/NW_2021).
+4. **State Grid difference**: State Grid frames whose version is not 1.0 are parsed with the GW_2026 (HDC 2.0) layout as an attempt.
+
 ## 2. Installation and Startup
 
 ### 2.1 Installer

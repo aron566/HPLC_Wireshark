@@ -2000,16 +2000,24 @@ function nw.dissector(tvb, pinfo, tree)
     local fch_off = (evs == "50") and 4 or 0
     if tvb:len() >= fch_off + 16 then
         local std_ver = math.floor(band(tvb(fch_off + 12, 1):uint(), 0xF0) / 16)
-        if std_ver == 2 then
+        -- 南网分派策略(用户决策 2026-10,与 C++ NW_2026_Parser 同构):SPLC(2026) 是
+        -- BPLC(2021) 保留位启用补充、兼容旧帧——仅 SOF 判断标准版本号(新旧 PB/TMI
+        -- 布局差异大);信标/ACK/COORD 不判版本号,默认委托 nw_2026 解析,nw_2026 解析
+        -- 异常(pcall 失败)时回退下方 BPLC 布局内联解析
+        local ftype = band(tvb(fch_off, 1):uint(), 0x07)
+        local want_2026 = (ftype ~= 1) or (std_ver == 2)
+        if want_2026 then
             pinfo.cols.protocol = is_rf and "NW-RF" or "NW-HPLC"
             local ok, d = pcall(Dissector.get, "nw_2026")
             if ok and d then
-                d:call(tvb, pinfo, tree)
-                return tvb:len()
+                local call_ok = pcall(d.call, d, tvb, pinfo, tree)
+                if call_ok then return tvb:len() end
+                -- nw_2026 解析异常: 回退下方 BPLC 布局内联解析(分派策略回退路径)
+            else
+                tree:add_expert_info(PI_PROTOCOL, PI_WARN,
+                    T("检测到 SPLC 帧,但 packet-nw_2026.lua 未加载,按 BPLC 布局尽力解析",
+                      "SPLC frame detected but packet-nw_2026.lua not loaded; best-effort BPLC parse"))
             end
-            tree:add_expert_info(PI_PROTOCOL, PI_WARN,
-                T("检测到 SPLC 帧,但 packet-nw_2026.lua 未加载,按 BPLC 布局尽力解析",
-                  "SPLC frame detected but packet-nw_2026.lua not loaded; best-effort BPLC parse"))
         end
     end
     if evs == "50" then

@@ -22,7 +22,6 @@
 | `packet-nw_2021.lua` | **南网 NW_2021 Lua dissector（BPLC；入口含版本分派）** |
 | `packet-nw_2026.lua` | **南网 NW_2026 / SPLC 2026 Lua dissector（由 nw_2021 按版本号委托进入）** |
 | `test_2026/` | 新协议测试帧生成器与 pcap（GW: gen_gw2026_test_pcap.py；NW: gen_2026_test_pcap.py） |
-| `packet-gw_2022.c` | 国网 C 插件源（已落后于 Lua 版，勿用） |
 | `bin2pcap.py` | BIN 回放文件 → pcap（协议自动识别，`--gw`/`--nw` 可强制） |
 | `serial2pcap.py` | **实时串口抓包 → pcap**（`--gw`/`--nw` 可强制协议） |
 | `BPLC_Serial_Capture.bat` + `bplc_serial_extcap.py` | **Wireshark 原生串口采集（extcap）** |
@@ -98,7 +97,10 @@ tshark -r capture.pcap -X lua_script:packet-nw_2021.lua -X lua_script:packet-nw_
 ```
 
 版本分派规则（FCH 标准版本号 byte12 高 nibble）：国网 0=HDC 1.0 内联 / 1 及保留值委托
-`gw_2026`；南网 1=BPLC / 0 保留内联 / 2=SPLC 委托 `nw_2026`。详见上文
+`gw_2026`；南网（用户决策 2026-10 分派策略）：**仅 SOF 帧按标准版本号分派**（1=BPLC 内联 /
+2=SPLC 委托 `nw_2026`），**信标/ACK/COORD 不判版本号默认委托 `nw_2026`**（SPLC 是 BPLC 的
+保留位启用补充、兼容旧帧：信标 表119→表18 / ACK 表7→表30 / COORD 表15→表41 均为保留位
+启用无冲突），nw_2026 解析异常时 pcall 回退内联旧布局解析。详见上文
 "新旧协议版本自适应委托"。
 
 ### 多物理块帧与字节高亮行为

@@ -26,7 +26,6 @@ coloring never clash; captures are told apart by pcap linktype (see
 | `packet-nw_2021.lua` | **CSG NW_2021 Lua dissector (BPLC; entry with version dispatch)** |
 | `packet-nw_2026.lua` | **CSG NW_2026 / SPLC 2026 Lua dissector (entered via nw_2021 version delegation)** |
 | `test_2026/` | New-protocol test frame generators and pcaps (GW: gen_gw2026_test_pcap.py; NW: gen_2026_test_pcap.py) |
-| `packet-gw_2022.c` | SGCC C plugin source (outdated, do not use) |
 | `bin2pcap.py` | BIN replay file → pcap (auto protocol detect, `--gw`/`--nw` to force) |
 | `serial2pcap.py` | **Live serial capture → pcap** (`--gw`/`--nw` to force protocol) |
 | `BPLC_Serial_Capture.bat` + `bplc_serial_extcap.py` | **Native serial capture inside Wireshark (extcap)** |

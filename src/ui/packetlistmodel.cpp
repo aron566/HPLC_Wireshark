@@ -180,7 +180,12 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                 return QString();
             }
             case COL_MSDU_SEQ: {
-                if (e.accepted && e.msdu.present) return (int)e.msdu.msdu_seq;
+                if (e.accepted && e.msdu.present) {
+                    // 单跳帧精简头(南网表113 4B/国网表3 4B)无 MSDU 序号字段(标准帧头才有
+                    // MSDU_SEQ (5,0,16)/(10,0,16)),显示 "*" 避免误读为解析缺失
+                    if (e.msdu.simple_head) return QStringLiteral("*");
+                    return (int)e.msdu.msdu_seq;
+                }
                 return QString();
             }
             case COL_LENGTH: return e.raw_bytes.size();

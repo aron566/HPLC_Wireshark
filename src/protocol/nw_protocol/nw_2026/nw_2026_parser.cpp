@@ -141,12 +141,17 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
         return r;
     }
 
-    // 标准版本号(表16):0 保留 / 1 BPLC / 2 SPLC。
-    // BPLC 版(nw_2021 是 nw_2026 的子集):整个帧(3C 封装解码/MPDU/MSDU/字段树)
-    // 委托旧解析器 NW_2021_Parser 解析展示;版本 0(保留)按经典处理同样走旧解析。
-    // (与国网 GW_2026 策略不同:表16 已定义 1/2 两代,保留值 0 无 2.0 语义可回退,
-    //  故保守归入旧解析;国网表4 保留值按 2.0 布局尝试不拒收)
-    if (r.mpdu.version != 2) {
+    // 南网帧型分派策略(用户决策 2026-10):SPLC(2026) 是 BPLC(2021) 保留位启用补充、
+    // 兼容旧帧——信标 表119→表18 保留(12,1,1)→SNID高位、ACK 表7→表30 保留(4-11)→
+    // SNID高位+SNR类型+SNR评估信息、COORD 表15→表41 保留→邻居网络比特图,均为保留位
+    // 启用无冲突。因此仅 SOF 判断标准版本号(新旧 PB/TMI 布局差异大):
+    //   1) SOF:version!=2 → 整帧委托旧解析器 NW_2021_Parser(BPLC);
+    //   2) BEACON/ACK/COORD:不判版本号,默认走 SPLC 解析(BPLC 旧帧的保留位在 SPLC
+    //      布局下解析为启用的 SNID高位/SNR类型 等字段,展示无害);
+    //   3) 非 SOF 帧 SPLC 结构性失败(信标载荷区不完整等,见各分支回退点)→ 回退 m_legacy
+    //      BPLC 解析。ACK/COORD 为固定字段解析,FCH 解析成功后字段必然在界内,无失败路径。
+    const bool is_sof = (r.mpdu.frame_type == 1);
+    if (is_sof && r.mpdu.version != 2) {
         return m_legacy.parse(in, msdu, f);
     }
 
@@ -249,8 +254,8 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                     : (quint16)nw_2026_splc_pb_size(tmi_idx);
             }
         } else {
-            // 防御性兜底(常规不可达:非 SPLC 版本已在 parse() 顶部委托 NW_2021_Parser):
-            // BPLC 版载波 SOF(表20):链路标识符(4,0,8)/SNID高位(5,0,1 由树渲染)/
+            // 防御性兜底(策略下不可达:SOF 且 version!=2 已在 parse() 顶部委托 NW_2021_Parser,
+            // 走到此处的 SOF 必为 version==2):BPLC 版载波 SOF(表20):链路标识符(4,0,8)/SNID高位(5,0,1 由树渲染)/
             // PBNum(7,0,4)/TMI(7,4,4)/FrameLen(8,0,12)/TEI过滤/重传/符号数/TMI_EXT
             r.mpdu.link_id = (quint8) get_bits(p, 4, 0, 8);
             r.mpdu.pb_num    = (quint8) get_bits(p, 7, 0, 4);
@@ -318,6 +323,11 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
         // 信标帧载荷区(固定头 + 管理信息 + BPCS CRC32 + 保留字节 + PB CRC24)
         if (r.mpdu.pb_size > 0)
             r.beacon = NW_2026_BeaconParser::parse_beacon(r.payload_for_log, r.mpdu.pb_size, r.meta.is_rf);
+        // 非 SOF 帧 SPLC 结构性失败(载荷不足/信标载荷区不完整,parse_beacon 置 present=false)
+        // → 回退 BPLC 解析(分派策略第 3 条,用户决策)
+        if (!r.beacon.present) {
+            return m_legacy.parse(in, msdu, f);
+        }
     } else if (ftype == NW_2026_FrameType::ACK) {
         // ACK(南网 MPDU_ACK_FCH 坐标,表19/表21)
         r.mpdu.ack_ext_type = (quint8)get_bits(p, 12, 0, 4);

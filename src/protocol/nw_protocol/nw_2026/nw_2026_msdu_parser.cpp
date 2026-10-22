@@ -342,6 +342,8 @@ struct MMeI18nReg {
         trl::register_en("认证失败", "authentication failed");
         trl::register_en("未接入网络,需要重新接入网络", "not joined, rejoin required");
         trl::register_en("不在认证名单中", "not in authentication list");
+        trl::register_en(" 级", " level(s)");
+        trl::register_en("%1 - %2 (%3b/邻居)", "%1 - %2 (%3b/neighbor)");
     }
 } mme_i18n_reg;
 
@@ -1244,9 +1246,9 @@ static void parse_sta_attr_info(QVector<MsduFieldNode>& nodes, const QByteArray&
     annotate_unit(nodes, "MinLinkRate", QStringLiteral("%"));
     annotate_unit(nodes, "RFDiscoverPeriod", QStringLiteral("s"));
     // 表217 释义:Level=网络层级 / RFLinkHop=路径上无线跳数 / RateAgingNum=老化周期个数
-    annotate_unit(nodes, "Level", QStringLiteral(" 级"));
+    annotate_unit(nodes, "Level", trl::L(" 级"));
     annotate_unit(nodes, "RFLinkHop", QStringLiteral(" hop"));
-    annotate_unit(nodes, "RateAgingNum", QStringLiteral(" 周期"));
+    annotate_unit(nodes, "RateAgingNum", trl::L(" 周期"));
 }
 
 // 站点路由信息(表218,每条 2B):下一跳 TEI 12b + 路由类型 4b
@@ -1346,7 +1348,7 @@ static void parse_channel_non_bitmap(QVector<MsduFieldNode>& nodes, const QByteA
     if (kChNonBitmapSnrBits[combo]) sem << QStringLiteral("SNR%1b").arg(kChNonBitmapSnrBits[combo]);
     if (kChNonBitmapRssiBits[combo]) sem << QStringLiteral("RSSI%1b").arg(kChNonBitmapRssiBits[combo]);
     MsduFieldNode& ct = group(head.children, QStringLiteral("ComboType"),
-        QStringLiteral("%1 - %2 (%3b/邻居)")
+        trl::L("%1 - %2 (%3b/邻居)")
             .arg(combo).arg(sem.join(QLatin1Char('+')))
             .arg(20 + kChNonBitmapSnrBits[combo] + kChNonBitmapRssiBits[combo]));
     ct.rel_start = rel_base + 0; ct.rel_len = 1;
@@ -1384,7 +1386,7 @@ static void parse_channel_bitmap(QVector<MsduFieldNode>& nodes, const QByteArray
         if (kChBitmapSnrBits[combo]) sem << QStringLiteral("SNR%1b").arg(kChBitmapSnrBits[combo]);
         if (kChBitmapRssiBits[combo]) sem << QStringLiteral("RSSI%1b").arg(kChBitmapRssiBits[combo]);
         MsduFieldNode& ct = group(head.children, QStringLiteral("ComboType"),
-            QStringLiteral("%1 - %2 (%3b/邻居)")
+            trl::L("%1 - %2 (%3b/邻居)")
                 .arg(combo).arg(sem.join(QLatin1Char('+')))
                 .arg(kChBitmapRcvBits[combo] + kChBitmapSnrBits[combo] + kChBitmapRssiBits[combo]));
         ct.rel_start = rel_base + 0; ct.rel_len = 1;

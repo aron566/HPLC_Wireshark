@@ -862,7 +862,7 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
                 MsduFieldNode& hd = group(g.children, QStringLiteral("ChannelInfoHead"));
                 hd.rel_start = content_abs; hd.rel_len = 1;
                 MsduFieldNode& ct = group(hd.children, QStringLiteral("ComboType"),
-                    QStringLiteral("%1 - %2 (%3b/邻居)").arg(combo)
+                    trl::L("%1 - %2 (%3b/邻居)").arg(combo)
                         .arg(sem.join(QLatin1Char('+'))).arg(entry_bits));
                 ct.rel_start = content_abs; ct.rel_len = 1;
                 MsduFieldNode& cr = group(hd.children, QStringLiteral("RSV [4b]"),
@@ -900,7 +900,7 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
                 MsduFieldNode& hd = group(g.children, QStringLiteral("ChannelInfoHead"));
                 hd.rel_start = content_abs; hd.rel_len = 1;
                 MsduFieldNode& ct = group(hd.children, QStringLiteral("ComboType"),
-                    QStringLiteral("%1 - %2 (%3b/邻居)").arg(combo)
+                    trl::L("%1 - %2 (%3b/邻居)").arg(combo)
                         .arg(sem.join(QLatin1Char('+'))).arg(entry_bits));
                 ct.rel_start = content_abs; ct.rel_len = 1;
                 MsduFieldNode& cr = group(hd.children, QStringLiteral("RSV [4b]"),
@@ -2095,6 +2095,7 @@ struct I18nReg {
         trl::register_en("代理变更请求: STA TEI=%1 %2→%3", "Proxy change request: STA TEI=%1 %2→%3");
         trl::register_en("代理变更(批量): %1 个站点代理→%2", "Proxy change (batch): %1 stations proxy→%2");
         trl::register_en("离线指示: %1 个站点离线", "Leave indication: %1 stations left");
+        trl::register_en("%1 - %2 (%3b/邻居)", "%1 - %2 (%3b/neighbor)");
     }
 };
 const I18nReg g_i18n_reg_msdu;

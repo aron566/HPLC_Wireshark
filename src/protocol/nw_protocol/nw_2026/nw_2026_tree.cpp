@@ -83,6 +83,8 @@ struct I18nReg {
         trl::register_en("分集1次 QPSK 码率4/5", "diversity 1, QPSK, code rate 4/5");
         trl::register_en("分集1次 16QAM 码率1/2", "diversity 1, 16QAM, code rate 1/2");
         trl::register_en("分集1次 16QAM 码率4/5", "diversity 1, 16QAM, code rate 4/5");
+        trl::register_en("%1 (实际=%2)", "%1 (actual=%2)");
+        trl::register_en("%1 (回退 %2dB)", "%1 (backoff %2dB)");
     }
 };
 const I18nReg g_i18n_reg_nw_tree;
@@ -256,7 +258,7 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 // 子载波分组大小(5,4,2)/流数(5,6,2)/频段标识(6,0,3)/RU信噪比估计(6,3,1)
                 const quint8 pl_sym = (raw_sz > 4) ? ((d[4] >> 2) & 0x3F) : 0;
                 tree_add_bit_field(sof, "PL SymbolNum",
-                    QStringLiteral("%1 (实际=%2)").arg(pl_sym).arg(pl_sym * 2 + 1), 4, 2, 6);
+                    trl::L("%1 (实际=%2)").arg(pl_sym).arg(pl_sym * 2 + 1), 4, 2, 6);
                 const quint8 tt = (raw_sz > 5) ? (d[5] & 0x01) : 0;
                 tree_add_bit_field(sof, "TrainFrameType",
                     tt ? QStringLiteral("1 - %1").arg(trl::L("Bitloading训练帧"))
@@ -264,7 +266,7 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     5, 0, 1);
                 const quint8 tf_sym = (raw_sz > 5) ? ((d[5] >> 1) & 0x07) : 0;
                 tree_add_bit_field(sof, "TF SymbolNum",
-                    QStringLiteral("%1 (实际=%2)").arg(tf_sym).arg((tf_sym + 1) * 2), 5, 1, 3);
+                    trl::L("%1 (实际=%2)").arg(tf_sym).arg((tf_sym + 1) * 2), 5, 1, 3);
                 tree_add_bit_field(sof, "SubcarrierGroupSize",
                     QString::number((raw_sz > 5) ? ((d[5] >> 4) & 0x03) : 0), 5, 4, 2);
                 tree_add_bit_field(sof, "StreamNum",
@@ -313,7 +315,7 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     const int sn = (raw_sz > 4) ? ((d[4] >> 6) & 0x03) : 0;  // 站点数-1
                     int bp = 0;   // eFC 内位偏移(站点 0 前置 TF 个数 2b)
                     tree_add_bit_field(sof, "eFC TFNum",
-                        QStringLiteral("%1 (实际=%2)").arg(get_bits(e, 0, 0, 2))
+                        trl::L("%1 (实际=%2)").arg(get_bits(e, 0, 0, 2))
                             .arg(oft == 2 ? (get_bits(e, 0, 0, 2) + 1) * 2
                                           : (get_bits(e, 0, 0, 2) + 1) * 2),
                         16, 0, 2);
@@ -349,7 +351,7 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                             if (s == 0) {
                                 const int bk = get_bits(e, bp / 8, bp % 8, 3);
                                 tree_add_bit_field(sof, "eFC Sta0 TxPowerBackoff",
-                                    QStringLiteral("%1 (回退 %2dB)").arg(bk).arg(bk * 4),
+                                    trl::L("%1 (回退 %2dB)").arg(bk).arg(bk * 4),
                                     16 + bp / 8, bp % 8, 3);
                                 bp += 3;
                             }
@@ -383,7 +385,7 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     QString::number((raw_sz > 4) ? ((d[4] >> 6) & 0x03) : 0), 4, 6, 2);
                 const quint8 tf_sym = (raw_sz > 5) ? (d[5] & 0x07) : 0;
                 tree_add_bit_field(sof, "TF SymbolNum",
-                    QStringLiteral("%1 (实际=%2)").arg(tf_sym).arg((tf_sym + 1) * 2), 5, 0, 3);
+                    trl::L("%1 (实际=%2)").arg(tf_sym).arg((tf_sym + 1) * 2), 5, 0, 3);
                 tree_add_bit_field(sof, "PLBandFlag",
                     QString::number((raw_sz > 5) ? ((d[5] >> 3) & 0x07) : 0), 5, 3, 3);
                 tree_add_bit_field(sof, "TFExtBandFlag",
@@ -664,6 +666,9 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             tree_add_bit_field(ack, "RSV", QStringLiteral("0x%1").arg(rsv32, 8, 16, QChar('0')), 5, 0, 32);
             const quint16 rsv16 = (raw_sz > 10) ? (quint16)(d[9] | (d[10] << 8)) : 0;
             tree_add_bit_field(ack, "RSV", QStringLiteral("0x%1").arg(rsv16, 4, 16, QChar('0')), 9, 0, 16);
+            // 表34/35 保留段实为 5-11 共 56b,此前只渲染 48b,补 byte11(所有 Bitloading 子类型共用)
+            const quint8 rsv8 = (raw_sz > 11) ? d[11] : 0;
+            tree_add_bit_field(ack, "RSV", QStringLiteral("0x%1").arg(rsv8, 2, 16, QChar('0')), 11, 0, 8);
             tree_add_bit_field(ack, "ExtType", ext_ev, 12, 0, 4);
             const quint8 ver = (raw_sz > 12) ? ((d[12] >> 4) & 0x0F) : 0;
             tree_add_bit_field(ack, "Std Version", QString::number(ver), 12, 4, 4);
