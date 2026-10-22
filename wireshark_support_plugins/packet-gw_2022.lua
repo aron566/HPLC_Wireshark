@@ -730,6 +730,27 @@ f.rfdl_ie_type = ProtoField.uint8 ("gw_2022.rfdl.ie.type", T("信息单元类型
 f.rfdl_ie_ltype = ProtoField.uint8 ("gw_2022.rfdl.ie.ltype", T("长度类型", "Length Type"), base.DEC, len_type_vals, 0x80)
 f.rfdl_ie_len = ProtoField.uint16 ("gw_2022.rfdl.ie.len", T("信息单元长度", "Information Element Length"), base.DEC)
 f.rfdl_ie_data = ProtoField.bytes ("gw_2022.rfdl.ie.data", T("信息单元内容", "Information Element Content"), base.NONE)
+-- 发现列表 IE 内容字段(站点属性 表126/站点路由 表127/邻居信道 表128-129 非位图、表136-137 位图)
+f.rfdl_attr_cco_mac = ProtoField.ether ("gw_2022.rfdl.attr.cco_mac", T("CCO MAC 地址", "CCO MAC Address"))
+f.rfdl_attr_proxy_tei = ProtoField.uint16 ("gw_2022.rfdl.attr.proxy_tei", T("代理 TEI", "Proxy TEI"), base.DEC)
+f.rfdl_attr_role = ProtoField.uint8 ("gw_2022.rfdl.attr.role", T("角色", "Role"), base.DEC, role_vals, 0xF0)
+f.rfdl_attr_level = ProtoField.uint8 ("gw_2022.rfdl.attr.level", T("层级", "Level"), base.DEC, nil, 0x0F)
+f.rfdl_attr_rfhop = ProtoField.uint8 ("gw_2022.rfdl.attr.rf_hop", T("链路 RF 跳数", "RF Hop Count"), base.DEC, nil, 0xF0)
+f.rfdl_attr_up_rate = ProtoField.uint8 ("gw_2022.rfdl.attr.up_rate", T("代理上行接收率(%)", "Proxy Up Rate (%)"), base.DEC)
+f.rfdl_attr_down_rate = ProtoField.uint8 ("gw_2022.rfdl.attr.down_rate", T("代理下行接收率(%)", "Proxy Down Rate (%)"), base.DEC)
+f.rfdl_attr_min_rate = ProtoField.uint8 ("gw_2022.rfdl.attr.min_rate", T("链路最小接收率(%)", "Min Link Rate (%)"), base.DEC)
+f.rfdl_attr_period = ProtoField.uint8 ("gw_2022.rfdl.attr.period", T("无线发现列表周期(s)", "RFDL Period (s)"), base.DEC)
+f.rfdl_attr_aging = ProtoField.uint8 ("gw_2022.rfdl.attr.aging", T("接收率老化周期个数", "Rate Aging Cycles"), base.DEC)
+f.rfdl_route_tei = ProtoField.uint16 ("gw_2022.rfdl.route.tei", T("下一跳 TEI", "Next-hop TEI"), base.DEC)
+f.rfdl_route_type = ProtoField.uint8 ("gw_2022.rfdl.route.type", T("路由类型", "Route Type"), base.DEC, route_type_vals, 0xF0)
+f.rfdl_combo = ProtoField.uint8 ("gw_2022.rfdl.combo", T("信道信息组合类型", "Channel Info Combo Type"), base.DEC, nil, 0x0F)
+f.rfdl_nbr_tei = ProtoField.uint16 ("gw_2022.rfdl.nbr.tei", T("邻居 TEI", "Neighbor TEI"), base.DEC)
+f.rfdl_nbr_rate = ProtoField.uint8 ("gw_2022.rfdl.nbr.rate", T("接收率", "Rcv Rate"), base.DEC)
+f.rfdl_nbr_snr = ProtoField.uint8 ("gw_2022.rfdl.nbr.snr", T("SNR 量化值", "SNR Quantized"), base.DEC)
+f.rfdl_nbr_rssi = ProtoField.uint8 ("gw_2022.rfdl.nbr.rssi", T("信号强度量化值", "RSSI Quantized"), base.DEC)
+f.rfdl_grp_tei = ProtoField.uint16 ("gw_2022.rfdl.grp.tei", T("位图起始 TEI", "Bitmap Start TEI"), base.DEC)
+f.rfdl_grp_size = ProtoField.uint8 ("gw_2022.rfdl.grp.size", T("位图大小(字节)", "Bitmap Size (bytes)"), base.DEC)
+f.rfdl_grp_bitmap = ProtoField.bytes ("gw_2022.rfdl.grp.bitmap", T("位图", "Bitmap"), base.NONE)
 
 -- 应用层报文 APP_BASE (msdu_type=48, 表 报文ID)
 f.app_port = ProtoField.uint8 ("gw_2022.app.port", T("端口号", "Port Number"), base.HEX, app_port_vals)
@@ -821,6 +842,11 @@ gw.fields = {
     f.rfccr_cco_mac, f.rfccr_nbr_cnt, f.rfccr_nbr_ch,
     f.rfdl_sta_mac, f.rfdl_seq, f.rfdl_ie_type, f.rfdl_ie_ltype,
     f.rfdl_ie_len, f.rfdl_ie_data,
+    f.rfdl_attr_cco_mac, f.rfdl_attr_proxy_tei, f.rfdl_attr_role, f.rfdl_attr_level,
+    f.rfdl_attr_rfhop, f.rfdl_attr_up_rate, f.rfdl_attr_down_rate, f.rfdl_attr_min_rate,
+    f.rfdl_attr_period, f.rfdl_attr_aging, f.rfdl_route_tei, f.rfdl_route_type,
+    f.rfdl_combo, f.rfdl_nbr_tei, f.rfdl_nbr_rate, f.rfdl_nbr_snr, f.rfdl_nbr_rssi,
+    f.rfdl_grp_tei, f.rfdl_grp_size, f.rfdl_grp_bitmap,
     f.app_port, f.app_packet_id, f.app_ctrl_word, f.app_payload,
     f.bmp_byte,
 }
@@ -1657,6 +1683,209 @@ local function dissect_rfccr(tvb, tree, off)
 end
 
 -- 无线发现列表 (表123, 单跳帧消息类型0)
+-- 组合类型位宽 {rcv,snr,rssi,bru}(1.0 表129 非位图 combo0-9 / 表137 位图 combo0-10,
+-- 内容与 2.0 无线 表95/表103 逐档一致;载波 表68/77 的 BRU 变体不适用于 1.0 无线)
+local rfdl_combo_nonbitmap = {
+    {8,0,0,0},{0,4,0,0},{0,0,8,0},{0,0,4,0},{8,4,0,0},
+    {6,0,6,0},{0,6,6,0},{8,6,6,0},{0,4,4,0},{8,0,4,0},
+}
+local rfdl_combo_bitmap = {
+    {8,0,0,0},{0,4,0,0},{0,0,8,0},{0,0,4,0},{8,4,0,0},
+    {8,0,8,0},{0,6,6,0},{8,6,6,0},{8,4,4,0},{0,4,4,0},{8,0,4,0},
+}
+-- 渲染一条邻居信道信息(位流), 返回下一条起始位(1.0 无线:SNR 表131/132=2.0 表97/98、
+-- RSSI 表133/135=2.0 表99/101、RSSI 4bit 表134=2.0 表100)
+local function rfdl_neighbour(tree, tvb, bitpos, cb, has_tei, tei, idx)
+    local ntree = tree:add(gw, string.format(T("Neighbor[%d]", "Neighbor[%d]"), idx))
+    local bp = bitpos
+    if has_tei then
+        add_val(ntree, f.rfdl_nbr_tei, tvb, math.floor(bp / 8), 2, tei)
+        bp = bp + 12
+    end
+    if cb[1] > 0 then
+        local v = read_bits(tvb, bp, cb[1])
+        local pct = (cb[1] == 6) and v * 2 or v
+        local it = add_val(ntree, f.rfdl_nbr_rate, tvb, math.floor(bp / 8), 2, v)
+        it:append_text(string.format(" (%d%%)", pct))
+        bp = bp + cb[1]
+    end
+    if cb[2] > 0 then
+        local v = read_bits(tvb, bp, cb[2])
+        -- SNR 映射(无线,表131 6bit 连续 量化值=SNR+6 / 表132 4bit 非均匀 -6 起至 >25)
+        local it = add_val(ntree, f.rfdl_nbr_snr, tvb, math.floor(bp / 8), 2, v)
+        local note
+        if v == 0 then
+            note = T("(SNR≤-6dB)", "(SNR≤-6dB)")
+        elseif cb[2] == 6 then
+            note = string.format(T("(SNR=%ddB)", "(SNR=%ddB)"), v - 6)
+        else
+            -- 表132 非均匀: 1-11 档 2dB 步进,12-14 档 3dB 步进(上界 -4,-2,0,2,4,6,8,10,12,14,16,19,22,25)
+            local hi = { -4, -2, 0, 2, 4, 6, 8, 10, 12, 14, 16, 19, 22, 25 }
+            local lo = (v == 1) and -6 or hi[v - 2]
+            note = (v == 15) and T("(SNR>25dB)", "(SNR>25dB)")
+                   or string.format(T("(SNR %d~%ddB)", "(SNR %d~%d dB)"), lo, hi[v - 1])
+        end
+        it:append_text(" " .. note)
+        bp = bp + cb[2]
+    end
+    if cb[3] > 0 then
+        local v = read_bits(tvb, bp, cb[3])
+        -- RSSI 映射(无线,表133 8bit v=RSSI+110 / 表135 6bit 2dB 步进 -110 起 / 表134 4bit 硬编码)
+        local it = add_val(ntree, f.rfdl_nbr_rssi, tvb, math.floor(bp / 8), 2, v)
+        local note
+        if cb[3] == 8 then
+            note = string.format(T("(RSSI=%ddBm)", "(RSSI=%ddBm)"), v - 110)
+        elseif cb[3] == 6 then
+            note = (v == 0) and T("(RSSI≤-110dBm)", "(RSSI≤-110dBm)")
+                   or string.format(T("(RSSI %d~%ddBm)", "(RSSI %d~%d dBm)"), v * 2 - 110, v * 2 - 108)
+        else
+            -- 表134 4bit:0=RSSI≤-105;1:-105~-95;…14:-10~0;15=RSSI>0 (dBm)
+            local lo_hi = { {-105,-95},{-95,-86},{-86,-80},{-80,-74},{-74,-68},{-68,-62},
+                            {-62,-56},{-56,-48},{-48,-42},{-42,-36},{-36,-30},{-30,-20},{-20,-10},{-10,0} }
+            if v == 0 then
+                note = T("(RSSI≤-105dBm)", "(RSSI≤-105dBm)")
+            elseif v == 15 then
+                note = T("(RSSI>0dBm)", "(RSSI>0dBm)")
+            else
+                note = string.format(T("(RSSI %d~%ddBm)", "(RSSI %d~%d dBm)"), lo_hi[v][1], lo_hi[v][2])
+            end
+        end
+        it:append_text(" " .. note)
+        bp = bp + cb[3]
+    end
+    return bp
+end
+
+-- IE 内容按类型解析(表124):0 站点属性(表126,14B)/1 站点路由(表127)/
+-- 2 邻居信道非位图(表128/129)/3 邻居信道位图(表136/137);其余类型仅显示内容 hex
+local function dissect_rfdl_ie_content(tree, tvb, pos, elen, ie_type)
+    if elen <= 0 then return end
+    local ok, err = pcall(function()
+        if ie_type == 0 and elen >= 14 then
+            -- 站点属性信息(表126, 14B 定长)
+            tree:add(f.rfdl_attr_cco_mac, tvb(pos, 6))
+            add_val(tree, f.rfdl_attr_proxy_tei, tvb, pos+6, 2, read_bits(tvb, pos*8+6*8, 12))
+            tree:add(f.rfdl_attr_role, tvb(pos+7, 1))
+            tree:add(f.rfdl_attr_level, tvb(pos+8, 1))
+            tree:add(f.rfdl_attr_rfhop, tvb(pos+8, 1))
+            tree:add(f.rfdl_attr_up_rate, tvb(pos+9, 1))
+            tree:add(f.rfdl_attr_down_rate, tvb(pos+10, 1))
+            tree:add(f.rfdl_attr_min_rate, tvb(pos+11, 1))
+            tree:add(f.rfdl_attr_period, tvb(pos+12, 1))
+            tree:add(f.rfdl_attr_aging, tvb(pos+13, 1))
+        elseif ie_type == 1 then
+            -- 站点路由信息(表127): 每条 2B = 下一跳 TEI 12b + 路由类型 4b(bit4-7)
+            local n = math.floor(elen / 2)
+            for i = 0, n - 1 do
+                local p = pos + i * 2
+                local it = tree:add(gw, string.format(T("Route[%d]", "Route[%d]"), i))
+                add_val(it, f.rfdl_route_tei, tvb, p, 2, read_bits(tvb, p*8, 12))
+                it:add(f.rfdl_route_type, tvb(p+1, 1))
+            end
+        elseif ie_type == 2 then
+            -- 邻居信道信息非位图版(表128/129 + 组合表 表129)
+            local combo = band(tvb(pos, 1):uint(), 0x0F)
+            local max_combo = 9
+            local ct = tree:add(f.rfdl_combo, tvb(pos, 1))
+            if combo <= max_combo then
+                -- 表128 头语义:TEI 12b + Rcv/SNR/RSSI 按组合类型附加
+                local cb0 = rfdl_combo_nonbitmap[combo+1]
+                local entry = 12 + cb0[1] + cb0[2] + cb0[3] + cb0[4]
+                local sem = "TEI"
+                if cb0[1] > 0 then sem = sem .. string.format("+Rcv%db", cb0[1]) end
+                if cb0[2] > 0 then sem = sem .. string.format("+SNR%db", cb0[2]) end
+                if cb0[3] > 0 then sem = sem .. string.format("+RSSI%db", cb0[3]) end
+                ct:append_text(string.format(T(" - %s (%db/邻居)", " - %s (%db/neighbor)"), sem, entry))
+            else
+                ct:append_text(T(" (保留)", " (Reserved)"))
+            end
+            if combo > max_combo then return end
+            -- 表128 头:保留(0,4-7,4b)
+            tree:add(gw, tvb(pos, 1), T("RSV [4b]", "RSV [4b]"))
+            local cb = rfdl_combo_nonbitmap[combo+1]
+            local entry_bits = 12 + cb[1] + cb[2] + cb[3] + cb[4]
+            local bitpos = 8
+            local i = 0
+            while bitpos + entry_bits <= elen * 8 do
+                local tei = read_bits(tvb, bitpos, 12)
+                bitpos = rfdl_neighbour(tree, tvb, bitpos, cb, true, tei, i)
+                i = i + 1
+            end
+        elseif ie_type == 3 then
+            -- 邻居信道信息位图版(表136/137):组 = 起始TEI 12b + 保留4b + 位图大小1B + 位图L B + 逐置位邻居条目
+            local combo = band(tvb(pos, 1):uint(), 0x0F)
+            local max_combo = 10
+            local ct = tree:add(f.rfdl_combo, tvb(pos, 1))
+            if combo <= max_combo then
+                -- 表136 头语义:Rcv/SNR/RSSI 按组合类型附加(无 TEI,位图定位)
+                local cb0 = rfdl_combo_bitmap[combo+1]
+                local entry = cb0[1] + cb0[2] + cb0[3] + cb0[4]
+                local sem = ""
+                if cb0[1] > 0 then sem = string.format("Rcv%db", cb0[1]) end
+                if cb0[2] > 0 then sem = sem .. string.format("%sSNR%db", sem ~= "" and "+" or "", cb0[2]) end
+                if cb0[3] > 0 then sem = sem .. string.format("%sRSSI%db", sem ~= "" and "+" or "", cb0[3]) end
+                if sem == "" then sem = T("无附加字段", "no extra fields") end
+                ct:append_text(string.format(T(" - %s (%db/邻居)", " - %s (%db/neighbor)"), sem, entry))
+            else
+                ct:append_text(T(" (保留)", " (Reserved)"))
+            end
+            if combo > max_combo then return end
+            -- 表136 头:保留(0,4-7,4b)
+            tree:add(gw, tvb(pos, 1), T("RSV [4b]", "RSV [4b]"))
+            local cb = rfdl_combo_bitmap[combo+1]
+            local entry_bits = cb[1] + cb[2] + cb[3] + cb[4]
+            local off = 1
+            local k = 0
+            while off + 3 < elen do
+                local start_tei = read_bits(tvb, (pos+off)*8, 12)
+                local bm_len = tvb(pos+off+2, 1):uint()
+                if off + 3 + bm_len > elen then break end
+                local bmp = tvb(pos+off+3, bm_len)
+                local g = tree:add(gw, string.format(T("Group[%d] StartTEI=%d", "Group[%d] StartTEI=%d"), k, start_tei))
+                add_val(g, f.rfdl_grp_tei, tvb, pos+off, 2, start_tei)
+                -- 表136:组保留(起始TEI 高 4bit, off+1 bit4-7)
+                g:add(gw, tvb(pos+off+1, 1), T("RSV [4b]", "RSV [4b]"))
+                g:add(f.rfdl_grp_size, tvb(pos+off+2, 1), bm_len)
+                local teis = {}
+                local nk = 0
+                for bi = 0, bm_len - 1 do
+                    local b = tvb(pos+off+3+bi, 1):uint()
+                    for j = 0, 7 do
+                        if band(b, 2 ^ j) ~= 0 then
+                            nk = nk + 1
+                            teis[#teis + 1] = tostring(start_tei + bi * 8 + j)
+                        end
+                    end
+                end
+                g:add(f.rfdl_grp_bitmap, bmp):
+                    append_text(string.format(" (TEI: %s)", #teis > 0 and table.concat(teis, ",") or "-"))
+                local bitpos = (off + 3 + bm_len) * 8
+                local i = 0
+                for bi = 0, bm_len - 1 do
+                    local b = tvb(pos+off+3+bi, 1):uint()
+                    for j = 0, 7 do
+                        if band(b, 2 ^ j) ~= 0 then
+                            if bitpos + entry_bits > elen * 8 then break end
+                            -- rfdl_neighbour 返回绝对 bit 位, 换算回相对 pos 的位偏移
+                            local absp = rfdl_neighbour(g, tvb, (pos*8) + bitpos, cb, false,
+                                start_tei + bi*8 + j, i)
+                            bitpos = absp - pos*8
+                            i = i + 1
+                        end
+                    end
+                end
+                off = math.floor(bitpos / 8) + (bitpos % 8 ~= 0 and 1 or 0)
+                k = k + 1
+            end
+        end
+    end)
+    if not ok then
+        tree:add_expert_info(PI_MALFORMED, PI_WARN,
+            T("IE 内容解析失败(可能截断): ", "IE content parse failed (truncated?): ") .. tostring(err))
+    end
+end
+
+-- 无线发现列表 (表123 头 + 表124 IE 循环)
 local function dissect_rfdl(tvb, tree, off)
     tree:add(f.rfdl_sta_mac, tvb(off, 6))
     tree:add(f.rfdl_seq, tvb(off+6, 1))
@@ -1672,7 +1901,15 @@ local function dissect_rfdl(tvb, tree, off)
         if len_bytes == 2 then elen = elen * 256 + tvb(pos + 1, 1):uint() end
         tree:add(f.rfdl_ie_len, tvb(pos, len_bytes))
         pos = pos + len_bytes
-        tree:add(f.rfdl_ie_data, tvb(pos, elen))
+        if pos + elen > tvb:len() then
+            tree:add_expert_info(PI_MALFORMED, PI_WARN,
+                T("信息单元长度越界(截断)", "IE length out of range (truncated)"))
+            break
+        end
+        if elen > 0 then
+            local itree = tree:add(f.rfdl_ie_data, tvb(pos, elen))
+            dissect_rfdl_ie_content(itree, tvb, pos, elen, ie_type)
+        end
         pos = pos + elen
     end
 end
@@ -1720,6 +1957,27 @@ function gw.dissector(tvb, pinfo, tree)
     local ev = encap_type_f()
     local evs = ev and tostring(ev) or ""
     local is_rf = (evs == "46")
+    -- 版本自适应委托(与上位机 GW_2026_Parser 互为镜像)—— 在媒介剥离前分派:
+    -- FCH 标准版本号(byte12 bit4-7): 0=HDC 1.0 就地按本文件旧布局解析;
+    -- 1=HDC 2.0 → 整帧委托 packet-gw_2026.lua(新布局:NID 16b/表7/表14/表2/MMe 表43)。
+    -- 传原始 tvb(含 USER4 媒介头), 媒介剥离由 gw_2026 自行完成;
+    -- FCCS 未校验先分派是刻意的, 坏帧也按其声明版本解析得到更具体的错误信息。
+    local fch_off = (evs == "49") and 4 or 0
+    if tvb:len() >= fch_off + 16 then
+        local std_ver = math.floor(band(tvb(fch_off + 12, 1):uint(), 0xF0) / 16)
+        if std_ver == 1 then
+            pinfo.cols.protocol = is_rf and "RF" or "HPLC"
+            local ok, d = pcall(Dissector.get, "gw_2026")
+            if ok and d then
+                d:call(tvb, pinfo, tree)
+                return tvb:len()
+            end
+            -- gw_2026.lua 未加载: 继续按 1.0 布局尽力解析, 并提示
+            tree:add_expert_info(PI_PROTOCOL, PI_WARN,
+                T("检测到 HDC 2.0 帧,但 packet-gw_2026.lua 未加载,按 1.0 布局尽力解析",
+                  "HDC 2.0 frame detected but packet-gw_2026.lua not loaded; best-effort 1.0 parse"))
+        end
+    end
     if evs == "49" then
         -- USER4 混合格式: [phr_mcs][option][channel][isRF] + MPDU (载波/无线可混在一个抓包里)
         local mtree = tree:add(gw, tvb(0, 4), T("媒介头(串口采集)", "Media Header (serial capture)"))
@@ -1741,6 +1999,8 @@ function gw.dissector(tvb, pinfo, tree)
         return 0
     end
 
+    -- 版本自适应分派已上移至函数开头(媒介剥离前,含 pcall 兜底),此处不再重复;
+    -- 能走到这里的一定是 HDC 1.0 帧,直接按旧布局内联解析。
     local dt = band(tvb(0, 1):uint(), 0x07)
     local nid = tvb(1, 3):le_uint()
     cur_nid = nid  -- 供 record_tei_mac 记录映射

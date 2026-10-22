@@ -26,10 +26,29 @@ struct ParseResult {
     bool         accept;
     QString      reject_reason;
     QByteArray   payload_for_log;
+    QVector<DissectField> dissect_fields; ///< 插件解析器返回的通用字段树(内置解析器恒为空)
 
     ParseResult() : protocol(ProtocolVariant::GW_2022),
                     msdu_raw_base(-1), arrival_us(0), accept(false) {}
 };
+
+/// @brief ParseResult::protocol → PacketEntry::protocol 的唯一映射
+/// @details 低 7 位映射到 kProtocolGw2022..kProtocolNw2026,**插件位原样保留**。
+///          之所以收敛成函数:原先 mainwindow 用 switch(r.protocol) 重建 e.protocol,
+///          插件帧的 0x80 位会在 default 分支被丢掉 → builder_for 看不到插件位,
+///          show_packet 退回画内置布局(插件帧被误读),而按 PacketEntry 直接构造的
+///          单元测试发现不了(绕过了本映射)。
+inline quint8 entry_protocol_id(ProtocolVariant v) {
+    const quint8 raw = quint8(v);
+    quint8 id;
+    switch (raw & 0x7F) {
+        case quint8(ProtocolVariant::NW_2021): id = kProtocolNw2021; break;
+        case quint8(ProtocolVariant::NW_2026): id = kProtocolNw2026; break;
+        case quint8(ProtocolVariant::GW_2026): id = kProtocolGw2026; break;
+        default:                              id = kProtocolGw2022; break;
+    }
+    return quint8(id | (raw & kProtocolPluginBit));
+}
 
 /// @brief 协议无关的过滤条件(帧类型/链路/NID/TEI)
 struct ParseFilter {

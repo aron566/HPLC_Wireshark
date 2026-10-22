@@ -112,7 +112,7 @@ inline void set_auto_check(bool v) {
 inline QString protocol() {
     ensure_default_file();
     return settings().value(QStringLiteral("general/protocol"),
-                            QStringLiteral("gw_2022")).toString();
+                            QStringLiteral("gw_2026")).toString();
 }
 inline void set_protocol(const QString& v) {
     settings().setValue(QStringLiteral("general/protocol"), v);

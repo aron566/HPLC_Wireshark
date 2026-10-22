@@ -23,7 +23,8 @@ SOURCES += \
     $$PWD/beacon/gw_2022_beacon_parser.cpp \
     $$PWD/sof/gw_2022_sof_parser.cpp \
     $$PWD/ack/gw_2022_ack_parser.cpp \
-    $$PWD/coord/gw_2022_coord_parser.cpp
+    $$PWD/coord/gw_2022_coord_parser.cpp \
+    $$PWD/gw_2022_provider.cpp
 
 INCLUDEPATH += $$PWD \
                $$PWD/beacon \

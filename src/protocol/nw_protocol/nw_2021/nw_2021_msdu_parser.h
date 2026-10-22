@@ -89,6 +89,10 @@ enum class NW_2021_MMeType : quint16 {
     MME_ZEROCROSSNTBREPORT  = 0x0063,
     MME_NETDIAGNOSE         = 0x0064,
     MME_RFCHANNELCONFLICTREPORT = 0x0070,  ///< 无线信道冲突上报(第2部分无线表158)
+    // ---- 物联终端接入系列(第2部分无线 §6.2.3.2,表39-43) ----
+    MME_IOT_ASSOC_REQ   = 0x00A0,  ///< 物联终端接入请求(表39)
+    MME_IOT_ASSOC_IND   = 0x00A1,  ///< 物联终端接入确认(表40)
+    MME_IOT_LEAVE_IND   = 0x00A2,  ///< 物联终端离线指示(表42)
 };
 
 /// @brief 报文端口号(6.1:0x11 业务报文 0x13 管理报文)

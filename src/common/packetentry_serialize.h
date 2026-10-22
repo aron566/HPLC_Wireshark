@@ -110,7 +110,6 @@ inline void write_mpdu(QDataStream& s, const MpduInfo& m) {
     write_u16(s, m.pb_size);
     write_bool(s, m.fch_crc_ok);
     write_bool(s, m.pb_crc_ok);
-    write_i32(s, m.pb_index);
     write_u8(s, m.pb_head);
     // QVector<quint8>
     write_u32(s, quint32(m.pb_heads.size()));
@@ -134,8 +133,10 @@ inline void write_mpdu(QDataStream& s, const MpduInfo& m) {
     write_u32(s, m.coord_neighbour_nid);
     write_u8(s, m.coord_rf_channel);
     write_u8(s, m.coord_rsv0);
+    write_u16(s, m.coord_rsv1);      // v10 补写:树渲染依赖(nw_2021_tree.cpp:428)
+    write_u8(s, m.coord_rsv2);       // v10 补写:树渲染依赖(nw_2021_tree.cpp:430)
+    write_u8(s, m.coord_rsv3);       // v10 补写:树渲染依赖(nw_2021_tree.cpp:440/442/446)
     write_u8(s, m.coord_band_end_flag);
-    write_u8(s, m.coord_option);
     write_u16(s, m.coord_band_end_offset);
     write_u16(s, m.coord_band_start_offset);
     // ACK
@@ -149,7 +150,6 @@ inline void write_mpdu(QDataStream& s, const MpduInfo& m) {
     write_u8(s, m.ack_rsv1);
     s << m.ack_dst_addr;             // quint64
     write_u16(s, m.ack_search_tei);
-    write_u8(s, m.ack_search_freq);
     write_u32(s, m.ack_sync_timestamp);
     write_u16(s, m.ack_sync_tei);
     write_u8(s, m.pb_num_field);   // 追加末尾(统一追加式布局)
@@ -177,7 +177,6 @@ inline void read_mpdu(QDataStream& s, MpduInfo& m) {
     read_u16(s, m.pb_size);
     read_bool(s, m.fch_crc_ok);
     read_bool(s, m.pb_crc_ok);
-    read_i32(s, m.pb_index);
     read_u8(s, m.pb_head);
     quint32 n = 0; read_u32(s, n);
     m.pb_heads.clear(); m.pb_heads.reserve(int(n));
@@ -199,8 +198,10 @@ inline void read_mpdu(QDataStream& s, MpduInfo& m) {
     read_u32(s, m.coord_neighbour_nid);
     read_u8(s, m.coord_rf_channel);
     read_u8(s, m.coord_rsv0);
+    read_u16(s, m.coord_rsv1);       // v10 补读(与 write 镜像)
+    read_u8(s, m.coord_rsv2);
+    read_u8(s, m.coord_rsv3);
     read_u8(s, m.coord_band_end_flag);
-    read_u8(s, m.coord_option);
     read_u16(s, m.coord_band_end_offset);
     read_u16(s, m.coord_band_start_offset);
     read_u8(s, m.ack_ext_type);
@@ -213,7 +214,6 @@ inline void read_mpdu(QDataStream& s, MpduInfo& m) {
     read_u8(s, m.ack_rsv1);
     s >> m.ack_dst_addr;
     read_u16(s, m.ack_search_tei);
-    read_u8(s, m.ack_search_freq);
     read_u32(s, m.ack_sync_timestamp);
     read_u16(s, m.ack_sync_tei);
     read_u8(s, m.pb_num_field);   // 追加末尾(统一追加式布局)
@@ -419,7 +419,7 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
 // ---------------------------------------------------------------------------
 
 inline quint32 block_magic()   { return 0x50424C4Bu; }  // "PBLK"
-inline quint32 block_version() { return 9u; }  // v9: 新增 MpduInfo.mcs(无线 MCS);v8 增 pblen;v7 增 beacon_rsv;v6 三线合流并集
+inline quint32 block_version() { return 10u; }  // v10: 删死字段 pb_index/coord_option/ack_search_freq;补写 coord_rsv1/2/3(树渲染依赖,原先漏写导致换页后恒 0);v9 增 mcs;v8 增 pblen;v7 增 beacon_rsv;v6 三线合流并集
 /// @brief 独立压缩分块的条目数(随机解码粒度:解一条最多解压一个分块)
 inline constexpr int kBlockChunkEntries = 50;
 

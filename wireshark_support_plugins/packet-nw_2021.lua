@@ -211,6 +211,15 @@ local beacon_entry_type_vals = {
     [0x01] = T("站点能力条目", "STA Capability Item"), [0x02] = T("时隙分配条目", "Time Slot Allocation Item"),
     [0x06] = T("路由参数条目", "Route Parameter Item"), [0x07] = T("频段变更条目", "Band Change Item"),
     [0x0A] = T("频段探测条目", "Band Probe Item"), [0x0B] = T("万年历同步条目", "Calendar Sync Item"),
+    -- 表142 分配 0x0C/0x0D/0x0E;表152/153 头列 0x09/0x0A 为旧编号残留
+    [0x0C] = T("无线路由参数条目", "RF Route Parameter Item"),
+    [0x0D] = T("无线信道变更条目", "RF Channel Change Item"),
+    [0x0E] = T("精简信标站点信息及时隙条目", "Lite Beacon STA Info & Slot Item"),
+}
+-- 载波频段(表156,精简信标 0x0E 条目用)
+local lite_band_vals = {
+    [0] = T("1.953~11.96MHz", "1.953~11.96 MHz"), [1] = T("2.441~5.615MHz", "2.441~5.615 MHz"),
+    [2] = T("0.781~2.930MHz", "0.781~2.930 MHz"),
 }
 local ncb_type_vals = { [0] = T("发现信标", "Discovery Beacon"), [1] = T("代理信标", "Proxy Beacon") }
 local msdu_type_long_vals = {
@@ -517,6 +526,33 @@ f.ent_band_remain = ProtoField.uint32 ("nw_2021.beacon.bc.band_remain", T("频�
 f.ent_cal_time = ProtoField.uint32 ("nw_2021.beacon.cal.time", T("CCO万年历(秒,自2000-01-01)", "CCO Calendar (s, since 2000-01-01)"), base.DEC)
 f.ent_cal_ntb = ProtoField.uint32 ("nw_2021.beacon.cal.ntb", T("CCO万年历NTB(40ns/tick)", "CCO Calendar NTB (40ns/tick)"), base.DEC)
 
+-- 无线路由参数条目 (0x0C, 表152, 内容 2B)
+f.ent_rfp_period = ProtoField.uint8 ("nw_2021.beacon.rfp.period", T("无线发现列表周期(秒)", "RF Discover Period (s)"), base.DEC)
+f.ent_rfp_aging = ProtoField.uint8 ("nw_2021.beacon.rfp.aging", T("无线接收率老化周期个数", "RF Aging Cycles"), base.DEC)
+-- 无线信道变更条目 (0x0D, 表153, 内容 6B)
+f.ent_rfc_channel = ProtoField.uint8 ("nw_2021.beacon.rfc.channel", T("目标信道编号", "Target Channel"), base.DEC)
+f.ent_rfc_option = ProtoField.uint8 ("nw_2021.beacon.rfc.option", T("目标信道option", "Target Option"), base.DEC, nil, 0x03)
+f.ent_rfc_rsv = ProtoField.uint8 ("nw_2021.beacon.rfc.rsv", T("保留", "Reserved"), base.HEX, nil, 0xFC)
+f.ent_rfc_remain = ProtoField.uint32 ("nw_2021.beacon.rfc.remain", T("信道切换剩余时间(毫秒)", "Switch Remain Time (ms)"), base.DEC)
+-- 精简信标站点信息及时隙条目 (0x0E, 表155, 内容 17B)
+f.ent_lite_tei = ProtoField.uint16 ("nw_2021.beacon.lite.tei", T("发送信标站点TEI", "Beacon STA TEI"), base.DEC)
+f.ent_lite_pcotei = ProtoField.uint16 ("nw_2021.beacon.lite.pcotei", T("代理站点TEI", "Proxy TEI"), base.DEC)
+f.ent_lite_role = ProtoField.uint8 ("nw_2021.beacon.lite.role", T("角色", "Role"), base.DEC, role_vals, 0x0F)
+f.ent_lite_level = ProtoField.uint8 ("nw_2021.beacon.lite.level", T("层级数", "Level"), base.DEC)
+f.ent_lite_mac = ProtoField.ether ("nw_2021.beacon.lite.mac", T("发送信标站点MAC", "Beacon STA MAC"))
+f.ent_lite_hop = ProtoField.uint8 ("nw_2021.beacon.lite.hop", T("链路RF跳数", "RF Link Hop"), base.DEC, nil, 0x0F)
+f.ent_lite_band = ProtoField.uint8 ("nw_2021.beacon.lite.band", T("载波频段", "Carrier Band"), base.DEC, lite_band_vals, 0x30)
+f.ent_lite_rsv = ProtoField.uint8 ("nw_2021.beacon.lite.rsv", T("保留", "Reserved"), base.HEX, nil, 0xC0)
+f.ent_lite_slot_ntb = ProtoField.uint32 ("nw_2021.beacon.lite.slot_ntb", T("CSMA时隙开始时间(NTB)", "CSMA Slot Start (NTB)"), base.HEX)
+f.ent_lite_slot_len = ProtoField.uint16 ("nw_2021.beacon.lite.slot_len", T("CSMA时隙长度(毫秒)", "CSMA Slot Length (ms)"), base.DEC)
+
+-- 精简信标载荷专用头 (表154, 12B, 仅无线;ReduceBeaconFlag=1)
+f.lite_reduce = ProtoField.bool ("nw_2021.beacon.lite.reduce", T("精简信标标志", "Reduce Beacon Flag"), 8, nil, 0x10)
+f.lite_rsv0 = ProtoField.bool ("nw_2021.beacon.lite.head_rsv0", T("保留", "Reserved"), 8, nil, 0x20)
+f.lite_usage = ProtoField.bool ("nw_2021.beacon.lite.usage", T("信标使用标志", "Beacon Usage Flag"), 8, nil, 0x80)
+f.lite_cco_mac = ProtoField.ether ("nw_2021.beacon.lite.cco_mac", T("CCO MAC", "CCO MAC"))
+f.lite_period = ProtoField.uint32 ("nw_2021.beacon.lite.period", T("信标周期计数", "Beacon Period Count"), base.DEC)
+
 -- MAC 帧头 (标准帧 MSDU_BASE: 32B长/12B短; 单跳帧 MSDU_BASE_S: 4B)
 f.mac_version = ProtoField.uint8 ("nw_2021.mac.version", T("MAC帧版本", "MAC Frame Version"), base.DEC, mac_version_vals, 0x06)
 f.mac_head_flag = ProtoField.uint8 ("nw_2021.mac.head_flag", T("MAC帧头标志", "MAC Head Flag"), base.DEC, mac_head_flag_vals, 0x01)
@@ -814,6 +850,12 @@ nw.fields = {
     f.ent_route_period, f.ent_rp_rsv0, f.ent_route_remain, f.ent_rp_rsv1, f.ent_rp_cco_mac,
     f.ent_target_band, f.ent_band_remain,
     f.ent_cal_time, f.ent_cal_ntb,
+    f.ent_rfp_period, f.ent_rfp_aging,
+    f.ent_rfc_channel, f.ent_rfc_option, f.ent_rfc_rsv, f.ent_rfc_remain,
+    f.ent_lite_tei, f.ent_lite_pcotei, f.ent_lite_role, f.ent_lite_level,
+    f.ent_lite_mac, f.ent_lite_hop, f.ent_lite_band, f.ent_lite_rsv,
+    f.ent_lite_slot_ntb, f.ent_lite_slot_len,
+    f.lite_reduce, f.lite_rsv0, f.lite_usage, f.lite_cco_mac, f.lite_period,
     f.mac_version, f.mac_head_flag, f.mac_msdu_len, f.mac_dst_tei, f.mac_src_tei,
     f.mac_restart_cnt, f.mac_bcast_dir, f.mac_send_type, f.mac_msdu_seq, f.mac_hdr_rsv,
     f.msdu_dst_mac, f.msdu_src_mac, f.msdu_vlan, f.msdu_type, f.msdu_vlan_s, f.msdu_type_s,
@@ -1222,6 +1264,35 @@ local function dissect_entry_calendar(tvb, tree, off)
     add_le(tree, f.ent_cal_ntb, tvb, off + 4, 4)
 end
 
+-- 无线路由参数条目 (0x0C, 表152, 内容 2B;表152 头列 0x09 为旧编号残留)
+local function dissect_entry_rf_route_param(tvb, tree, off)
+    add_le(tree, f.ent_rfp_period, tvb, off, 1)
+    add_le(tree, f.ent_rfp_aging, tvb, off + 1, 1)
+end
+
+-- 无线信道变更条目 (0x0D, 表153, 内容 6B;表153 头列 0x0A 为旧编号残留)
+local function dissect_entry_rf_channel_change(tvb, tree, off)
+    add_le(tree, f.ent_rfc_channel, tvb, off, 1)
+    tree:add(f.ent_rfc_option, tvb(off + 1, 1))
+    tree:add(f.ent_rfc_rsv, tvb(off + 1, 1))
+    add_le(tree, f.ent_rfc_remain, tvb, off + 2, 4)
+end
+
+-- 精简信标站点信息及时隙条目 (0x0E, 表155, 内容 17B)
+local function dissect_entry_lite_sta_slot(tvb, tree, off)
+    -- TEI(0,0,12)/代理站点TEI(1,4,12):12b 跨 nibble,取 LE16 后移位
+    tree:add(f.ent_lite_tei, tvb(off, 2), band(tvb(off, 2):le_uint(), 0x0FFF))
+    tree:add(f.ent_lite_pcotei, tvb(off + 1, 2), math.floor(band(tvb(off + 1, 2):le_uint(), 0xFFF0) / 16))
+    tree:add(f.ent_lite_role, tvb(off + 3, 1))
+    tree:add(f.ent_lite_level, tvb(off + 3, 1))
+    tree:add(f.ent_lite_mac, tvb(off + 4, 6))
+    tree:add(f.ent_lite_hop, tvb(off + 8, 1))
+    tree:add(f.ent_lite_band, tvb(off + 8, 1))
+    tree:add(f.ent_lite_rsv, tvb(off + 8, 1))
+    add_le(tree, f.ent_lite_slot_ntb, tvb, off + 9, 4)
+    add_le(tree, f.ent_lite_slot_len, tvb, off + 13, 2)
+end
+
 -- 信标管理信息 (首字节条目数, 随后 头+长度+内容), 返回下一个 offset
 -- 条目长度语义(与 Qt nw_2021_beaconparser 一致):
 --   长度字段值 len_raw = 头(1B) + 长度字段(1/2B) + 内容
@@ -1257,6 +1328,12 @@ local function dissect_beacon_mgmt_info(tvb, tree, off, mgmt_end)
             dissect_entry_band_change(tvb, tree, pos)
         elseif etype == 0x0B then
             dissect_entry_calendar(tvb, tree, pos)
+        elseif etype == 0x0C then
+            dissect_entry_rf_route_param(tvb, tree, pos)
+        elseif etype == 0x0D then
+            dissect_entry_rf_channel_change(tvb, tree, pos)
+        elseif etype == 0x0E then
+            dissect_entry_lite_sta_slot(tvb, tree, pos)
         end
         -- 0x0A 频段探测 / 0x80-0xEF 厂家自定义 / 其它保留: 仅显示内容 hex
         pos = pos + item_len
@@ -1268,19 +1345,35 @@ end
 -- 结构(与 Qt nw_2021_beaconparser 一致):
 --   帧载荷区 gb = [off, off+pbsize-3): 固定头(6B) + 管理区 + BPCS(CRC32,4B) + 保留字节(1B)
 --   BPCS 覆盖 gb 前 gb_len-5 字节(固定头+管理区); 块尾 3B 为 PB CRC24
-local function dissect_beacon_payload(tvb, tree, off, pbsize)
+local function dissect_beacon_payload(tvb, tree, off, pbsize, is_rf)
     local gb_end = off + pbsize - 3     -- 帧载荷区末尾(不含 PB CRC24)
-    -- 固定头 (6B)
-    tree:add(f.beacon_type, tvb(off, 1))
-    tree:add(f.beacon_net_cplt, tvb(off, 1))
-    tree:add(f.beacon_multi_net, tvb(off, 1))
-    tree:add(f.beacon_start_assoc, tvb(off, 1))
-    tree:add(f.beacon_net_seq, tvb(off + 1, 1))
-    tree:add(f.beacon_snid, tvb(off + 2, 1))
-    tree:add(f.beacon_head_rsv, tvb(off + 2, 4))
+    -- 固定头:载波表24/无线表134 为 6B;精简信标(表154,仅无线)为 12B 专用头,管理区自 byte12 起
+    -- (ReduceBeaconFlag = byte0 bit4,仅无线帧判定;载波表24 该位为 RSV0)
+    local reduce_beacon = is_rf and band(tvb(off, 1):uint(), 0x10) ~= 0
+    if reduce_beacon then
+        -- 表154 精简信标专用头:类型/组网/精简标志/保留/开始关联/信标使用 + 组网序列号 + CCO MAC + 信标周期计数
+        -- 管理区仅含 0x0E 精简信标站点信息及时隙条目
+        tree:add(f.beacon_type, tvb(off, 1))
+        tree:add(f.beacon_net_cplt, tvb(off, 1))
+        tree:add(f.lite_reduce, tvb(off, 1))
+        tree:add(f.lite_rsv0, tvb(off, 1))
+        tree:add(f.beacon_start_assoc, tvb(off, 1))
+        tree:add(f.lite_usage, tvb(off, 1))
+        tree:add(f.beacon_net_seq, tvb(off + 1, 1))
+        tree:add(f.lite_cco_mac, tvb(off + 2, 6))
+        add_le(tree, f.lite_period, tvb, off + 8, 4)
+    else
+        tree:add(f.beacon_type, tvb(off, 1))
+        tree:add(f.beacon_net_cplt, tvb(off, 1))
+        tree:add(f.beacon_multi_net, tvb(off, 1))
+        tree:add(f.beacon_start_assoc, tvb(off, 1))
+        tree:add(f.beacon_net_seq, tvb(off + 1, 1))
+        tree:add(f.beacon_snid, tvb(off + 2, 1))
+        tree:add(f.beacon_head_rsv, tvb(off + 2, 4))
+    end
 
-    -- 信标管理信息从 off+6 到 BPCS 起点(gb_end-5)
-    local pos = dissect_beacon_mgmt_info(tvb, tree, off + 6, gb_end - 5)
+    -- 信标管理信息:标准信标自 off+6,精简信标自 off+12,到 BPCS 起点(gb_end-5)
+    local pos = dissect_beacon_mgmt_info(tvb, tree, reduce_beacon and (off + 12) or (off + 6), gb_end - 5)
 
     -- 填充区: 管理区消费终点到 BPCS 前
     if pos < gb_end - 5 then
@@ -1899,6 +1992,26 @@ function nw.dissector(tvb, pinfo, tree)
     local ev = encap_type_f()
     local evs = ev and tostring(ev) or ""
     local is_rf = (evs == "48")
+    -- 标准版本自适应(表16, FCH byte12 bit4-7):==2 为 SPLC(NW_2026),整帧委托
+    -- packet-nw_2026.lua 解析(与上位机 NW_2026_Parser 同策略);1=BPLC / 0 保留 →
+    -- 继续下方旧布局内联解析。分派在媒介剥离前(与 GW 侧同构): 传原始 tvb(含 USER5
+    -- 媒介头), 媒介剥离与媒介类型读取由 nw_2026 自行完成 —— 否则委托后 is_rf 信息
+    -- 丢失。FCCS 未校验先分派是刻意的, 坏帧也按其声明版本解析得到更具体的错误信息。
+    local fch_off = (evs == "50") and 4 or 0
+    if tvb:len() >= fch_off + 16 then
+        local std_ver = math.floor(band(tvb(fch_off + 12, 1):uint(), 0xF0) / 16)
+        if std_ver == 2 then
+            pinfo.cols.protocol = is_rf and "NW-RF" or "NW-HPLC"
+            local ok, d = pcall(Dissector.get, "nw_2026")
+            if ok and d then
+                d:call(tvb, pinfo, tree)
+                return tvb:len()
+            end
+            tree:add_expert_info(PI_PROTOCOL, PI_WARN,
+                T("检测到 SPLC 帧,但 packet-nw_2026.lua 未加载,按 BPLC 布局尽力解析",
+                  "SPLC frame detected but packet-nw_2026.lua not loaded; best-effort BPLC parse"))
+        end
+    end
     if evs == "50" then
         -- USER5 混合格式: [phr_mcs][option][channel][isRF] + MPDU (载波/无线可混在一个抓包里,
         -- 信标/SOF 的载波与无线字段坐标不同, 逐帧按 isRF 自选)
@@ -2012,7 +2125,7 @@ function nw.dissector(tvb, pinfo, tree)
             pbsize = plc_pb_size(read_bits(tvb, 10 * 8 + 4, 4), 0)
         end
         if pbsize > 0 and 16 + pbsize <= tvb:len() then
-            dissect_beacon_payload(tvb, root:add(nw, tvb(16, pbsize), T("信标帧载荷", "Beacon Payload")), 16, pbsize)
+            dissect_beacon_payload(tvb, root:add(nw, tvb(16, pbsize), T("信标帧载荷", "Beacon Payload")), 16, pbsize, is_rf)
         else
             root:add_expert_info(PI_MALFORMED, PI_WARN, T("TMI/载荷PB大小 无效或帧长不足", "Invalid TMI/PBLen or frame too short"))
         end

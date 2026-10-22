@@ -12,9 +12,12 @@
 include($$PWD/common/common.pri)
 include($$PWD/gw_protocol/gw_2022/gw_2022.pri)
 include($$PWD/nw_protocol/nw_2021/nw_2021.pri)
+include($$PWD/gw_protocol/gw_2026/gw_2026.pri)
+include($$PWD/nw_protocol/nw_2026/nw_2026.pri)
 
 HEADERS += \
     $$PWD/iprotocolparser.h \
+    $$PWD/iprotocolprovider.h \
     $$PWD/protocolfactory.h \
     $$PWD/protocol_tree_builder.h \
     $$PWD/statistics.h

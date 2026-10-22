@@ -229,6 +229,12 @@ QVariant PacketListModel::data_color(const PacketEntry& e) const {
         case 0: return QColor(86, 156, 214);
         case 1: return QColor(106, 153, 78);
         case 2:  // ACK 选择确认帧:校验失败(≥1 PB CRC 未过)红色显著指示
+            // GW_2022(表25/36)/南网:byte4 bit0-3 = RxRes(0成功 1失败);
+            // GW_2026(表14)该 4bit 拆为 BRU SNR/SAT ID/RxPBNum,无 RxRes,
+            // 用 PB 位图 RxStatus 全 0 判失败(全失败=无任何块 CRC 通过)
+            if ((e.protocol & 0x7F) == kProtocolGw2026)
+                return (e.mpdu.ack_rx_status == 0 && e.mpdu.ack_rx_pb_num > 0)
+                           ? QColor(224, 64, 64) : QColor(196, 181, 79);
             if (e.mpdu.ack_rx_res == 1) return QColor(224, 64, 64);
             return QColor(196, 181, 79);
         case 3: return QColor(140, 110, 190);   // COORD 协调帧:紫色(非异常,不用红)

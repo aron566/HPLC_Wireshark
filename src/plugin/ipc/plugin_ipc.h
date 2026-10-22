@@ -26,7 +26,9 @@ constexpr int kApiVersion = 1;
 ///          v4:MpduInfo 增 beacon_rsv(信标保留原始值)
 ///          v5:MpduInfo 增 pblen(南网无线载荷PB大小索引)
 ///          v6:MpduInfo 增 mcs(无线 MCS)
-constexpr int kWireFormatVersion = 6;
+///          v7:ParseResult 增 dissect_fields(插件通用字段树);MpduInfo 删死字段
+///             pb_index/coord_option/ack_search_freq
+constexpr int kWireFormatVersion = 7;
 
 /// @brief QDataStream 序列化版本(双方必须一致)
 constexpr int kStreamVersion = QDataStream::Qt_6_5;

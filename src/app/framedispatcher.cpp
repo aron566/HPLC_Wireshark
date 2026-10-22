@@ -44,8 +44,8 @@ FrameDispatcher::FrameDispatcher(QObject* parent)
     // 按 config.ini 协议选择实例化解析器(内置国网/南网,或插件协议)
     // 协议键统一转大写为注册表 id: "gw_2022"→"GW_2022",插件协议直接存大写 id
     auto parser = make_parser_by_id(appcfg::protocol().toUpper());
-    if (!parser)  // 未知协议回退国网
-        parser = make_parser_by_id(QStringLiteral("GW_2022"));
+    if (!parser)  // 未知协议回退国网 2026
+        parser = make_parser_by_id(QStringLiteral("GW_2026"));
     m_thread = new QThread(this);
     m_worker = new DispatcherWorker(std::move(parser));
     m_worker->moveToThread(m_thread);

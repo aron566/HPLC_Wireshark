@@ -53,6 +53,9 @@ static QString beacon_item_head_name(quint8 h) {
         case NW_2021_BeaconItemType::BAND_CHANGE:     return trl::L("频段变更条目");
         case NW_2021_BeaconItemType::BAND_PROBE:      return trl::L("频段探测条目");
         case NW_2021_BeaconItemType::CALENDAR_SYNC:   return trl::L("万年历同步条目");
+        case NW_2021_BeaconItemType::RF_ROUTE_PARAM:  return trl::L("无线路由参数条目");
+        case NW_2021_BeaconItemType::RF_CHANNEL_CHANGE: return trl::L("无线信道变更条目");
+        case NW_2021_BeaconItemType::LITE_STA_SLOT:   return trl::L("精简信标站点信息及时隙条目");
         default:
             return (h >= 0x80 && h <= 0xEF) ? trl::L("厂家自定义条目")
                                             : trl::L("保留条目");
@@ -159,6 +162,63 @@ static const FieldSpec kCalendarSyncSpec[] = {
 };
 static const int kCalendarSyncSpecN = int(sizeof(kCalendarSyncSpec) / sizeof(kCalendarSyncSpec[0]));
 
+// 无线路由参数条目 0x0C(表152,内容 2B;表142 分配 0x0C,表152 头列 0x09 为旧编号残留)
+static const FieldSpec kRfRouteParamSpec[] = {
+    {"RFDiscoverPeriod", 0, 0, 8, Fmt::DEC},   // 无线发现列表周期(秒)
+    {"RFAgingCycles",    1, 0, 8, Fmt::DEC},   // 无线接收率老化周期个数(单位:无线发现列表周期)
+};
+static const int kRfRouteParamSpecN = int(sizeof(kRfRouteParamSpec) / sizeof(kRfRouteParamSpec[0]));
+
+// 无线信道变更条目 0x0D(表153,内容 6B;表142 分配 0x0D,表153 头列 0x0A 为旧编号残留)
+static const FieldSpec kRfChannelChangeSpec[] = {
+    {"TargetChannel",    0, 0, 8,  Fmt::DEC},   // 目标信道编号
+    {"TargetOption",     1, 0, 2,  Fmt::DEC},   // 目标信道 option
+    {"RSV0",             1, 2, 6,  Fmt::DEC},   // 保留(表153 byte3 bit2-7)
+    {"SwitchRemainTime", 2, 0, 32, Fmt::DEC},   // 信道切换剩余时间(毫秒)
+};
+static const int kRfChannelChangeSpecN = int(sizeof(kRfChannelChangeSpec) / sizeof(kRfChannelChangeSpec[0]));
+
+// 精简信标站点信息及时隙条目 0x0E(表155,内容 17B;表142 分配 0x0E)
+static const FieldSpec kLiteStaSlotSpec[] = {
+    {"TEI",              0, 0, 12, Fmt::DEC},   // 发送信标站点 TEI
+    {"PCOTEI",           1, 4, 12, Fmt::DEC},   // 代理站点 TEI
+    {"Role",             3, 0, 4,  Fmt::DEC},   // 角色(0x0 未知/0x1 STA/0x2 PCO/0x4 CCO)
+    {"Level",            3, 4, 4,  Fmt::DEC},   // 层级数
+    {"BeaconSTAMAC",     4, 0, 48, Fmt::MAC},   // 发送信标站点 MAC
+    {"RFLinkHop",        8, 0, 4,  Fmt::DEC},   // 链路上 RF 跳数
+    {"CarrierBand",      8, 4, 2,  Fmt::DEC},   // 载波频段(表156)
+    {"RSV0",             8, 6, 2,  Fmt::DEC},   // 保留
+    {"CSMASlotStartNTB", 9, 0, 32, Fmt::HEX8},  // CSMA 时隙开始时间(NTB)
+    {"CSMASlotLen",     13, 0, 16, Fmt::DEC},   // CSMA 时隙长度(毫秒)
+};
+static const int kLiteStaSlotSpecN = int(sizeof(kLiteStaSlotSpec) / sizeof(kLiteStaSlotSpec[0]));
+
+// 载波频段(表156,精简信标 0x0E 条目用)
+static QString lite_band_name(quint8 b) {
+    switch (b) {
+        case 0: return QStringLiteral("1.953~11.96MHz");
+        case 1: return QStringLiteral("2.441~5.615MHz");
+        case 2: return QStringLiteral("0.781~2.930MHz");
+        default: return trl::L("保留");
+    }
+}
+
+// 精简信标帧载荷固定头(表154,12B):字节0 bit5 为保留(标准信标此处为多网络优选)、
+// bit7 为信标使用标志;组网序列号后为 CCO MAC 48b + 信标周期计数 32b,管理区自 byte12 起,
+// 仅含 0x0E 精简信标站点信息及时隙条目
+static const FieldSpec kLiteBeaconLoadSpec[] = {
+    {"BeaconType",        0, 0, 3,  Fmt::DEC},
+    {"NetWorkingFlag",    0, 3, 1,  Fmt::DEC},
+    {"ReduceBeaconFlag",  0, 4, 1,  Fmt::DEC},   // 精简信标标志(恒 1)
+    {"RSV0",              0, 5, 1,  Fmt::DEC},
+    {"AssociationFlag",   0, 6, 1,  Fmt::DEC},
+    {"BeaconUsageFlag",   0, 7, 1,  Fmt::DEC},   // 信标使用标志(表154 未定义值域,展示原始值)
+    {"NetSN",             1, 0, 8,  Fmt::DEC},
+    {"CCOMAC",            2, 0, 48, Fmt::MAC},
+    {"BeaconPeriodCount", 8, 0, 32, Fmt::DEC},   // 信标周期计数
+};
+static const int kLiteBeaconLoadSpecN = int(sizeof(kLiteBeaconLoadSpec) / sizeof(kLiteBeaconLoadSpec[0]));
+
 // 槽信息叶子节点(可变长区字段展示辅助)
 static void slot_leaf(QVector<MsduFieldNode>& out, const QString& name,
                       const QString& value, int rel_abs, int rel_len) {
@@ -201,8 +261,11 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
 
     auto& root = group(out.tree, QStringLiteral("Beacon Load [%1B]").arg(gb.size()));
 
-    // 固定头(载波表24 / 无线第2部分表134)
-    if (is_rf)
+    // 固定头(载波表24 / 无线第2部分表134;精简信标为表154 专用 12B 头,仅无线)
+    const bool reduce_beacon = is_rf && ((quint8)get_bits(gb, 0, 4, 1) != 0);
+    if (reduce_beacon)
+        add_fields(root.children, gb, 0, kLiteBeaconLoadSpec, kLiteBeaconLoadSpecN);
+    else if (is_rf)
         add_fields(root.children, gb, 0, kBeaconLoadRfSpec, kBeaconLoadRfSpecN);
     else
         add_fields(root.children, gb, 0, kBeaconLoadSpec, kBeaconLoadSpecN);
@@ -233,8 +296,9 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
         }
     }
 
-    // 信标管理信息(表29):gb[6 : gb.size()-5],首字节条目数,随后 头+长度+内容
-    const int mgmt_start = 6;
+    // 信标管理信息(表29):标准信标 gb[6 : gb.size()-5],精简信标(表154)固定头 12B,
+    // 管理区自 byte12 起(仅含 0x0E 条目);首字节条目数,随后 头+长度+内容
+    const int mgmt_start = reduce_beacon ? 12 : 6;
     const int mgmt_end   = gb.size() - 5;  // BPCS 起点
     if (mgmt_end > mgmt_start + 1) {
         const quint8 item_num = (quint8)gb[mgmt_start];
@@ -412,6 +476,31 @@ MsduInfo NW_2021_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
                 }
                 break;
             }
+            case NW_2021_BeaconItemType::RF_ROUTE_PARAM: {  // 无线路由参数条目(表152;表142 分配 0x0C)
+                add_fields(grp.children, it, 0, kRfRouteParamSpec, kRfRouteParamSpecN, abs0);
+                annotate_unit(grp.children, "RFDiscoverPeriod", QStringLiteral("s"));
+                annotate_unit(grp.children, "RFAgingCycles", trl::L(" 周期"));
+                break;
+            }
+            case NW_2021_BeaconItemType::RF_CHANNEL_CHANGE: {  // 无线信道变更条目(表153;表142 分配 0x0D)
+                add_fields(grp.children, it, 0, kRfChannelChangeSpec, kRfChannelChangeSpecN, abs0);
+                annotate_unit(grp.children, "SwitchRemainTime", QStringLiteral("ms"));
+                break;
+            }
+            case NW_2021_BeaconItemType::LITE_STA_SLOT: {  // 精简信标站点信息及时隙条目(表155)
+                add_fields(grp.children, it, 0, kLiteStaSlotSpec, kLiteStaSlotSpecN, abs0);
+                annotate_unit(grp.children, "CSMASlotLen", QStringLiteral("ms"));
+                for (auto& ch : grp.children) {
+                    if (ch.name.startsWith(QStringLiteral("Role"))) {
+                        const quint8 r = (quint8)get_bits(it, 3, 0, 4);
+                        ch.value = QStringLiteral("%1 - %2").arg(r).arg(role_name(r));
+                    } else if (ch.name.startsWith(QStringLiteral("CarrierBand"))) {
+                        const quint8 b = (quint8)get_bits(it, 8, 4, 2);
+                        ch.value = QStringLiteral("%1 - %2").arg(b).arg(lite_band_name(b));
+                    }
+                }
+                break;
+            }
             default: {  // 厂家自定义/保留:内容 hex
                 MsduFieldNode body;
                 body.name      = QStringLiteral("Content [%1B]").arg(item_len);
@@ -507,6 +596,10 @@ struct I18nReg {
         trl::register_en("频段变更条目", "Band Change Item");
         trl::register_en("频段探测条目", "Band Probe Item");
         trl::register_en("万年历同步条目", "Calendar Sync Item");
+        trl::register_en("无线路由参数条目", "RF Route Parameter Item");
+        trl::register_en("无线信道变更条目", "RF Channel Change Item");
+        trl::register_en("精简信标站点信息及时隙条目", "Reduced Beacon STA Info & Slot Item");
+        trl::register_en(" 周期", " cycle(s)");
         trl::register_en("厂家自定义条目", "Vendor-defined Item");
         trl::register_en("保留条目", "Reserved Item");
         trl::register_en("Item[%1] %2 (%3B)", "Item[%1] %2 (%3B)");

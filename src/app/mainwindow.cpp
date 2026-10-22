@@ -5,7 +5,6 @@
 #include "packetlistmodel.h"
 #include "hexview.h"
 #include "protocoltree.h"
-#include "protocolfactory.h"
 #include "commconfigdialog.h"
 #include "QSimpleUpdater.h"
 #include "appconfig.h"
@@ -179,6 +178,18 @@ void MainWindow::build_ui() {
     btn_autofit->setText(trl::L("自动列宽"));
     btn_autofit->setToolTip(trl::L("按内容自动调整列表各列宽度"));
     connect(btn_autofit, &QToolButton::clicked, this, [this] {
+        // 性能护栏:resizeColumnsToContents() → QTableView::sizeHintForColumn()
+        // 会按 resizeContentsPrecision(默认 1000) 逐行回调 data(),而本模型
+        // 的 data() 会 locate() 解码整条 PacketEntry(盘块 + 字段树,约 30 µs)。
+        // 实测 14 列 × 1000 行 ≈ 460 ms 主线程阻塞,界面明显卡顿。
+        // 列宽只需"当前看到的内容放得下",采样可见行数的 2 倍即可(约 70 行,
+        // 实测 14 列 × 70 行 ≈ 20~90 ms)。上下限兜住:表不可见时 Qt 会把
+        // bottom 退回 rowCount-1(全表扫描),固定上限 200 行保证最坏也快。
+        // precision 只是上限,行数不足时 Qt 遍历到 actualBottom 即停,无越界。
+        const int row_h = qMax(1, m_table_packets->verticalHeader()->defaultSectionSize());
+        const int visible_rows = qMax(1, m_table_packets->viewport()->height() / row_h);
+        m_table_packets->horizontalHeader()
+            ->setResizeContentsPrecision(qBound(20, visible_rows * 2, 200));
         m_table_packets->resizeColumnsToContents();
     });
     m_toolbar->addWidget(btn_autofit);
@@ -236,7 +247,6 @@ void MainWindow::build_ui() {
 
     m_tree_protocol = new ProtocolTree(m_splitter_bottom);
     m_tree_protocol->setMinimumWidth(220);
-    m_tree_protocol->set_variant(protocol_from_key(appcfg::protocol()));
 
     auto* hex_pane   = new QWidget(m_splitter_bottom);
     auto* hex_layout = new QVBoxLayout(hex_pane);
@@ -807,7 +817,6 @@ void MainWindow::rebuild_dispatcher() {
     if (m_reader) m_reader->stop();
     on_clear();                       // 清空列表/协议树/hex/统计(旧 dispatcher 仍在)
     reset_dispatcher();
-    m_tree_protocol->set_variant(protocol_from_key(appcfg::protocol()));  // 字段树切协议
     m_status_left->setText(trl::L("协议已立即生效(Ctrl+E 开始捕获)"));
 }
 
@@ -898,14 +907,16 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
     e.delta_us = playback::next_delta_us(r.meta, m_last_ntb, m_have_last_ntb);
     e.meta      = r.meta;
     e.mpdu      = r.mpdu;
-    e.protocol  = (r.protocol == ProtocolVariant::NW_2021)
-                      ? kProtocolNw2021 : kProtocolGw2022;   // 协议身份来自解析器,非全局配置
+    // 协议身份来自解析器,非全局配置。
+    // 映射统一走 entry_protocol_id():它保留插件位(0x80),否则插件帧会被当内置帧渲染。
+    e.protocol = entry_protocol_id(r.protocol);
     e.msdu_body = r.msdu_body;
     e.raw_wire  = r.raw_wire;
     e.msdu      = r.msdu;    // MSDU/MAC 层字段树(SOF 重组完成时非空)
     e.beacon    = r.beacon;  // BEACON 载荷区字段树(BEACON 帧时非空)
     e.msdu_raw_base = r.msdu_raw_base;
     e.raw_bytes = r.payload_for_log;
+    e.dissect_fields = r.dissect_fields;  // 插件解析器通用字段树(内置解析恒空)
     // 拓扑:关键管理消息(关联确认/代理变更/发现列表/离网)喂给拓扑状态;
     // 同时记入回放日志:事件直接填充在 entry 内(nid/epoch_ms/is_rf),
     // 供 TOPO 历史回放调试(点击帧 → 按帧序号重放到该帧)
@@ -916,8 +927,8 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
         // 接入方式判定口径:
         // - 国网(GW_2022)关联确认/代理变更确认:解析层已从「链路类型」字段判定
         //   (is_rf + is_rf_known 已填);其余帧保持默认载波(is_rf_known=false)
-        // - 南网(NW_2021):无链路类型字段,统一用物理层介质 meta.is_rf 判定
-        if (e.protocol == kProtocolNw2021) {
+        // - 南网(NW_2021/NW_2026):无链路类型字段,统一用物理层介质 meta.is_rf 判定
+        if ((e.protocol & 0x7F) == kProtocolNw2021 || (e.protocol & 0x7F) == kProtocolNw2026) {
             te.is_rf = e.meta.is_rf;
             te.is_rf_known = true;
         }

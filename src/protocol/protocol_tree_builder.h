@@ -73,6 +73,11 @@ int tree_type_field_category(const QString& name);
 /// 供类型字段前景着色,深浅主题下均可读。
 QColor tree_type_field_color(int category, quint64 value);
 
+/// 给类型字段节点按类别+值着色;非类型字段不动。
+/// 内置 tree_render_msdu 与插件通用渲染共用,保证着色行为一致。
+void tree_apply_type_color(QTreeWidgetItem* it, const QString& name,
+                           const QString& value);
+
 // ── 字段树构建器抽象接口 ────────────────────────────────
 
 /// 协议特有字段树构建器(国网 GW_2022 / 南网 NW_2021 各实现一个)

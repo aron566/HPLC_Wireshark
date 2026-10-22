@@ -225,11 +225,11 @@ static void vlan_tests() {
     put(partial, 2, 16, 1);
     const auto missing_type = NW_2021_MsduParser::parse(partial);
     check(!node(missing_type, "VLAN Tag [8b]"), "incomplete short header does not invent a VLAN meaning");
-    QByteArray reserved_v2(4, char(0));
-    reserved_v2[0] = 4;  // Version(bit1-2)=2:南网表6为保留(单跳简头是国网帧型),不解释帧体
-    const auto simple = NW_2021_MsduParser::parse(reserved_v2);
-    check(!simple.present && !simple.simple_head,
-          "version 2 is reserved in NW (single-hop is GW-only) and not interpreted");
+    QByteArray single_hop(4, char(0));
+    single_hop[0] = 4;  // Version(bit1-2)=2:南网单跳帧协议(第2部分 §8.1.2.4 表113,4B 帧头)
+    const auto simple = NW_2021_MsduParser::parse(single_hop);
+    check(simple.present && simple.simple_head,
+          "version 2 = NW single-hop protocol (表113): stub parsed as single-hop (MSDU absent)");
     QByteArray app(12, char(0));
     app[0] = 0x11;
     put(app, 1, 16, 0x0101);

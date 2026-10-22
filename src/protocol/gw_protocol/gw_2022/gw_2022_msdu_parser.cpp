@@ -707,15 +707,47 @@ static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
         bp += cb.rcv;
     }
     if (cb.snr) {
+        // 表131(6bit): 量化值=SNR+6 → SNR=v-6(v=0 表示 ≤-6dB);表132(4bit): 非均匀 -6 起
+        // 2dB/3dB 步进至 >25(与 2.0 表98 逐行一致;1.0 原文负号被 MinerU 吞掉,如"SNR≤6"实为"SNR≤-6")
         const quint64 v = get_bits(c, bp / 8, bp % 8, cb.snr);
-        rfdl_bit_field(parent, "SNR", c, bp, cb.snr, cbase_abs,
-                       QStringLiteral("0x%1").arg(v, 1, 16, QChar('0')));
+        QString sv;
+        if (v == 0) {
+            sv = QStringLiteral("%1 (SNR≤-6dB)").arg(v);
+        } else if (cb.snr == 6) {
+            sv = QStringLiteral("%1 (SNR=%2dB)").arg(v).arg(int(v) - 6);
+        } else {
+            static const int hi[14] = { -4, -2, 0, 2, 4, 6, 8, 10, 12, 14, 16, 19, 22, 25 };
+            const int lo = (v == 1) ? -6 : hi[v - 2];
+            sv = (v == 15) ? QStringLiteral("%1 (SNR>25dB)").arg(v)
+                           : QStringLiteral("%1 (SNR %2~%3dB)").arg(v).arg(lo).arg(hi[v - 1]);
+        }
+        rfdl_bit_field(parent, "SNR", c, bp, cb.snr, cbase_abs, sv);
         bp += cb.snr;
     }
     if (cb.rssi) {
+        // 表133:8bit 量化值=RSSI+110(dBm) → RSSI=v-110(v=0 表示 ≤-110dBm);
+        // 表135:6bit 2dB 步进,量化值 v → RSSI∈[2v-110, 2v-108](与 2.0 表101 同);
+        // 表134(1.0,无线,与 2.0 表100 逐档一致):4bit 非均匀区间硬编码
         const quint64 v = get_bits(c, bp / 8, bp % 8, cb.rssi);
-        rfdl_bit_field(parent, "RSSI", c, bp, cb.rssi, cbase_abs,
-                       QStringLiteral("0x%1").arg(v, 1, 16, QChar('0')));
+        QString rv;
+        if (cb.rssi == 8) {
+            rv = QStringLiteral("%1 (RSSI=%2dBm)").arg(v).arg(int(v) - 110);
+        } else if (cb.rssi == 6) {
+            rv = (v == 0) ? QStringLiteral("%1 (RSSI≤-110dBm)").arg(v)
+                          : QStringLiteral("%1 (RSSI %2~%3dBm)").arg(v).arg(int(v) * 2 - 110).arg(int(v) * 2 - 108);
+        } else {
+            // 表134 4bit:0=RSSI≤-105;1:-105~-95;2:-95~-86;3:-86~-80;4:-80~-74;5:-74~-68;
+            //   6:-68~-62;7:-62~-56;8:-56~-48;9:-48~-42;10:-42~-36;11:-36~-30;12:-30~-20;
+            //   13:-20~-10;14:-10~0;15=RSSI>0 (dBm)
+            static const int kLo[14] = {-105, -95, -86, -80, -74, -68, -62,
+                                        -56, -48, -42, -36, -30, -20, -10};
+            static const int kHi[14] = {-95, -86, -80, -74, -68, -62, -56,
+                                        -48, -42, -36, -30, -20, -10, 0};
+            if (v == 0)       rv = QStringLiteral("%1 (RSSI≤-105dBm)").arg(v);
+            else if (v == 15) rv = QStringLiteral("%1 (RSSI>0dBm)").arg(v);
+            else              rv = QStringLiteral("%1 (RSSI=%2~%3dBm)").arg(v).arg(kLo[v - 1]).arg(kHi[v - 1]);
+        }
+        rfdl_bit_field(parent, "RSSI", c, bp, cb.rssi, cbase_abs, rv);
         bp += cb.rssi;
     }
     return bp;
@@ -820,6 +852,23 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
             }
             const RfdlChCombo& cb = kRfdlNonBitmap[combo];
             const int entry_bits = 12 + cb.rcv + cb.snr + cb.rssi;
+            // 表128/129 头:信道信息组合类型(0,0-3,4b)+保留(0,4-7,4b)——此前整字节跳过未渲染
+            {
+                QStringList sem;
+                sem << QStringLiteral("TEI");
+                if (cb.rcv) sem << QStringLiteral("Rcv%1b").arg(cb.rcv);
+                if (cb.snr) sem << QStringLiteral("SNR%1b").arg(cb.snr);
+                if (cb.rssi) sem << QStringLiteral("RSSI%1b").arg(cb.rssi);
+                MsduFieldNode& hd = group(g.children, QStringLiteral("ChannelInfoHead"));
+                hd.rel_start = content_abs; hd.rel_len = 1;
+                MsduFieldNode& ct = group(hd.children, QStringLiteral("ComboType"),
+                    QStringLiteral("%1 - %2 (%3b/邻居)").arg(combo)
+                        .arg(sem.join(QLatin1Char('+'))).arg(entry_bits));
+                ct.rel_start = content_abs; ct.rel_len = 1;
+                MsduFieldNode& cr = group(hd.children, QStringLiteral("RSV [4b]"),
+                    QString::number(get_bits(content, 0, 4, 4)));
+                cr.rel_start = content_abs; cr.rel_len = 1;
+            }
             const int total_bits = content.size() * 8;  // 内容绝对末位(邻居自 bit8 起)
             int bitpos = 8;   // 跳过组合类型字节
             int i = 0;
@@ -841,6 +890,23 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
             }
             const RfdlChCombo& cb = kRfdlBitmap[combo];
             const int entry_bits = cb.rcv + cb.snr + cb.rssi;
+            const int total_bits = content.size() * 8;  // 越界防护基准(与 gw_2026 P1 同)
+            // 表136/137 头:信道信息组合类型(0,0-3,4b)+保留(0,4-7,4b)——此前整字节跳过未渲染
+            {
+                QStringList sem;
+                if (cb.rcv) sem << QStringLiteral("Rcv%1b").arg(cb.rcv);
+                if (cb.snr) sem << QStringLiteral("SNR%1b").arg(cb.snr);
+                if (cb.rssi) sem << QStringLiteral("RSSI%1b").arg(cb.rssi);
+                MsduFieldNode& hd = group(g.children, QStringLiteral("ChannelInfoHead"));
+                hd.rel_start = content_abs; hd.rel_len = 1;
+                MsduFieldNode& ct = group(hd.children, QStringLiteral("ComboType"),
+                    QStringLiteral("%1 - %2 (%3b/邻居)").arg(combo)
+                        .arg(sem.join(QLatin1Char('+'))).arg(entry_bits));
+                ct.rel_start = content_abs; ct.rel_len = 1;
+                MsduFieldNode& cr = group(hd.children, QStringLiteral("RSV [4b]"),
+                    QString::number(get_bits(content, 0, 4, 4)));
+                cr.rel_start = content_abs; cr.rel_len = 1;
+            }
             int off = 1;   // 跳过组合类型字节
             int k = 0;
             while (off + 4 <= content.size()) {
@@ -854,12 +920,22 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
                         if (bmp[i] & (1u << j)) ++nk;
                 auto& kg = group(g.children, QStringLiteral("Group[%1] StartTEI=%2").arg(k).arg(start_tei));
                 kg.rel_start = content_abs + off; kg.rel_len = 3 + bmp_size + (nk * entry_bits + 7) / 8;
+                // 表136/137 组内:起始TEI 12b(off+0 起)+保留 4b(off+1 bit4-7)+位图大小 1B(off+2)
+                MsduFieldNode& st = group(kg.children, QStringLiteral("StartTEI"), QString::number(start_tei));
+                st.rel_start = content_abs + off; st.rel_len = 2;
+                MsduFieldNode& gr = group(kg.children, QStringLiteral("RSV [4b]"),
+                    QString::number(get_bits(content, off + 1, 4, 4)));
+                gr.rel_start = content_abs + off + 1; gr.rel_len = 1;
+                MsduFieldNode& bl = group(kg.children, QStringLiteral("BitmapSize [8b]"), QString::number(bmp_size));
+                bl.rel_start = content_abs + off + 2; bl.rel_len = 1;
                 int bitpos = (off + 3 + bmp_size) * 8;  // 邻居信道信息起始位
                 for (int i = 0; i < nk; ++i) {
+                    // P1 同款越界防护(与 gw_2026 对齐):位图置位数 nk 是发端声明,截断帧可虚大
+                    if (bitpos + entry_bits > total_bits) break;
                     auto& e = group(kg.children, QStringLiteral("Neighbor[%1]").arg(i));
                     bitpos = rfdl_neighbour_bits(e, content, bitpos, cb, content_abs, /*has_tei=*/false);
                 }
-                off = off + 3 + bmp_size + (nk * entry_bits + 7) / 8;
+                off = (bitpos + 7) / 8;   // 下一组自本组实际消费末尾起(截断时按已解析推进)
                 ++k;
             }
             break;

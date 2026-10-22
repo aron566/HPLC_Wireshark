@@ -4,6 +4,7 @@
 #include "i18n.h"
 #include "appconfig.h"
 #include "theme.h"
+#include "protocolfactory.h"   // registered_protocols():协议下拉框取自协议注册表
 
 #include <QComboBox>
 #include <QLineEdit>
@@ -19,6 +20,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QDialogButtonBox>
+#include <QStringList>
 #include <QSerialPortInfo>
 #include <QSettings>
 #include <QSerialPort>
@@ -150,13 +152,18 @@ void CommConfigDialog::build_ui() {
     connect(m_chk_auto_check, &QCheckBox::toggled, this,
             [](bool on) { appcfg::set_auto_check(on); });
 
-    // 协议/Protocol:gw_2022=国网双模标准2022 / nw_2021=南网双模2021报批版
-    // (config.ini general/protocol)
+    // 协议/Protocol:列表完全来自协议注册表(IProtocolProvider 自述 id/显示名/排序)
+    // 界面不硬编码任何协议名;插件协议按其 plugin.json 的 display_name 显示
     auto* proto_row = new QHBoxLayout;
     proto_row->addWidget(new QLabel(trl::L("协议/Protocol:"), opt_group));
     m_cmb_protocol = new QComboBox(opt_group);
-    m_cmb_protocol->addItem(trl::L("国网 GW_2022"), QStringLiteral("gw_2022"));
-    m_cmb_protocol->addItem(trl::L("南网 NW_2021"), QStringLiteral("nw_2021"));
+    for (const ProtocolProviderPtr& p : registered_protocols()) {
+        if (!p) continue;
+        // 英文名由协议自己提供,这里只做登记:界面不再维护协议中英对照表
+        trl::register_en(p->display_name_zh().toUtf8().constData(),
+                         p->display_name_en().toUtf8().constData());
+        m_cmb_protocol->addItem(trl::L(p->display_name_zh()), p->id().toLower());
+    }
     m_cmb_protocol->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     m_cmb_protocol->setMinimumContentsLength(12);
     proto_row->addWidget(m_cmb_protocol);
@@ -165,7 +172,13 @@ void CommConfigDialog::build_ui() {
 
     // 恢复已保存协议并放在 connect 之前;变更即写回 config.ini
     const QString saved_proto = appcfg::protocol();
-    const int proto_idx = m_cmb_protocol->findData(saved_proto);
+    int proto_idx = m_cmb_protocol->findData(saved_proto);
+    if (proto_idx < 0 && !saved_proto.isEmpty()) {
+        // config.ini 里的协议当前未注册(插件未加载/已卸载):补一项显示实际配置,
+        // 避免下拉框静默回落到第一项、与实际使用的解析器不符
+        m_cmb_protocol->addItem(saved_proto, saved_proto);
+        proto_idx = m_cmb_protocol->count() - 1;
+    }
     if (proto_idx >= 0) m_cmb_protocol->setCurrentIndex(proto_idx);
     connect(m_cmb_protocol, qOverload<int>(&QComboBox::currentIndexChanged), this,
             [this](int) {
@@ -328,8 +341,7 @@ struct I18nRegCommConfig {
         trl::register_en("重启后界面语言完全生效",
                          "UI language fully applies after restart");
         trl::register_en("协议/Protocol:", "Protocol:");
-        trl::register_en("国网 GW_2022", "State Grid GW_2022");
-        trl::register_en("南网 NW_2021", "CSG NW_2021");
+        // 协议名(中/英)由 IProtocolProvider 提供,填充协议列表时登记,不在此硬编码
     }
 };
 const I18nRegCommConfig g_i18n_reg_commconfig;

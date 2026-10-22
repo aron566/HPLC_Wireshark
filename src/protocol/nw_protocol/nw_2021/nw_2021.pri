@@ -19,6 +19,7 @@ SOURCES += \
     $$PWD/nw_2021_parser.cpp \
     $$PWD/nw_2021_msdu_parser.cpp \
     $$PWD/nw_2021_beacon_parser.cpp \
-    $$PWD/nw_2021_tree.cpp
+    $$PWD/nw_2021_tree.cpp \
+    $$PWD/nw_2021_provider.cpp
 
 INCLUDEPATH += $$PWD

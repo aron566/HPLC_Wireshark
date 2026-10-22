@@ -21,8 +21,11 @@ coloring never clash; captures are told apart by pcap linktype (see
 
 | File | Description |
 |---|---|
-| `packet-gw_2022.lua` | **SGCC GW_2022 Lua dissector (drop-in)** |
-| `packet-nw_2021.lua` | **CSG NW_2021 Lua dissector** |
+| `packet-gw_2022.lua` | **SGCC GW_2022 Lua dissector (HDC 1.0; entry with version dispatch)** |
+| `packet-gw_2026.lua` | **SGCC GW_2026 / HDC 2.0 Lua dissector (entered via gw_2022 version delegation)** |
+| `packet-nw_2021.lua` | **CSG NW_2021 Lua dissector (BPLC; entry with version dispatch)** |
+| `packet-nw_2026.lua` | **CSG NW_2026 / SPLC 2026 Lua dissector (entered via nw_2021 version delegation)** |
+| `test_2026/` | New-protocol test frame generators and pcaps (GW: gen_gw2026_test_pcap.py; NW: gen_2026_test_pcap.py) |
 | `packet-gw_2022.c` | SGCC C plugin source (outdated, do not use) |
 | `bin2pcap.py` | BIN replay file → pcap (auto protocol detect, `--gw`/`--nw` to force) |
 | `serial2pcap.py` | **Live serial capture → pcap** (`--gw`/`--nw` to force protocol) |
@@ -80,12 +83,24 @@ the MAC frame):
 - Field values and ICV/PB CRC checks are computed byte-exactly over the reassembled
   block-body stream
 
-### Dissection
+### Dissection（IMPORTANT: load BOTH scripts per protocol）
 
-Wireshark GUI: copy `packet-gw_2022.lua` and/or `packet-nw_2021.lua` to
-`%APPDATA%\Wireshark\plugins\`, then restart to auto-load.
-Command line: `tshark -r capture.pcap -X lua_script:packet-gw_2022.lua -V`
-(for CSG captures use `-X lua_script:packet-nw_2021.lua`)
+Wireshark GUI: copy all 4 Lua files (`packet-gw_2022.lua` / `packet-gw_2026.lua` /
+`packet-nw_2021.lua` / `packet-nw_2026.lua`) to `%APPDATA%\Wireshark\plugins\`,
+then restart to auto-load.
+Command line (**both old+new scripts of a protocol must be loaded together** —
+2.0/SPLC frames are delegated by the entry dissector via the FCH version field;
+loading only the old script shows a fallback warning and best-effort 1.0 parsing
+on 2.0 frames):
+
+```
+tshark -r capture.pcap -X lua_script:packet-gw_2022.lua -X lua_script:packet-gw_2026.lua -V
+tshark -r capture.pcap -X lua_script:packet-nw_2021.lua -X lua_script:packet-nw_2026.lua -V
+```
+
+Version dispatch (FCH standard version, byte12 high nibble): SGCC 0=HDC 1.0 inline /
+1 and reserved → delegate `gw_2026`; CSG 1=BPLC and 0=reserved inline / 2=SPLC →
+delegate `nw_2026`. See "Version-adaptive delegation" below (Chinese section).
 
 ## English display
 
@@ -146,11 +161,41 @@ pure-MPDU files (linktype 147-150) keep working unchanged.
 | Beacon payload (6B fixed head + 6 mgmt item types + BPCS + reserved byte) | ✅ complete |
 | SOF physical blocks (4B PB header + body + reserved + CRC24, multi-block MAC reassembly) | ✅ complete |
 | MAC header (long 32B / short 12B / single-hop 4B) + MSDU header (MAC48b + VLAN + type) | ✅ complete |
-| MMe management message body (17 MMType) | ✅ complete (0x0083/0x0084/0x00A0 deferred, same as Qt monitor) |
+| MMe management message body (17 MMType) | ✅ complete (0x0083/0x0084 deferred, same as Qt monitor; 0x00A0-0x00A2 IoT access implemented) |
 | APP application packet (channel control info + business header + BID description) | ✅ complete |
 | Source/Destination columns (with TEI↔MAC learning) | ✅ complete |
 | Bilingual (Chinese/English) display | ✅ complete |
 | FCCS / PB CRC24 / BPCS / MSDU ICV check | ✅ complete (raw value + calculated + pass flag) |
+
+### SGCC GW_2026 / HDC 2.0 (packet-gw_2026.lua, entered via gw_2022 version delegation)
+
+| Layer | Status |
+|---|---|
+| MPDU frame control 16B (Table 4: NID 16bit + standard version) | ✅ complete |
+| SOF variant field (Table 7: frame-type dispatch data/channel-probe/OFDMA/TDA) + PB size (Table 8) | ✅ complete |
+| SACK (Table 14, 68-bit bitstream) | ✅ complete |
+| Beacon (Table 5 + new entries 0x06/0x07/0x08/0xC1/0xC2) | ✅ complete |
+| Standard/single-hop MAC header (Table 2 new fields / Table 3 aggregate flag) | ✅ complete |
+| Single-hop message types 0/1/2/128/129 (Table 3) | ✅ complete |
+| RF discovery list (Tables 91-103: attr/route/neighbor non-bitmap+bitmap/BRUSNR32) | ✅ complete |
+| Carrier discovery list (Tables 62/63-68/76/77, combos 10/11 with BRU) | ✅ complete |
+| Channel evaluation update (Tables 106-108: BRU SNR/SAT config/select/bitload) | ✅ complete |
+| MMe body (Table 43: 0x0011-0x0014 Bitloading/grouping) | ✅ complete |
+| SNR/RSSI quantization (wireless Tables 97-101, carrier Tables 70-74) | ✅ complete |
+| Bilingual + FCCS/PB/MSDU CRC/ICV verification | ✅ complete |
+
+### CSG NW_2026 / SPLC 2026 (packet-nw_2026.lua, entered via nw_2021 version delegation)
+
+| Layer | Status |
+|---|---|
+| MPDU frame control 16B (Table 16: ConInd/SNID 4b+per-frame-type high bit merged to 5bit/version) | ✅ complete |
+| SPLC SOF (Tables 23-26: single-site/multi-site DL-OFDMA eFC 16B→PB base 32/training) | ✅ complete |
+| RF SOF (Table 131: frame length/payload PB size/MCS/retransmit) | ✅ complete |
+| PB lookup tables (BPLC TMI / SPLC TMI index / RF PBLen; PB block 4B header+body+reserved+CRC24) | ✅ complete |
+| Beacon (Table 51 additions: PLC capability/network version) | ✅ complete |
+| MAC header (long 32B/short 12B/single-hop 4B, Table 6 dispatch) + RF discovery list (Tables 214-227) | ✅ complete |
+| MMe incl. IoT access 0x00A0-0x00A2 (Tables 39/40/42/243/244/246) | ✅ complete |
+| Source/Destination columns (with TEI↔MAC learning) + bilingual + all CRC verification | ✅ complete |
 
 ## Key implementation notes (byte order)
 

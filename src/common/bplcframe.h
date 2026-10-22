@@ -24,8 +24,10 @@ struct MsduState {
     int        received_count;
     int        expected_len;
     bool       complete;
+    int        reasm_proto;   ///< 在途分片所属代际(-1 无;0=HDC1.0 委托;1=HDC2.0 原生):
+                              ///< 代际切换时清缓冲,防止 1.0/2.0 分片混拼出一个坏 MSDU
 
-    MsduState() : received_count(0), expected_len(0), complete(false) {}
+    MsduState() : received_count(0), expected_len(0), complete(false), reasm_proto(-1) {}
 };
 
 /// @brief 物理层元信息
@@ -76,7 +78,6 @@ struct MpduInfo {
     quint16 pb_size;       ///< PB 块大小(载波=TMI查表 72/136/264/520;无线=载荷PB大小表29 16/40/72/136/264/520)
     bool    fch_crc_ok;    ///< 控制头 CRC24 校验结果
     bool    pb_crc_ok;     ///< PB 块 CRC24 校验结果(SOF 时,全部块)
-    int     pb_index;      ///< PB 序号(分片重组时)
     quint8  pb_head;       ///< PB 头原始字节(bit7=END bit6=START 低6位=seq;SOF 时,首块)
     QVector<quint8> pb_heads;    ///< 各 PB 块头原始字节(按块序,SOF 时)
     QVector<bool>   pb_crc_oks;  ///< 各 PB 块 CRC24 校验结果(按块序,SOF 时)
@@ -92,8 +93,29 @@ struct MpduInfo {
     quint64 beacon_cco_mac;   ///< CCO MAC 48-bit(载荷区 2,0,48,帧序显示)
     quint32 beacon_period_cnt;///< 信标周期计数(载荷区 8,0,32)
     quint8  beacon_rf_channel;///< 无线信道号(载荷区 12,0,8)
-    quint8  beacon_rf_option; ///< 无线 Option(载荷区 13,0,2)
+    quint8  beacon_rf_option; ///< 无线 Option(载荷区 13,0,2;GW_2026 表38)
+    quint8  beacon_mech_state;   ///< 信标机制状态 1-bit(GW_2026 表38 (13,2)):0=固定信标 1=竞争信标
+    quint8  beacon_discover_en;  ///< 发现信标发送使能 1-bit(GW_2026 表38 (13,3)):0=未使能 1=使能
     int     beacon_item_num;  ///< 管理条目总数(载荷区 20 处 1B)
+
+    // ---- GW_2026 SOF 载波新增字段(表7 数据帧可变区域;GW_2022 不填) ----
+    // HDC 2.0 载波 SOF 重写:帧长后为 帧子类型/TF 描述/FCH 符号数/调制方式与参数/
+    // 2b 编码 PB 个数/频段标识/增益/动态加载表ID;链路标识符移至 MAC 帧头 byte15。
+    quint8  sof_data_type;    ///< SOF 帧子类型 3-bit(表7 (7,0,3)):0=数据帧 1=信道探测 2=OFDMA下行 3=TDA下行
+    quint8  sof_tf_symbol_pos;///< TF符号位置 2-bit(表7 (7,3,2)):0=不携带TF 1=数据载荷之前 2=数据载荷之后
+    quint8  sof_tf_symbol_num;///< TF符号数 3-bit(表7 (7,5,3)):1-5=4/6/8/10/12 符号,其他保留
+    quint8  sof_fch_sym_num;  ///< FCH符号数 2-bit(表7 (9,7,2) 跨字节):0=短FCH 1=标准FCH 2=长FCH
+    quint8  sof_mod_mode;     ///< 数据载荷调制方式标识 1-bit(表7 (10,1)):0=分集拷贝模式 1=动态加载模式
+    quint8  sof_mod_param;    ///< 数据载荷调制参数 5-bit(表7 (10,2,5)):分集拷贝=XXX.41 TMI编号/动态加载=物理块类型(表8)
+    quint8  sof_band;         ///< TF与数据载荷频段标识 3-bit(表7 (11,4,6),取值表49):0-2/4-6=频段,3/7=保留
+    quint8  sof_gain;         ///< 数据载荷增益 4-bit(表7 (11,7)+(12,0-2)):1.0000-1.9375 增幅配置值
+    quint8  sof_load_table_id;///< 动态加载表ID标识 1-bit(表7 (12,3))
+    // ---- GW_2026 载波信标(表5)新增字段 ----
+    quint8  beacon_fch_sym;   ///< 载波信标 FCH符号数 2-bit(表5 (11,3,2)):0=短FCH 1=标准FCH 2=长FCH
+    // ---- GW_2026 ACK 载波(表14 选择确认不反馈SNR)新增字段 ----
+    quint8  ack_bru_snr_flag; ///< BRU SNR 反馈标志 1-bit(表14 (4,0)):0=不反馈 1=反馈
+    quint8  ack_sat_id_flag;  ///< SAT ID 正确标志 1-bit(表14 (4,1)):0=SAT ID正确/无需 1=SAT ID不正确
+    quint8  ack_remain_sta_num; ///< 剩余站点数 2-bit(表14 (8,0,2)):0-3=0-3 个站点
 
     // ---- COORD(网间协调帧)----
     quint16 coord_duration;   ///< 协调时隙占用时长 16-bit(ms)
@@ -106,7 +128,6 @@ struct MpduInfo {
     quint8  coord_rsv3;       ///< 保留 4-bit(表26 字节7 bit4-7)
     // 南网 NW_2021 COORD 额外字段(国网填 0)
     quint8  coord_band_end_flag;    ///< 频段时隙结束标志 1-bit(南网)
-    quint8  coord_option;           ///< Option 2-bit(南网)
     quint16 coord_band_end_offset;  ///< 频段时隙结束偏移 16-bit(南网,×4ms)
     quint16 coord_band_start_offset;///< 频段时隙开始偏移 16-bit(南网,×4ms)
 
@@ -123,7 +144,6 @@ struct MpduInfo {
     quint8  ack_rsv1;         ///< RSV1 8-bit(11,0,8)
     quint64 ack_dst_addr;     ///< 目标 MAC 48-bit(南网 NW_2021 网络搜索帧)
     quint16 ack_search_tei;   ///< 网络搜索帧 STA TEI 12-bit(南网)
-    quint8  ack_search_freq;  ///< 网络搜索帧频点 4-bit(南网)
     quint32 ack_sync_timestamp; ///< 同步帧时间戳 32-bit(南网)
     quint16 ack_sync_tei;     ///< 同步帧 TEI 12-bit(南网)
 
@@ -132,20 +152,26 @@ struct MpduInfo {
           src_tei(0), dst_tei(0), link_id(0), frame_len(0),
           pb_num(0), pb_num_field(0), pblen(0), mcs(0), symbol_num(0), bc_flag(false), re_send_flag(false),
           encryp_flag(false), tmi(0), tmi_ext(0), pb_size(0),
-          fch_crc_ok(false), pb_crc_ok(false), pb_index(0), pb_head(0),
+          fch_crc_ok(false), pb_crc_ok(false), pb_head(0),
           beacon_timestamp(0), beacon_line(0), beacon_rsv(0),
           beacon_type(0), beacon_netsn(0), beacon_cco_mac(0),
           beacon_period_cnt(0), beacon_rf_channel(0), beacon_rf_option(0),
+          beacon_mech_state(0), beacon_discover_en(0),
           beacon_item_num(0),
+          sof_data_type(0), sof_tf_symbol_pos(0), sof_tf_symbol_num(0),
+          sof_fch_sym_num(0), sof_mod_mode(0), sof_mod_param(0),
+          sof_band(0), sof_gain(0), sof_load_table_id(0),
+          beacon_fch_sym(0),
+          ack_bru_snr_flag(0), ack_sat_id_flag(0), ack_remain_sta_num(0),
           coord_duration(0), coord_shift(0), coord_neighbour_nid(0),
           coord_rf_channel(0), coord_rsv0(0),
           coord_rsv1(0), coord_rsv2(0), coord_rsv3(0),
-          coord_band_end_flag(0), coord_option(0),
+          coord_band_end_flag(0),
           coord_band_end_offset(0), coord_band_start_offset(0),
           ack_ext_type(0), ack_rx_res(0), ack_rx_status(0), ack_rx_pb_num(0),
           ack_rsv0(0), ack_channel_quality(0), ack_sta_load(0), ack_rsv1(0),
           ack_dst_addr(0),
-          ack_search_tei(0), ack_search_freq(0),
+          ack_search_tei(0),
           ack_sync_timestamp(0), ack_sync_tei(0) {}
 
     /// @brief 取 FrameType 对应的可读字符串
@@ -284,9 +310,34 @@ struct MsduInfo {
                  mme_type(0xFFFF), total_len(-1) {}
 };
 
+/// @brief 通用解剖字段节点(自递归树)
+/// @details 协议插件返回、主界面统一渲染(与 MsduFieldNode 同层,避免
+///          common → plugin 的反向依赖)。坐标以 PacketEntry::raw_bytes
+///          (=ParseResult::payload_for_log)为基准,与 Hex 高亮同一坐标系;
+///          插件若剥离了媒介前缀,须自行把 start 加回剥离长度。
+/// @note  不进换页盘块(渲染派生数据)。实测字段树使盘块 1000 条从 26 KB
+///        涨到 720 KB(27×),且每次读一条都要重建整棵树 → 列宽/滚动路径变慢。
+struct DissectField {
+    QString name;                ///< 字段名(位域带 [Nbit] 标注,约定同 MsduFieldNode)
+    QString value;               ///< 格式化值文本
+    int     start = -1;          ///< raw_bytes 中的字节偏移,-1=无字节映射
+    int     len   = 0;           ///< 覆盖字节数
+    quint8  severity = 0;        ///< 0=无 1=提示 2=警告 3=错误(仅影响前景色)
+    QVector<DissectField> children;
+
+    DissectField() = default;
+    DissectField(const QString& n, const QString& v, int s = -1, int l = 0)
+        : name(n), value(v), start(s), len(l) {}
+};
+
 /// @brief PacketEntry::protocol 取值(与 protocol/common/protocolvariant.h 的 ProtocolVariant 对应)
-constexpr quint8 kProtocolGw2022 = 0;  ///< 国网双模标准 2022
-constexpr quint8 kProtocolNw2021 = 1;  ///< 南网双模 2021 报批版
+constexpr quint8 kProtocolGw2022 = 0;  ///< 国网双模标准 2022 HDC 1.0
+constexpr quint8 kProtocolNw2021 = 1;  ///< 南网双模 2021 报批版 BPLC
+constexpr quint8 kProtocolGw2026 = 2;  ///< 国网双模 2026 HDC 2.0 (下一代)
+constexpr quint8 kProtocolNw2026 = 3;  ///< 南网 SPLC 2026(下一代)
+/// 插件协议帧标记位:高位=该帧由插件解析,低 7 位仍是内置协议编号
+/// (用于着色/过滤等场景的协议回退判定;比较时须先掩掉高位,如 (p & 0x7F) == kProtocolXxx)
+constexpr quint8 kProtocolPluginBit = 0x80;
 
 /// @brief Wireshark 风格 PacketList 的一行条目
 struct PacketEntry {
@@ -305,6 +356,7 @@ struct PacketEntry {
     int          msdu_raw_base;///< MSDU body 在 raw_bytes 中的偏移;-1=不在本帧(跨帧重组)
     QByteArray   raw_bytes;    ///< 原始字节,用于 HexView 显示
     QString      search_text;  ///< 可搜索全文缓存(小写;make_entry/反序列化时填充,过滤匹配用)
+    QVector<DissectField> dissect_fields; ///< 插件通用字段树(内置解析为空;仅协议树视图消费,不落盘)
 
     PacketEntry()
         : index(0), epoch_ms(0), delta_us(0), accepted(false),
@@ -357,7 +409,7 @@ inline QString dir_display(const PacketEntry& e) {
         return QStringLiteral("\u2191") + (relay ? QStringLiteral("R") : QString())
                + QString::number(hops) + QStringLiteral("\u2192");
     if (bcast && bdir == 0) {       // 双向/保留:国网表7 0=双向 / 南网表7 0=保留(非上下行)
-        if (e.protocol == kProtocolNw2021)   // 南网:0=保留 → *
+        if ((e.protocol & 0x7F) == kProtocolNw2021 || (e.protocol & 0x7F) == kProtocolNw2026)   // 南网:0=保留 → *(掩掉插件位后比较)
             return QStringLiteral("*");
         return (relay ? QStringLiteral("R") : QString())
                + QString::number(hops) + QStringLiteral("\u2192");  // 国网:0=双向 → [R]N→

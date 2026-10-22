@@ -64,7 +64,7 @@ QDataStream& operator<<(QDataStream& out, const MpduInfo& m) {
         << m.pb_num << m.symbol_num
         << m.bc_flag << m.re_send_flag << m.encryp_flag
         << m.tmi << m.tmi_ext << m.pb_size
-        << m.fch_crc_ok << m.pb_crc_ok << m.pb_index << m.pb_head
+        << m.fch_crc_ok << m.pb_crc_ok << m.pb_head
         << m.pb_heads << m.pb_crc_oks
         << m.beacon_timestamp << m.beacon_line
         << m.beacon_type << m.beacon_netsn << m.beacon_cco_mac
@@ -73,12 +73,12 @@ QDataStream& operator<<(QDataStream& out, const MpduInfo& m) {
         << m.coord_duration << m.coord_shift << m.coord_neighbour_nid
         << m.coord_rf_channel << m.coord_rsv0 << m.coord_rsv1
         << m.coord_rsv2 << m.coord_rsv3
-        << m.coord_band_end_flag << m.coord_option
+        << m.coord_band_end_flag
         << m.coord_band_end_offset << m.coord_band_start_offset
         << m.ack_ext_type << m.ack_rx_res << m.ack_rx_status << m.ack_rx_pb_num
         << m.ack_rsv0 << m.ack_channel_quality << m.ack_sta_load << m.ack_rsv1
         << m.ack_dst_addr
-        << m.ack_search_tei << m.ack_search_freq
+        << m.ack_search_tei
         << m.ack_sync_timestamp << m.ack_sync_tei
         << m.pb_num_field    // v3 新增字段(追加末尾,见 plugin_ipc::kWireFormatVersion)
         << m.beacon_rsv      // v4 新增字段(信标保留原始值,见 plugin_ipc::kWireFormatVersion)
@@ -92,7 +92,7 @@ QDataStream& operator>>(QDataStream& in, MpduInfo& m) {
        >> m.pb_num >> m.symbol_num
        >> m.bc_flag >> m.re_send_flag >> m.encryp_flag
        >> m.tmi >> m.tmi_ext >> m.pb_size
-       >> m.fch_crc_ok >> m.pb_crc_ok >> m.pb_index >> m.pb_head
+       >> m.fch_crc_ok >> m.pb_crc_ok >> m.pb_head
        >> m.pb_heads >> m.pb_crc_oks
        >> m.beacon_timestamp >> m.beacon_line
        >> m.beacon_type >> m.beacon_netsn >> m.beacon_cco_mac
@@ -101,12 +101,12 @@ QDataStream& operator>>(QDataStream& in, MpduInfo& m) {
        >> m.coord_duration >> m.coord_shift >> m.coord_neighbour_nid
        >> m.coord_rf_channel >> m.coord_rsv0 >> m.coord_rsv1
        >> m.coord_rsv2 >> m.coord_rsv3
-       >> m.coord_band_end_flag >> m.coord_option
+       >> m.coord_band_end_flag
        >> m.coord_band_end_offset >> m.coord_band_start_offset
        >> m.ack_ext_type >> m.ack_rx_res >> m.ack_rx_status >> m.ack_rx_pb_num
        >> m.ack_rsv0 >> m.ack_channel_quality >> m.ack_sta_load >> m.ack_rsv1
        >> m.ack_dst_addr
-       >> m.ack_search_tei >> m.ack_search_freq
+       >> m.ack_search_tei
        >> m.ack_sync_timestamp >> m.ack_sync_tei
        >> m.pb_num_field
        >> m.beacon_rsv
@@ -187,12 +187,23 @@ QDataStream& operator>>(QDataStream& in, MsduInfo& m) {
     return in;
 }
 
+// ---- DissectField (递归;插件通用字段树) ----
+QDataStream& operator<<(QDataStream& out, const DissectField& f) {
+    out << f.name << f.value << f.start << f.len << f.severity << f.children;
+    return out;
+}
+QDataStream& operator>>(QDataStream& in, DissectField& f) {
+    in >> f.name >> f.value >> f.start >> f.len >> f.severity >> f.children;
+    return in;
+}
+
 // ---- ParseResult ----
 QDataStream& operator<<(QDataStream& out, const ParseResult& r) {
     out << r.meta << r.mpdu << r.msdu_body << r.msdu
         << r.msdu_raw_base << r.beacon << r.arrival_us
         << r.raw_wire << r.accept << r.reject_reason << r.payload_for_log
-        << static_cast<quint8>(r.protocol);   // v2 新增字段(格式版本见 plugin_ipc::kWireFormatVersion)
+        << static_cast<quint8>(r.protocol)    // v2 新增字段(格式版本见 plugin_ipc::kWireFormatVersion)
+        << r.dissect_fields;                  // v7:插件通用字段树(内置解析器恒为空)
     return out;
 }
 QDataStream& operator>>(QDataStream& in, ParseResult& r) {
@@ -201,7 +212,10 @@ QDataStream& operator>>(QDataStream& in, ParseResult& r) {
        >> r.raw_wire >> r.accept >> r.reject_reason >> r.payload_for_log;
     quint8 proto = 0;
     in >> proto;
-    r.protocol = static_cast<ProtocolVariant>(proto);
+    // 插件结果成型点(IPC 反序列化后、交给上层前):置插件位(高位=插件解析),
+    // 低 7 位保留插件声明的内置协议编号供着色/过滤回退;此处唯一置位,不重复
+    r.protocol = static_cast<ProtocolVariant>(proto | kProtocolPluginBit);
+    in >> r.dissect_fields;                   // v7
     return in;
 }
 
