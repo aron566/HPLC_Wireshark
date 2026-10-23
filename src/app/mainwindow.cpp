@@ -930,7 +930,15 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
         // - 国网(GW_2022)关联确认/代理变更确认:解析层已从「链路类型」字段判定
         //   (is_rf + is_rf_known 已填);其余帧保持默认载波(is_rf_known=false)
         // - 南网(NW_2021/NW_2026):无链路类型字段,统一用物理层介质 meta.is_rf 判定
-        if ((e.protocol & 0x7F) == kProtocolNw2021 || (e.protocol & 0x7F) == kProtocolNw2026) {
+        if (te.link_type >= 0) {
+            // 帧内链路类型(表79/表160)优先:0=高速载波链路 1=无线链路
+            te.is_rf = (te.link_type == 1);
+            te.is_rf_known = true;
+        } else if ((e.protocol & 0x7F) == kProtocolNw2021 || (e.protocol & 0x7F) == kProtocolNw2026) {
+            te.is_rf = e.meta.is_rf;
+            te.is_rf_known = true;
+        } else if (!te.is_rf_known) {
+            // 其余(国网解析层未判定的帧):物理媒介兜底;解析层已判定的保持原值
             te.is_rf = e.meta.is_rf;
             te.is_rf_known = true;
         }
@@ -942,6 +950,33 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
         // 拓扑窗口节流刷新:仅置脏标志,由 TopoWindow 定时器批量刷新(防高频卡顿)
         // (历史回放模式下 mark_dirty 会被 TopoWindow 忽略,保持冻结)
         if (m_topo_window)
+            m_topo_window->mark_dirty();
+    }
+    // TOPO 接入方式盲区修复(方案②,用户拍板):非事件帧也更新 is_rf,
+    // 但仅节点首次出现或 is_rf 未判定时写入(避免高频重写 last_seen 等字段);
+    // 来源:物理媒介(链路类型字段已在事件帧/解析层优先判定)。
+    // is_rf 权威来源 = 帧内链路类型(A+C 批);无链路类型时用首次出现的物理媒介兜底并定住,
+    // 已确定后不再被后续帧覆盖(防双模设备载波+无线并存时拓扑颜色跳变)
+    {
+        bool topo_touched = false;
+        auto ts_it = m_topo_states.find(e.mpdu.net_id);   // find 不新建空状态
+        if (ts_it != m_topo_states.end()) {
+            TopoState& ts = ts_it.value();
+            // FCH TEI 源优先/目的兜底(覆盖无 MSDU 的帧)
+            const quint16 t = e.mpdu.src_tei ? e.mpdu.src_tei : e.mpdu.dst_tei;
+            if (ts.note_frame_medium(t, e.meta.is_rf)) topo_touched = true;
+            // 正在入网节点(pending,按 MAC):同样仅未判定时写入
+            if (e.msdu.msdu_src_mac) {
+                auto pit = ts.pending.find(e.msdu.msdu_src_mac);
+                if (pit != ts.pending.end() && !pit.value().is_rf_known) {
+                    pit.value().is_rf = e.meta.is_rf;
+                    pit.value().is_rf_known = true;
+                    topo_touched = true;
+                }
+            }
+        }
+        // 实际发生接入方式写入才刷新拓扑窗口(节流语义与事件帧一致)
+        if (topo_touched && m_topo_window)
             m_topo_window->mark_dirty();
     }
     e.search_text = make_search_text(e);   // 缓存可搜索全文,过滤匹配复用

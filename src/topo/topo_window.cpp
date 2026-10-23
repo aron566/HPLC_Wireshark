@@ -196,6 +196,7 @@ struct I18nRegTopoWindow {
         trl::register_en("上行成功率", "Uplink success rate");
         trl::register_en("通讯成功率: 暂无上报", "Comm success rate: no report yet");
         trl::register_en("接入方式", "Link");
+        trl::register_en("信号强度", "Signal Strength");
         trl::register_en("载波", "PLC");
         trl::register_en("实时", "Live");
         trl::register_en("历史回放", "History replay");
@@ -439,6 +440,9 @@ void TopoGraphWidget::show_node_tip(const QPoint& global_pos, quint16 tei, quint
     lines << (node->mac ? format_mac(node->mac) : QStringLiteral("MAC ?"));
     lines << QStringLiteral("%1: %2").arg(trl::L("接入方式"),
         node->is_rf ? QStringLiteral("RF") : trl::L("载波"));
+    // 无线信号强度(仅 RF 帧携带过信号强度时显示;dBm 为档位下限估计)
+    if (node->rssi_known)
+        lines << QStringLiteral("%1: %2 dBm").arg(trl::L("信号强度")).arg(node->rssi_dbm);
 
     if (tei != 1) {
         // 上级(代理)
