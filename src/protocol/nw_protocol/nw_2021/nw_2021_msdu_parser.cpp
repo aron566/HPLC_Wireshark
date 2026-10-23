@@ -79,6 +79,8 @@ static const char* kRouteTypeZh[] = {
 static const char* kDeviceTypeZh[] = {
     nullptr, "抄控器", "集中器通信模块", "单相电表通信模块", "中继器",
     "II型采集器", "I型采集器", "三相表通信模块" };
+
+static const char* const kLinkTypeZh[] = { "高速载波链路", "无线链路" };
 /// MAC 地址类型(表46:0 电能表地址 1 模块本身MAC 2 采集器地址)
 static const char* kMACAddrTypeZh[] = { "电能表地址", "模块本身MAC地址", "采集器地址" };
 /// 代理类型(表50/63:0x1 保留 0x2 动态代理)
@@ -324,6 +326,10 @@ struct MMeI18nReg {
         trl::register_en("允许接入网络", "allow network access");
         trl::register_en("认证失败", "authentication failed");
         trl::register_en("在位图(第%1字节)", "in bitmap (byte %1)");
+        trl::register_en("SNID[%1]", "SNID[%1]");
+        trl::register_en("子站点 TEI=%1", "SubSTA TEI=%1");
+        trl::register_en("可发现站点 TEI=%1", "DiscoverableSTA TEI=%1");
+        trl::register_en("发现站点 TEI=%1", "DiscoverySTA TEI=%1");
         trl::register_en("Neighbor[%1] TEI=%2 (位图 byte %3 bit %4)", "Neighbor[%1] TEI=%2 (bitmap byte %3 bit %4)");
         trl::register_en("未接入网络,需要重新接入网络", "not joined, rejoin required");
         trl::register_en("不在认证名单中", "not in authentication list");
@@ -393,6 +399,8 @@ static void append_msdu_crc(MsduInfo& out, const QByteArray& body, int payload_s
     crc.rel_len   = available;
     if (available == 4) {
         const quint32 stored = (quint32)get_bits(body, crc_off, 0, 32);
+// crc32_le 内部遍历 len-4 字节;此处传 载荷+4(全长)即校验载荷区,
+// 末 4B 为本 CRC 自身(crc.h 约定,勿传 payload_len/msdu_len 否则少算 4B)
         const quint32 calc = crc32_le(reinterpret_cast<const quint8*>(body.constData()) + payload_start,
                                      payload_len + 4);
         crc.value = QStringLiteral("0x%1 %2").arg(stored, 8, 16, QChar('0'))
@@ -448,7 +456,10 @@ static const FieldSpec kMMeAssocCnfSpec[] = {
     { "TotalPacketNum", 12, 0, 8, Fmt::DEC },
     { "PacketIndex", 13, 0, 8, Fmt::DEC },
     { "LastPacketFlag", 14, 0, 8, Fmt::DEC },
-    { "RSV1", 15, 0, 8, Fmt::HEX4 },
+    // 链路类型(BPLC 表160:byte15 1bit,0=高速载波链路 1=无线链路)+载波频段 2bit+保留 5bit
+    { "LinkType", 15, 0, 1, Fmt::DEC },
+    { "CarrierFreq", 15, 1, 2, Fmt::DEC },
+    { "RSV1", 15, 3, 5, Fmt::HEX4 },
     { "STAAssocRandomData", 16, 0, 32, Fmt::DEC },
     { "STAReAssocTime", 20, 0, 32, Fmt::DEC },
     { "EndSequence", 24, 0, 32, Fmt::DEC },
@@ -487,7 +498,11 @@ static const FieldSpec kMMeAssocIndSpec[] = {
     { "CCOMACAddr", 8, 0, 48, Fmt::MAC },
     { "STATEI", 14, 0, 16, Fmt::DEC },
     { "ProxyTEI", 16, 0, 16, Fmt::DEC },
-    { "RSV1", 18, 0, 24, Fmt::HEX4 },
+        // 链路类型(BPLC 表177:byte18 1bit,0=高速载波链路 1=无线链路(表160))+载波频段 2bit
+    // +保留(byte18 剩余 5bit + byte19-20 共 21bit 连续)
+    { "LinkType",    18, 0, 1,  Fmt::DEC },
+    { "CarrierFreq", 18, 1, 2,  Fmt::DEC },
+    { "RSV1",        18, 3, 21, Fmt::HEX4 },
     { "PacketIndex", 21, 0, 8, Fmt::DEC },
     { "TotalPacketNum", 22, 0, 8, Fmt::DEC },
     { "LastPacketFlag", 23, 0, 8, Fmt::DEC },
@@ -537,7 +552,9 @@ static const FieldSpec kMMeChangeProxyBitMapCnfSpec[] = {
 };
 static const int kMMeChangeProxyBitMapCnfSpecN = int(sizeof(kMMeChangeProxyBitMapCnfSpec)/sizeof(kMMeChangeProxyBitMapCnfSpec[0]));
 static const FieldSpec kMMeChangeProxyBitMapCnfTailSpec[] = {
-    { "RSV0", 139, 0, 8, Fmt::HEX4 },
+    // 链路类型(BPLC 表160:byte139 1bit)+保留 7bit
+    { "LinkType", 139, 0, 1, Fmt::DEC },
+    { "RSV0", 139, 1, 7, Fmt::HEX4 },
     { "EndSequence", 140, 0, 32, Fmt::DEC },
     { "PathSequence", 144, 0, 32, Fmt::DEC },
 };
@@ -817,7 +834,7 @@ static QString rssi_meaning(quint32 bits, quint64 v) {
 static int render_ch_entry(QVector<MsduFieldNode>& nodes, const QByteArray& c, int bitpos,
                            const QString& label, int rel_base,
                            int tei_bits, quint16 tei, int snr_bits, int rssi_bits,
-                           int rcv_bits = 8) {
+                           int rcv_bits = 8, QVector<QPair<quint16, int>>* rssi_out = nullptr) {
     const int total = tei_bits + rcv_bits + snr_bits + rssi_bits;
     if (bitpos + total > c.size() * 8) return 0;
     const int b0 = bitpos / 8, bi = bitpos % 8;
@@ -854,12 +871,16 @@ static int render_ch_entry(QVector<MsduFieldNode>& nodes, const QByteArray& c, i
                              : QStringLiteral("%1 %2").arg(v).arg(rssi_meaning(rssi_bits, v)));
         o += rssi_bits;
         s.rel_start = rel_base + b0; s.rel_len = (bi + o + 7) / 8;
+        // 拓扑采集:该邻居信号强度(dBm 档位下限估计;RF 发现列表上下文由调用方传入)
+        if (rssi_out && tei)
+            rssi_out->append({tei, rssi_bits_to_dbm(rssi_bits, v)});
     }
     return total;
 }
 
 // 邻居节点信道信息非位图版(表219/220):组合类型(0,0,4)+保留(0,4,4) + 每邻居 TEI12b+接收率8b+[SNR]+[强度]
-static void parse_channel_non_bitmap(QVector<MsduFieldNode>& nodes, const QByteArray& c, int rel_base) {
+static void parse_channel_non_bitmap(QVector<MsduFieldNode>& nodes, const QByteArray& c, int rel_base,
+                                  QVector<QPair<quint16, int>>* rssi_out = nullptr) {
     if (c.size() < 1) return;
     const quint8 combo = (quint8)get_bits(c, 0, 0, 4);
     if (combo > 3) return;   // 表220 仅定义 0-3
@@ -887,7 +908,7 @@ static void parse_channel_non_bitmap(QVector<MsduFieldNode>& nodes, const QByteA
         const quint16 tei = (quint16)get_bits(c, b0, bi, 12);
         const int used = render_ch_entry(nodes, c, bitpos + 12,
             QStringLiteral("Neighbor[%1] TEI=%2").arg(idx).arg(tei),
-            rel_base, 0, 0, snr_bits, rssi_bits);
+            rel_base, 0, tei, snr_bits, rssi_bits, 8, rssi_out);
         if (used <= 0) break;
         bitpos += 12 + used;
     }
@@ -896,7 +917,8 @@ static void parse_channel_non_bitmap(QVector<MsduFieldNode>& nodes, const QByteA
 // 邻居节点信道信息位图版(表226/227):组合类型+保留 + 一组或多组 [起始TEI12b+保留4b+位图大小1B+位图+条目]
 // 表227 接收率恒 8bit(0-5 全 8);可变接收率是国网表77 的语义,勿混入南网
 static const int kChBitmapRcvBits[6] = { 8, 8, 8, 8, 8, 8 };
-static void parse_channel_bitmap(QVector<MsduFieldNode>& nodes, const QByteArray& c, int rel_base) {
+static void parse_channel_bitmap(QVector<MsduFieldNode>& nodes, const QByteArray& c, int rel_base,
+                                QVector<QPair<quint16, int>>* rssi_out = nullptr) {
     if (c.size() < 4) return;
     const quint8 combo = (quint8)get_bits(c, 0, 0, 4);
     if (combo > 5) return;   // 表227 仅定义 0-5
@@ -957,7 +979,7 @@ static void parse_channel_bitmap(QVector<MsduFieldNode>& nodes, const QByteArray
             const int used = render_ch_entry(g.children, c, bitpos,
                 trl::L("Neighbor[%1] TEI=%2 (位图 byte %3 bit %4)")
                     .arg(entry_idx).arg(start_tei + k).arg(k >> 3).arg(k & 7),
-                rel_base, 0, 0, snr_bits, rssi_bits, rcv_bits);
+                rel_base, 0, start_tei + k, snr_bits, rssi_bits, rcv_bits, rssi_out);
             if (used <= 0) break;
             bitpos += used;
             ++entry_idx;
@@ -1358,8 +1380,10 @@ static void parse_rf_discover_list(MsduInfo& out, const QByteArray& msdu, int re
         switch (type7) {
             case 0:  parse_sta_attr_info(g.children, content, rel_base + content_start); break;
             case 1:  parse_sta_route_info(g.children, content, rel_base + content_start); break;
-            case 2:  parse_channel_non_bitmap(g.children, content, rel_base + content_start); break;
-            case 3:  parse_channel_bitmap(g.children, content, rel_base + content_start); break;
+            case 2:  parse_channel_non_bitmap(g.children, content, rel_base + content_start,
+                                              &out.topo_event.rssi_entries); break;
+            case 3:  parse_channel_bitmap(g.children, content, rel_base + content_start,
+                                          &out.topo_event.rssi_entries); break;
             default: {
                 MsduFieldNode& ct = group(g.children, QStringLiteral("Content [%1 B]").arg(len),
                     QString::fromLatin1(content.toHex(' ').toUpper()));
@@ -1607,6 +1631,9 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case NW_2021_MMeType::MME_ASSOCCNF: {
             add_fields(out.tree, mme, 6, kMMeAssocCnfSpec, kMMeAssocCnfSpecN, mme_rel_base);
+            // 拓扑:帧内链路类型(BPLC 表160:0=高速载波链路 1=无线链路)——接入方式判定用
+            out.topo_event.link_type = (int)get_bits(mme, 21, 0, 1);   // spec byte15 为相对 MMe 体,含 6B 头 → mme[21]
+            translate_enum_i18n(out.tree, "LinkType", kLinkTypeZh, 2);
             // 拓扑事件:关联确认(STA 入网 + 代理);仅成功(0=成功,0x0A=再次入网成功)时更新拓扑
             {
                 const quint8 assoc_res = (quint8)get_bits(mme, 12, 0, 8);
@@ -1683,6 +1710,9 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         }
         case NW_2021_MMeType::MME_ASSOCIND: {
             add_fields(out.tree, mme, 6, kMMeAssocIndSpec, kMMeAssocIndSpecN, mme_rel_base);
+            // 拓扑:帧内链路类型(BPLC 表160:0=高速载波链路 1=无线链路)——接入方式判定用
+            out.topo_event.link_type = (int)get_bits(mme, 24, 0, 1);   // spec byte18 为相对 MMe 体,含 6B 头 → mme[24]
+            translate_enum_i18n(out.tree, "LinkType", kLinkTypeZh, 2);
             // 拓扑事件:关联指示(语义等同关联确认);仅成功(0=成功,0x0A=再次入网)时更新拓扑
             {
                 const quint8 assoc_res = (quint8)get_bits(mme, 6, 0, 8);
@@ -1808,24 +1838,25 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 const bool bm_ok = (bmres == 0);
                 int bm_cnt = 0;
                 if (bm_ok) out.topo_event.kind = TopoEventKind::ChangeProxyCnf;
+                // 子站点位图逐位(仅 bit=1):绝对 TEI 位图,起始 TEI=0,
+                // TEI = 字节号*8 + 位号,LSB 在前;值标注该 bit 所在的字节号
                 for (int i = 0; i < 130; ++i) {
                     const quint8 byte = (quint8)mme[bm_base + i];
                     if (byte == 0) continue;   // 空字节不显示
-                    QStringList teis;
                     for (int j = 0; j < 8; ++j) {
                         if (!(byte & (1u << j))) continue;
                         const quint16 ctei = (quint16)(8 * i + j);
-                        teis << QStringLiteral("TEI%1").arg(ctei);
+                        out.topo_event.child_teis.append(ctei);   // 绝对 TEI 位图 bit0=TEI 0 合法,不跳过   // 子站点表(TopoState 按链路类型更新接入方式)
                         if (bm_ok && ctei && bmproxy_tei) {
                             out.topo_event.routes.append({ctei, bmproxy_tei});
                             ++bm_cnt;
                         }
+                        MsduFieldNode bn;
+                        bn.name = trl::L("子站点 TEI=%1").arg(ctei);
+                        bn.value = trl::L("在位图(第%1字节)").arg(i);
+                        bn.rel_start = mme_rel_base + (bm_base + i); bn.rel_len = 1;
+                        bmg.children.append(bn);
                     }
-                    MsduFieldNode bl;
-                    bl.name = QStringLiteral("bitmap[%1][8b]").arg(i);   // 当前字节在 bitmap 中的索引
-                    bl.value = teis.join(QStringLiteral(", "));
-                    bl.rel_start = mme_rel_base + (bm_base + i); bl.rel_len = 1;
-                    bmg.children.append(bl);
                 }
                 if (bm_ok) {
                     out.topo_event.desc = trl::L("代理变更(批量): %1 个站点代理→%2")
@@ -1835,6 +1866,9 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             }
             // 尾段(保留 byte 139 + 端到端/路径序列号)排在位图块之后,与字节序一致
             add_fields(out.tree, mme, 6, kMMeChangeProxyBitMapCnfTailSpec, kMMeChangeProxyBitMapCnfTailSpecN, mme_rel_base);
+            // 拓扑:帧内链路类型(BPLC 表160:byte139)
+            out.topo_event.link_type = (int)get_bits(mme, 145, 0, 1);   // spec byte139 为相对 MMe 体,含 6B 头 → mme[145]
+            translate_enum_i18n(out.tree, "LinkType", kLinkTypeZh, 2);
             break;
         }
         case NW_2021_MMeType::MME_LEAVEIND: {
@@ -1858,18 +1892,19 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 auto& bmg = group(out.tree, QStringLiteral("DiscoverableSTA BitMap [130B]"));
                 const int bm_base = 14;  // mme[14] = MMe头6B + 固定头8B(OSTEI2+DCTEI2+DCount4)
                 bmg.rel_start = mme_rel_base + bm_base; bmg.rel_len = 130;
+                // 可发现站点位图逐位(仅 bit=1):绝对 TEI 位图,起始 TEI=0,
+                // TEI = 字节号*8 + 位号,LSB 在前;值标注该 bit 所在的字节号
                 for (int i = 0; i < 130; ++i) {
                     const quint8 byte = (quint8)mme[bm_base + i];
                     if (byte == 0) continue;   // 空字节不显示
-                    QStringList teis;
                     for (int j = 0; j < 8; ++j) {
-                        if (byte & (1u << j)) teis << QStringLiteral("TEI%1").arg(8 * i + j);
+                        if (!(byte & (1u << j))) continue;
+                        MsduFieldNode bn;
+                        bn.name = trl::L("可发现站点 TEI=%1").arg(8 * i + j);
+                        bn.value = trl::L("在位图(第%1字节)").arg(i);
+                        bn.rel_start = mme_rel_base + (bm_base + i); bn.rel_len = 1;
+                        bmg.children.append(bn);
                     }
-                    MsduFieldNode bl;
-                    bl.name = QStringLiteral("bitmap[%1][8b]").arg(i);
-                    bl.value = teis.join(QStringLiteral(", "));
-                    bl.rel_start = mme_rel_base + (bm_base + i); bl.rel_len = 1;
-                    bmg.children.append(bl);
                 }
                 // 保留(byte 138,1B)
                 MsduFieldNode rsv;
@@ -1994,16 +2029,22 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             }
             // 逐字节显示(空字节不显示,非空字节按 bitmap[索引][8b] 显示,对应 hex 高亮)
             auto& bmg = group(out.tree,
-                QStringLiteral("DiscoverySTAList BitMap [%1b]").arg(bm.size()));
+                QStringLiteral("DiscoverySTAList BitMap [%1B]").arg(bm.size()));
             // 组节点覆盖整个 bitmap 区域,点击高亮全部所属字节
             if (bm_base >= 0) { bmg.rel_start = mme_rel_base + bm_base; bmg.rel_len = bm.size(); }
+            // 发现站点列表位图逐位(仅 bit=1):绝对 TEI 位图,起始 TEI=0(文档:
+            // "从0字节开始第一个有效 TEI"),TEI = 字节号*8 + 位号,LSB 在前;
+            // 值标注该 bit 所在的字节号;配套 ReceivedDiscoveryInfo 为逐置位 TEI 计数表
             for (int i = 0; i < bm.size(); ++i) {
                 if (per_byte[i].isEmpty()) continue;   // 空字节不显示
-                MsduFieldNode bl;
-                bl.name = QStringLiteral("bitmap[%1][8b]").arg(i);   // 当前字节在 bitmap 中的索引
-                bl.value = per_byte[i].join(QStringLiteral(", "));
-                if (bm_base >= 0) { bl.rel_start = mme_rel_base + (bm_base + i); bl.rel_len = 1; }
-                bmg.children.append(bl);
+                for (int j = 0; j < 8; ++j) {
+                    if (!((quint8)bm[i] & (1u << j))) continue;
+                    MsduFieldNode bn;
+                    bn.name = trl::L("发现站点 TEI=%1").arg(8 * i + j);
+                    bn.value = trl::L("在位图(第%1字节)").arg(i);
+                    if (bm_base >= 0) { bn.rel_start = mme_rel_base + (bm_base + i); bn.rel_len = 1; }
+                    bmg.children.append(bn);
+                }
             }
             // 收到发现列表信息(置位 TEI 各一条,1B 计数)
             QByteArray cnts;
@@ -2121,6 +2162,32 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
         case NW_2021_MMeType::MME_NETWORKCONFLICTREPORT: {
             // 网络冲突上报(第2部分无线表204,固定体 9B):冲突网络 CCO MAC + 邻居网络个数 + SNID 位图
             add_fields(out.tree, mme, 6, kMMeNetworkConflictReportSpec, kMMeNetworkConflictReportSpecN, mme_rel_base);
+            // NeighborSNIDBitmap 逐位(仅 bit=1):每位对应一个 SNID(绝对,起始 0,
+            // 文档"1bit 置位表明可探测到周边 SNID 为 1 的网络"),SNID = 字节号*8+位号,
+            // LSB 在前;值标注该 bit 所在的字节号
+            // NeighborSNIDBitmap 逐位(仅 bit=1):每位对应一个 SNID(绝对,起始 0,
+            // 文档"1bit 置位表明可探测到周边 SNID 为 1 的网络"),SNID = 字节号*8+位号,
+            // LSB 在前;值标注该 bit 所在的字节号。固定体最后一项即 SNID 位图,
+            // 直接取 out.tree.last() 引用回填(勿按名匹配 add_fields 产物,其名含 [16b] 后缀)
+            {
+                const int nb_off = 6 + 7;   // mme[13] = MMe 头 6B + 固定体 MAC6+Num1 之后
+                if (mme.size() >= nb_off + 2 && !out.tree.isEmpty()) {
+                    const quint16 bm16 = (quint16)get_bits(mme, nb_off, 0, 16);
+                    MsduFieldNode& snid_node = out.tree.last();
+                    if (snid_node.name.startsWith(QLatin1String("NeighborSNIDBitmap"))) {
+                        for (int k = 0; k < 16; ++k) {
+                            if (!((bm16 >> k) & 1)) continue;
+                            MsduFieldNode sn;
+                            sn.name = trl::L("SNID[%1]").arg(k);
+                            sn.value = trl::L("在位图(第%1字节)").arg(k / 8);
+                            sn.rel_start = mme_rel_base + nb_off + (k / 8);
+                            sn.rel_len = 1;
+                            snid_node.children.append(sn);
+                        }
+                    }
+                }
+            }
+
             break;
         }
         case NW_2021_MMeType::MME_RFCHANNELCONFLICTREPORT: {

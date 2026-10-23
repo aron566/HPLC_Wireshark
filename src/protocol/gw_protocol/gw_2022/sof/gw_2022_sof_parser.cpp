@@ -87,6 +87,8 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
         }
         const quint8* blk =
             reinterpret_cast<const quint8*>(body.constData()) + block_start;
+// crc24_lsb 内部遍历 len-3 字节;此处传 pb_size(全长)即校验块头+块体+尾保留,
+// 末 3B 为本 CRC 自身(crc.h 约定,勿传 pb_size-3 否则少算 3B)
         quint32 calc = crc24_lsb(blk, info.pb_size);
         quint32 rx   = (quint32)blk[info.pb_size - 3]
                      | ((quint32)blk[info.pb_size - 2] << 8)

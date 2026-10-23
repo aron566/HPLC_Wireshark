@@ -25,6 +25,9 @@ struct TopoNode {
     NodeStatus status = NodeStatus::OnlineGoing;
     qint64  last_seen_ms = 0;
     bool    is_rf = false;            ///< 接入方式:false=PLC 载波;true=HRF 无线
+    bool    is_rf_known = false;      ///< is_rf 是否已判定(方案②:仅首次/未知时写入,防事件帧外高频重写)
+    int     rssi_dbm = 0;             ///< 无线信号强度(dBm 估计,档位下限;RF 发现列表信道信息)
+    bool    rssi_known = false;       ///< rssi_dbm 是否有效(RF 帧携带过信号强度)
 
     /// @brief 是否在线(非离线)
     bool online() const { return status != NodeStatus::Offline; }
@@ -46,7 +49,19 @@ public:
     QVector<TopoEvent> events;      ///< 路由变更事件(时间序,供底部表格)
 
     /// @brief 应用一个拓扑事件,增量更新节点/路由/入网状态并记录事件
-    void apply(const TopoEvent& e);
+        /// @brief 逐帧接入方式兜底(方案②):仅对"已存在且接入方式未确定"的节点写入
+    /// @note  不建占位节点(避免数据帧/广播帧在拓扑里凭空生成 TEI 节点);不覆盖已确定值(防双模抖动)
+    /// @return 是否实际发生写入(UI 刷新节流用)
+    bool note_frame_medium(quint16 tei, bool is_rf) {
+        if (!tei || tei == 0xFFFF) return false;
+        auto it = nodes.find(tei);
+        if (it == nodes.end()) return false;   // 节点不存在 → 不建(等事件帧创建)
+        if (it->is_rf_known) return false;     // 已确定 → 不覆盖(双模设备会来回跳)
+        it->is_rf = is_rf;
+        it->is_rf_known = true;
+        return true;
+    }
+void apply(const TopoEvent& e);
 
     /// @brief 计算各节点层级(从 CCO=0 沿父链向下;不可达=-1)
     QHash<quint16, int> compute_levels() const;

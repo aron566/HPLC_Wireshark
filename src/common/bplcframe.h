@@ -230,6 +230,23 @@ struct CommRateInfo {
 
 /// @brief 从一帧管理消息提取的拓扑事件(协议无关;协议解析器在关键帧填充,
 ///        拓扑窗口消费。kind==Other 表示非拓扑相关帧)
+/// @brief 信号强度量化值 → dBm 估计(取所在档位下限;RSSI 标注函数的数值版)
+/// @details 8bit 表148:RSSI = v-111;4bit 表149:档位下限查表(0 档取 -105,15 档取 0);
+///          6bit 表225:档位下限 -110+2(v-1)(0 档取 -110,63 档取 14)
+inline int rssi_bits_to_dbm(int width, quint64 v) {
+    if (width == 8) return int(v) - 111;
+    if (width == 4) {
+        static const int kLo[14] = {-105, -95, -86, -80, -74, -68, -62,
+                                    -56, -48, -42, -36, -30, -20, -10};
+        if (v == 0)  return -105;
+        if (v >= 15) return 0;
+        return kLo[v - 1];
+    }
+    if (v == 0)  return -110;
+    if (v >= 63) return 14;
+    return -110 + 2 * int(v) - 2;
+}
+
 struct TopoEvent {
     TopoEventKind kind = TopoEventKind::Other;
     quint32 nid = 0;
@@ -243,6 +260,9 @@ struct TopoEvent {
     QVector<CommRateInfo> comm_rates;           ///< 成功率上报条目(SuccessRate 事件)
     bool is_rf = false;                         ///< 接入方式:false=PLC 载波;true=HRF 无线
     bool is_rf_known = false;                   ///< is_rf 是否明确判定(链路类型字段/物理层介质);false=未知(默认载波)
+    QVector<QPair<quint16, int>> rssi_entries;  ///< 邻居信号强度(TEI→dBm 估计;RF 发现列表信道信息,dBm 取档位下限)
+    int link_type = -1;                         ///< 链路类型(表79/表160:0=高速载波链路 1=无线链路;-1=帧内无此字段)
+    QVector<quint16> child_teis;                ///< 子站点 TEI 列表(代理变更确认 0x003B 位图置位)
     int restart_count = -1;                     ///< 发送方重启次数(南网 MAC 帧头 4-bit;-1=未知/无)
     QString desc;                               ///< 变更说明(路由变更了什么)
     qint64 epoch_ms = 0;                        ///< 时间点(epoch ms)
@@ -277,6 +297,7 @@ Q_DECLARE_METATYPE(BplcFrame)
 
 /// @brief MSDU 解析结果(由 GW_2022_MsduParser 填充)
 struct MsduInfo {
+    int cascade_break_len = 0;  ///< 聚合:级联流中声明长度越界的级联数据块长度(0=无;树层标注用)
     bool    present;         ///< 本帧携带完整 MSDU(重组完成)
     bool    simple_head;     ///< 是否为 MSDU_BASE_S 简头(单跳)
     quint16 msdu_seq;        ///< MSDU 序号(MSDU_BASE 的 MSDUIndex,16-bit)

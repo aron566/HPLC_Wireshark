@@ -174,7 +174,7 @@ void TopoState::apply(const TopoEvent& e) {
             n.mac = p.mac;
             n.status = NodeStatus::OnlineGoing;
             n.last_seen_ms = e.epoch_ms;
-            if (e.is_rf_known) n.is_rf = e.is_rf;
+            if (e.is_rf_known) { n.is_rf = e.is_rf; n.is_rf_known = true; }
             pending[p.mac] = n;
             continue;
         }
@@ -184,7 +184,7 @@ void TopoState::apply(const TopoEvent& e) {
         n.mac = p.mac;
         n.status = status_for(e.kind);
         n.last_seen_ms = e.epoch_ms;
-        if (e.is_rf_known) n.is_rf = e.is_rf;
+        if (e.is_rf_known) { n.is_rf = e.is_rf; n.is_rf_known = true; }
         // 若该 MAC 之前正在入网(关联请求),现已分配到 TEI → 移除 pending。
         // pending 的 key 恒等于 TopoNode.mac(写入处 pending[p.mac]=n),等价于哈希直接删除。
         pending.remove(p.mac);
@@ -197,7 +197,26 @@ void TopoState::apply(const TopoEvent& e) {
         n.parent_tei = r.second;
         n.status = status_for(e.kind);
         n.last_seen_ms = e.epoch_ms;
-        if (e.is_rf_known) n.is_rf = e.is_rf;
+        if (e.is_rf_known) { n.is_rf = e.is_rf; n.is_rf_known = true; }
+    }
+    // 邻居信号强度(RF 发现列表信道信息):仅更新已存在节点,不为纯 RSSI 建占位
+    for (const auto& r : e.rssi_entries) {
+        auto nit = nodes.find(r.first);
+        if (nit == nodes.end()) continue;
+        nit.value().rssi_dbm = r.second;
+        nit.value().rssi_known = true;
+    }
+    // 子站点表(代理变更确认 0x003B 位图):按帧内链路类型更新各子站点接入方式;
+    // 节点不存在时建占位(parent 未知),后续关联/发现事件再补全 MAC/父节点
+    if (e.link_type >= 0) {
+        for (quint16 ctei : e.child_teis) {
+            if (!ctei || ctei == 0xFFFF) continue;   // 0=根(CCO 自身);0xFFFF=未知,均不建节点
+            TopoNode& n = nodes[ctei];
+            n.tei = ctei;
+            if (n.last_seen_ms == 0) n.last_seen_ms = e.epoch_ms;
+            n.is_rf = (e.link_type == 1);
+            n.is_rf_known = true;   // 帧内链路类型明确判定
+        }
     }
     // 离网节点(按 MAC 匹配,标记离线):先走 MAC→TEI 索引 O(1),索引不一致时回退线性扫描
     for (quint64 mac : e.leaves) {

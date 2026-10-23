@@ -63,6 +63,8 @@ struct AssembleResult {
     QVector<CascadeMac> cascade;   ///< 聚合级联拆分结果(any_aggregated 时有效)
     int cascade_used = 0;          ///< 聚合:级联记录流有效长度(逐条 2+级联数据块长度
                                    ///< 累加,不含块体尾填充;非聚合=0)
+    int cascade_break_declared_len = 0; ///< 聚合:级联 while 因"声明长度越界/非法"终止时,
+                                        ///< 记录该条声明的级联数据块长度(截断/损坏线索;0=正常结束)
 };
 
 /// @brief 逐块 CRC24 + 块体提取 + 聚合级联拆分
@@ -90,6 +92,8 @@ inline AssembleResult assemble_pb_blocks(const QByteArray& raw, int pb_num,
         }
         const quint8* blk = reinterpret_cast<const quint8*>(raw.constData())
                             + block_start;
+// crc24_lsb 内部遍历 len-3 字节;此处传 pb_size(全长)即校验块头+块体+尾保留,
+// 末 3B 为本 CRC 自身(crc.h 约定,勿传 pb_size-3 否则少算 3B)
         const quint32 calc = crc24_lsb(blk, pb_size);
         const quint32 rx   = (quint32)blk[crc_at]
                            | ((quint32)blk[crc_at + 1] << 8)
@@ -114,8 +118,10 @@ inline AssembleResult assemble_pb_blocks(const QByteArray& raw, int pb_num,
         while (o + 2 <= res.msdu_body.size()) {
             const int clen = (quint8)res.msdu_body[o]
                            | (((quint8)res.msdu_body[o + 1] & 0x0F) << 8);
-            if (clen <= 0 || o + 2 + clen > res.msdu_body.size())
-                break;   // 截断/长度非法防御
+            if (clen <= 0 || o + 2 + clen > res.msdu_body.size()) {
+                res.cascade_break_declared_len = clen;   // 截断/长度非法:记录声明值供树层标注
+                break;
+            }
             CascadeMac c;
             c.body_start = o;
             c.mac_len    = clen;

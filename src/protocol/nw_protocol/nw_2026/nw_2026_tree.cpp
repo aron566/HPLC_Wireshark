@@ -12,6 +12,10 @@ struct I18nReg {
     I18nReg() {
         trl::register_en("保留", "reserved");
         trl::register_en("级联体流 %1 B · %2", "Cascade body stream %1 B · %2");
+        trl::register_en("PB 块不完整", "PB blocks incomplete");
+        trl::register_en("声明 %1 块 / 实收 %2 块", "declared %1 / received %2");
+        trl::register_en(" (超出级联流范围, 已停止解析)", " (beyond cascade stream, parsing stopped)");
+        trl::register_en("不完整(无法校验)", "incomplete (cannot verify)");
         trl::register_en("级联体流长度", "Cascade Body Length");
         trl::register_en("0 B (训练帧无数据物理块, 表26)", "0 B (no data PB for training frame, Table 26)");
         trl::register_en("保留(按选择确认帧解析)", "Reserved (parsed as selective ACK)");
@@ -509,8 +513,11 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             const int pb_num     = (e.mpdu.pb_num > 0) ? e.mpdu.pb_num : 1;
             // DL-OFDMA 帧 PB 块自 32 起(FCH 16 + eFC 16B);普通帧自 16 起
             const bool ofdma_pb = (e.mpdu.version == 2) && (raw_sz > 4) && ((d[4] & 0x01) != 0);
+            int pb_received = 0;   // 完整容纳块数(截断提示"实收"依据)
             for (int bi = 0; bi < pb_num; ++bi) {
                 const int blk_off = (ofdma_pb ? 32 : 16) + bi * e.mpdu.pb_size;
+                const bool blk_incomplete = (blk_off + e.mpdu.pb_size > raw_sz);
+                if (!blk_incomplete) ++pb_received;
                 const bool multi = pb_num > 1;
                 bool agg = false;   // 聚合标志(表47 byte2 bit0):1=体首含级联头(表48)
                 // PB Header(4B:序列号 16b + 聚合标志 1b + 保留 15b,表47)
@@ -569,8 +576,12 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     if (agg && raw_sz >= blk_off + header_len + 2) {
                         const int c0 = blk_off + header_len;
                         const int clen = d[c0] | ((d[c0 + 1] & 0x0F) << 8);
+                        // 不完整块的级联头声明长度不可信(流在该块前已终止),标注提示
                         tree_add_bit_field(pb, "Cascade Len (12b)",
-                            QStringLiteral("%1 B").arg(clen), c0, 0, 12);
+                            QStringLiteral("%1 B").arg(clen)
+                                + (blk_incomplete
+                                   ? trl::L(" (超出级联流范围, 已停止解析)") : QString()),
+                            c0, 0, 12);
                         tree_add_bit_field(pb, "Cascade Start Flag",
                             ((d[c0 + 1] >> 4) & 0x01)
                                 ? QStringLiteral("1 - %1").arg(trl::L("聚合首块"))
@@ -612,13 +623,18 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 bool okb = (bi < e.mpdu.pb_crc_oks.size())
                                ? e.mpdu.pb_crc_oks[bi]
                                : e.mpdu.pb_crc_ok;
+                // 块不完整时未计算 CRC,显式标注(勿误报 OK);不设 rel(避免高亮到不存在的字节)
                 tree_add_item(sof,
                     multi ? QStringLiteral("PB CRC24 (block %1/%2)").arg(bi).arg(pb_num)
                           : QStringLiteral("PB CRC24"),
                     have ? QStringLiteral("0x%1 %2").arg(crc, 6, 16, QChar('0')).arg(okb ? "OK" : "FAIL")
-                         : (okb ? QStringLiteral("OK") : QStringLiteral("FAIL")),
-                    blk_off + e.mpdu.pb_size - 3, 3);
+                         : trl::L("不完整(无法校验)"),
+                    have ? (blk_off + e.mpdu.pb_size - 3) : -1, 3);
             }
+            // 截断提示节点:声明块数 > 实收块数时在 PB 区末尾标注(不标红,仅提示)
+            if (pb_received < pb_num)
+                tree_add_item(sof, trl::L("PB 块不完整"),
+                    trl::L("声明 %1 块 / 实收 %2 块").arg(pb_num).arg(pb_received));
             }   // 非训练帧 PB 渲染(训练帧走上方说明节点)
         }
 

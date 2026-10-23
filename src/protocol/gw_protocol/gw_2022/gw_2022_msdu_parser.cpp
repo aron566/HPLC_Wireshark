@@ -692,10 +692,12 @@ static void rfdl_bit_field(MsduFieldNode& parent, const char* name,
 /// 渲染一条邻居信道信息(位流内,自 bitpos 起),返回下一条起始位
 static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
                                int bitpos, const RfdlChCombo& cb,
-                               int cbase_abs, bool has_tei) {
+                               int cbase_abs, bool has_tei,
+                               quint16 tei = 0,
+                               QVector<QPair<quint16, int>>* rssi_out = nullptr) {
     int bp = bitpos;
     if (has_tei) {
-        const quint16 tei = (quint16)get_bits(c, bp / 8, bp % 8, 12);
+        tei = (quint16)get_bits(c, bp / 8, bp % 8, 12);   // 非位图:TEI 在条目内,覆盖调用方传入值
         rfdl_bit_field(parent, "TEI", c, bp, 12, cbase_abs, QString::number(tei));
         bp += 12;
     }
@@ -747,6 +749,18 @@ static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
             if (v == 0)       rv = QStringLiteral("%1 (RSSI≤-105dBm)").arg(v);
             else if (v == 15) rv = QStringLiteral("%1 (RSSI>0dBm)").arg(v);
             else              rv = QStringLiteral("%1 (RSSI=%2~%3dBm)").arg(v).arg(kLo[v - 1]).arg(kHi[v - 1]);
+        }
+        // 拓扑采集:该邻居信号强度 dBm(档位下限;gw_2022 单簇映射与文案一致)
+        if (rssi_out && tei) {
+            int dbm = 0;
+            if (cb.rssi == 8)      dbm = int(v) - 110;
+            else if (cb.rssi == 6) dbm = (v == 0) ? -110 : int(v) * 2 - 110;
+            else {                 // 表134(4bit)档位下限
+                static const int kLo[14] = {-105, -95, -86, -80, -74, -68, -62,
+                                            -56, -48, -42, -36, -30, -20, -10};
+                dbm = (v == 0) ? -105 : (v >= 15 ? 0 : kLo[v - 1]);
+            }
+            rssi_out->append({tei, dbm});
         }
         rfdl_bit_field(parent, "RSSI", c, bp, cb.rssi, cbase_abs, rv);
         bp += cb.rssi;
@@ -875,7 +889,8 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
             int i = 0;
             while (bitpos + entry_bits <= total_bits) {
                 auto& e = group(g.children, QStringLiteral("Neighbor[%1]").arg(i));
-                bitpos = rfdl_neighbour_bits(e, content, bitpos, cb, content_abs, /*has_tei=*/true);
+                bitpos = rfdl_neighbour_bits(e, content, bitpos, cb, content_abs, /*has_tei=*/true,
+                                     0, &out.topo_event.rssi_entries);
                 ++i;
             }
             break;
@@ -963,7 +978,9 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
                     if (bitpos + entry_bits > total_bits) break;
                     auto& e = group(kg.children, trl::L("Neighbor[%1] (位图 byte %2 bit %3)")
                         .arg(i).arg(bm_pos[i].first).arg(bm_pos[i].second));
-                    bitpos = rfdl_neighbour_bits(e, content, bitpos, cb, content_abs, /*has_tei=*/false);
+                    const quint16 ntei = (quint16)(start_tei + bm_pos[i].first * 8 + bm_pos[i].second);
+                    bitpos = rfdl_neighbour_bits(e, content, bitpos, cb, content_abs, /*has_tei=*/false,
+                                                 ntei, &out.topo_event.rssi_entries);
                 }
                 off = (bitpos + 7) / 8;   // 下一组自本组实际消费末尾起(截断时按已解析推进)
                 ++k;
@@ -1559,7 +1576,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 if (!bm_any) {
                     // 全 0(如 bitmap size=1 且 bitmap[0]=0)→ NULL
                     MsduFieldNode bl;
-                    bl.name = QStringLiteral("DiscoverySTAList BitMap [%1b]")
+                    bl.name = QStringLiteral("DiscoverySTAList BitMap [%1B]")
                                   .arg(bm.size());
                     bl.value = QStringLiteral("NULL");
                     if (bm_base >= 0) { bl.rel_start = bm_base; bl.rel_len = bm.size(); }
@@ -1567,7 +1584,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 } else {
                     // 逐字节一行:DiscoverySTABitMap[i] [8b] = TEI0, TEI7 …
                     auto& bmg = group(root.children,
-                                      QStringLiteral("DiscoverySTAList BitMap [%1b]")
+                                      QStringLiteral("DiscoverySTAList BitMap [%1B]")
                                           .arg(bm.size()));
                     for (int i = 0; i < bm.size(); ++i) {
                         if (per_byte[i].isEmpty()) continue;   // 空字节跳过
@@ -2050,6 +2067,8 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 | ((quint32)(quint8)body[crc_off + 1] << 8)
                 | ((quint32)(quint8)body[crc_off + 2] << 16)
                 | ((quint32)(quint8)body[crc_off + 3] << 24);
+// crc32_le 内部遍历 len-4 字节;此处传 载荷+4(全长)即校验载荷区,
+// 末 4B 为本 CRC 自身(crc.h 约定,勿传 payload_len/msdu_len 否则少算 4B)
             quint32 calc = crc32_le(
                 reinterpret_cast<const quint8*>(msdu_body.constData()),
                 msdu_len + 4);

@@ -101,6 +101,8 @@ bool NW_2021_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QSt
     if (body.size() < 16) { err = trl::L("MPDU_BASE 长度不足 16B"); return false; }
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
 
+// crc24_lsb 内部遍历 len-3 字节;此处传 16(FCH 全长)即校验前 13B,
+// 末 3B 为本 CRC 自身(crc.h 约定,勿传 13 否则少算 3B)
     quint32 calc_crc = crc24_lsb(p, 16);
     quint32 fch_crc  = (quint32)p[13] | ((quint32)p[14] << 8) | ((quint32)p[15] << 16);
     info.fch_crc_ok = (calc_crc == fch_crc);
@@ -222,6 +224,8 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
                 // PB CRC24:覆盖 PB 头 + 块体 + 保留字节(块内前 pb_size-3 字节,表7)
                 const quint8* blk = reinterpret_cast<const quint8*>(
                     r.payload_for_log.constData()) + block_start;
+// crc24_lsb 内部遍历 len-3 字节;此处传 pb_size(全长)即校验块头+块体+尾保留,
+// 末 3B 为本 CRC 自身(crc.h 约定,勿传 pb_size-3 否则少算 3B)
                 const quint32 calc = crc24_lsb(blk, r.mpdu.pb_size);
                 const quint32 rx = (quint32)blk[r.mpdu.pb_size - 3]
                                  | ((quint32)blk[r.mpdu.pb_size - 2] << 8)

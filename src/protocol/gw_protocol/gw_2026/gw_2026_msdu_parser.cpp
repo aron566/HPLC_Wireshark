@@ -616,10 +616,12 @@ static void rfdl_bit_field(MsduFieldNode& parent, const char* name,
 /// 调用方须保证 bitpos+整条位宽不越界(本函数不做边界检查,与 get_bits 一致)
 static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
                                int bitpos, const RfdlChCombo& cb,
-                               int cbase_abs, bool has_tei, bool carrier) {
+                               int cbase_abs, bool has_tei, bool carrier,
+                               quint16 tei = 0,
+                               QVector<QPair<quint16, int>>* rssi_out = nullptr) {
     int bp = bitpos;
     if (has_tei) {
-        const quint16 tei = (quint16)get_bits(c, bp / 8, bp % 8, 12);
+        tei = (quint16)get_bits(c, bp / 8, bp % 8, 12);   // 非位图:TEI 在条目内,覆盖调用方传入值
         rfdl_bit_field(parent, "TEI", c, bp, 12, cbase_abs, QString::number(tei));
         bp += 12;
     }
@@ -660,6 +662,23 @@ static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
         // RSSI 映射两簇不同(勿混):无线=表99(8bit 量化值=RSSI+110)/表100(4bit 非均匀,-105 起)/表101(6bit 2dB 步进,-110 起);
         // 载波=表72(8bit 量化值=RSSI+100,-100 起)/表73(4bit 非均匀,-95 起)/表74(6bit 2dB 步进,-100 起)
         const quint64 v = get_bits(c, bp / 8, bp % 8, cb.rssi);
+        // 拓扑采集:该邻居信号强度 dBm(档位下限;gw 两簇映射与文案一致)
+        if (rssi_out && tei) {
+            int dbm = 0;
+            if (cb.rssi == 8)      dbm = int(v) - (carrier ? 100 : 110);
+            else if (cb.rssi == 6) dbm = (v == 0) ? -(carrier ? 100 : 110)
+                                                  : int(v) * 2 - (carrier ? 100 : 110);
+            else if (carrier) {    // 表73(载波 4bit)档位下限
+                static const int kLo[14] = {-95, -86, -80, -74, -68, -62, -56,
+                                            -48, -42, -36, -30, -20, -10, 0};
+                dbm = (v == 0) ? -95 : (v >= 15 ? 10 : kLo[v - 1]);
+            } else {               // 表100(无线 4bit)档位下限
+                static const int kLo[14] = {-105, -95, -86, -80, -74, -68, -62,
+                                            -56, -48, -42, -36, -30, -20, -10};
+                dbm = (v == 0) ? -105 : (v >= 15 ? 0 : kLo[v - 1]);
+            }
+            rssi_out->append({tei, dbm});
+        }
         QString rv;
         if (cb.rssi == 8) {
             rv = QStringLiteral("%1 (RSSI=%2dBm)").arg(v).arg(int(v) - (carrier ? 100 : 110));
@@ -833,7 +852,8 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
             int i = 0;
             while (bitpos + entry_bits <= total_bits) {
                 auto& e = group(g.children, QStringLiteral("Neighbor[%1]").arg(i));
-                bitpos = rfdl_neighbour_bits(e, content, bitpos, cb, content_abs, /*has_tei=*/true, carrier);
+                bitpos = rfdl_neighbour_bits(e, content, bitpos, cb, content_abs, /*has_tei=*/true, carrier,
+                                             0, &out.topo_event.rssi_entries);
                 ++i;
             }
             break;
@@ -926,7 +946,10 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
                     if (bitpos + entry_bits > total_bits) break;
                     auto& e = group(kg.children, trl::L("Neighbor[%1] (位图 byte %2 bit %3)")
                         .arg(i).arg(bm_pos[i].first).arg(bm_pos[i].second));
-                    bitpos = rfdl_neighbour_bits(e, content, bitpos, cb, content_abs, /*has_tei=*/false, carrier);
+                    const quint16 ntei = (quint16)(start_tei
+                        + bm_pos[i].first * 8 + bm_pos[i].second);
+                    bitpos = rfdl_neighbour_bits(e, content, bitpos, cb, content_abs, /*has_tei=*/false, carrier,
+                                                 ntei, &out.topo_event.rssi_entries);
                 }
                 off = (bitpos + 7) / 8;   // 下一组自本组实际消费末尾起(截断时按已解析推进)
                 ++k;
@@ -998,16 +1021,48 @@ static void parse_channel_eval(MsduInfo& out, const QByteArray& c, int rel_base)
     s3.rel_start = rel_base + off + 1; s3.rel_len = 1;
     MsduFieldNode& s4 = group(sc.children, QStringLiteral("Data Payload Gain [4b]"), QString::number(gain));
     s4.rel_start = rel_base + off + 1; s4.rel_len = 1;
-    // 表107/表108:段个数(4b/5b)+保留,自 SAT 配置 byte2 起,后随 N+1 段位图;剩余字节 hex 兜底
+    // 表107(子载波选择表,基线源 260823 原文):"子载波段个数 4bit……此字段表示有(N+1)个
+    // 连续子载波段","子载波段0..N 各 8bit,每个 bit 对应 1 个子载波组,0 不使用/1 使用"
+    // → 段索引从 0 起(无起始段字段),逐位=子载波组使能位图;表108 每组 2bit 为阶数值,非位图
     const int seg_cnt_bits = (sat_mode == 0) ? 4 : 5;
     if (sat.size() >= 3) {
         const int seg_cnt = (int)get_bits(sat, 2, 0, seg_cnt_bits) + 1;
-        const int tbl_bytes = 1 + seg_cnt;  // 段数字节 + N+1 段
+        const int tbl_bytes = qMin(1 + seg_cnt, sat.size() - 2);  // 段数字节 + N+1 段
         MsduFieldNode& st = group(sc.children,
             QStringLiteral("%1 [%2 seg]").arg(sat_mode == 0
                 ? QStringLiteral("Subcarrier Select") : QStringLiteral("Bit Loading")).arg(seg_cnt),
-            QString::fromLatin1(sat.mid(2, qMin(tbl_bytes, sat.size() - 2)).toHex(' ').toUpper()));
-        st.rel_start = rel_base + off + 2; st.rel_len = qMin(tbl_bytes, sat.size() - 2);
+            QString::fromLatin1(sat.mid(2, tbl_bytes).toHex(' ').toUpper()));
+        st.rel_start = rel_base + off + 2; st.rel_len = tbl_bytes;
+        if (sat_mode == 0) {
+            // 子载波段 k(=字节序号) 内 bit j → 子载波组 k*8+j;仅列使用(bit=1),
+            // 值标注该 bit 所在的字节号(=段号);LSB 在前
+            for (int k = 0; k < tbl_bytes - 1; ++k) {
+                const quint8 byte = (quint8)sat[3 + k];   // sat[2]=段数字节,段自 sat[3] 起
+                for (int j = 0; j < 8; ++j) {
+                    if (!(byte & (1u << j))) continue;
+                    MsduFieldNode sn;
+                    sn.name = trl::L("Segment[%1]").arg(k * 8 + j);
+                    sn.value = trl::L("在位图(第%1字节)").arg(k);
+                    sn.rel_start = rel_base + off + 3 + k; sn.rel_len = 1;
+                    st.children.append(sn);
+                }
+            }
+        } else {
+            // 表108(比特加载表):每 2bit 一个子载波组的阶数值(0-3,非位图,逐组列值)
+            for (int k = 0; k < tbl_bytes - 1; ++k) {
+                const quint8 byte = (quint8)sat[3 + k];
+                // 阶数含义(表108/表156 同口径):0 不使用 1 BPSK 2 QPSK 3 16QAM
+                static const char* const kBitLoadZh[] = { "不使用", "BPSK", "QPSK", "16QAM" };
+                for (int j = 0; j < 4; ++j) {
+                    const int v = (byte >> (2 * j)) & 0x03;
+                    MsduFieldNode sn;
+                    sn.name = trl::L("Group[%1]").arg(k * 4 + j);
+                    sn.value = QStringLiteral("%1 - %2").arg(v).arg(trl::L(kBitLoadZh[v]));
+                    sn.rel_start = rel_base + off + 3 + k; sn.rel_len = 1;
+                    st.children.append(sn);
+                }
+            }
+        }
     }
 }
 
@@ -1963,6 +2018,8 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                 | ((quint32)(quint8)body[crc_off + 1] << 8)
                 | ((quint32)(quint8)body[crc_off + 2] << 16)
                 | ((quint32)(quint8)body[crc_off + 3] << 24);
+// crc32_le 内部遍历 len-4 字节;此处传 载荷+4(全长)即校验载荷区,
+// 末 4B 为本 CRC 自身(crc.h 约定,勿传 payload_len/msdu_len 否则少算 4B)
             quint32 calc = crc32_le(
                 reinterpret_cast<const quint8*>(msdu_body.constData()),
                 msdu_len + 4);
@@ -1987,6 +2044,12 @@ struct I18nReg {
     I18nReg() {
         trl::register_en("网络诊断", "MMeDiagnose");
         trl::register_en("在位图(第%1字节)", "in bitmap (byte %1)");
+        trl::register_en("Segment[%1]", "Segment[%1]");
+        trl::register_en("Group[%1]", "Group[%1]");
+        trl::register_en("不使用", "unused");
+        trl::register_en("BPSK", "BPSK");
+        trl::register_en("QPSK", "QPSK");
+        trl::register_en("16QAM", "16QAM");
         trl::register_en("Neighbor[%1] (位图 byte %2 bit %3)", "Neighbor[%1] (bitmap byte %2 bit %3)");
         trl::register_en("保留(0x08)", "Reserved(0x08)");
         trl::register_en("关联确认", "MMeAssocCnf");

@@ -626,6 +626,8 @@ MsduInfo NW_2026_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
         quint32 stored = (quint32)blk[pbsize - 3]
                        | ((quint32)blk[pbsize - 2] << 8)
                        | ((quint32)blk[pbsize - 1] << 16);
+// crc24_lsb 内部遍历 len-3 字节;此处传 pb_size(全长)即校验块头+块体+尾保留,
+// 末 3B 为本 CRC 自身(crc.h 约定,勿传 pb_size-3 否则少算 3B)
         const bool ok24 = (stored == crc24_lsb(blk, pbsize));
         MsduFieldNode pbc;
         pbc.name      = QStringLiteral("PB CRC24");
