@@ -209,7 +209,9 @@ local msdu_type_vals = {
     [0] = T("网络管理消息", "Network management message"), [48] = T("应用层报文", "Application layer packet"), [49] = T("IP 报文", "IP packet"),
 }
 local msg_type_vals = {
-    [0] = T("发现列表消息", "Discovery list message"), [128] = T("应用层报文", "Application layer packet"), [129] = T("IPv4 报文", "IPv4 packet"),
+    [0] = T("发现列表消息", "Discovery list message"), [1] = T("信道评估参数更新", "Channel evaluation param update"),
+    [2] = T("载波发现列表消息", "Carrier discovery list message"),
+    [128] = T("应用层报文", "Application layer packet"), [129] = T("IPv4 报文", "IPv4 packet"),
 }
 -- 应用层报文 APP_BASE: 端口号 / 报文ID (依据 Qt 监控器 msduparser.cpp)
 local app_port_vals = {
@@ -643,6 +645,16 @@ f.dl_min_rate = ProtoField.uint8 ("gw_2022.dl.min_rate", T("最小通信成功�
 f.dl_next_hop_tei = ProtoField.uint16 ("gw_2022.dl.next_hop_tei", T("下一跳站点TEI", "Next Hop STA TEI"), base.DEC)
 f.dl_route_type = ProtoField.uint8 ("gw_2022.dl.route_type", T("路由类型", "Route Type"), base.DEC, route_type_vals, 0xF0)
 f.dl_disc_bmp = ProtoField.bytes ("gw_2022.dl.disc_bmp", T("发现站点列表位图", "Discovery STA List Bitmap"), base.NONE)
+-- HDC 2.0 信道评估参数更新报文(表105-108, 单跳帧消息类型1)
+f.ce_bru_valid = ProtoField.uint8 ("gw_2022.ce.bru_valid", T("BRUSNR 有效标志", "BRUSNR Valid Flag"), base.DEC, nil, 0x01)
+f.ce_sat_len = ProtoField.uint8 ("gw_2022.ce.sat_len", T("SAT 配置长度", "SAT Config Length"), base.DEC, nil, 0xFE)
+f.ce_sat_id = ProtoField.uint8 ("gw_2022.ce.sat_id", T("SAT ID", "SAT ID"), base.DEC, nil, 0x01)
+f.ce_sat_mode = ProtoField.uint8 ("gw_2022.ce.sat_mode", T("SAT 模式", "SAT Mode"), base.DEC, {
+    [0] = T("子载波选择表", "Subcarrier select table"), [1] = T("比特加载表", "Bit-load table") })
+f.ce_grp_size = ProtoField.uint8 ("gw_2022.ce.grp_size", T("单子载波组大小", "Subcarrier group size"), base.DEC)
+f.ce_tmi = ProtoField.uint8 ("gw_2022.ce.tmi", T("TMI", "TMI"), base.DEC)
+f.ce_gain = ProtoField.uint8 ("gw_2022.ce.gain", T("数据载荷增益", "Data payload gain"), base.DEC)
+f.ce_table = ProtoField.bytes ("gw_2022.ce.table", T("SAT 配置表", "SAT Config Table"), base.NONE)
 f.dl_rcv_cnt = ProtoField.uint8 ("gw_2022.dl.rcv_cnt", T("接收发现列表数", "Received Discovery List Count"), base.DEC)
 f.dl_rcv_item = ProtoField.string ("gw_2022.dl.rcv_item", T("接收发现列表数(按TEI)", "Received Discovery List Count (by TEI)"))
 
@@ -849,6 +861,8 @@ gw.fields = {
     f.rfdl_grp_tei, f.rfdl_grp_size, f.rfdl_grp_bitmap,
     f.app_port, f.app_packet_id, f.app_ctrl_word, f.app_payload,
     f.bmp_byte,
+    f.ce_bru_valid, f.ce_sat_len, f.ce_sat_id, f.ce_sat_mode,
+    f.ce_grp_size, f.ce_tmi, f.ce_gain, f.ce_table,
 }
 
 -- =========================================================================
@@ -1695,8 +1709,9 @@ local rfdl_combo_bitmap = {
 }
 -- 渲染一条邻居信道信息(位流), 返回下一条起始位(1.0 无线:SNR 表131/132=2.0 表97/98、
 -- RSSI 表133/135=2.0 表99/101、RSSI 4bit 表134=2.0 表100)
-local function rfdl_neighbour(tree, tvb, bitpos, cb, has_tei, tei, idx)
-    local ntree = tree:add(gw, string.format(T("Neighbor[%d]", "Neighbor[%d]"), idx))
+local function rfdl_neighbour(tree, tvb, bitpos, cb, has_tei, tei, idx, loc_sfx, carrier)
+    local ntree = tree:add(gw, string.format(T("Neighbor[%d]", "Neighbor[%d]"), idx)
+        .. (loc_sfx or ""))
     local bp = bitpos
     if has_tei then
         add_val(ntree, f.rfdl_nbr_tei, tvb, math.floor(bp / 8), 2, tei)
@@ -1730,16 +1745,29 @@ local function rfdl_neighbour(tree, tvb, bitpos, cb, has_tei, tei, idx)
     end
     if cb[3] > 0 then
         local v = read_bits(tvb, bp, cb[3])
-        -- RSSI 映射(无线,表133 8bit v=RSSI+110 / 表135 6bit 2dB 步进 -110 起 / 表134 4bit 硬编码)
+        -- RSSI 映射:无线=表99(8bit v-110)/表100(4bit)/表101(6bit 2v-110);
+        --            载波=表72(8bit v-100)/表73(4bit)/表74(6bit 2v-100)
         local it = add_val(ntree, f.rfdl_nbr_rssi, tvb, math.floor(bp / 8), 2, v)
         local note
         if cb[3] == 8 then
-            note = string.format(T("(RSSI=%ddBm)", "(RSSI=%ddBm)"), v - 110)
+            note = string.format(T("(RSSI=%ddBm)", "(RSSI=%ddBm)"), v - (carrier and 100 or 110))
         elseif cb[3] == 6 then
-            note = (v == 0) and T("(RSSI≤-110dBm)", "(RSSI≤-110dBm)")
-                   or string.format(T("(RSSI %d~%ddBm)", "(RSSI %d~%d dBm)"), v * 2 - 110, v * 2 - 108)
+            local base = carrier and 100 or 110
+            note = (v == 0) and string.format(T("(RSSI≤-%ddBm)", "(RSSI≤-%ddBm)"), base)
+                   or string.format(T("(RSSI %d~%ddBm)", "(RSSI %d~%d dBm)"), v * 2 - base, v * 2 - base + 2)
+        elseif carrier then
+            -- 表73(载波 4bit):0=RSSI≤-95;1:-95~-86;2:-86~-80;…14:0~10;15=RSSI>10 (dBm)
+            local lo_hi = { {-95,-86},{-86,-80},{-80,-74},{-74,-68},{-68,-62},
+                            {-62,-56},{-56,-48},{-48,-42},{-42,-36},{-36,-30},{-30,-20},{-20,-10},{-10,0},{0,10} }
+            if v == 0 then
+                note = T("(RSSI≤-95dBm)", "(RSSI≤-95dBm)")
+            elseif v == 15 then
+                note = T("(RSSI>10dBm)", "(RSSI>10dBm)")
+            else
+                note = string.format(T("(RSSI %d~%ddBm)", "(RSSI %d~%d dBm)"), lo_hi[v][1], lo_hi[v][2])
+            end
         else
-            -- 表134 4bit:0=RSSI≤-105;1:-105~-95;…14:-10~0;15=RSSI>0 (dBm)
+            -- 表100(无线 4bit):0=RSSI≤-105;1:-105~-95;…14:-10~0;15=RSSI>0 (dBm)
             local lo_hi = { {-105,-95},{-95,-86},{-86,-80},{-80,-74},{-74,-68},{-68,-62},
                             {-62,-56},{-56,-48},{-48,-42},{-42,-36},{-36,-30},{-30,-20},{-20,-10},{-10,0} }
             if v == 0 then
@@ -1758,7 +1786,7 @@ end
 
 -- IE 内容按类型解析(表124):0 站点属性(表126,14B)/1 站点路由(表127)/
 -- 2 邻居信道非位图(表128/129)/3 邻居信道位图(表136/137);其余类型仅显示内容 hex
-local function dissect_rfdl_ie_content(tree, tvb, pos, elen, ie_type)
+local function dissect_rfdl_ie_content(tree, tvb, pos, elen, ie_type, carrier)
     if elen <= 0 then return end
     local ok, err = pcall(function()
         if ie_type == 0 and elen >= 14 then
@@ -1808,7 +1836,7 @@ local function dissect_rfdl_ie_content(tree, tvb, pos, elen, ie_type)
             local i = 0
             while bitpos + entry_bits <= elen * 8 do
                 local tei = read_bits(tvb, bitpos, 12)
-                bitpos = rfdl_neighbour(tree, tvb, bitpos, cb, true, tei, i)
+                bitpos = rfdl_neighbour(tree, tvb, bitpos, cb, true, tei, i, nil, carrier)
                 i = i + 1
             end
         elseif ie_type == 3 then
@@ -1853,12 +1881,24 @@ local function dissect_rfdl_ie_content(tree, tvb, pos, elen, ie_type)
                     for j = 0, 7 do
                         if band(b, 2 ^ j) ~= 0 then
                             nk = nk + 1
-                            teis[#teis + 1] = tostring(start_tei + bi * 8 + j)
+                            teis[#teis + 1] = tostring(math.floor(start_tei + bi * 8 + j))
                         end
                     end
                 end
-                g:add(f.rfdl_grp_bitmap, bmp):
-                    append_text(string.format(" (TEI: %s)", #teis > 0 and table.concat(teis, ",") or "-"))
+                local bmp_item = g:add(f.rfdl_grp_bitmap, bmp)
+                bmp_item:append_text(string.format(" (TEI: %s)", #teis > 0 and table.concat(teis, ",") or "-"))
+                -- 位图逐位(仅 bit=1):值标注该 bit 所在的字节号,与 C++ 表136/137 一致
+                for bi2 = 0, bm_len - 1 do
+                    local b2 = tvb(pos+off+3+bi2, 1):uint()
+                    for j2 = 0, 7 do
+                        if band(b2, 2 ^ j2) ~= 0 then
+                            bmp_item:add(gw, tvb(pos+off+3+bi2, 1),
+                                string.format(T("Neighbor[%d] TEI=%d = 在位图(第%d字节)",
+                                                "Neighbor[%d] TEI=%d = in bitmap (byte %d)"),
+                                              bi2*8+j2, start_tei + bi2*8+j2, bi2))
+                        end
+                    end
+                end
                 local bitpos = (off + 3 + bm_len) * 8
                 local i = 0
                 for bi = 0, bm_len - 1 do
@@ -1868,7 +1908,8 @@ local function dissect_rfdl_ie_content(tree, tvb, pos, elen, ie_type)
                             if bitpos + entry_bits > elen * 8 then break end
                             -- rfdl_neighbour 返回绝对 bit 位, 换算回相对 pos 的位偏移
                             local absp = rfdl_neighbour(g, tvb, (pos*8) + bitpos, cb, false,
-                                start_tei + bi*8 + j, i)
+                                start_tei + bi*8 + j, i,
+                                string.format(T(" (位图 byte %d bit %d)", " (bitmap byte %d bit %d)"), bi, j), carrier)
                             bitpos = absp - pos*8
                             i = i + 1
                         end
@@ -1886,11 +1927,59 @@ local function dissect_rfdl_ie_content(tree, tvb, pos, elen, ie_type)
 end
 
 -- 无线发现列表 (表123 头 + 表124 IE 循环)
-local function dissect_rfdl(tvb, tree, off)
+-- 信道评估参数更新(表105-108, 单跳帧消息类型1):BRU SNR 有效标志+SAT 配置
+-- 表107(子载波选择表,1bit/组位图,段绝对索引起始0)/表108(2bit 阶数值:0 不使用 1 BPSK 2 QPSK 3 16QAM)
+local function dissect_channel_eval(tvb, tree, off)
+    tree:add(f.ce_bru_valid, tvb(off, 1))
+    tree:add(f.ce_sat_len, tvb(off, 1))
+    local sat_len = band(tvb(off, 1):uint(), 0xFE) / 2
+    local off2 = off + 1
+    if sat_len >= 3 and off2 + sat_len <= tvb:len() then
+        local sat = tvb(off2, sat_len)
+        local stree = tree:add(gw, sat, T("SAT 配置", "SAT Config"))
+        stree:add(f.ce_sat_id, sat(0, 1))
+        stree:add(f.ce_sat_mode, sat(0, 1))
+        stree:add(f.ce_grp_size, sat(0, 1))
+        stree:add(f.ce_tmi, sat(1, 1))
+        stree:add(f.ce_gain, sat(1, 1))
+        local mode = band(sat(0, 1):uint(), 0x02) / 2
+        local seg_bits = (mode == 0) and 4 or 5
+        local seg_cnt = read_bits(sat, 2*8, seg_bits) + 1
+        local tbl_bytes = math.min(1 + seg_cnt, sat_len - 2)
+        local tbl_item = stree:add(f.ce_table, sat(2, tbl_bytes)):
+            append_text(string.format(T(" [%d 段]", " [%d segments]"), seg_cnt))
+        local meaning = { T("不使用", "unused"), T("BPSK", "BPSK"), T("QPSK", "QPSK"), T("16QAM", "16QAM") }
+        for k = 0, tbl_bytes - 2 do
+            local b = sat(3 + k, 1):uint()
+            if mode == 0 then
+                -- 表107:子载波段 k(=字节序号) 内 bit j → 子载波组 k*8+j;仅列使用(bit=1)
+                for j = 0, 7 do
+                    if band(b, 2 ^ j) ~= 0 then
+                        tbl_item:add(gw, sat(3 + k, 1),
+                            string.format(T("Segment[%d] = 在位图(第%d字节)",
+                                            "Segment[%d] = in bitmap (byte %d)"), k * 8 + j, k))
+                    end
+                end
+            else
+                -- 表108:每 2bit 一个子载波组的阶数值(非位图,逐组列值)
+                for j = 0, 3 do
+                    local v = band(math.floor(b / 2 ^ (2 * j)), 0x03)   -- 每 2bit 一组,LSB 在前
+                    tbl_item:add(gw, sat(3 + k, 1),
+                        string.format(T("Group[%d] = %d - %s", "Group[%d] = %d - %s"),
+                                      k * 4 + j, v, meaning[v + 1]))
+                end
+            end
+        end
+    end
+end
+
+local function dissect_rfdl(tvb, tree, off, limit, carrier)
+    -- limit: 单跳 MSDU 结束(不含 PB 填充/CRC24),防把填充字节误解析为信息单元
+    limit = limit or tvb:len()
     tree:add(f.rfdl_sta_mac, tvb(off, 6))
     tree:add(f.rfdl_seq, tvb(off+6, 1))
     local pos = off + 7
-    while pos + 1 < tvb:len() do
+    while pos + 1 < limit do
         local ie_type = band(tvb(pos, 1):uint(), 0x7F)
         local ltype = band(tvb(pos, 1):uint(), 0x80)
         tree:add(f.rfdl_ie_type, tvb(pos, 1))
@@ -1908,7 +1997,7 @@ local function dissect_rfdl(tvb, tree, off)
         end
         if elen > 0 then
             local itree = tree:add(f.rfdl_ie_data, tvb(pos, elen))
-            dissect_rfdl_ie_content(itree, tvb, pos, elen, ie_type)
+            dissect_rfdl_ie_content(itree, tvb, pos, elen, ie_type, carrier)
         end
         pos = pos + elen
     end
@@ -2168,8 +2257,13 @@ function gw.dissector(tvb, pinfo, tree)
                 msdu_off = mac_off + hdr_len
                 -- 单跳帧: 消息类型0 = 无线发现列表
                 local msg_type = mac_tvb(mac_off+1, 1):uint()
-                if msg_type == 0 then
-                    dissect_rfdl(mac_tvb, mac_tree, msdu_off)
+                if msg_type == 0 or msg_type == 2 then
+                    -- 消息类型 0 = 无线发现列表 / 2 = 载波发现列表(结构同, 载波 RSSI 映射在 C++ topo_event 侧区分)
+                    local msdu_len = read_bits(mac_tvb, (msdu_off-2)*8, 11)
+                    dissect_rfdl(mac_tvb, mac_tree, msdu_off, msdu_off + msdu_len, msg_type == 2)
+                elseif msg_type == 1 then
+                    -- 信道评估参数更新(表105/106:BRU SNR + SAT 配置)
+                    dissect_channel_eval(mac_tvb, mac_tree, msdu_off)
                 end
                 return tvb:len()
             else

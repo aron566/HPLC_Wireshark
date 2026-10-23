@@ -239,6 +239,13 @@ holding the port; a parent-process watchdog now releases it within 0.5 s.
 **7. Multi-block frames: ICV failed / stray bytes inside the APP payload** — fixed by the
 block-body logical view (see Multi-block frames above).
 
+**8. Changes via `-X lua_script:` seem to have no effect**
+The installed copy under `%APPDATA%\Wireshark\plugins\` and the dev file passed to
+`-X lua_script:` register the **same Proto name and conflict** (`-X` load aborts; the
+installed copy wins — easily misread as "my change did nothing"). Before debugging with
+`-X`, `cp` the latest script into the plugins folder, or use `--persconf` with a separate
+config directory.
+
 ## Compatibility
 
 The script does not depend on the bit/bit32 library and does not use the native `&` operator

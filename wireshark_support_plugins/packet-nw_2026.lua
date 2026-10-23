@@ -8,9 +8,11 @@
     入口(重要): 本文件不注册 wtap_encap。packet-nw_2021.lua 的 nw.dissector 入口做版本
     分派(FCH byte12 高 nibble 标准版本号==2 即 SPLC), 整帧 Dissector.get("nw_2026"):call
     委托到本文件; 收到的 tvb 为裸 MPDU(FCH 16B 起, USER5 串口混合格式的 4B 媒介头已被
-    委托方剥离), tree 为根。版本=1(BPLC) 非聚合/0(保留) 的帧仍由 packet-nw_2021.lua 解析；
-    例外: 载波 SOF version≠2 但 PB 头聚合标志(表47 byte2 bit0)=1 的聚合 BPLC 帧经入口分派
-    进入本文件(BPLC 表20 布局 + 级联 MAC 帧拆分)。
+    委托方剥离), tree 为根。版本=1(BPLC)/0(保留) 帧仍由 packet-nw_2021.lua 解析, 但两类例外
+    经入口分派进入本文件本地解析: ① 载波 SOF version≠2 但 PB 头聚合标志(表47 byte2 bit0)=1
+    的聚合 BPLC 帧(BPLC 表20 布局 + 级联 MAC 帧拆分); ② 载波 SOF version=1 非聚合但承载
+    SPLC 扩展 MMe 0x0080-0x0085 的帧(实网设备以 version=1 承载 SPLC 表77 扩展消息,
+    BPLC 第2部分无定义, 预读 MSDU 帧类型/MMe 类型后分派)。
 
     与 BPLC(2021, packet-nw_2021.lua) 的主要差异:
       - SNID 5bit: 低4b 在 FCH(0,4,4), 高位按帧型合并(SOF/COORD 12,0,1 / 信标载波 12,1,1 /
@@ -2369,8 +2371,8 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
                                     for j2 = 0, 7 do
                                         if band(b2, 2 ^ j2) ~= 0 then
                                             bmp_item:add(nw, tvb(c0+off+3+bi2, 1),
-                                                string.format(T("Neighbor[%d] TEI=%d 在位图(第%d字节)",
-                                                                "Neighbor[%d] TEI=%d in bitmap (byte %d)"),
+                                                string.format(T("Neighbor[%d] TEI=%d = 在位图(第%d字节)",
+                                                                "Neighbor[%d] TEI=%d = in bitmap (byte %d)"),
                                                               bi2*8+j2, start_tei + bi2*8+j2, bi2))
                                         end
                                     end
@@ -2940,6 +2942,7 @@ end
 -- 注册: 本协议不注册 wtap_encap —— 入口为 packet-nw_2021.lua 的版本分派委托
 -- (FCH byte12 高 nibble==2 即 SPLC/NW_2026 时整帧 Dissector.get("nw_2026"):call),
 -- 收到的 tvb 为裸 MPDU(FCH 16B 起, USER5 的 4B 媒介头已剥离), tree 为根。
--- 版本=1(BPLC) 非聚合/0(保留) 的帧仍由 nw_2021 自行解析; 例外: 载波 SOF PB 头
--- 聚合标志(表47 byte2 bit0)=1 的聚合 BPLC 帧经入口分派进入本文件(BPLC 表20 布局)。
+-- 版本=1(BPLC)/0(保留) 帧仍由 nw_2021 自行解析, 但两类例外经入口分派进入本文件本地解析:
+-- ① 载波 SOF version≠2 但 PB 头聚合标志(表47 byte2 bit0)=1 的聚合 BPLC 帧(BPLC 表20 布局);
+-- ② 载波 SOF version=1 非聚合但承载 SPLC 扩展 MMe 0x0080-0x0085 的帧(表77 预读分派)。
 -- =========================================================================

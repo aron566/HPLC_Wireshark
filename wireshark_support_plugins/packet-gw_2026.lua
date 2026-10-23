@@ -2017,8 +2017,9 @@ local function rfdl_db_str(v32)
 end
 -- 渲染一条邻居信道信息(位流), 返回下一条起始位; 调用方保证不越界
 -- (树节点字节范围按 bitpos 取整: rel_start=floor(bp/8), rel_len=ceil((bp%8+bits)/8))
-local function rfdl_neighbour(tree, tvb, bitpos, cb, has_tei, tei, idx, carrier)
-    local ntree = tree:add(gw, string.format(T("Neighbor[%d]", "Neighbor[%d]"), idx))
+local function rfdl_neighbour(tree, tvb, bitpos, cb, has_tei, tei, idx, carrier, loc_sfx)
+    local ntree = tree:add(gw, string.format(T("Neighbor[%d]", "Neighbor[%d]"), idx)
+        .. (loc_sfx or ""))
     local bp = bitpos
     if has_tei then
         add_val(ntree, f.rfdl_nbr_tei, tvb, math.floor(bp / 8), 2, tei)
@@ -2196,12 +2197,24 @@ local function dissect_rfdl_ie_content(tree, tvb, pos, elen, ie_type, carrier)
                     for j = 0, 7 do
                         if band(b, 2 ^ j) ~= 0 then
                             nk = nk + 1
-                            teis[#teis + 1] = tostring(start_tei + bi * 8 + j)
+                            teis[#teis + 1] = tostring(math.floor(start_tei + bi * 8 + j))
                         end
                     end
                 end
-                g:add(f.rfdl_grp_bitmap, bmp):
-                    append_text(string.format(" (TEI: %s)", #teis > 0 and table.concat(teis, ",") or "-"))
+                local bmp_item = g:add(f.rfdl_grp_bitmap, bmp)
+                bmp_item:append_text(string.format(" (TEI: %s)", #teis > 0 and table.concat(teis, ",") or "-"))
+                -- 位图逐位(仅 bit=1):值标注该 bit 所在的字节号(位图内第 bi 字节),与 C++ 表103 一致
+                for bi2 = 0, bm_len - 1 do
+                    local b2 = tvb(pos+off+3+bi2, 1):uint()
+                    for j2 = 0, 7 do
+                        if band(b2, 2 ^ j2) ~= 0 then
+                            bmp_item:add(gw, tvb(pos+off+3+bi2, 1),
+                                string.format(T("Neighbor[%d] TEI=%d = 在位图(第%d字节)",
+                                                "Neighbor[%d] TEI=%d = in bitmap (byte %d)"),
+                                              bi2*8+j2, start_tei + bi2*8+j2, bi2))
+                        end
+                    end
+                end
                 local bitpos = (off + 3 + bm_len) * 8
                 local i = 0
                 for bi = 0, bm_len - 1 do
@@ -2211,7 +2224,8 @@ local function dissect_rfdl_ie_content(tree, tvb, pos, elen, ie_type, carrier)
                             if bitpos + entry_bits > elen * 8 then break end
                             -- rfdl_neighbour 返回绝对 bit 位, 换算回相对 pos 的位偏移
                             local absp = rfdl_neighbour(g, tvb, (pos*8) + bitpos, cb, false,
-                                start_tei + bi*8 + j, i, carrier)
+                                start_tei + bi*8 + j, i, carrier,
+                                string.format(T(" (位图 byte %d bit %d)", " (bitmap byte %d bit %d)"), bi, j))
                             bitpos = absp - pos*8
                             i = i + 1
                         end
@@ -2293,8 +2307,29 @@ local function dissect_ch_eval(tvb, tree, off)
         local seg_bits = (mode == 0) and 4 or 5
         local seg_cnt = read_bits(sat, 2*8, seg_bits) + 1
         local tbl_bytes = math.min(1 + seg_cnt, sat_len - 2)
-        stree:add(f.ce_table, sat(2, tbl_bytes)):
+        local tbl_item = stree:add(f.ce_table, sat(2, tbl_bytes)):
             append_text(string.format(T(" [%d 段]", " [%d segments]"), seg_cnt))
+        -- 表107(位图,1bit/组)/表108(阶数,2bit/组)逐位/逐组(与 C++ parse_channel_eval 对齐)
+        local meaning = { T("不使用", "unused"), T("BPSK", "BPSK"), T("QPSK", "QPSK"), T("16QAM", "16QAM") }
+        for k = 0, tbl_bytes - 2 do
+            local b = sat(3 + k, 1):uint()
+            if mode == 0 then
+                for j = 0, 7 do
+                    if band(b, 2 ^ j) ~= 0 then
+                        tbl_item:add(gw, sat(3 + k, 1),
+                            string.format(T("Segment[%d] = 在位图(第%d字节)",
+                                            "Segment[%d] = in bitmap (byte %d)"), k * 8 + j, k))
+                    end
+                end
+            else
+                for j = 0, 3 do
+                    local v = band(math.floor(b / 2 ^ j), 0x03)
+                    tbl_item:add(gw, sat(3 + k, 1),
+                        string.format(T("Group[%d] = %d - %s", "Group[%d] = %d - %s"),
+                                      k * 4 + j, v, meaning[v + 1]))
+                end
+            end
+        end
     end
 end
 
