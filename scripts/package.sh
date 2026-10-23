@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # 打包脚本:构建 → windeployqt 收集运行时 → NSIS 生成安装包
-# 用法:bash scripts/package.sh [版本号,默认 1.0.1]
+# 用法:bash scripts/package.sh [版本号,默认取 .pro 的 VERSION]
 set -e
 cd "$(dirname "$0")/.."
-VER="${1:-1.0.1}"
+VER="${1:-$(grep -oP '^VERSION\s*=\s*\K[0-9.]+' BPLC_STA_Monitor.pro)}"
 QTDIR="/c/Qt/6.11.2/mingw_64"
 TOOLDIR="/c/Qt/Tools/mingw1310_64/bin"
 
@@ -12,10 +12,10 @@ export PATH="$TOOLDIR:$QTDIR/bin:$PATH"
 echo "== 1/3 qmake + 构建"
 rm -rf release Makefile* .qmake.stash
 qmake BPLC_STA_Monitor.pro
-mingw32-make -j4
+mingw32-make -j"$(nproc)"
 # 插件宿主进程 bplc-plugin-host.exe:独立工程,主程序经 QLocalServer IPC
 # 启动它(须与主程序同目录),不在主 .pro 里,须单独构建并复制。
-( cd src/plugin/host && qmake bplc-plugin-host.pro && mingw32-make -j4 )
+( cd src/plugin/host && qmake bplc-plugin-host.pro && mingw32-make -j"$(nproc)" )
 cp -f src/plugin/host/release/bplc-plugin-host.exe release/
 
 echo "== 1.5/3 符号分离:存档带符号 exe(供符号化),再 strip 发布版"
