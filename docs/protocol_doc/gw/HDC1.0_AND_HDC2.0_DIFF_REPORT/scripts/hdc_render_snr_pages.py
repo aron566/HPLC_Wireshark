@@ -5,11 +5,12 @@ import glob
 import json
 import os
 import re
+import tempfile
 
 import fitz
 
-R = r"D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/docs/protocol_doc"
-OUT = r"C:/Users/work/AppData/Local/Temp/mineru_gw"
+R = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # <repo>/docs/protocol_doc(由脚本位置推导,勿硬编码本机路径)
+OUT = os.path.join(tempfile.gettempdir(), "mineru_gw")  # 渲染产物输出(对应核实记录里的 %LOCALAPPDATA%/Temp/mineru_gw)
 
 JOBS = [
     ("HDC1.0", os.path.join(R, "gw/HDC1.0", "双模通信互联互通技术规范 第4-2部分：数据链路层通信协议.pdf"),

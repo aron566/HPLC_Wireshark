@@ -5,7 +5,7 @@ import json
 import os
 import re
 
-R = r"D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/docs/protocol_doc/gw"
+R = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # <repo>/docs/protocol_doc/gw(由脚本位置推导,勿硬编码本机路径)
 OUT = os.path.dirname(os.path.abspath(__file__))
 DOCS = {
     "旧1": os.path.join(R, "HDC1.0", "双模通信互联互通技术规范_第4_2部分数据链路层通信协议_261023_152656.md"),
