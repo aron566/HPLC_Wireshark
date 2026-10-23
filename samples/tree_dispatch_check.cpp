@@ -85,11 +85,11 @@ int main(int argc, char** argv) {
                               ? d.contains(QString::fromUtf8(c.must_not)) : false;
         const bool pass = hit_want && !hit_not;
 
-        std::printf("[%-7s] want \"%s\":%s   must_not \"%s\":%s   nodes=%d  -> %s\n",
+        std::printf("[%-7s] want \"%s\":%s   must_not \"%s\":%s   nodes=%lld  -> %s\n",
                     c.name,
                     c.want,     hit_want ? "hit" : "MISS",
                     c.must_not, hit_not  ? "HIT" : "ok",
-                    d.count(QLatin1Char('\n')) + 1,
+                    static_cast<qlonglong>(d.count(QLatin1Char('\n')) + 1),
                     pass ? "PASS" : "FAIL");
 
         if (!pass) {
