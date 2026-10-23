@@ -24,7 +24,7 @@ coloring never clash; captures are told apart by pcap linktype (see
 | `packet-gw_2022.lua` | **SGCC GW_2022 Lua dissector (HDC 1.0; entry with version dispatch)** |
 | `packet-gw_2026.lua` | **SGCC GW_2026 / HDC 2.0 Lua dissector (entered via gw_2022 version delegation)** |
 | `packet-nw_2021.lua` | **CSG NW_2021 Lua dissector (BPLC; entry with version dispatch)** |
-| `packet-nw_2026.lua` | **CSG NW_2026 / SPLC 2026 Lua dissector (entered via nw_2021 version delegation)** |
+| `packet-nw_2026.lua` | **CSG NW_2026 / SPLC 2026 Lua dissector (entered via nw_2021 version delegation; also entered by carrier SOF frames with version≠2 but PB-header aggregation flag=1 — aggregated BPLC frames, Table 20 layout + cascade MAC frame splitting)** |
 | `test_2026/` | New-protocol test frame generators and pcaps (GW: gen_gw2026_test_pcap.py; NW: gen_2026_test_pcap.py) |
 | `bin2pcap.py` | BIN replay file → pcap (auto protocol detect, `--gw`/`--nw` to force) |
 | `serial2pcap.py` | **Live serial capture → pcap** (`--gw`/`--nw` to force protocol) |
@@ -59,8 +59,9 @@ Copy `BPLC_Serial_Capture.bat` and `bplc_serial_extcap.py` to `%APPDATA%\Wiresha
 (requires python + pyserial on PATH), restart Wireshark — two interfaces appear in the
 capture list:
 
-- **NW_2021_Capture** → dissected by `packet-nw_2021.lua` (USER5)
-- **GW_2022_Capture** → dissected by `packet-gw_2022.lua` (USER4)
+- **NW_2021/NW_2026_Capture** (BPLC+SPLC) → dissected by `packet-nw_2021.lua` (USER5;
+  aggregated BPLC frames are dispatched to `packet-nw_2026.lua` by version)
+- **GW_2022/GW_2026_Capture** (HDC1.0+2.0) → dissected by `packet-gw_2022.lua` (USER4)
 
 Configure **COM port** (auto-enumerated, incl. com0com virtual pairs) and **baud rate**
 (default 460800), then Start. Each record carries a 4-byte media header
@@ -98,8 +99,11 @@ tshark -r capture.pcap -X lua_script:packet-nw_2021.lua -X lua_script:packet-nw_
 ```
 
 Version dispatch (FCH standard version, byte12 high nibble): SGCC 0=HDC 1.0 inline /
-1 and reserved → delegate `gw_2026`; CSG 1=BPLC and 0=reserved inline / 2=SPLC →
-delegate `nw_2026`. See "Version-adaptive delegation" below (Chinese section).
+1 and reserved → delegate `gw_2026`; CSG SOF dispatched by standard version (1=BPLC
+inline / 2=SPLC → delegate `nw_2026`); **aggregation exception: carrier SOF frames with
+version≠2 but PB-header aggregation flag=1 (Table 47 byte2 bit0) are also delegated to
+`nw_2026`** (nw_2021 has no cascade splitting; parsed as Table 20 layout + cascade MAC
+frame splitting, verified with 5 cascaded APP messages). See "Version-adaptive delegation" below (Chinese section).
 
 ## English display
 

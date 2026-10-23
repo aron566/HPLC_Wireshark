@@ -20,13 +20,14 @@
 | `packet-gw_2022.lua` | **国网 GW_2022 Lua dissector（即装即用，HDC 1.0；入口含版本分派）** |
 | `packet-gw_2026.lua` | **国网 GW_2026 / HDC 2.0 Lua dissector（由 gw_2022 按版本号委托进入）** |
 | `packet-nw_2021.lua` | **南网 NW_2021 Lua dissector（BPLC；入口含版本分派）** |
-| `packet-nw_2026.lua` | **南网 NW_2026 / SPLC 2026 Lua dissector（由 nw_2021 按版本号委托进入）** |
+| `packet-nw_2026.lua` | **南网 NW_2026 / SPLC 2026 Lua dissector（由 nw_2021 按版本号委托进入；另：version≠2 但 PB 头聚合标志=1 的载波 SOF 聚合 BPLC 帧也委托进入，表20 布局 + 级联 MAC 帧拆分）** |
 | `test_2026/` | 新协议测试帧生成器与 pcap（GW: gen_gw2026_test_pcap.py；NW: gen_2026_test_pcap.py） |
 | `bin2pcap.py` | BIN 回放文件 → pcap（协议自动识别，`--gw`/`--nw` 可强制） |
 | `serial2pcap.py` | **实时串口抓包 → pcap**（`--gw`/`--nw` 可强制协议） |
 | `BPLC_Serial_Capture.bat` + `bplc_serial_extcap.py` | **Wireshark 原生串口采集（extcap）** |
 | `gen_test_pcap.py` / `gen_assoc_req_test.py` | 国网测试帧生成 |
 | `gen_nw_test_pcap.py` | 南网测试帧生成（含完整 FCCS/PB CRC24/BPCS/ICV 校验值） |
+| `test_nw_bplc_agg.pcap` | 聚合 BPLC 帧回归（帧1=聚合 v1 → nw_2026 5 条级联 / 帧2=非聚合 → nw_2021） |
 | `DESIGN.md` | 实现思路说明 |
 
 ## 新旧协议版本自适应委托
@@ -36,7 +37,9 @@
 ```
 USER0/1/4 ──► packet-gw_2022.lua ──(FCH 标准版本号 byte12 高nibble)──┬─ 0(1.0) → 内联旧布局解析
                                                                     └─ 1/保留(2.0) → 整帧委托 gw_2026
-USER2/3/5 ──► packet-nw_2021.lua ──(FCH 标准版本号 byte12 高nibble)──┬─ 0/1(BPLC) → 内联旧布局解析
+USER2/3/5 ──► packet-nw_2021.lua ──(FCH 标准版本号 byte12 高nibble)──┬─ 0/1(BPLC) → 聚合例外:载波且
+                    （聚合标志=表47 PB头 byte2 bit0）                │   PB头聚合标志=1 → 委托 nw_2026(表20+级联拆分)
+                                                                    └─ 其余(非聚合) → 内联旧布局解析
                                                                     └─ 2(SPLC) → 整帧委托 nw_2026
 ```
 
@@ -75,8 +78,9 @@ python serial2pcap.py COM8 460800 capture.pcap    # 自动识别协议（可用 
 把 `BPLC_Serial_Capture.bat` 和 `bplc_serial_extcap.py` 复制到 `%APPDATA%\Wireshark\extcap\`
 （需 python + pyserial 在 PATH），重启 Wireshark 后捕获列表出现两个接口：
 
-- **NW_2021_Capture (南网串口)** → 自动用 `packet-nw_2021.lua` 解析（USER2/3）
-- **GW_2022_Capture (国网串口)** → 自动用 `packet-gw_2022.lua` 解析（USER0/1）
+- **NW_2021/NW_2026_Capture (南网串口, BPLC+SPLC)** → 自动用 `packet-nw_2021.lua` 解析（USER2/3；
+  聚合 BPLC 帧经版本分派由 `packet-nw_2026.lua` 解析）
+- **GW_2022/GW_2026_Capture (国网串口, HDC1.0+2.0)** → 自动用 `packet-gw_2022.lua` 解析（USER0/1）
 
 选中接口后可配置：**串口号**（自动枚举 COM 口，含 com0com 虚拟串口）、**波特率**
 （默认 460800，9600~921600），点"开始"即可实时采集解析。
@@ -98,7 +102,9 @@ tshark -r capture.pcap -X lua_script:packet-nw_2021.lua -X lua_script:packet-nw_
 
 版本分派规则（FCH 标准版本号 byte12 高 nibble）：国网 0=HDC 1.0 内联 / 1 及保留值委托
 `gw_2026`；南网（用户决策 2026-10 分派策略）：**仅 SOF 帧按标准版本号分派**（1=BPLC 内联 /
-2=SPLC 委托 `nw_2026`），**信标/ACK/COORD 不判版本号默认委托 `nw_2026`**（SPLC 是 BPLC 的
+2=SPLC 委托 `nw_2026`）；**聚合例外（用户需求）：载波 SOF version≠2 但 PB 头聚合标志=1
+（表47 byte2 bit0）的聚合 BPLC 帧也委托 `nw_2026`**（nw_2021 无聚合拆分能力，由 nw_2026 按
+BPLC 表20 布局 + 级联 MAC 帧拆分解析，实测 5 条级联 APP 报文逐条展示）；**信标/ACK/COORD 不判版本号默认委托 `nw_2026`**（SPLC 是 BPLC 的
 保留位启用补充、兼容旧帧：信标 表119→表18 / ACK 表7→表30 / COORD 表15→表41 均为保留位
 启用无冲突），nw_2026 解析异常时 pcall 回退内联旧布局解析。详见上文
 "新旧协议版本自适应委托"。
@@ -224,6 +230,8 @@ dissector 加载时读取该文件决定字段名。
 **2. 旧插件与新版抢占 DLT / 信标帧报 Lua 越界错误**
 删除或改名 `%APPDATA%\Wireshark\plugins\packet-hplc_rf.lua`（旧名已退役，改为
 `packet-gw_2022.lua`）。保留旧文件会抢占 encap 45-60 并在新 USER2/3 上抢先解析。
+旧 extcap 采集脚本同理：`hplc_rf_extcap.py` / `hplc_rf_extcap.bat.bak` 已在 extcap 目录
+改名 `.bak` 退役（其接口名与现接口混杂），如需恢复去掉后缀即可。
 
 **3. extcap 报"无法打开串口"（PermissionError）**
 端口被其他程序占用（监控器/串口助手/另一次抓包），或 **com0com 虚拟串口选了数据发送端** ——

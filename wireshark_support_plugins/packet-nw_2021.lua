@@ -2006,6 +2006,33 @@ function nw.dissector(tvb, pinfo, tree)
         -- 异常(pcall 失败)时回退下方 BPLC 布局内联解析
         local ftype = band(tvb(fch_off, 1):uint(), 0x07)
         local want_2026 = (ftype ~= 1) or (std_ver == 2)
+        -- 聚合 BPLC 帧例外(用户需求,与 C++ NW_2026_Parser 同构):载波 SOF version!=2
+        -- 但 PB 头(表47,FCH 16B 后第 1 个 PB 头 byte2 bit0)聚合标志=1 → nw_2021 无
+        -- 聚合拆分能力,委托 nw_2026 本地解析(BPLC 表20 布局 + 级联拆分)。纯分派,
+        -- 不涉 nw_2021→nw_2026 委托;无线恒单块不检测(与 C++ 同口径)
+        if (not want_2026) and ftype == 1 and (not is_rf)
+           and tvb:len() >= fch_off + 19 then
+            local agg = (band(tvb(fch_off + 16 + 2, 1):uint(), 0x01) == 1)
+            if agg then
+                want_2026 = true
+            elseif tvb:len() >= fch_off + 20 + 32 + 16 + 5 then
+                -- SPLC 扩展 MMe 例外(用户需求,与 C++ 同构):载波 SOF version!=2 非聚合帧
+                -- 承载 SPLC 表77 扩展 MMe(0x0080-0x0085,BPLC 无定义)→ 委托 nw_2026(表158 等)。
+                -- 预读: PB 体自 fch_off+20;MACHeadFlag=体0 bit0(0=长 32B/1=短 12B,与
+                -- nw_2021_msdu_parser LONG_HEAD=0x0 同口径);MSDU 帧类型 16b LE 长头
+                -- 体[mac+16]/短头体[mac+0](0x88E1=管理);MMe 类型 16b LE 帧头后+1..+2
+                local mac_f = band(tvb(fch_off + 20, 1):uint(), 0x01)
+                local mac_len = (mac_f == 0) and 32 or 12
+                local type_off = fch_off + 20 + mac_len + ((mac_f == 0) and 16 or 0)
+                if tvb:len() >= type_off + 5
+                   and tvb(type_off, 1):uint() == 0xE1
+                   and tvb(type_off + 1, 1):uint() == 0x88 then
+                    local mme = tvb(type_off + 3, 1):uint()
+                              + tvb(type_off + 4, 1):uint() * 256
+                    if mme >= 0x0080 and mme <= 0x0085 then want_2026 = true end
+                end
+            end
+        end
         if want_2026 then
             pinfo.cols.protocol = is_rf and "NW-RF" or "NW-HPLC"
             local ok, d = pcall(Dissector.get, "nw_2026")

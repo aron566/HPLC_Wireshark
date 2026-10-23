@@ -8,7 +8,9 @@
     入口(重要): 本文件不注册 wtap_encap。packet-nw_2021.lua 的 nw.dissector 入口做版本
     分派(FCH byte12 高 nibble 标准版本号==2 即 SPLC), 整帧 Dissector.get("nw_2026"):call
     委托到本文件; 收到的 tvb 为裸 MPDU(FCH 16B 起, USER5 串口混合格式的 4B 媒介头已被
-    委托方剥离), tree 为根。版本=1(BPLC)/0(保留) 帧仍由 packet-nw_2021.lua 解析。
+    委托方剥离), tree 为根。版本=1(BPLC) 非聚合/0(保留) 的帧仍由 packet-nw_2021.lua 解析；
+    例外: 载波 SOF version≠2 但 PB 头聚合标志(表47 byte2 bit0)=1 的聚合 BPLC 帧经入口分派
+    进入本文件(BPLC 表20 布局 + 级联 MAC 帧拆分)。
 
     与 BPLC(2021, packet-nw_2021.lua) 的主要差异:
       - SNID 5bit: 低4b 在 FCH(0,4,4), 高位按帧型合并(SOF/COORD 12,0,1 / 信标载波 12,1,1 /
@@ -440,6 +442,12 @@ f.sof_mcs = ProtoField.uint8 ("nw_2026.sof.mcs", T("调制编码方式(MCS,无�
 f.sof_symbol_cnt = ProtoField.uint16 ("nw_2026.sof.symbol_cnt", T("符号数(载波)", "Symbol Count (PLC)"), base.DEC)
 f.sof_tei_filter = ProtoField.uint8 ("nw_2026.sof.tei_filter", T("目的TEI过滤标志", "Destination TEI Filter Flag"), base.DEC)
 f.sof_resend = ProtoField.uint8 ("nw_2026.sof.resend", T("重传标志", "Re-transmission Flag"), base.DEC)
+-- BPLC 版载波 SOF(表20): 聚合 BPLC 帧(用户需求)由本脚本本地解析的专属字段
+f.sof_bplc_lid = ProtoField.uint8 ("nw_2026.sof.bplc.lid", T("链路标识符(LID)", "Link Identifier (LID)"), base.DEC)
+f.sof_bplc_snid_hi = ProtoField.uint8 ("nw_2026.sof.bplc.snid_hi", T("短网络标识高位", "SNID High"), base.DEC, nil, 0x01)
+f.sof_bplc_rsv = ProtoField.bytes ("nw_2026.sof.bplc.rsv", T("保留", "Reserved"))
+f.sof_bplc_pbnum = ProtoField.uint8 ("nw_2026.sof.bplc.pbnum", T("物理块个数(表20)", "PB Count (Table 20)"), base.DEC, nil, 0x0F)
+f.sof_bplc_tmi = ProtoField.uint8 ("nw_2026.sof.bplc.tmi", T("TMI 编号(表20)", "TMI Index (Table 20)"), base.DEC, nil, 0xF0)
 f.sof_rsv = ProtoField.uint32 ("nw_2026.sof.rsv", T("保留", "Reserved"), base.HEX)
 
 -- DL-OFDMA 增强帧控制 eFC(表27, 16B, 自字节16): 仅解析站点0 关键字段(与 Qt 解析器一致)
@@ -1056,6 +1064,18 @@ local function splc_pb_size(tmi_idx)
     return -1
 end
 
+-- BPLC 版载波 SOF(表20/第2部分)PB 块大小: TMI 0/1→520 / 2-6→136 / 7-10→520 /
+-- 11-12→264 / 13-14 转查 TMI_EXT(1-6→520 / 10-14→136); 与 C++ nw_2026_pb_size 同表
+local function bplc_pb_size(tmi, tmi_ext)
+    if tmi == 0 or tmi == 1 then return 520 end
+    if tmi >= 2 and tmi <= 6 then return 136 end
+    if tmi >= 7 and tmi <= 10 then return 520 end
+    if tmi == 11 or tmi == 12 then return 264 end
+    if tmi_ext >= 1 and tmi_ext <= 6 then return 520 end
+    if tmi_ext >= 10 and tmi_ext <= 14 then return 136 end
+    return -1
+end
+
 -- SPLC 版 Bitloading标识=1 时 TMI编号 → 物理块大小(表23: 0→136/1→520/2→72/3→264)
 local function splc_bitload_pb_size(idx)
     if idx == 0 then return 136 end
@@ -1126,6 +1146,27 @@ local function dissect_sof_vf(tvb, tree, is_rf)
         r.pb_num = 1                                  -- 无线信道仅 1 个物理块
         r.pbsize = rf_pb_size(read_bits(tvb, 6 * 8 + 4, 4))
     else
+        local std_ver = math.floor(band(tvb(12, 1):uint(), 0xF0) / 16)
+        if std_ver ~= 2 then
+            -- BPLC 版载波 SOF(表20): 聚合 BPLC 帧(用户需求)由本脚本本地解析
+            -- (非聚合 version=1 在 packet-nw_2021.lua 入口分派走旧布局,不经此处)——
+            -- 坐标与 packet-nw_2021.lua 载波 SOF 同源: LID(4,0,8)/SNID高位(5,0,1)/
+            -- PBNum(7,0-3)/TMI(7,4-7)/帧长(8,0,12)/TEI过滤(10,5)/重传(10,6)/
+            -- 符号数(10,7,9)/TMI_EXT(12,0-3); PB 头循环聚合标志/级联头/级联 MAC 帧通用
+            tree:add(f.sof_bplc_lid, tvb(4, 1))
+            tree:add(f.sof_bplc_snid_hi, tvb(5, 1))
+            tree:add(f.sof_bplc_rsv, tvb(5, 2))
+            tree:add(f.sof_bplc_pbnum, tvb(7, 1))
+            tree:add(f.sof_bplc_tmi, tvb(7, 1))
+            add_val(tree, f.sof_frame_len, tvb, 8, 2, read_bits(tvb, 8 * 8, 12))
+            add_val(tree, f.sof_tei_filter, tvb, 10, 1, read_bits(tvb, 10 * 8 + 5, 1))
+            add_val(tree, f.sof_resend, tvb, 10, 1, read_bits(tvb, 10 * 8 + 6, 1))
+            add_val(tree, f.sof_symbol_cnt, tvb, 10, 2, read_bits(tvb, 10 * 8 + 7, 9))
+            add_val(tree, f.sof_tmi_ext, tvb, 12, 1, read_bits(tvb, 12 * 8, 4))
+            r.pb_num = read_bits(tvb, 7 * 8, 4)
+            r.pbsize = bplc_pb_size(read_bits(tvb, 7 * 8 + 4, 4), read_bits(tvb, 12 * 8, 4))
+            return r
+        end
         -- SPLC 载波 SOF(表23-26): 多站点帧标识(4,0,1)/训练帧标识(4,1,1)/OFDMA类型(4,1,2)/
         -- 帧长(8,0,12,×10µs); byte5/7 保留 (带掩码字段直接挂整字节, Wireshark 按掩码取值)
         local multi = read_bits(tvb, 4 * 8, 1)
@@ -1931,32 +1972,80 @@ end
 -- MMe 消息体分发
 -- NW_2026 (SPLC) 新增 MMe 报文体(表153-164/243-247)
 local function dissect_mme_bitload_req(tvb, tree)
-    add_val(tree, f.mme_bl_src, tvb, 0, 2, read_bits(tvb, 0, 12))
-    add_val(tree, f.mme_bl_dst, tvb, 2, 2, read_bits(tvb, 16, 12))
-    tree:add(f.mme_bl_stream, tvb(3, 1))
-    add_val(tree, f.mme_bl_cut, tvb, 3, 2, read_bits(tvb, 25, 9))
-    add_val(tree, f.mme_bl_tablen, tvb, 6, 2, tvb(6, 2):le_uint())
-    if tvb:len() > 8 then tree:add(f.pb_tbl, tvb(8), T("可变比特加载表", "Variable Bit Load Table")) end
+    -- 表153(PDF 第62页原文): 偏移含 6B MMe 头(与 C++ add_fields(mme,6,...) 同基)——
+    -- 源TEI 12b(mme6)/目的TEI 12b(mme7.5,跨字节)/流数(mme9)/截止载波 9b(mme9.1)/
+    -- 保留(mme10-11)/比特加载表长度 16b(mme12-13)/可变表自 mme14
+    add_val(tree, f.mme_bl_src, tvb, 6, 2, read_bits(tvb, 48, 12))
+    add_val(tree, f.mme_bl_dst, tvb, 7, 2, read_bits(tvb, 60, 12))
+    tree:add(f.mme_bl_stream, tvb(9, 1))
+    add_val(tree, f.mme_bl_cut, tvb, 9, 2, read_bits(tvb, 73, 9))
+    add_val(tree, f.mme_bl_rsv0, tvb, 10, 1, read_bits(tvb, 82, 6))
+    tree:add(f.mme_bl_rsv1, tvb(11, 1))
+    add_val(tree, f.mme_bl_tablen, tvb, 12, 2, tvb(12, 2):le_uint())
+    if tvb:len() > 14 then tree:add(f.pb_tbl, tvb(14), T("可变比特加载表", "Variable Bit Load Table")) end
 end
 local function dissect_mme_bitload_cnf(tvb, tree)
-    add_val(tree, f.mme_bl_src, tvb, 0, 2, read_bits(tvb, 0, 12))
-    add_val(tree, f.mme_bl_dst, tvb, 2, 2, read_bits(tvb, 16, 12))
-    tree:add(f.mme_bl_result, tvb(4, 1))
+    -- 表157(PDF 第63页原文,与 C++ kMMeBitLoadUpdateCnfSpec 同表): 4B
+    -- 源TEI 12b(0,0) + 目的TEI 12b(1,4,跨字节) + 更新结果 1b(3,0) + 保留 7b(3,1-7)
+    -- 偏移含 6B MMe 头(同上):源TEI(mme6)/目的TEI(mme7.5)/更新结果 1b(mme9.0)/保留 7b
+    add_val(tree, f.mme_bl_src, tvb, 6, 2, read_bits(tvb, 48, 12))
+    add_val(tree, f.mme_bl_dst, tvb, 7, 2, read_bits(tvb, 60, 12))
+    add_val(tree, f.mme_bl_result, tvb, 9, 1, read_bits(tvb, 72, 1))
 end
 local function dissect_mme_ru_snr(tvb, tree)
-    add_val(tree, f.mme_bl_src, tvb, 0, 2, read_bits(tvb, 0, 12))
-    add_val(tree, f.mme_ru_start, tvb, 1, 2, read_bits(tvb, 12, 12))
-    tree:add(f.mme_ru_gid, tvb(3, 1))
-    tree:add(f.mme_ru_num, tvb(4, 2), tvb(4, 2):le_uint())
-    tree:add(f.mme_ru_bmlen, tvb(6, 2), tvb(6, 2):le_uint())
-    if tvb:len() > 8 then tree:add(f.pb_tbl, tvb(8), T("位图+邻居 RU_SNR", "Bitmap + Neighbor RU_SNR")) end
+    -- 表158:固定头 8B 自 MMe 头 6B 之后(mme[6..13],与 C++ add_fields(mme,6,...) 同基);
+    -- 邻居站点位图 + 邻居 RU_SNR(表159,每邻居 4B: RU0-RU5 各 5bit SNR + 保留 2bit)
+    add_val(tree, f.mme_bl_src, tvb, 6, 2, read_bits(tvb, 48, 12))
+    add_val(tree, f.mme_ru_start, tvb, 7, 2, read_bits(tvb, 60, 12))
+    tree:add(f.mme_ru_gid, tvb(9, 1))
+    tree:add(f.mme_ru_num, tvb(10, 2), tvb(10, 2):le_uint())
+    tree:add(f.mme_ru_bmlen, tvb(12, 2), tvb(12, 2):le_uint())
+    if tvb:len() <= 14 then return end
+    local bm_len = tvb(12, 2):le_uint()
+    local nb_num = tvb(10, 2):le_uint()
+    local gid = tvb(9, 1):uint()
+    local nb_start_tei = read_bits(tvb, 60, 12)
+    -- 表159 各 RU 5bit SNR 的载波范围(仅 RU分组 ID0 有定义)
+    local ru_carrier = {{32,101},{109,178},{186,255},{263,332},{340,409},{417,490}}
+    if bm_len > 0 and 14 + bm_len <= tvb:len() then
+        local bmn = tree:add(f.pb_tbl, tvb(14, bm_len), T("邻居站点位图", "Neighbor Bitmap"))
+        -- 位图逐位展开(位序与表226 一致:byte k/8 的 bit k%8,LSB 在前):
+        -- bit=1 的邻居 TEI = NeighborStartTEI + k(表158 语义),值标注该 bit
+        -- 所在的字节号(k>>3);bit=0 的位不列
+        for k = 0, bm_len * 8 - 1 do
+            local byte_i = math.floor(k / 8)
+            local byte_val = tvb(14 + byte_i, 1):uint()
+            if math.floor(byte_val / 2 ^ (k % 8)) % 2 == 1 then
+                bmn:add(nw, tvb(14 + byte_i, 1),
+                    string.format(T("Neighbor[%d] TEI=%d", "Neighbor[%d] TEI=%d"),
+                                  k, nb_start_tei + k)
+                        .. string.format(T("在位图(第%d字节)", "in bitmap (byte %d)"),
+                                         byte_i))
+            end
+        end
+    end
+    local nb_start = 14 + bm_len
+    for i = 0, nb_num - 1 do
+        if gid ~= 0 or nb_start + (i + 1) * 4 > tvb:len() then break end
+        local b = nb_start + i * 4
+        local g = tree:add(nw, tvb(b, 4),
+            string.format(T("邻居 RU_SNR[%d]", "Neighbor RU_SNR [%d]"), i))
+        for k = 0, 5 do
+            local v = read_bits(tvb, b * 8 + k * 5, 5)
+            local it = g:add(f.mme_ru_snr, tvb(b + math.floor((k * 5) / 8), 2), v)
+            it:append_text(string.format(T(" (RU%d_SNR)", " (RU%d_SNR)"), k)
+                .. string.format(T(" (载波 %d-%d)", " (carrier %d-%d)"),
+                    ru_carrier[k + 1][1], ru_carrier[k + 1][2]))
+        end
+    end
 end
 local function dissect_mme_tei_list(tvb, tree, is_cnf)
-    tree:add(f.mme_tei_seq, tvb(0, 1))
-    tree:add(f.mme_tei_mac, tvb(1, 6))
-    local n = tvb(7, 1):uint()
-    tree:add(f.mme_tei_num, tvb(7, 1), n)
-    local p = 8
+    -- 表160/161:固定头 8B 自 MMe 头 6B 之后(mme[6..13]),列表自 mme[14]
+    tree:add(f.mme_tei_seq, tvb(6, 1))
+    tree:add(f.mme_tei_mac, tvb(7, 6))
+    local n = tvb(13, 1):uint()
+    tree:add(f.mme_tei_num, tvb(13, 1), n)
+    local p = 14
     for i = 0, n - 1 do
         if is_cnf then
             if p + 8 > tvb:len() then break end
@@ -1971,27 +2060,32 @@ local function dissect_mme_tei_list(tvb, tree, is_cnf)
     end
 end
 local function dissect_mme_ext_net_conflict(tvb, tree)
-    tree:add(f.mme_xnc_mac, tvb(0, 6))
-    local n = tvb(6, 1):uint()
-    tree:add(f.mme_xnc_num, tvb(6, 1), n)
+    -- 表163/164:固定头 7B 自 MMe 头 6B 之后(mme[6..12]),条目自 mme[13](SNID 5b+保留 3b)
+    tree:add(f.mme_xnc_mac, tvb(6, 6))
+    local n = tvb(12, 1):uint()
+    tree:add(f.mme_xnc_num, tvb(12, 1), n)
     for i = 0, n - 1 do
-        if 7 + i >= tvb:len() then break end
-        tree:add(f.mme_xnc_snid, tvb(7+i, 1))
+        if 13 + i >= tvb:len() then break end
+        add_val(tree, f.mme_xnc_snid, tvb, 13 + i, 1, read_bits(tvb, (13 + i) * 8, 5))
     end
 end
 local function dissect_mme_iot_assoc_req(tvb, tree)
-    tree:add(f.mme_iot_mac, tvb(0, 6))
-    add_val(tree, f.mme_iot_gw, tvb, 6, 2, read_bits(tvb, 6*8, 12))
-    tree:add(f.mme_iot_dev, tvb(8, 1))
-    tree:add(f.mme_iot_pwr, tvb(9, 1))
+    -- 表243:固定体 10B 自 MMe 头 6B 之后(mme[6..15])
+    tree:add(f.mme_iot_mac, tvb(6, 6))
+    add_val(tree, f.mme_iot_gw, tvb, 12, 2, read_bits(tvb, 96, 12))
+    tree:add(f.mme_iot_rsv, tvb(13, 1))
+    tree:add(f.mme_iot_dev, tvb(14, 1))
+    tree:add(f.mme_iot_pwr, tvb(15, 1))
 end
 local function dissect_mme_iot_assoc_ind(tvb, tree)
-    tree:add(f.mme_iot_mac, tvb(0, 6))
-    tree:add(f.mme_iot_result, tvb(6, 1))
+    -- 表244:固定体 7B 自 MMe 头 6B 之后
+    tree:add(f.mme_iot_mac, tvb(6, 6))
+    tree:add(f.mme_iot_result, tvb(12, 1))
 end
 local function dissect_mme_iot_leave_ind(tvb, tree)
-    tree:add(f.mme_iot_mac, tvb(0, 6))
-    tree:add(f.mme_iot_reason, tvb(6, 1))
+    -- 表246:固定体 7B 自 MMe 头 6B 之后
+    tree:add(f.mme_iot_mac, tvb(6, 6))
+    tree:add(f.mme_iot_reason, tvb(12, 1))
 end
 
 local function dissect_mme_body(tvb, tree, mmtype)
@@ -2115,6 +2209,9 @@ f.mme_bl_stream = ProtoField.uint8 ("nw_2026.mme.bl.stream", T("流数", "Stream
 }, 0x01)
 f.mme_bl_cut = ProtoField.uint16 ("nw_2026.mme.bl.cut", T("截止载波", "Cut-off Carrier"), base.DEC)
 f.mme_bl_tablen = ProtoField.uint16 ("nw_2026.mme.bl.tablen", T("比特加载表长度(B)", "Bit Load Table Length (bytes)"), base.DEC)
+f.mme_bl_rsv0 = ProtoField.uint8 ("nw_2026.mme.bl.rsv0", T("保留(表153 byte4)", "Reserved (Table 153 byte4)"), base.HEX, nil, 0xFC)
+f.mme_bl_rsv1 = ProtoField.uint8 ("nw_2026.mme.bl.rsv1", T("保留(表153 byte5)", "Reserved (Table 153 byte5)"), base.HEX)
+f.mme_iot_rsv = ProtoField.uint8 ("nw_2026.mme.iot.rsv", T("保留(表243 byte7 高4b)", "Reserved (Table 243 byte7 high)"), base.HEX, nil, 0xF0)
 f.mme_bl_result = ProtoField.uint8 ("nw_2026.mme.bl.result", T("更新结果", "Update Result"), base.DEC, {
     [0] = T("更新成功", "Update OK"), [1] = T("更新失败", "Update failed"),
 }, 0x01)
@@ -2259,12 +2356,25 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
                                     for j = 0, 7 do
                                         if band(b, 2 ^ j) ~= 0 then
                                             nk = nk + 1
-                                            teis[#teis + 1] = tostring(start_tei + bi * 8 + j)
+                                            teis[#teis + 1] = tostring(math.floor(start_tei + bi * 8 + j))
                                         end
                                     end
                                 end
-                                g:add(f.rf_grp_bitmap, bmp):
-                                    append_text(string.format(" (TEI: %s)", #teis > 0 and table.concat(teis, ",") or "-"))
+                                local bmp_item = g:add(f.rf_grp_bitmap, bmp)
+                                bmp_item:append_text(string.format(" (TEI: %s)",
+                                    #teis > 0 and table.concat(teis, ",") or "-"))
+                                -- 位图逐位(仅 bit=1):值标注该 bit 所在的字节号(位图内第 bi 字节)
+                                for bi2 = 0, bm_len - 1 do
+                                    local b2 = tvb(c0+off+3+bi2, 1):uint()
+                                    for j2 = 0, 7 do
+                                        if band(b2, 2 ^ j2) ~= 0 then
+                                            bmp_item:add(nw, tvb(c0+off+3+bi2, 1),
+                                                string.format(T("Neighbor[%d] TEI=%d 在位图(第%d字节)",
+                                                                "Neighbor[%d] TEI=%d in bitmap (byte %d)"),
+                                                              bi2*8+j2, start_tei + bi2*8+j2, bi2))
+                                        end
+                                    end
+                                end
                                 -- 逐置位邻居条目(位预算守卫, 防发端声明虚大)
                                 local bp = (off + 3 + bm_len) * 8
                                 local i = 0
@@ -2273,7 +2383,8 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
                                     for j = 0, 7 do
                                         if band(b, 2 ^ j) ~= 0 then
                                             if bp + entry_bits > nb then break end
-                                            local nt = g:add(nw, string.format(T("Neighbor[%d] TEI=%d", "Neighbor[%d] TEI=%d"), i, start_tei + bi*8 + j))
+                                            local nt = g:add(nw, string.format(T("Neighbor[%d] TEI=%d", "Neighbor[%d] TEI=%d"), i, start_tei + bi*8 + j)
+                                                .. string.format(T(" (位图 byte %d bit %d)", " (bitmap byte %d bit %d)"), bi, j))
                                             add_val(nt, f.rf_nbr_rate, tvb, (c0*8+bp)/8, 2, read_bits(tvb, c0*8+bp, 8))
                                             if snr_b > 0 then
                                                 add_val(nt, f.rf_nbr_snr, tvb, (c0*8+bp+8)/8, 2, read_bits(tvb, c0*8+bp+8, snr_b))
@@ -2411,8 +2522,9 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
                 local mt_name = mme_type_vals[mmtype] or ""
                 local cur_info = tostring(pinfo.cols.info)
                 if mt_name ~= "" then
-                    pinfo.cols.info = cur_info .. string.format(" %s", mt_name)
-                else
+                    -- info 列拼接:cur_info 为空时不加前导空格(保持左对齐)
+                    pinfo.cols.info = (cur_info == "" or cur_info == "NW-HPLC" or cur_info == "NW-RF")
+                        and mt_name or (cur_info .. string.format(" %s", mt_name))
                     pinfo.cols.info = cur_info .. string.format(" MMType=0x%04x", mmtype)
                 end
                 -- 消息体 (MMe 头 6B 之后)
@@ -2457,7 +2569,9 @@ nw.fields = {
     f.beacon_mcs, f.beacon_rsv1, f.beacon_rsv2, f.beacon_rsv3,
     f.sof_src_tei, f.sof_dst_tei, f.sof_lid, f.sof_pb_num, f.sof_tmi,
     f.sof_frame_len, f.sof_tmi_ext, f.sof_pblen,
+    f.mme_bl_rsv0, f.mme_bl_rsv1, f.mme_iot_rsv,
     f.sof_mcs, f.sof_symbol_cnt, f.sof_tei_filter, f.sof_resend, f.sof_rsv,
+    f.sof_bplc_lid, f.sof_bplc_snid_hi, f.sof_bplc_rsv, f.sof_bplc_pbnum, f.sof_bplc_tmi,
     f.ack_ext_type, f.ack_rx_res, f.ack_rx_status, f.ack_dst_tei, f.ack_rx_pb_num,
     f.ack_dst_mac, f.ack_search_tei, f.ack_sync_ts, f.ack_sync_tei,
     f.ack_seq, f.ack_rsv,
@@ -2665,7 +2779,19 @@ function nw.dissector(tvb, pinfo, tree)
         pinfo.cols.dst = ""
     end
 
-    pinfo.cols.info = string.format("DT=%s SNID=0x%x", dt_vals[dt] or T("保留", "Reserved").."("..dt..")", snid)
+    local dt_txt = dt_vals[dt] or T("保留", "Reserved").."("..dt..")"
+    if dt == 1 and not is_rf then
+        -- 训练帧(表24/25,仅 SPLC 载波 SOF 定义训练帧标识 byte4 bit1=1;BPLC 的
+        -- byte4 为 LinkID 勿套用):info 显示帧性质,替代"数据帧"文案
+        local std_ver = math.floor(band(tvb(12, 1):uint(), 0xF0) / 16)
+        if std_ver == 2 and band(tvb(4, 1):uint(), 0x02) ~= 0 then
+            local tt = band(tvb(5, 1):uint(), 0x01)
+            dt_txt = T("SOF", "SOF") .. " " .. (tt == 1
+                and T("训练帧(Bitloading)", "Training Frame (Bitloading)")
+                or T("训练帧(MIMO)", "Training Frame (MIMO)"))
+        end
+    end
+    pinfo.cols.info = string.format("DT=%s SNID=0x%x", dt_txt, snid)
 
     local root = tree:add(nw, tvb())
 
@@ -2767,7 +2893,40 @@ function nw.dissector(tvb, pinfo, tree)
             end
             if blocks_done == pb_num and pbsize > 16 then
                 -- 16B PB 为 SACK 载体(表49/50,已按字段展示),不做 MAC 帧重组
-                dissect_mac_frame(make_block_view(tvb, pb_base + 4, pbsize, pb_num), root, pinfo, snid, src_tei)
+                -- 聚合帧(用户需求,与 C++ pb_assembler 同构):任一 PB 聚合标志=1 →
+                -- 各 PB 体依序拼接为连续级联记录流(记录可跨 PB 体边界),逐条
+                -- [级联头 2B(表48) + 级联长度的独立 MAC 帧] 解析展示;非聚合保持
+                -- 整流重组单 MSDU(原行为)
+                local any_agg = false
+                for i = 0, pb_num - 1 do
+                    local bs = pb_base + i * pbsize
+                    if band(tvb(bs + 2, 1):uint(), 0x01) == 1 then any_agg = true end
+                end
+                if any_agg then
+                    local body = make_block_view(tvb, pb_base + 4, pbsize, pb_num)
+                    local o = 0
+                    local idx = 0
+                    while o + 2 <= body:len() do
+                        local clen = body(o, 1):uint()
+                                   + band(body(o + 1, 1):uint(), 0x0F) * 256
+                        if clen <= 0 or o + 2 + clen > body:len() then break end
+                        local ct = root:add(nw, body(o + 2, clen),
+                            string.format(T("级联 MAC 帧[%d]", "Cascade MAC Frame [%d]"), idx))
+                        -- 有界子视图(坐标平移 + 长度截到 clen),MAC 帧内相对坐标映射回原始 tvb
+                        local base = o + 2
+                        local sv = setmetatable({}, { __call = function(_, off, ln)
+                            off = off or 0
+                            ln = ln or (clen - off)
+                            return body(base + off, math.min(ln, clen - off))
+                        end })
+                        sv.len = function() return clen end
+                        dissect_mac_frame(sv, ct, pinfo, snid, src_tei)
+                        o = base + clen
+                        idx = idx + 1
+                    end
+                else
+                    dissect_mac_frame(make_block_view(tvb, pb_base + 4, pbsize, pb_num), root, pinfo, snid, src_tei)
+                end
             end
         else
             root:add_expert_info(PI_MALFORMED, PI_WARN, T("TMI 编号无效或 PB 个数越界", "Invalid TMI index or PB count out of range"))
@@ -2781,5 +2940,6 @@ end
 -- 注册: 本协议不注册 wtap_encap —— 入口为 packet-nw_2021.lua 的版本分派委托
 -- (FCH byte12 高 nibble==2 即 SPLC/NW_2026 时整帧 Dissector.get("nw_2026"):call),
 -- 收到的 tvb 为裸 MPDU(FCH 16B 起, USER5 的 4B 媒介头已剥离), tree 为根。
--- 版本=1(BPLC)/0(保留) 的帧仍由 nw_2021 自行解析, 与本文件无关。
+-- 版本=1(BPLC) 非聚合/0(保留) 的帧仍由 nw_2021 自行解析; 例外: 载波 SOF PB 头
+-- 聚合标志(表47 byte2 bit0)=1 的聚合 BPLC 帧经入口分派进入本文件(BPLC 表20 布局)。
 -- =========================================================================
