@@ -312,6 +312,15 @@ struct MsduInfo {
                  mme_type(0xFFFF), total_len(-1), cascade(false) {}
 };
 
+/// @brief 追加摘要片段(顶层 summary 拼接统一入口)
+/// @details 空摘要直接设值,非空用 " | " 分隔——消除前导空格,保证
+///          MSDU Type 列左对齐(用户需求 2026-10)
+inline void append_summary(MsduInfo& out, const QString& text) {
+    if (text.isEmpty()) return;
+    out.summary = out.summary.isEmpty()
+                      ? text : out.summary + QStringLiteral(" | ") + text;
+}
+
 /// @brief 通用解剖字段节点(自递归树)
 /// @details 协议插件返回、主界面统一渲染(与 MsduFieldNode 同层,避免
 ///          common → plugin 的反向依赖)。坐标以 PacketEntry::raw_bytes

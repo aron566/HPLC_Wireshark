@@ -128,7 +128,14 @@ namespace {
 /// i18n 注册(本 TU 概要文本)
 struct I18nReg {
     I18nReg() {
-        trl::register_en("聚合帧(%1 个级联 MAC 帧)", "aggregated frame (%1 cascade MAC frames)");
+        trl::register_en("训练帧（MIMO训练帧）", "Training Frame (MIMO)");
+        trl::register_en("训练帧（Bitloading训练帧）", "Training Frame (Bitloading)");
+        trl::register_en("聚合帧(%1 个级联 MAC 帧)", "Aggregated Frame (%1 cascade MAC frames)");
+        trl::register_en("聚合帧(%1 帧: %2)", "Aggregated Frame (%1 frames: %2)");
+        trl::register_en("聚合帧(%1 帧: %2 ×%3)", "Aggregated Frame (%1 frames: %2 x%3)");
+        trl::register_en(", ", ", ");
+        trl::register_en(" 等", " etc.");
+        trl::register_en("未识别", "unrecognized");
     }
 };
 const I18nReg g_i18n_reg_nw2026_parser;
@@ -169,7 +176,43 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
     //      BPLC 解析。ACK/COORD 为固定字段解析,FCH 解析成功后字段必然在界内,无失败路径。
     const bool is_sof = (r.mpdu.frame_type == 1);
     if (is_sof && r.mpdu.version != 2) {
-        return m_legacy.parse(in, msdu, f);
+        // 聚合 BPLC 帧例外(用户需求 2026-10):载波 SOF version=1 但 PB 头聚合标志=1
+        // (表47 byte2 bit0)→ nw_2021 无聚合拆分能力,留在本解析器本地解析——走下方
+        // BPLC 表20 兜底分支 + 公共 pb_assembler 级联拆分(字段树含 AggregationFlag/
+        // 级联头/Cascade MAC Frame);非聚合 version=1 仍整帧委托 NW_2021_Parser(现状)。
+        // 无线 SOF 恒单块(表131)无聚合概念,保持委托不检测。纯本解析器内部分派,
+        // 不涉 nw_2021→nw_2026 委托(用户禁止)。
+        bool agg_bplc = false;
+        if (!r.meta.is_rf && r.payload_for_log.size() >= 16 + 3)
+            agg_bplc = (quint8(r.payload_for_log.at(16 + 2)) & 0x01) != 0;
+        if (!agg_bplc) {
+            // SPLC 扩展 MMe 例外(用户需求):version=1 非聚合帧承载 SPLC 表77 扩展 MMe
+            // (0x0080-0x0085,BPLC 第2部分无定义)→ 本地解析(nw_2026 已有 MME_RUSNR_INFO_IND
+            // 等 0x0080-0x0085 实现)。预读 MSDU 头判别,坐标同 nw_2021_msdu_parser:
+            // PB 体自 payload[20](FCH16+PB头4);MACHeadFlag=体[0] bit0 → MAC 头长 32B/短 12B;
+            // MSDU 帧类型 16b LE:长头在体[mac+16..17]/短头在体[mac+0..1](0x88E1=管理消息);
+            // 其后 MMe = [版本 1B][类型 2B LE]。越界/判别失败保持原委托(不因预读崩溃)。
+            // 纯本解析器内部分派,不涉 nw_2021→nw_2026 委托。
+            bool splc_ext_mme = false;
+            const QByteArray& pl = r.payload_for_log;
+            if (!r.meta.is_rf && pl.size() >= 20 + 32 + 16 + 5) {
+                const quint8* body = reinterpret_cast<const quint8*>(pl.constData()) + 20;
+                // MACHeadFlag(体[0] bit0):0=长头 32B / 1=短头 12B
+                // (nw_2021_msdu_parser.h LONG_HEAD=0x0/SHORT_HEAD=0x1,实帧 7 验证)
+                const bool long_head = (body[0] & 0x01) == 0;
+                const int mac_len = long_head ? 32 : 12;
+                const int type_off = 20 + mac_len + (long_head ? 16 : 0);
+                if (pl.size() >= type_off + 5
+                    && quint8(pl.at(type_off)) == 0xE1
+                    && quint8(pl.at(type_off + 1)) == 0x88) {
+                    const quint16 mme = quint16(quint8(pl.at(type_off + 3)))
+                                      | (quint16(quint8(pl.at(type_off + 4))) << 8);
+                    splc_ext_mme = (mme >= 0x0080 && mme <= 0x0085);
+                }
+            }
+            if (!splc_ext_mme)
+                return m_legacy.parse(in, msdu, f);
+        }
     }
 
     // SNID 共 5bit(试行规约 §5.1.2.2.1/表16):低位在 FCH(0,4,4),高位按帧型坐标合并:
@@ -185,9 +228,12 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
             case 0:  // 信标帧:载波(12,1,1) 无线(12,0,1)
                 snid_high = (r.meta.is_rf ? ((fch[12] >> 0) & 0x01) : ((fch[12] >> 1) & 0x01));
                 break;
-            case 1:  // SOF:SPLC 载波(表23)与无线(表45)的 SNID 高位同为 (12,0,1)
-                snid_high = (fch[12] & 0x01);
+            case 1: {  // SOF 载波:SPLC(表23)高位在 (12,0,1);BPLC(表20)高位在 (5,0,1);
+                       // 无线两版本:表45 有 (12,0,1)/表131 无高位(本分支本地解析仅载波可达)
+                snid_high = (r.mpdu.version == 2 || r.meta.is_rf)
+                                ? (fch[12] & 0x01) : (fch[5] & 0x01);
                 break;
+            }
             case 2:  // ACK(4,0,1)
                 snid_high = (fch[4] & 0x01);
                 break;
@@ -242,9 +288,15 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
             const bool train = (get_bits(p, 4, 1, 1) != 0);
             r.mpdu.frame_len = (quint16)get_bits(p, 8, 0, 12);   // 帧长(×10µs,表23-26)
             if (train) {
-                // 训练帧(表24/25):无数据物理块,不重组 MSDU
+                // 训练帧(表24/25):无数据物理块,不重组 MSDU;
+                // MSDU Type 列显示帧性质(用户需求):训练帧类型(5,0,1) 0=MIMO 1=Bitloading
                 r.mpdu.pb_num = 0;
                 r.mpdu.pb_size = 0;
+                const quint8 train_type = (quint8)get_bits(p, 5, 0, 1);
+                r.msdu.present = true;
+                r.msdu.summary = (train_type == 1)
+                    ? trl::L("训练帧（Bitloading训练帧）")
+                    : trl::L("训练帧（MIMO训练帧）");
             } else if (multi) {
                 // OFDMA 多站点帧(表26):基字段 + eFC(DL-OFDMA 表27,16B 独立结构) + 站点0 PB
                 const quint8 ofdma_type  = (quint8)get_bits(p, 4, 1, 2);
@@ -307,6 +359,7 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                 // 子树坐标平移:msdu parser 产出 rel 相对单条 MAC 帧,统一平移到
                 // 级联体流(msdu_body)坐标系,树层 MsduRawMap 按块换算 raw 多段高亮
                 int cas_cnt = 0;
+                QStringList cas_sums;   // 各级联帧 MSDU 类型摘要(MSDU Type 列展示聚合内容)
                 for (const auto& c : res.cascade) {
                     const MsduInfo cm = NW_2026_MsduParser::parse(c.mac);
                     MsduFieldNode grp;
@@ -326,8 +379,28 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                     r.msdu.tree.append(grp);
                     r.msdu.present = true;
                     ++cas_cnt;
+                    cas_sums << (cm.summary.isEmpty() ? trl::L("未识别") : cm.summary);
                 }
-                r.msdu.summary = trl::L("聚合帧(%1 个级联 MAC 帧)").arg(cas_cnt);
+                // 摘要(用户需求):逐帧类型列表,让用户知道聚合了什么——
+                // 全同型压缩 "T ×N";混合型列前 4 项(>4 截断加 " 等");空流保持计数式
+                if (cas_sums.isEmpty()) {
+                    r.msdu.summary = trl::L("聚合帧(%1 个级联 MAC 帧)").arg(cas_cnt);
+                } else {
+                    bool all_same = true;
+                    for (const auto& s : cas_sums)
+                        if (s != cas_sums.first()) { all_same = false; break; }
+                    if (all_same) {
+                        r.msdu.summary = trl::L("聚合帧(%1 帧: %2 ×%3)")
+                                             .arg(cas_cnt).arg(cas_sums.first()).arg(cas_cnt);
+                    } else {
+                        const QStringList head =
+                            cas_sums.mid(0, qMin(cas_sums.size(), 4));
+                        QString list = head.join(trl::L(", "));
+                        if (cas_sums.size() > 4) list += trl::L(" 等");
+                        r.msdu.summary = trl::L("聚合帧(%1 帧: %2)")
+                                             .arg(cas_cnt).arg(list);
+                    }
+                }
                 // msdu_body 保留为级联体流供高亮映射,非重组 MSDU 语义(见 msdu.cascade)
                 r.msdu.cascade = true;
             } else if (!res.msdu_body.isEmpty()) {

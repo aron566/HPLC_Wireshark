@@ -7,6 +7,7 @@
 #include <QColor>
 #include <QDataStream>
 #include <QDir>
+#include "i18n.h"
 #include <QFile>
 #include <QtConcurrent>
 #include <QFutureWatcher>
@@ -14,6 +15,14 @@
 
 namespace {
 // 南网 NW_2021 应用层帧类型域(表4)确认/否认帧 + 业务标识(表9)确认/否认取值
+struct I18nReg {
+    I18nReg() {
+        trl::register_en("训练帧(MIMO)", "Training Frame (MIMO)");
+        trl::register_en("训练帧(Bitloading)", "Training Frame (Bitloading)");
+    }
+};
+const I18nReg g_i18n_reg_pktlist;
+
 constexpr quint8 kAppPacketAckNack = 0x0;   ///< 帧类型域=确认/否认
 constexpr quint8 kBidConfirm       = 0x00;  ///< BID=确认(ACK)
 constexpr quint8 kBidDeny          = 0x01;  ///< BID=否认(NACK)
@@ -197,6 +206,15 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                            .arg(nid).arg(e.meta.timestamp);
                 }
                 if (e.mpdu.frame_type == 1) {
+                    // 训练帧(表24/25,SPLC 载波 SOF:训练帧标识 FCH byte4 bit1=1):
+                    // Info 列显示帧性质,替代 TMI/PBNum/MSDU 段(用户需求)
+                    if (e.mpdu.version == 2 && !e.meta.is_rf
+                        && e.raw_bytes.size() > 5 && (quint8(e.raw_bytes.at(4)) & 0x02)) {
+                        const bool bitload = (quint8(e.raw_bytes.at(5)) & 0x01) != 0;
+                        return QStringLiteral("NetID=0x%1 src=%2 dst=%3 %4")
+                            .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
+                            .arg(bitload ? trl::L("训练帧(Bitloading)") : trl::L("训练帧(MIMO)"));
+                    }
                     QString msdu = e.msdu_body.isEmpty() ? QString() :
                                    QStringLiteral(" MSDU[%1B]").arg(e.msdu_body.size());
                     return QStringLiteral("NetID=0x%1 src=%2 dst=%3 TMI=%4 PBNum=%5%6")

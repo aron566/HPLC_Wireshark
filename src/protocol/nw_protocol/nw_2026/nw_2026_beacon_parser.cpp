@@ -259,8 +259,8 @@ MsduInfo NW_2026_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
             reinterpret_cast<const quint8*>(gb.constData()), gb.size() - 1);
         bpcs_ok = (bpcs == calc);
     }
-    out.summary = QStringLiteral("BEACON BPCS CRC32:%1")
-                      .arg(bpcs_ok ? QStringLiteral("OK") : QStringLiteral("FAIL"));
+    out.summary = trl::L("信标 BPCS CRC32:%1")
+                      .arg(bpcs_ok ? trl::L("成功") : trl::L("失败"));
 
     auto& root = group(out.tree, QStringLiteral("Beacon Load [%1B]").arg(gb.size()));
 
@@ -644,6 +644,9 @@ MsduInfo NW_2026_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
 namespace {
 struct I18nReg {
     I18nReg() {
+        trl::register_en("信标 BPCS CRC32:%1", "BEACON BPCS CRC32:%1");
+        trl::register_en("成功", "OK");
+        trl::register_en("失败", "FAIL");
         trl::register_en("发现信标", "Discovery Beacon");
         trl::register_en("代理信标", "Proxy Beacon");
         trl::register_en("中央信标", "Central Beacon");

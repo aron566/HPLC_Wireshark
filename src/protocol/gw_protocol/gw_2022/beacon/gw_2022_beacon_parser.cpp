@@ -238,8 +238,8 @@ MsduInfo GW_2022_BeaconParser::parse_beacon(const QByteArray& payload) {
             reinterpret_cast<const quint8*>(gb.constData()), gb.size());
         crc_ok = (stored == calc);
     }
-    out.summary = QStringLiteral("BEACON Load CRC32:%1")
-                      .arg(crc_ok ? QStringLiteral("OK") : QStringLiteral("FAIL"));
+    out.summary = trl::L("信标载荷 CRC32:%1")
+                      .arg(crc_ok ? trl::L("成功") : trl::L("失败"));
 
     auto& root = group(out.tree, QStringLiteral("Beacon Load [%1B]").arg(gb.size()));
 
@@ -568,6 +568,9 @@ namespace {
 struct I18nReg {
     I18nReg() {
         // 信标帧标志位/条目注释(51242/51243)
+        trl::register_en("信标载荷 CRC32:%1", "BEACON Load CRC32:%1");
+        trl::register_en("成功", "OK");
+        trl::register_en("失败", "FAIL");
         trl::register_en("组网完成", "Network established");
         trl::register_en("组网未完成", "Network not established");
         trl::register_en("精简信标帧", "Lite beacon frame");
