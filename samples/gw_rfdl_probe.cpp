@@ -32,6 +32,11 @@ int main(int argc, char* argv[]) {
     qDebug().noquote() << "summary:" << info.summary
                        << "| simple_head:" << info.simple_head
                        << "| present:" << info.present;
+    qDebug() << "topo_event: kind=" << (int)info.topo_event.kind
+             << "rssi_entries=" << info.topo_event.rssi_entries.size()
+             << "link_type=" << info.topo_event.link_type;
+    for (const auto& pr : info.topo_event.rssi_entries)
+        qDebug() << "  rssi: TEI=" << pr.first << "->" << pr.second << "dBm";
     dump(info.tree, 0);
     return 0;
 }

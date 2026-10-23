@@ -78,7 +78,7 @@ void CommConfigDialog::build_ui() {
     m_cmb_baud_rate = new QComboBox(port_group);
     m_cmb_baud_rate->setEditable(true);
     m_cmb_baud_rate->addItems({"9600", "19200", "38400", "57600", "115200",
-                               "230400", "460800", "921600", "1500000"});
+                               "230400", "460800", "921600", "1500000", "2000000"});
 
     m_cmb_data_bits = new QComboBox(port_group);
     m_cmb_data_bits->addItems({"5", "6", "7", "8"});
