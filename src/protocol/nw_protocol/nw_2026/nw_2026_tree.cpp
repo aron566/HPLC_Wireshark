@@ -11,6 +11,8 @@ namespace {
 struct I18nReg {
     I18nReg() {
         trl::register_en("保留", "reserved");
+        trl::register_en("级联体流 %1 B · %2", "Cascade body stream %1 B · %2");
+        trl::register_en("级联体流长度", "Cascade Body Length");
         trl::register_en("0 B (训练帧无数据物理块, 表26)", "0 B (no data PB for training frame, Table 26)");
         trl::register_en("保留(按选择确认帧解析)", "Reserved (parsed as selective ACK)");
         trl::register_en("应用报文 LID(优先级)", "App LID (priority)");
@@ -626,7 +628,9 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             const bool cascade_only = e.msdu.cascade;
             auto* msdu = tree_add_item(root,
                 cascade_only ? "MSDU (Cascade Frames)" : "MSDU (Reassembled)",
-                QStringLiteral("%1 B  %2").arg(e.msdu_body.size()).arg(e.msdu.summary));
+                cascade_only
+                    ? trl::L("级联体流 %1 B · %2").arg(e.msdu.total_len).arg(e.msdu.summary)
+                    : QStringLiteral("%1 B  %2").arg(e.msdu_body.size()).arg(e.msdu.summary));
             MsduRawMap rm;
             rm.base = e.msdu_raw_base;
             rm.pb_num = (e.msdu_raw_base >= 0) ? 1 : (e.mpdu.pb_num > 0 ? e.mpdu.pb_num : 1);
@@ -635,12 +639,34 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             rm.header_len = 4;
             rm.body = e.mpdu.pb_size - 8;
             tree_apply_msdu_range(msdu, rm, 0, e.msdu.total_len, e.msdu_body);
-            tree_add_item(msdu, "Length", QStringLiteral("%1 B").arg(e.msdu_body.size()));
+            // 聚合:级联体流长度(级联记录流有效长度,非单个 MSDU 长度语义);
+            // 非聚合保持 Length;两类长度节点同组节点口径挂高亮区间(rel 0..len)
+            if (cascade_only) {
+                auto* len_item = tree_add_item(msdu, trl::L("级联体流长度"),
+                    QStringLiteral("%1 B").arg(e.msdu.total_len));
+                tree_apply_msdu_range(len_item, rm, 0, e.msdu.total_len, e.msdu_body);
+            } else {
+                auto* len_item = tree_add_item(msdu, "Length",
+                    QStringLiteral("%1 B").arg(e.msdu_body.size()));
+                tree_apply_msdu_range(len_item, rm, 0, e.msdu.total_len, e.msdu_body);
+            }
             tree_render_msdu(msdu, e.msdu.tree, rm, e.msdu_body);
         } else if (!e.msdu_body.isEmpty()) {
+            // 兜底:MSDU 未解析出但 body 非空(如越界守卫拒析)——与主分支同口径
+            // 挂高亮区间(组 + Length;total_len 未设,按 body.size())
+            MsduRawMap rm;
+            rm.base = e.msdu_raw_base;
+            rm.pb_num = (e.msdu_raw_base >= 0) ? 1 : (e.mpdu.pb_num > 0 ? e.mpdu.pb_num : 1);
+            rm.pb_size = e.mpdu.pb_size;
+            rm.fch_size = 16;
+            rm.header_len = 4;
+            rm.body = e.mpdu.pb_size - 8;
             auto* msdu = tree_add_item(root, "MSDU (Reassembled)",
                 QStringLiteral("%1 B").arg(e.msdu_body.size()));
-            tree_add_item(msdu, "Length", QStringLiteral("%1 B").arg(e.msdu_body.size()));
+            tree_apply_msdu_range(msdu, rm, 0, e.msdu_body.size(), e.msdu_body);
+            auto* len_item = tree_add_item(msdu, "Length",
+                QStringLiteral("%1 B").arg(e.msdu_body.size()));
+            tree_apply_msdu_range(len_item, rm, 0, e.msdu_body.size(), e.msdu_body);
             tree_add_item(msdu, "Hex", QString(e.msdu_body.toHex(' ')));
         }
         break;

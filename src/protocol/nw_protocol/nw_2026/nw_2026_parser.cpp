@@ -401,8 +401,16 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                                              .arg(cas_cnt).arg(list);
                     }
                 }
-                // msdu_body 保留为级联体流供高亮映射,非重组 MSDU 语义(见 msdu.cascade)
+                // msdu_body 保留为级联体流供树值/高亮映射,非重组 MSDU 语义(见 msdu.cascade);
+                // total_len = 级联体流总长(树层 Length 子节点/区间高亮依据)
                 r.msdu.cascade = true;
+                r.msdu_body = res.msdu_body;   // 级联体流(含块体尾填充,高亮映射用)
+                // total_len = 级联记录流有效长度(逐条 2+len 累加,不含尾填充;
+                // 显示/高亮区间按协议语义取有效长度,msdu_body 保留全流)
+                r.msdu.total_len = res.cascade_used;
+                // 高亮:单块级联 = 首块块体起点(整段连续);多块级联跨块不连续 → -1(逐块换算)
+                r.msdu_raw_base = (r.mpdu.pb_num == 1 && !res.blocks.isEmpty())
+                                      ? res.blocks.first().body_raw_offset : -1;
             } else if (!res.msdu_body.isEmpty()) {
                 r.msdu_body = res.msdu_body;
                 // 表6:单跳帧协议(版本=2)仅无线信道支持;载波信道收到属异常(排查信道/串口错配)
