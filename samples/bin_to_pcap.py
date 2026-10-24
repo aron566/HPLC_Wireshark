@@ -54,8 +54,11 @@ def read_frames(bin_path):
         # inner = le16(len) + le32(ts) + media3B + isRF1B + MPDU
         #   len 字段覆盖 ts 之后全部 = 4(ts) + 4(media+isRF) + len(MPDU)
         # pcap 帧用纯 MPDU(不含 4B media 头), 配 linktype 149(USER2, 载波)
-        #   依据: packet-nw_2021.lua 注册 wtap_encap 47(→pcap 149)/48(→150)/50(→151),
-        #   其中 47/48 期望纯 MPDU; 152 无任何插件注册, tshark 会报"格式无法识别"
+        #   依据: packet-nw_2021.lua 注册 wtap_encap 47(→pcap 149 USER2 载波)/48(→150 无线)
+        #   /50(→151 串口混合采集), 其中 47/48 期望纯 MPDU; 仓库既有 pcap 亦用 149
+        #   (如 wireshark_support_plugins/test_nw_frames.pcap)
+        #   注: 152 + 含 media 头的帧同样可被 tshark 解析(encap 层会剥离 media 头),
+        #   但 149 + 纯 MPDU 与仓库惯例一致, 且避免依赖 media 头字段布局
         mpdu_len = ilen - 8
         if mpdu_len < 0 or 10 + mpdu_len > len(inner):
             raise SystemExit(f"帧长度异常: ilen={ilen} inner={len(inner)}")
