@@ -122,8 +122,8 @@ py -3 bin2pcap.py samples/test_topology_nw.bin x.pcap --nw    # 33 帧 0 跳过
 ① 规约原文（南网 表196 / SPLC 第4部分 / 国网 HDC2.0 表102）均出现「**第 1 字节的第 0 比特 = TEI8**」，1-based 体系里不存在「第 0 比特」；
 ② 实帧同帧互证（南网实包帧14 bit1→TEI1、帧16/17 bit2→TEI2，与同帧「接收发现列表数(TEI n)」逐帧一致）；
 ③ 仓库 12 处实现（gw_2022/gw_2026/nw_2021 + 三份 Lua）全部 0-based。
-→ 解析器**零改动**；原先位图字节 `C0 01` 是生成器旧 1-based 编码（`(t-1)//8`）所致，已改 0-based（`t//8`），现为 **`80 03`** = TEI7/8/9。
-→ 附带修复：Lua 心跳位图 tvb 偏移 `@20→@14`、保留 `@150→@144`（表196 body 8-137/138 + MMe 头 6B），`wireshark_support_plugins/` 与 `release/wireshark_support_plugins/` 两份均已更新。
+→ **TEI 换算本身**解析器零改动（12 处实现本就 0-based）；原先位图字节 `C0 01` 是生成器旧 1-based 编码（`(t-1)//8`）所致，已改 0-based（`t//8`），现为 **`80 03`** = TEI7/8/9。
+→ 附带修复：**Lua 解析器**心跳位图 tvb 偏移 `@20→@14`、保留 `@150→@144`（表196 body 8-137/138 + MMe 头 6B）—— 修正前位图整体错位 6 字节，实帧解析出的是帧尾 CRC；`wireshark_support_plugins/` 与 `release/wireshark_support_plugins/` 两份均已更新。
 
 ## 8. 未做项
 
