@@ -45,6 +45,11 @@ cp -r wireshark_support_plugins/. release/wireshark_support_plugins/
 rm -f release/wireshark_support_plugins/*.c   # 排除已落后的 C 版(README 标注勿用)
 rm -rf release/wireshark_support_plugins/__pycache__  # Python 缓存垃圾不进包
 rm -f release/wireshark_support_plugins/*.log          # 调试日志不进包
+# 大文件不进包: 插件目录里的 *.pcap / *.bin 是开发回归样本, 仓库入库的最大只有 2.3MB
+# (TESTSPLC_mixed_check.pcap 等); 而工作区遗留的四个巨文件(74MB / 73MB / 40MB 实帧 / 5MB 切片)
+# 并未入库, 却被上面的 cp -r 一并带进包里 —— 安装包多带 ~190MB, 用户装完根本用不上。
+# 阈值取 3MB: 保证所有入库样例(<2.3MB)保留, 所有未入库巨文件(>5MB)排除。
+find release/wireshark_support_plugins -type f \( -name '*.pcap' -o -name '*.bin' \) -size +3M -delete
 # 打包后自检: release/ 里的插件必须与仓库源逐字节一致(与 scripts/package_ci.sh 同款校验)。
 # 本地与 CI 两套打包脚本都做这道校验, 保证"本地打的包"与"CI 打的包"插件来源一致,
 # 杜绝安装包携带旧解析器 —— 用户装完发现"仓库里修了协议 bug 但 Wireshark 里没生效"。

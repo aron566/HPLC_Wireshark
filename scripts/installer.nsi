@@ -63,7 +63,18 @@ Section "主程序" SEC_MAIN
   File /nonfatal "${SRC}\config.ini"
   SetOverwrite on
   ; 清旧版残留 DLL(升级时旧 DLL 可能多余;先删后写保证新包干净)
-  File /r /x "*.o" /x "*.obj" /x "*.res" /x "*.cpp" /x "*.h" /x "mocinclude.opt" /x "object_script*" /x "Makefile*" /x ".qmake.stash" "${SRC}\*.*"
+  ; 注意: "${SRC}\*.*" 这类通配对**非 ASCII 文件名会漏项** —— 实测中文名 PDF
+  ; (BPLC_STA_Monitor使用说明书.pdf / Wireshark插件使用说明.pdf)根本没进包,
+  ; 中文用户装完看不到中文使用手册。故这里 /x "*.pdf" 排除通配, 再显式列出 4 份。
+  ; 本脚本为 UTF-8 with BOM, NSIS 3 Unicode 模式支持中文路径。
+  ; 另注: NSIS 的 File 指令**不支持 "source destination" 双参数**(第二个参数会被当 source),
+  ; 且省略 destination 时 destination = source 的**文件名**(不含目录) —— 会把 PDF 装到安装根目录。
+  ; 故用 /oname=<目标路径> 单文件形式(注意 /oname 后的值**不能加引号**, 否则引号会被当名字的一部分)。
+  File /r /x "*.o" /x "*.obj" /x "*.res" /x "*.cpp" /x "*.h" /x "mocinclude.opt" /x "object_script*" /x "Makefile*" /x ".qmake.stash" /x "*.pdf" "${SRC}\*.*"
+  File /oname=docs\BPLC_STA_Monitor使用说明书.pdf "${SRC}\docs\BPLC_STA_Monitor使用说明书.pdf"
+  File /oname=docs\BPLC_STA_Monitor_User_Manual_EN.pdf "${SRC}\docs\BPLC_STA_Monitor_User_Manual_EN.pdf"
+  File /oname=wireshark_support_plugins\Wireshark插件使用说明.pdf "${SRC}\wireshark_support_plugins\Wireshark插件使用说明.pdf"
+  File /oname=wireshark_support_plugins\Wireshark_Plugin_Manual_EN.pdf "${SRC}\wireshark_support_plugins\Wireshark_Plugin_Manual_EN.pdf"
   WriteRegStr HKCU "Software\BPLC_STA_Monitor" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\BPLC_STA_Monitor" \
     "DisplayName" "BPLC STA Monitor"
