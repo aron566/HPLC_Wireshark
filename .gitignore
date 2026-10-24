@@ -77,4 +77,4 @@ wireshark_support_plugins/GW_HDC1.0_sample_5MB.pcap
 wireshark_support_plugins/nw_bplc.pcap
 
 # tshark 字段分析中间产物
-wireshark_support_plugins/nw_bplc_fields*.txt
+wireshark_support_plugins/nw_bplc_*.txt
