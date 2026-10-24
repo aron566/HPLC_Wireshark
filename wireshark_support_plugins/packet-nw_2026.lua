@@ -1834,9 +1834,11 @@ local function dissect_mme_heartbeat(tvb, tree)
     add_le(tree, f.hb_ostei, tvb, 6, 2)
     add_le(tree, f.hb_max_disc_tei, tvb, 8, 2)
     add_le(tree, f.hb_max_disc_cnt, tvb, 10, 4)
-    -- 可发现站点位图 (@20, 130B) + 保留 (@150)
-    dissect_tei_bitmap(tvb, tree, 20, 130, f.hb_disc_bmp, T("可发现站点位图", "Discoverable STA Bitmap"), "Discoverable STA Bitmap")
-    tree:add(f.hb_rsv, tvb(150, 1))
+    -- 可发现站点位图 (@14, 130B) + 保留 (@144)
+    -- 依规约表196: 原始源TEI 0-1 / 发现站点数最大TEI 2-3 / 最大发现数 4-7 /
+    --              可发现站点TEI位图 8-137 / 保留 138; body 起点 tvb 6 → 位图 @14
+    dissect_tei_bitmap(tvb, tree, 14, 130, f.hb_disc_bmp, T("可发现站点位图", "Discoverable STA Bitmap"), "Discoverable STA Bitmap")
+    tree:add(f.hb_rsv, tvb(144, 1))
 end
 
 -- 发现列表 (0x0055)
