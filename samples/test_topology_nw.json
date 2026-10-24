@@ -1,0 +1,309 @@
+{
+  "nodes": [
+    {
+      "tei": 1,
+      "mac": "ce:ce:ce:ce:ce:ce",
+      "role": 4,
+      "level": 0,
+      "proxy_tei": 0,
+      "link_type": "PLC"
+    },
+    {
+      "tei": 2,
+      "mac": "00:00:00:00:00:03",
+      "role": 2,
+      "level": 1,
+      "proxy_tei": 1,
+      "link_type": "PLC"
+    },
+    {
+      "tei": 3,
+      "mac": "00:00:00:00:00:04",
+      "role": 1,
+      "level": 2,
+      "proxy_tei": 2,
+      "link_type": "PLC"
+    },
+    {
+      "tei": 4,
+      "mac": "00:00:00:00:00:05",
+      "role": 1,
+      "level": 2,
+      "proxy_tei": 2,
+      "link_type": "RF"
+    },
+    {
+      "tei": 5,
+      "mac": "00:00:00:00:00:06",
+      "role": 2,
+      "level": 1,
+      "proxy_tei": 1,
+      "link_type": "RF"
+    },
+    {
+      "tei": 6,
+      "mac": "00:00:00:00:00:07",
+      "role": 1,
+      "level": 2,
+      "proxy_tei": 5,
+      "link_type": "RF"
+    },
+    {
+      "tei": 7,
+      "mac": "00:00:00:00:00:08",
+      "role": 2,
+      "level": 2,
+      "proxy_tei": 5,
+      "link_type": "PLC"
+    },
+    {
+      "tei": 8,
+      "mac": "00:00:00:00:00:09",
+      "role": 1,
+      "level": 3,
+      "proxy_tei": 7,
+      "link_type": "RF"
+    },
+    {
+      "tei": 9,
+      "mac": "00:00:00:00:00:0a",
+      "role": 1,
+      "level": 3,
+      "proxy_tei": 7,
+      "link_type": "PLC"
+    }
+  ],
+  "frames": [
+    {
+      "no": 1,
+      "name": "beacon_cco",
+      "src": 1,
+      "dst": "广播",
+      "purpose": "CCO 中央信标"
+    },
+    {
+      "no": 2,
+      "name": "singlehop_rfdl_sta4",
+      "src": 4,
+      "dst": "广播",
+      "purpose": "STA4 单跳无线发现列表"
+    },
+    {
+      "no": 3,
+      "name": "assoc_req_tei2",
+      "src": 2,
+      "dst": 1,
+      "purpose": "TEI2 关联请求(候选代理 1)"
+    },
+    {
+      "no": 4,
+      "name": "assoc_req_tei3",
+      "src": 3,
+      "dst": 1,
+      "purpose": "TEI3 关联请求(候选代理 2)"
+    },
+    {
+      "no": 5,
+      "name": "assoc_req_tei4",
+      "src": 4,
+      "dst": 1,
+      "purpose": "TEI4 关联请求(候选代理 2)"
+    },
+    {
+      "no": 6,
+      "name": "assoc_req_tei5",
+      "src": 5,
+      "dst": 1,
+      "purpose": "TEI5 关联请求(候选代理 1)"
+    },
+    {
+      "no": 7,
+      "name": "assoc_req_tei6",
+      "src": 6,
+      "dst": 1,
+      "purpose": "TEI6 关联请求(候选代理 5)"
+    },
+    {
+      "no": 8,
+      "name": "assoc_req_tei7",
+      "src": 7,
+      "dst": 1,
+      "purpose": "TEI7 关联请求(候选代理 5)"
+    },
+    {
+      "no": 9,
+      "name": "assoc_req_tei8",
+      "src": 8,
+      "dst": 1,
+      "purpose": "TEI8 关联请求(候选代理 7)"
+    },
+    {
+      "no": 10,
+      "name": "assoc_req_tei9",
+      "src": 9,
+      "dst": 1,
+      "purpose": "TEI9 关联请求(候选代理 7)"
+    },
+    {
+      "no": 11,
+      "name": "assoc_cnf_tei2",
+      "src": 1,
+      "dst": 2,
+      "purpose": "CCO→TEI2 关联确认(link=0)"
+    },
+    {
+      "no": 12,
+      "name": "assoc_cnf_tei3",
+      "src": 1,
+      "dst": 3,
+      "purpose": "CCO→TEI3 关联确认(link=0)"
+    },
+    {
+      "no": 13,
+      "name": "assoc_cnf_tei4",
+      "src": 1,
+      "dst": 4,
+      "purpose": "CCO→TEI4 关联确认(link=1)"
+    },
+    {
+      "no": 14,
+      "name": "assoc_cnf_tei5",
+      "src": 1,
+      "dst": 5,
+      "purpose": "CCO→TEI5 关联确认(link=1)"
+    },
+    {
+      "no": 15,
+      "name": "assoc_cnf_tei6",
+      "src": 1,
+      "dst": 6,
+      "purpose": "CCO→TEI6 关联确认(link=1)"
+    },
+    {
+      "no": 16,
+      "name": "assoc_cnf_tei7",
+      "src": 1,
+      "dst": 7,
+      "purpose": "CCO→TEI7 关联确认(link=0)"
+    },
+    {
+      "no": 17,
+      "name": "assoc_cnf_tei8",
+      "src": 1,
+      "dst": 8,
+      "purpose": "CCO→TEI8 关联确认(link=1)"
+    },
+    {
+      "no": 18,
+      "name": "assoc_cnf_tei9",
+      "src": 1,
+      "dst": 9,
+      "purpose": "CCO→TEI9 关联确认(link=0)"
+    },
+    {
+      "no": 19,
+      "name": "assoc_ind_tei3",
+      "src": 1,
+      "dst": 2,
+      "purpose": "CCO→代理2 关联指示(TEI3)"
+    },
+    {
+      "no": 20,
+      "name": "assoc_ind_tei4",
+      "src": 1,
+      "dst": 2,
+      "purpose": "CCO→代理2 关联指示(TEI4)"
+    },
+    {
+      "no": 21,
+      "name": "assoc_ind_tei6",
+      "src": 1,
+      "dst": 5,
+      "purpose": "CCO→代理5 关联指示(TEI6)"
+    },
+    {
+      "no": 22,
+      "name": "assoc_ind_tei7",
+      "src": 1,
+      "dst": 5,
+      "purpose": "CCO→代理5 关联指示(TEI7)"
+    },
+    {
+      "no": 23,
+      "name": "assoc_ind_tei8",
+      "src": 1,
+      "dst": 7,
+      "purpose": "CCO→代理7 关联指示(TEI8)"
+    },
+    {
+      "no": 24,
+      "name": "assoc_ind_tei9",
+      "src": 1,
+      "dst": 7,
+      "purpose": "CCO→代理7 关联指示(TEI9)"
+    },
+    {
+      "no": 25,
+      "name": "disc_list_tei1",
+      "src": 1,
+      "dst": "广播",
+      "purpose": "TEI1 发现列表"
+    },
+    {
+      "no": 26,
+      "name": "disc_list_tei2",
+      "src": 2,
+      "dst": "广播",
+      "purpose": "TEI2 发现列表"
+    },
+    {
+      "no": 27,
+      "name": "disc_list_tei3",
+      "src": 3,
+      "dst": "广播",
+      "purpose": "TEI3 发现列表"
+    },
+    {
+      "no": 28,
+      "name": "disc_list_tei4",
+      "src": 4,
+      "dst": "广播",
+      "purpose": "TEI4 发现列表"
+    },
+    {
+      "no": 29,
+      "name": "disc_list_tei5",
+      "src": 5,
+      "dst": "广播",
+      "purpose": "TEI5 发现列表"
+    },
+    {
+      "no": 30,
+      "name": "disc_list_tei6",
+      "src": 6,
+      "dst": "广播",
+      "purpose": "TEI6 发现列表"
+    },
+    {
+      "no": 31,
+      "name": "disc_list_tei7",
+      "src": 7,
+      "dst": "广播",
+      "purpose": "TEI7 发现列表"
+    },
+    {
+      "no": 32,
+      "name": "disc_list_tei8",
+      "src": 8,
+      "dst": "广播",
+      "purpose": "TEI8 发现列表"
+    },
+    {
+      "no": 33,
+      "name": "disc_list_tei9",
+      "src": 9,
+      "dst": "广播",
+      "purpose": "TEI9 发现列表"
+    }
+  ]
+}
