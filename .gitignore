@@ -78,3 +78,7 @@ wireshark_support_plugins/nw_bplc.pcap
 
 # tshark 字段分析中间产物
 wireshark_support_plugins/nw_bplc_*.txt
+
+# 分析/转换中间产物
+wireshark_support_plugins/nw_dl_fields*.txt
+samples/*_3frames.pcap
