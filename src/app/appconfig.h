@@ -22,6 +22,52 @@ inline QString ini_path() {
 /// @brief 配置文件读写句柄(IniFormat,UTF-8)
 inline QSettings settings() { return QSettings(ini_path(), QSettings::IniFormat); }
 
+/// @brief 把旧格式 ini 的 [general] 普通段改名为 QSettings 组段 [%general]
+/// @details 实测(QSettings 6.11, IniFormat) 的 ini 解析规则:
+///          · 段名带 % 的是**组段**, 键读作 "<组名>/<键>";
+///          · 普通段若**不是文件里的第一个 section**, 键同样读作 "<段名>/<键>";
+///          · 但**第一个普通段**的键会落到顶层 —— 旧模板第一个段正是 [general],
+///            于是 value("general/protocol") 读不到 → 静默回退默认 "gw_2026",
+///            南网帧被国网解析器 DROP, 且用户手改 config.ini 完全无效。
+///          QSettings 自己写出时用的正是 [%General] 形式。
+///          故只把 [general] 改名 —— [reader]/[crash] 等其它普通段本就正常, 不能动。
+///          已是组段(含 "[%")的文件不动(那是 QSettings 自己写过的)。
+inline void migrate_ini_groups(const QString& path) {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return;
+    const QByteArray data = f.readAll();
+    f.close();
+    if (data.contains("[%")) return;               // 已是组段格式
+    QByteArray out = data;
+    // 精确替换段头行 "[general]" → "[%general]"(只在行首, 允许前导空白)
+    const QByteArray from = "[general]";
+    const QByteArray to   = "[%general]";
+    int pos = 0;
+    // 用数值常量表示 LF/CR, 避免源码里出现反斜杠转义字符字面量(易被编辑链路改写)
+    const char kLf = 10;
+    const char kCr = 13;
+    while ((pos = out.indexOf(from, pos)) >= 0) {
+        const bool atLineStart = (pos == 0) || (out.at(pos - 1) == kLf) || (out.at(pos - 1) == kCr);
+        const bool exactEnd = (pos + from.size() >= out.size())
+                           || (out.at(pos + from.size()) == kLf) || (out.at(pos + from.size()) == kCr);
+        if (atLineStart && exactEnd) {
+            out.replace(pos, from.size(), to);
+            pos += to.size();
+            continue;
+        }
+        pos += from.size();
+    }
+    if (out == data) return;
+    // 先备份再改写, 出问题可回退
+    QFile::remove(path + ".bak");
+    QFile bak(path + ".bak");
+    if (bak.open(QIODevice::WriteOnly)) { bak.write(data); bak.close(); }
+    QFile w(path);
+    if (!w.open(QIODevice::WriteOnly | QIODevice::Truncate)) return;
+    w.write(out);
+    w.close();
+}
+
 /// @brief 初次启动生成默认配置文件(带中文注释模板);已存在则不动
 inline void ensure_default_file() {
     const QString path = ini_path();
@@ -30,7 +76,7 @@ inline void ensure_default_file() {
         "; BPLC STA Monitor 配置文件(首次启动自动生成,删除后下次启动重建)\n"
         "; BPLC STA Monitor configuration (auto-generated)\n"
         "\n"
-        "[general]\n"
+        "[%general]\n"
         "; 语言:auto=跟随系统 / zh=中文 / en=English\n"
         "lang=auto\n"
         "; 更新检查地址(update.json 清单)\n"
