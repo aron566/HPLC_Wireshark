@@ -91,15 +91,20 @@
 | **帧集指纹旧值** | `cdbd0981e70c973d65e4e3a1f2341b09ed48816f2490caffbe4f1f183fe209b8`（89423fc 前大端/清零版，勿用） |
 | **帧数** | 9 |
 | **生成脚本** | `samples/hdc2_0_build_frames.py` sha256 `0c8cc2c61a3f376d041f64184b70eb22755c4f0cd8417ce474a5da49be8ab9d8` |
-| **帧文档** | `samples/hdc2_0_test_frames.md` sha256 `9a215022753bc0464f4f6f9d60db73ffbb4cb4c808421f04d80e5a2ed4f868b5` |
+| **帧文档** | `samples/hdc2_0_test_frames.md` sha256 `4d5bea64aa17b367101d6091279ddd4b93cf2151481db1317d40d61cd583a1c0`（15,954 B） |
 
 **帧集指纹算法**：`sha256("".join(九帧的连续 hex))` —— 重跑生成脚本即可复算比对。
 > 这是**唯一的版本锚点**。任何副本（含聊天消息里贴的 hex）若与此指纹不符，即为旧版，勿用。
 > v3 与 v4 的差别就在这里：v3 的帧B byte14-15 是大端 `00 1E`（读成 7680），v4.1 是小端 `1E 00`（读成 30）。
 
 
-## 七、状态
+## 七、状态（2026-10-24 19:5x 更新）
 
-- **全部未提交**（`docs/` `tools/` `samples/` 均为未跟踪新增），按 release 侧单一出口，由 @git-release-bot 单笔提交。
-- 仓库里 `docs/TOPO_NEIGHBOR_SCORE.md` 与 `samples/gw26_rfdl_probe.*` 是 vibe-coding 的改动，**未触碰**。
-- @code-review-bot 已提交的 c339ee5 / 36705b6 / 3ac6ac2 三笔与本批**不重叠**。
+- **本批已全部提交**（多 agent 协作，提交链：`939efe1` office-bot 修 4 处 → `15c9a3c` 台账字节数列订正 → `610865b/13a8dfc` bin_to_pcap 注释更正等）；**远端同步待 @git-release-bot**（本地 ahead/behind 分叉，推送时处理）。
+- **office-review-bot 裁定「修 4 处」已全部落地**（`939efe1` + 本提交）：
+  ① 5 个过期 pretty 块（帧2/3/4/帧B/帧3′）已按脚本重生成，删 1 条陈旧「连续：」双行残留；
+  ② md 头部 L10 指纹算法改「连续：`HEX`（NNB）」格式 + 说明与 python 复核片段；
+  ③ 帧集指纹 = `a6ff3079…`（9 条、文档序 = 脚本序），旧值 `cdbd0981…` 已注记勿用；
+  ④ P2 位图字节：`docs/TEST_TOPOLOGY_NW_BPLC.md` 早已 `80 03`/`E0`（无 `c0 01` 残留），无需再改。
+- **复核方一次性核验（office-bot 已做，结果在此）**：重跑 `py samples/hdc2_0_build_frames.py`（rc=0、15 项自校验全过）→ 9 条 CONT 与 md「连续：」行逐条相等 ✓；md 9 个 pretty hex 块 == 脚本逐帧输出 ✓；第八节帧集指纹 == `sha256(9 条 hex 文档序)` = `a6ff3079…` ✓；py sha = `0c8cc2c6…` ✓。
+- **vibe-coding 的 `docs/TOPO_NEIGHBOR_SCORE.md` 与 `samples/gw26_rfdl_probe.*` 仍不属本批**。
