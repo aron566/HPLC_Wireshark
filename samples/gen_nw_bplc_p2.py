@@ -63,7 +63,9 @@ def build_heartbeat(orig_tei, max_tei, max_cnt, found_teis):
     body += le32(max_cnt)                      # 4-7 最大发现站点数 (32b 小端)
     bitmap = bytearray(130)                    # 8-137 可发现站点 TEI 位图
     for t in found_teis:
-        bitmap[(t - 1) // 8] |= 1 << ((t - 1) % 8)
+        # 位图比特序号 0-based, TEI = 8*i+j (规约表196: 第0字节的第1比特->TEI1,
+        # 第1字节的第0比特->TEI8), 故 byte=t//8, bit=t%8 —— 与 gen_nw_bplc_topology.py 一致
+        bitmap[t // 8] |= 1 << (t % 8)
     body += bytes(bitmap)
     body += b'\x00'                            # 138 保留
     assert len(body) == 139
@@ -73,9 +75,9 @@ def build_heartbeat(orig_tei, max_tei, max_cnt, found_teis):
 
 
 def heartbeat_bitmap_check(body, found_teis):
-    """位图按文档 L1540-1542 规则回读."""
+    """位图按规约表196 规则回读(比特序号 0-based, TEI = 8*i+j)."""
     bm = body[8:138]
-    got = [t for t in range(1, 1041) if bm[(t - 1) // 8] >> ((t - 1) % 8) & 1]
+    got = [t for t in range(0, 1040) if bm[t // 8] >> (t % 8) & 1]
     assert got == sorted(found_teis), f"位图回读 {got} != {sorted(found_teis)}"
     return got
 
