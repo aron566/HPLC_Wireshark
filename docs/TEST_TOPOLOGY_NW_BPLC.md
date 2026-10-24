@@ -101,7 +101,7 @@ py -3 bin2pcap.py samples/test_topology_nw.bin x.pcap --nw    # 33 帧 0 跳过
 
 ## 7. P2 事件帧（8 帧，已构造待复核）
 
-产物：`samples/gen_nw_bplc_p2.py` + `samples/test_topology_nw_p2.bin` / `.json` / `.pcap`（已入库，`b250248` / `1a5f53b`）。
+产物：`samples/gen_nw_bplc_p2.py` + 生成物 `samples/test_topology_nw_p2.bin` / `.json` / `.pcap`（**均不入库**，由生成器重建，见 §8）。
 
 | # | 帧 | MMe | 说明 |
 |---|---|---|---|
@@ -128,5 +128,8 @@ py -3 bin2pcap.py samples/test_topology_nw.bin x.pcap --nw    # 33 帧 0 跳过
 ## 8. 未做项
 
 - P3 帧型（代理变更三件 / 网络诊断 / 过零NTB / TEI列表 / 汇聚）——按 bot 提醒暂不构造
-- 本文档 + P0/P1/P2 产物**均已入库**（`b250248` P2 事件帧数据集 / `d7ac8be` P0/P1 单跳帧改实包真字节 + 层级修正 / `a31f95a` 表号双体系说明）
-- 遗留：两个 `samples/*.bin`（`nw_bplc_3frames.bin` / `test_topology_nw_p2.bin`）受 `.gitignore:20 samples/*.bin` 约束，其中 P1 的 `test_topology_nw.bin` 已用 `-f` 强加入库（符合 P1 口径：bin 入库、pcap 忽略），而 P2 的 pcap 反而入库 —— **P2 入库口径倒挂待用户决定后统一**
+- 本文档**入库**；P0/P1/P2 数据集生成物（`*.bin` / `*.pcap` / `*.json`）**均不入库**，仓库只保留生成器脚本（用户终裁，见 `88296eb`）
+- **回归流程**：先跑三个生成器再验证 ——
+  `py -3 samples/gen_nw_bplc_frames.py` / `gen_nw_bplc_topology.py` / `gen_nw_bplc_p2.py`
+  三个脚本确定性产出，重跑后 blob hash 恒定（实测：`e8824ba4` / `c8057b32` / `67e089ae`），与移出前逐字节一致
+- 唯一入库的 `.bin` 是 `samples/roundtrip/roundtrip_test.bin`（+ `.txt`）：**CI 直接引用的测试夹具**（`.github/workflows/build.yml:106`、`protocol-regression.yml:52`），不可由脚本重建，必须保留
