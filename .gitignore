@@ -69,3 +69,6 @@ wireshark_support_plugins/BPLC_20260913_112353.bin
 
 # NASM 汇编器(uasm, 构建期工具, 不入库)
 3rdparty/tools/
+
+# 国网实包切片(用户决定:不切片/不入库, 保持 40MB 全包本地)
+wireshark_support_plugins/GW_HDC1.0_sample_5MB.pcap
