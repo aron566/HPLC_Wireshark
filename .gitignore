@@ -72,3 +72,6 @@ wireshark_support_plugins/BPLC_20260913_112353.bin
 
 # 国网实包切片(用户决定:不切片/不入库, 保持 40MB 全包本地)
 wireshark_support_plugins/GW_HDC1.0_sample_5MB.pcap
+
+# BPLC 实包转 pcap 的中间产物(bin2pcap 可随时重生成)
+wireshark_support_plugins/nw_bplc.pcap
