@@ -59,3 +59,6 @@ wireshark_support_plugins/test_splc2_mixed.pcap
 # 内部架构计划/修复日志类文档不入库(本地保留,防误提交)
 docs/ARCH_*.md
 docs/WO_*.md
+
+# 74MB 验证产物不入库(同 test_splc2_mixed 先例)
+wireshark_support_plugins/test_splc2_new.pcap
