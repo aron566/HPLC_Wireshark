@@ -2275,7 +2275,7 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
                 local len_bytes = (ltype ~= 0) and 2 or 1
                 if pos + len_bytes > rfdl_end then break end
                 local elen = tvb(pos, 1):uint()
-                if len_bytes == 2 then elen = elen * 256 + tvb(pos + 1, 1):uint() end
+                if len_bytes == 2 then elen = elen + tvb(pos + 1, 1):uint() * 256 end
                 rtree:add(f.rf_ie_len, tvb(pos, len_bytes), elen)
                 pos = pos + len_bytes
                 if pos + elen > rfdl_end then

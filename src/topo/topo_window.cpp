@@ -8,6 +8,7 @@
 #include <QComboBox>
 #include <QColor>
 #include <QDateTime>
+#include "QsLog.h"
 #include <QDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -19,6 +20,7 @@
 #include <QPushButton>
 #include <QSplitter>
 #include <QScrollBar>
+#include <QSet>
 #include <QStandardItemModel>
 #include <QTableView>
 #include <QTimer>
@@ -192,10 +194,16 @@ struct I18nRegTopoWindow {
         trl::register_en("(无拓扑数据)", "(No topology data)");
         trl::register_en("入网中(关联请求)", "Joining (assoc request)");
         trl::register_en("上级", "Parent");
-        trl::register_en("下行成功率", "Downlink success rate");
-        trl::register_en("上行成功率", "Uplink success rate");
-        trl::register_en("通讯成功率: 暂无上报", "Comm success rate: no report yet");
+        trl::register_en("载波上行成功率（我→父 %1）: %2%", "PLC uplink rate (me→parent %1): %2%");
+        trl::register_en("载波下行成功率（父→我）: %1%", "PLC downlink rate (parent→me): %1%");
+        trl::register_en("通讯成功率: 暂无上报", "Comm success rate: no report");
         trl::register_en("接入方式", "Link");
+        trl::register_en("入网链路", "Link Type");
+        trl::register_en("双模", "Dual-mode");
+        trl::register_en("未定", "Undetermined");
+        trl::register_en("无线", "RF");
+        trl::register_en("是", "Yes");
+        trl::register_en("否", "No");
         trl::register_en("信号强度", "Signal Strength");
         trl::register_en("载波", "PLC");
         trl::register_en("实时", "Live");
@@ -204,6 +212,26 @@ struct I18nRegTopoWindow {
         trl::register_en("已暂停", "Paused");
         trl::register_en("适应视图", "Fit view");
         trl::register_en("缩放并居中显示整张拓扑图", "Zoom to fit and center the whole topology");
+        // 邻居明细表(载波+无线混合,含可靠度评分)
+        trl::register_en("链路", "Link");
+        trl::register_en("信号强度 (dBm)", "Signal Strength (dBm)");
+        trl::register_en("上行成功率%（对方→我）", "Uplink % (peer→me)");
+        trl::register_en("下行成功率%（我→对方）", "Downlink % (me→peer)");
+        trl::register_en("我报它次数", "My reports of it");
+        trl::register_en("它报我次数", "Its reports of me");
+        trl::register_en("双向", "Bidirectional");
+        trl::register_en("可靠度", "Reliability");
+        trl::register_en("未知", "Unknown");
+        trl::register_en("上行 = 对方发给我的成功率（数据来自我的发现列表报文）",
+                         "Uplink = success rate from peer to me (from my own discovery list frame)");
+        trl::register_en("下行 = 我发给对方的成功率（数据来自邻居的发现列表报文）",
+                         "Downlink = success rate from me to peer (from the neighbor's discovery list frame)");
+        trl::register_en("base=%1 活跃度=%2 信号归一=%3 · 权重 0.50/0.30/0.20",
+                         "base=%1 activity=%2 signal norm=%3 · weights 0.50/0.30/0.20");
+        trl::register_en("对称性=%1 活跃度=%2 · 权重 0.60/0.40",
+                         "symmetry=%1 activity=%2 · weights 0.60/0.40");
+        trl::register_en("无线上行成功率（我→父 %1）: %2%", "RF uplink rate (me→parent %1): %2%");
+        trl::register_en("无线下行成功率（父→我）: %1%", "RF downlink rate (parent→me): %1%");
     }
 } i18n_reg_topo_window;
 
@@ -216,6 +244,7 @@ TopoGraphWidget::TopoGraphWidget(QWidget* parent) : QWidget(parent) {
     setMouseTracking(true);   // 悬浮(hover)显示节点信息,无需点击
     m_icon_cco = new QPixmap(QStringLiteral(":/icons/cco-router.png"));
     m_icon_online = new QPixmap(QStringLiteral(":/icons/electric-meter_online.png"));
+    m_icon_online_hplcrf = new QPixmap(QStringLiteral(":/icons/electric-meter_hplcrf_online.png"));
     m_icon_online_going = new QPixmap(QStringLiteral(":/icons/electric-meter _online_going.png"));
     m_icon_offline = new QPixmap(QStringLiteral(":/icons/electric-meter _offline.png"));
 }
@@ -319,11 +348,11 @@ void TopoGraphWidget::paintEvent(QPaintEvent*) {
             if (cit == m_pos.constEnd()) continue;
             parent_center = cit.value();
             auto pit = m_state->pending.constFind(np.mac);
-            if (pit != m_state->pending.constEnd()) child_is_rf = pit.value().is_rf;
+            if (pit != m_state->pending.constEnd()) child_is_rf = (pit.value().link_type == 1);
         } else {
             auto it = m_state->nodes.constFind(np.tei);
             if (it == m_state->nodes.constEnd()) continue;
-            child_is_rf = it.value().is_rf;
+            child_is_rf = (it.value().link_type == 1);   // 入网链路类型(表79/160),非 is_rf
             const quint16 parent = it.value().parent_tei;
             if (parent == 0xFFFF || parent == np.tei) continue;
             auto pit = m_pos.constFind(parent);
@@ -368,7 +397,10 @@ void TopoGraphWidget::paintEvent(QPaintEvent*) {
             icon = m_icon_cco;
         } else switch (node->status) {
             case NodeStatus::OnlineGoing: icon = m_icon_online_going; break;
-            case NodeStatus::Online:      icon = m_icon_online;       break;
+            case NodeStatus::Online:
+                // 双模节点(发过 RF 帧)用 HPLCRF 图标,非双模沿用原 online 图
+                icon = node->rf_capable ? m_icon_online_hplcrf : m_icon_online;
+                break;
             case NodeStatus::Offline:     icon = m_icon_offline;      break;
         }
         if (icon && !icon->isNull()) {
@@ -445,18 +477,41 @@ void TopoGraphWidget::show_node_tip(const QPoint& global_pos, quint16 tei, quint
         lines << QStringLiteral("%1: %2 dBm").arg(trl::L("信号强度")).arg(node->rssi_dbm);
 
     if (tei != 1) {
-        // 上级(代理)
         const quint16 parent = node->parent_tei;
-        if (parent != 0xFFFF && parent != tei) {
-            const QString pname = (parent == 1) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(parent);
+        const QString pname = (parent == 1) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(parent);
+        auto cit = m_state->comm_rates.constFind(tei);   // 载波成功率(提前取,供诊断 + 渲染)
+        // [诊断 C1] tooltip 两类成功率独立状态(无线 + 载波)
+        QLOG_DEBUG() << "[TOPO tooltip] tei=" << tei
+                     << "is_rf=" << node->is_rf
+                     << "link_type=" << node->link_type
+                     << "rf_capable=" << node->rf_capable
+                     << "proxy_known=" << node->proxy_rate_known
+                     << "proxy_up=" << node->proxy_up_rate
+                     << "parent_tei=" << node->parent_tei
+                     << "mme_known=" << (cit != m_state->comm_rates.constEnd())
+                     << "mme_up=" << (cit != m_state->comm_rates.constEnd() ? cit.value().up : -1)
+                     << "mme_down=" << (cit != m_state->comm_rates.constEnd() ? cit.value().down : -1);
+        // 上级(代理)
+        if (parent != 0xFFFF && parent != tei)
             lines << QStringLiteral("%1: %2").arg(trl::L("上级"), pname);
+        // ── ① 成功率区:只显示与父节点(代理)的 4 项(无线 2 + 载波 2);两组都空才显示"暂无上报" ──
+        const bool has_wireless = node->proxy_up_rate >= 0 || node->proxy_down_rate >= 0;
+        const bool has_carrier = node->proxy_comm_rate >= 0 || node->proxy_down_comm_rate >= 0;
+        if (has_wireless) {
+            // 无线:RFDL 站点属性(表217)代理上/下行接收率
+            if (node->proxy_up_rate >= 0)
+                lines << trl::L("无线上行成功率（我→父 %1）: %2%").arg(pname).arg(node->proxy_up_rate);
+            if (node->proxy_down_rate >= 0)
+                lines << trl::L("无线下行成功率（父→我）: %1%").arg(node->proxy_down_rate);
         }
-        // 通讯成功率(成功率上报,与上级的上下行)
-        auto cit = m_state->comm_rates.constFind(tei);
-        if (cit != m_state->comm_rates.constEnd()) {
-            lines << QStringLiteral("%1: %2%").arg(trl::L("下行成功率")).arg(cit.value().down);
-            lines << QStringLiteral("%1: %2%").arg(trl::L("上行成功率")).arg(cit.value().up);
-        } else {
+        if (has_carrier) {
+            // 载波:0x0055 发现列表(表77)与代理站点通信成功率
+            if (node->proxy_comm_rate >= 0)
+                lines << trl::L("载波上行成功率（我→父 %1）: %2%").arg(pname).arg(node->proxy_comm_rate);
+            if (node->proxy_down_comm_rate >= 0)
+                lines << trl::L("载波下行成功率（父→我）: %1%").arg(node->proxy_down_comm_rate);
+        }
+        if (!has_wireless && !has_carrier) {
             lines << trl::L("通讯成功率: 暂无上报");
         }
     }
@@ -567,15 +622,15 @@ TopoWindow::TopoWindow(QWidget* parent) : QWidget(parent) {
     m_teimac_table->setModel(m_teimac_model);
     m_teimac_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_teimac_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    // 列宽适配:邻居表列(索引 4)占满剩余宽度,其余列按内容自适应
+    // 列宽适配:邻居表列(索引 7)占满剩余宽度,其余列按内容自适应
     {
         auto* teimac_hh = m_teimac_table->horizontalHeader();
         teimac_hh->setSectionResizeMode(QHeaderView::ResizeToContents);
-        teimac_hh->setSectionResizeMode(4, QHeaderView::Stretch);
+        teimac_hh->setSectionResizeMode(7, QHeaderView::Stretch);
     }
     m_teimac_table->verticalHeader()->setVisible(false);
-    // 邻居表列(索引 4)用 HTML 代理渲染多色 TEI
-    m_teimac_table->setItemDelegateForColumn(4, new NeighborHtmlDelegate(this));
+    // 邻居表列(索引 7)用 HTML 代理渲染多色 TEI
+    m_teimac_table->setItemDelegateForColumn(7, new NeighborHtmlDelegate(this));
     // 双击邻居表单元格 → 弹出独立窗口显示邻居 TEI/MAC/层级
     connect(m_teimac_table, &QTableView::doubleClicked,
             this, &TopoWindow::on_teimac_double_clicked);
@@ -868,7 +923,7 @@ void TopoWindow::on_routes_double_clicked(const QModelIndex& idx) {
     emit request_history(frame, ms);
 }
 
-/// @brief TEI→MAC 表邻居表单元格双击 → 弹出独立窗口显示邻居 TEI/MAC/层级
+/// @brief TEI→MAC 表邻居表单元格双击 → 弹出独立窗口显示邻居明细(载波+无线混合,含可靠度评分)
 void TopoWindow::on_teimac_double_clicked(const QModelIndex& idx) {
     if (!idx.isValid()) return;
     pause_live();   // 双击 TEI-MAC 表:暂停实时刷新,避免跳转/弹窗被刷新覆盖
@@ -876,14 +931,14 @@ void TopoWindow::on_teimac_double_clicked(const QModelIndex& idx) {
     if (!tei_item) return;
     const quint16 sta_tei = (quint16)tei_item->data(Qt::UserRole).toUInt();
 
-    // 非邻居表列(TEI/MAC/状态/层级/代理 TEI)双击 → 跳转到 TOPO 图对应 STA
-    if (idx.column() != 4) {
+    // 非邻居表列(TEI/MAC/入网链路/双模/状态/层级/代理 TEI)双击 → 跳转到 TOPO 图对应 STA
+    if (idx.column() != 7) {
         if (sta_tei != 0)
             m_graph->focus_node(sta_tei);
         return;
     }
 
-    // 邻居表列(4)双击 → 弹独立窗口显示邻居明细(原有行为)
+    // 邻居表列(7)双击 → 弹独立窗口显示邻居明细(载波+无线混合,含可靠度评分)
     if (sta_tei == 0) return;  // 未分配 TEI 的入网中节点无邻居表
 
     const TopoState* st = nullptr;
@@ -893,36 +948,117 @@ void TopoWindow::on_teimac_double_clicked(const QModelIndex& idx) {
     }
     if (!st) return;
 
-    QVector<quint16> nbs = st->neighbors.value(sta_tei);
-    if (nbs.isEmpty()) return;
-    // 按发现列表出现次数降序(与主表一致)
-    const QHash<quint16, int> counts = st->neighbor_counts.value(sta_tei);
-    std::sort(nbs.begin(), nbs.end(), [&](quint16 a, quint16 b) {
-        return counts.value(a, 0) > counts.value(b, 0);
+    // 邻居集 = 载波(neighbors/counts) ∪ 无线(rates/snrs) ∪ 报告过"我"的上报方(下行方向)
+    QSet<quint16> nb_set;
+    for (quint16 nb : st->neighbors.value(sta_tei)) nb_set.insert(nb);
+    const QHash<quint16, quint8> rates_me = st->neighbor_rates.value(sta_tei);
+    for (auto it = rates_me.constBegin(); it != rates_me.constEnd(); ++it) nb_set.insert(it.key());
+    const QHash<quint16, qint16> snrs_me = st->neighbor_snrs.value(sta_tei);
+    for (auto it = snrs_me.constBegin(); it != snrs_me.constEnd(); ++it) nb_set.insert(it.key());
+    const QHash<quint16, int> counts_me = st->neighbor_counts.value(sta_tei);
+    for (auto it = counts_me.constBegin(); it != counts_me.constEnd(); ++it) nb_set.insert(it.key());
+    for (auto it = st->neighbor_rates.constBegin(); it != st->neighbor_rates.constEnd(); ++it)
+        if (it.value().contains(sta_tei)) nb_set.insert(it.key());
+    for (auto it = st->neighbor_counts.constBegin(); it != st->neighbor_counts.constEnd(); ++it)
+        if (it.value().contains(sta_tei)) nb_set.insert(it.key());
+    if (nb_set.isEmpty()) return;
+
+    // 每邻居评分(公式见 docs/TOPO_NEIGHBOR_SCORE.md;无线用接收率,载波用发现次数)
+    struct NeighborRow { quint16 tei; int r; int cnt_sum; int rssi; QString tip; };
+    QVector<NeighborRow> rows;
+    rows.reserve(nb_set.size());
+    for (quint16 nb : nb_set) {
+        const TopoNode& node = st->nodes.value(nb);
+        const bool is_rf = node.is_rf;
+        const int cnt_me_nb = counts_me.value(nb, 0);
+        const int cnt_nb_me = st->neighbor_counts.value(nb).value(sta_tei, 0);
+        const int cnt_sum = cnt_me_nb + cnt_nb_me;
+        const int rssi = node.rssi_known ? node.rssi_dbm : 0;
+        int r = 0;
+        QString tip;
+        if (is_rf) {
+            const bool up_p = rates_me.contains(nb);
+            const bool down_p = st->neighbor_rates.value(nb).contains(sta_tei);
+            const int up = rates_me.value(nb, 0);
+            const int down = st->neighbor_rates.value(nb).value(sta_tei, 0);
+            const double base = (up_p && down_p) ? (up + down) / 2.0
+                                : (up_p ? up * 0.6 : (down_p ? down * 0.6 : 0.0));
+            const int activity = qMin(100, cnt_sum * 5);
+            const int sig = node.rssi_known
+                ? qRound(qBound(0.0, (node.rssi_dbm + 110.0) / 110.0, 1.0) * 100.0) : 0;
+            r = qRound(0.50 * base + 0.30 * activity + 0.20 * sig);
+            tip = trl::L("base=%1 活跃度=%2 信号归一=%3 · 权重 0.50/0.30/0.20")
+                      .arg(base, 0, 'f', 1).arg(activity).arg(sig);
+        } else {
+            const bool both = cnt_me_nb > 0 && cnt_nb_me > 0;
+            const bool one  = (cnt_me_nb > 0) != (cnt_nb_me > 0);
+            const int symmetry = both ? 100 : (one ? 50 : 0);
+            const int activity = qMin(100, cnt_sum * 5);
+            r = qRound(0.60 * symmetry + 0.40 * activity);
+            tip = trl::L("对称性=%1 活跃度=%2 · 权重 0.60/0.40").arg(symmetry).arg(activity);
+        }
+        rows.append({nb, r, cnt_sum, rssi, tip});
+    }
+    std::sort(rows.begin(), rows.end(), [](const NeighborRow& a, const NeighborRow& b) {
+        if (a.r != b.r) return a.r > b.r;
+        if (a.cnt_sum != b.cnt_sum) return a.cnt_sum > b.cnt_sum;
+        return a.rssi > b.rssi;
     });
-    const QHash<quint16, int> levels = st->compute_levels();
 
     auto* dlg = new QDialog(this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->setWindowTitle(trl::L("STA TEI=%1 的邻居表").arg(sta_tei));
-    dlg->resize(420, 320);
+    dlg->resize(980, 440);
     auto* lay = new QVBoxLayout(dlg);
     auto* model = new QStandardItemModel(dlg);
     model->setHorizontalHeaderLabels(
-        {trl::L("TEI"), trl::L("MAC"), trl::L("层级"), trl::L("发现列表报文数")});
-    for (quint16 nb : nbs) {
+        {trl::L("TEI"), trl::L("MAC"), trl::L("入网链路"), trl::L("双模"), QStringLiteral("SNR (dB)"),
+         trl::L("信号强度 (dBm)"), trl::L("上行成功率%（对方→我）"), trl::L("下行成功率%（我→对方）"),
+         trl::L("我报它次数"), trl::L("它报我次数"), trl::L("双向"), trl::L("可靠度")});
+    for (const NeighborRow& row : rows) {
+        const quint16 nb = row.tei;
         const TopoNode& node = st->nodes.value(nb);
         const QString s_mac = node.mac ? format_mac(node.mac) : QStringLiteral("-");
-        const int level = levels.value(nb, -1);
-        const QString s_level = level < 0 ? QStringLiteral("-") : QString::number(level);
-        const QString s_count = QString::number(counts.value(nb, 0));
-        QList<QStandardItem*> row;
-        row << new QStandardItem(QString::number(nb))
-            << new QStandardItem(s_mac)
-            << new QStandardItem(s_level)
-            << new QStandardItem(s_count);
-        model->appendRow(row);
+        const QString s_link = node.link_type == 0xFF
+            ? trl::L("未定")
+            : (node.link_type == 1 ? trl::L("无线") : trl::L("载波"));
+        const QString s_dual = node.rf_capable ? trl::L("是") : trl::L("否");
+        const QString s_snr = snrs_me.contains(nb) ? QString::number(snrs_me.value(nb)) : QStringLiteral("—");
+        const QString s_rssi = node.rssi_known ? QString::number(node.rssi_dbm) : QStringLiteral("—");
+        const bool up_p = rates_me.contains(nb);
+        const bool down_p = st->neighbor_rates.value(nb).contains(sta_tei);
+        const QString s_up = up_p ? QString::number(rates_me.value(nb)) : QStringLiteral("—");
+        const QString s_down = down_p ? QString::number(st->neighbor_rates.value(nb).value(sta_tei))
+                                      : QStringLiteral("—");
+        const int cnt_me_nb = counts_me.value(nb, 0);
+        const int cnt_nb_me = st->neighbor_counts.value(nb).value(sta_tei, 0);
+        const QString s_me_cnt = cnt_me_nb ? QString::number(cnt_me_nb) : QStringLiteral("—");
+        const QString s_nb_cnt = cnt_nb_me ? QString::number(cnt_nb_me) : QStringLiteral("—");
+        const bool bidir = node.is_rf ? (up_p && down_p) : (cnt_me_nb > 0 && cnt_nb_me > 0);
+        const QString s_bidir = bidir ? QStringLiteral("✓") : QStringLiteral("✗");
+        QList<QStandardItem*> items;
+        items << new QStandardItem(QString::number(nb))
+              << new QStandardItem(s_mac)
+              << new QStandardItem(s_link)
+              << new QStandardItem(s_dual)
+              << new QStandardItem(s_snr)
+              << new QStandardItem(s_rssi)
+              << new QStandardItem(s_up)
+              << new QStandardItem(s_down)
+              << new QStandardItem(s_me_cnt)
+              << new QStandardItem(s_nb_cnt)
+              << new QStandardItem(s_bidir);
+        QStandardItem* ritem = new QStandardItem(QString::number(row.r));
+        ritem->setToolTip(row.tip);
+        items << ritem;
+        model->appendRow(items);
     }
+    // 方向图例(用户要求:明确"上行=对方→我 / 下行=我→对方"的数据来源)
+    auto* legend = new QLabel(
+        trl::L("上行 = 对方发给我的成功率（数据来自我的发现列表报文）") + QStringLiteral("\n")
+        + trl::L("下行 = 我发给对方的成功率（数据来自邻居的发现列表报文）"), dlg);
+    legend->setWordWrap(true);
+    lay->addWidget(legend);
     auto* view = new QTableView(dlg);
     view->setModel(model);
     view->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -999,8 +1135,8 @@ void TopoWindow::rebuild_teimac_table() {
     const int saved_hscroll = m_teimac_table->horizontalScrollBar()->value();
     m_teimac_model->clear();
     m_teimac_model->setHorizontalHeaderLabels(
-        {trl::L("TEI"), trl::L("MAC"), trl::L("状态"), trl::L("层级"),
-         trl::L("邻居表"), trl::L("代理 TEI")});
+        {trl::L("TEI"), trl::L("MAC"), trl::L("入网链路"), trl::L("双模"),
+         trl::L("状态"), trl::L("层级"), trl::L("代理 TEI"), trl::L("邻居表")});
 
     const TopoState* st = nullptr;
     // 历史回放模式读冻结快照,否则读实时表(此前误读 m_states,回放时表格未冻结)
@@ -1071,6 +1207,11 @@ void TopoWindow::rebuild_teimac_table() {
         }
         const QString s_parent = node.parent_tei == 0xFFFF
             ? QStringLiteral("-") : QString::number(node.parent_tei);
+        // 入网链路(读 link_type,不读 is_rf):0=载波 1=无线 0xFF=未定
+        const QString s_link = node.link_type == 0xFF
+            ? trl::L("未定")
+            : (node.link_type == 1 ? trl::L("无线") : trl::L("载波"));
+        const QString s_dual = node.rf_capable ? trl::L("是") : trl::L("否");
 
         if (!search.isEmpty()) {
             if (!s_tei.contains(search, Qt::CaseInsensitive) &&
@@ -1082,10 +1223,12 @@ void TopoWindow::rebuild_teimac_table() {
         tei_item->setData(tei, Qt::UserRole);  // 双击邻居表时取 STA TEI
         row << tei_item
             << new QStandardItem(s_mac)
+            << new QStandardItem(s_link)
+            << new QStandardItem(s_dual)
             << new QStandardItem(s_online)
             << new QStandardItem(s_level)
-            << new QStandardItem(s_neighbors)
-            << new QStandardItem(s_parent);
+            << new QStandardItem(s_parent)
+            << new QStandardItem(s_neighbors);
         m_teimac_model->appendRow(row);
     }
 
@@ -1098,6 +1241,8 @@ void TopoWindow::rebuild_teimac_table() {
         const QString s_level = QStringLiteral("1");
         const QString s_neighbors = QStringLiteral("-");  // 未分配 TEI,无发现列表
         const QString s_parent = QStringLiteral("1");
+        const QString s_link = trl::L("未定");   // 入网中节点链路未定
+        const QString s_dual = trl::L("否");
         if (!search.isEmpty()) {
             if (!s_tei.contains(search, Qt::CaseInsensitive) &&
                 !s_mac.contains(search, Qt::CaseInsensitive))
@@ -1106,10 +1251,12 @@ void TopoWindow::rebuild_teimac_table() {
         QList<QStandardItem*> row;
         row << new QStandardItem(s_tei)
             << new QStandardItem(s_mac)
+            << new QStandardItem(s_link)
+            << new QStandardItem(s_dual)
             << new QStandardItem(s_online)
             << new QStandardItem(s_level)
-            << new QStandardItem(s_neighbors)
-            << new QStandardItem(s_parent);
+            << new QStandardItem(s_parent)
+            << new QStandardItem(s_neighbors);
         m_teimac_model->appendRow(row);
     }
 

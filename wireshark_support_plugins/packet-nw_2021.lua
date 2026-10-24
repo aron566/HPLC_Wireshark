@@ -207,6 +207,11 @@ local phase_all_vals = {
 local role_vals = {
     [0] = T("未知", "Unknown"), [1] = T("站点 STA", "STA"), [2] = T("代理站点 PCO", "PCO"), [4] = T("中央协调器 CCO", "CCO"),
 }
+local rf_ie_type_vals = {
+    [0] = T("站点属性信息", "STA attribute info"), [1] = T("站点路由信息", "STA route info"),
+    [2] = T("邻居信道信息(非位图版)", "Neighbor channel info (non-bitmap)"),
+    [3] = T("邻居信道信息(位图版)", "Neighbor channel info (bitmap)"),
+}
 local beacon_entry_type_vals = {
     [0x01] = T("站点能力条目", "STA Capability Item"), [0x02] = T("时隙分配条目", "Time Slot Allocation Item"),
     [0x06] = T("路由参数条目", "Route Parameter Item"), [0x07] = T("频段变更条目", "Band Change Item"),
@@ -575,6 +580,23 @@ f.msdu_type_s = ProtoField.uint8 ("nw_2021.msdu.type_s", T("MSDU类型(短帧头
 f.sh_type = ProtoField.uint8 ("nw_2021.sh.msg_type", T("消息类型", "Message Type"), base.DEC)
 f.sh_len = ProtoField.uint16 ("nw_2021.sh.msdu_len", T("MSDU长度", "MSDU Length"), base.DEC)
 f.sh_data = ProtoField.bytes ("nw_2021.sh.data", T("MSDU载荷", "MSDU Payload"), base.NONE)
+-- 无线发现列表(表214)信息单元
+f.rf_mac = ProtoField.ether ("nw_2021.rf.mac", T("站点 MAC 地址", "STA MAC Address"))
+f.rf_seq = ProtoField.uint8 ("nw_2021.rf.seq", T("统计序号", "Sequence Number"), base.DEC)
+f.rf_ie_type = ProtoField.uint8 ("nw_2021.rf.ie_type", T("信息单元类型", "IE Type"), base.DEC, rf_ie_type_vals, 0x7F)
+f.rf_ie_ltype = ProtoField.uint8 ("nw_2021.rf.ie_ltype", T("长度类型", "Length Type"), base.DEC, nil, 0x80)
+f.rf_ie_len = ProtoField.uint16 ("nw_2021.rf.ie_len", T("信息单元长度", "IE Length"), base.DEC)
+-- 站点属性信息(表217, 14B)
+f.rf_attr_cco = ProtoField.ether ("nw_2021.rf.attr.cco", T("CCO MAC 地址", "CCO MAC Address"))
+f.rf_attr_proxy = ProtoField.uint16 ("nw_2021.rf.attr.proxy", T("代理 TEI", "Proxy TEI"), base.DEC)
+f.rf_attr_role = ProtoField.uint8 ("nw_2021.rf.attr.role", T("角色", "Role"), base.DEC, role_vals, 0xF0)
+f.rf_attr_level = ProtoField.uint8 ("nw_2021.rf.attr.level", T("层级", "Level"), base.DEC, nil, 0x0F)
+f.rf_attr_hop = ProtoField.uint8 ("nw_2021.rf.attr.hop", T("链路 RF 跳数", "RF Link Hop"), base.DEC, nil, 0xF0)
+f.rf_attr_up = ProtoField.uint8 ("nw_2021.rf.attr.up", T("代理上行接收率(%)", "Proxy Up Rate (%)"), base.DEC)
+f.rf_attr_down = ProtoField.uint8 ("nw_2021.rf.attr.down", T("代理下行接收率(%)", "Proxy Down Rate (%)"), base.DEC)
+f.rf_attr_min = ProtoField.uint8 ("nw_2021.rf.attr.min", T("链路最小接收率(%)", "Min Link Rate (%)"), base.DEC)
+f.rf_attr_period = ProtoField.uint8 ("nw_2021.rf.attr.period", T("无线发现列表周期(s)", "RF Discover Period (s)"), base.DEC)
+f.rf_attr_aging = ProtoField.uint8 ("nw_2021.rf.attr.aging", T("接收率老化周期个数", "Rate Aging Cycles"), base.DEC)
 -- MSDU 帧尾 ICV (CRC32)
 f.mac_icv = ProtoField.uint32 ("nw_2021.mac.icv", T("完整性校验值(ICV,CRC32)", "Integrity Check Value (ICV, CRC32)"), base.HEX)
 f.mac_icv_calc = ProtoField.uint32 ("nw_2021.mac.icv_calc", T("ICV 计算值", "ICV Calculated"), base.HEX)
@@ -908,6 +930,9 @@ nw.fields = {
     f.app_version, f.app_packet_sn, f.app_packet_len, f.app_payload,
     f.media_phr_mcs, f.media_option, f.media_channel, f.media_is_rf,
     f.col_orig_dst,
+    f.rf_mac, f.rf_seq, f.rf_ie_type, f.rf_ie_ltype, f.rf_ie_len,
+    f.rf_attr_cco, f.rf_attr_proxy, f.rf_attr_role, f.rf_attr_level, f.rf_attr_hop,
+    f.rf_attr_up, f.rf_attr_down, f.rf_attr_min, f.rf_attr_period, f.rf_attr_aging,
     f.bmp_byte,
 }
 
@@ -1844,7 +1869,49 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
         mac_tree:add(f.sh_len, tvb(2, 2), msdu_len)
         -- MSDU 载荷 + 帧尾 CRC32 (校验载荷, 不含单跳头)
         if msdu_len > 0 and 4 + msdu_len <= tvb:len() then
-            add_span(mac_tree, f.sh_data, tvb, 4, msdu_len)
+            local msg_type = tvb(1, 1):uint()
+            if msg_type == 2 then
+                -- 无线发现列表(表214): 站点MAC 6B + 统计序号 1B + IE TLV(表215 类型0-3)
+                local rtree = mac_tree:add(nw, tvb(4, msdu_len), T("无线发现列表", "RF DiscoverNodeList"))
+                rtree:add(f.rf_mac, tvb(4, 6))
+                rtree:add(f.rf_seq, tvb(10, 1))
+                local pos = 11
+                local rfdl_end = 4 + msdu_len
+                while pos + 1 < rfdl_end do
+                    local ie_type = band(tvb(pos, 1):uint(), 0x7F)
+                    local ltype = band(tvb(pos, 1):uint(), 0x80)
+                    rtree:add(f.rf_ie_type, tvb(pos, 1))
+                    rtree:add(f.rf_ie_ltype, tvb(pos, 1))
+                    pos = pos + 1
+                    local len_bytes = (ltype ~= 0) and 2 or 1
+                    if pos + len_bytes > rfdl_end then break end
+                    local elen = tvb(pos, 1):uint()
+                    if len_bytes == 2 then elen = elen + tvb(pos + 1, 1):uint() * 256 end
+                    rtree:add(f.rf_ie_len, tvb(pos, len_bytes), elen)
+                    pos = pos + len_bytes
+                    if pos + elen > rfdl_end then break end
+                    if elen > 0 then
+                        local itree = rtree:add(nw, tvb(pos, elen)):
+                            append_text(string.format(" [%s]", tostring(rf_ie_type_vals[ie_type] or ie_type)))
+                        if ie_type == 0 and elen >= 14 then
+                            -- 站点属性信息(表217, 14B)
+                            itree:add(f.rf_attr_cco, tvb(pos, 6))
+                            add_val(itree, f.rf_attr_proxy, tvb, pos+6, 2, read_bits(tvb, pos*8+6*8, 12))
+                            itree:add(f.rf_attr_role, tvb(pos+7, 1))
+                            itree:add(f.rf_attr_level, tvb(pos+8, 1))
+                            itree:add(f.rf_attr_hop, tvb(pos+8, 1))
+                            itree:add(f.rf_attr_up, tvb(pos+9, 1))
+                            itree:add(f.rf_attr_down, tvb(pos+10, 1))
+                            itree:add(f.rf_attr_min, tvb(pos+11, 1))
+                            itree:add(f.rf_attr_period, tvb(pos+12, 1))
+                            itree:add(f.rf_attr_aging, tvb(pos+13, 1))
+                        end
+                    end
+                    pos = pos + elen
+                end
+            else
+                add_span(mac_tree, f.sh_data, tvb, 4, msdu_len)
+            end
             local icv_off = 4 + msdu_len
             if icv_off + 4 <= tvb:len() then
                 local icv_rx = read_bits(tvb, icv_off * 8, 32)

@@ -2,6 +2,8 @@
 /// @brief 主窗口实现
 #include "mainwindow.h"
 
+#include <QDebug>
+
 #include "packetlistmodel.h"
 #include "hexview.h"
 #include "protocoltree.h"
@@ -952,6 +954,28 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
         if (m_topo_window)
             m_topo_window->mark_dirty();
     }
+    // RFDL 单跳帧(kind=Other,不走事件门):邻居信道信息(接收率/SNR/RSSI)按发送方 FCH src_tei 键控落地
+    if (e.msdu.simple_head && e.msdu.present
+        && (!e.msdu.topo_event.neighbor_rates.isEmpty()
+            || !e.msdu.topo_event.neighbor_snrs.isEmpty()
+            || !e.msdu.topo_event.rssi_entries.isEmpty()
+            || e.msdu.topo_event.proxy_tei != 0xFFFF)) {
+        // [诊断 A1/A2] RFDL 单跳帧落地入口
+        QLOG_DEBUG() << "[RFDL落地] simple_head=" << e.msdu.simple_head
+                     << "present=" << e.msdu.present
+                     << "neighbor_rates=" << e.msdu.topo_event.neighbor_rates.size()
+                     << "neighbor_snrs=" << e.msdu.topo_event.neighbor_snrs.size()
+                     << "rssi=" << e.msdu.topo_event.rssi_entries.size()
+                     << "proxy_tei=" << e.msdu.topo_event.proxy_tei
+                     << "src_tei=" << e.mpdu.src_tei
+                     << "net_id=" << e.mpdu.net_id
+                     << "has_state=" << m_topo_states.contains(e.mpdu.net_id);
+        auto ts_it = m_topo_states.find(e.mpdu.net_id);
+        if (ts_it != m_topo_states.end()) {
+            ts_it.value().apply_channel_info(e.mpdu.src_tei, e.msdu.topo_event);
+            if (m_topo_window) m_topo_window->mark_dirty();
+        }
+    }
     // TOPO 接入方式盲区修复(方案②,用户拍板):非事件帧也更新 is_rf,
     // 但仅节点首次出现或 is_rf 未判定时写入(避免高频重写 last_seen 等字段);
     // 来源:物理媒介(链路类型字段已在事件帧/解析层优先判定)。
@@ -965,6 +989,8 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
             // FCH TEI 源优先/目的兜底(覆盖无 MSDU 的帧)
             const quint16 t = e.mpdu.src_tei ? e.mpdu.src_tei : e.mpdu.dst_tei;
             if (ts.note_frame_medium(t, e.meta.is_rf)) topo_touched = true;
+            // 双模标记:发送方(src_tei)发过 RF 帧即置位(判据取"发过"而非"收发过")
+            if (ts.note_rf_capable(e.mpdu.src_tei, e.meta.is_rf)) topo_touched = true;
             // 正在入网节点(pending,按 MAC):同样仅未判定时写入
             if (e.msdu.msdu_src_mac) {
                 auto pit = ts.pending.find(e.msdu.msdu_src_mac);

@@ -87,6 +87,7 @@ private:
     QHash<quint16, QPointF> m_pos; ///< tei → 坐标(连线用)
     QPixmap* m_icon_cco = nullptr;          ///< CCO 节点图标(cco-router.png)
     QPixmap* m_icon_online = nullptr;       ///< STA 已入网(electric-meter_online.png)
+    QPixmap* m_icon_online_hplcrf = nullptr; ///< STA 已入网且双模(electric-meter_hplcrf_online.png)
     QPixmap* m_icon_online_going = nullptr; ///< STA 正在入网(electric-meter _online_going.png)
     QPixmap* m_icon_offline = nullptr;      ///< STA 离线(electric-meter _offline.png)
 

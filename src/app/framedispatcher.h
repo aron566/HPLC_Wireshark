@@ -22,6 +22,8 @@ public:
 public slots:
     void on_frame(const BplcFrame& frame);
     void on_filter_changed(ParseFilter f);
+    /// @brief 回放/采集结束(经队列投递,晚于所有 frame_ready):输出解析异常汇总
+    void on_replay_finished();
 
 signals:
     void parsed(const ParseResult& r);
