@@ -55,3 +55,7 @@ src/crash/tests/build_switch/
 
 # 超大调试抓包不入库(73MB,仅本地调试;如需入库走 Git LFS)
 wireshark_support_plugins/test_splc2_mixed.pcap
+
+# 内部架构计划/修复日志类文档不入库(本地保留,防误提交)
+docs/ARCH_*.md
+docs/WO_*.md
