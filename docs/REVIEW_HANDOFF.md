@@ -12,11 +12,19 @@
 | 2 | `docs/TEST_FRAME_CROSSREF.md` | **跨协议帧类型对照表** — 13 类横跨四协议，每格给 表号+取值+归属章节 | 15,385 B | 183 | `75f6b8bddcbbdc2bed6839cb369fc4f741e2c958241f0887224b44a294e618e9` |
 | 3 | `docs/TEST_FRAME_ROWSPAN_AUDIT.md` | **⚠rowspan 矛盾筛查** — 回源核对前的机器预筛：(A)262 (B)67 (C)0 (C2)79 | 34,880 B | 335 | `e7edc6e0c5286456f5c92810ca6466944d46d87c83ef0cd40ab8869a6f111119` |
 | 4 | `docs/TEST_TIER3_FRAME_MATRIX.md` | **3 级帧型矩阵** — 34 项 MMe 语义 × 层级 × 方向 × 四协议表号标识符 | 29,651 B | 325 | `d328818d5bf3c9fb15ca113451114743e3279963982362ae6cbe87ae9c3bd385` |
-| 5 | `samples/hdc2_0_test_frames.md` | **构造帧 9 帧 + 逐字节说明** — 含 16bit/32bit 小端专节、同名表归属、源表核验 | 15,919 B | 283 | `9a215022753bc0464f4f6f9d60db73ffbb4cb4c808421f04d80e5a2ed4f868b5` |
+| 5 | `samples/hdc2_0_test_frames.md` | **构造帧 9 帧 + 逐字节说明** — 含 16bit/32bit 小端专节、同名表归属、源表核验 | 15,954 B | 282 | `4d5bea64aa17b367101d6091279ddd4b93cf2151481db1317d40d61cd583a1c0` |
 | 6 | `samples/hdc2_0_build_frames.py` | **帧生成脚本（带运行时自校验）** — 9 帧全打印 + 4 个多字节整数字段小端 assert | 12,219 B | 281 | `0c8cc2c61a3f376d041f64184b70eb22755c4f0cd8417ce474a5da49be8ab9d8` |
 | 7 | `tools/gen_frame_catalog.py` | **四协议目录生成器** — rowspan/colspan 网格展开 + 固定头长度 + 跨字节标注 | 11,568 B | 263 | `c6effc39dc21a595da8ce55426810ea2b5391ceef5281ec61c43caef8f86d980` |
 | 8 | `tools/gen_frame_crossref.py` | **对照表生成器** — | 3,831 B | 101 | `327f94a64477797ceb6475df176d64de5a1152ba4579fb77292e398d25ca80a6` |
 | 9 | `tools/gen_tier3_matrix.py` | **3 级矩阵生成器** — | 15,053 B | 252 | `91ac834782c568baf01e686f0f6974a4e53fd48a1d8d2b692789475db2b4b0ea` |
+| 10 | `docs/TEST_TOPOLOGY_FRAME_MATRIX.md` | **3 级帧型矩阵（拓扑命名版）** — 与第 4 项同源，另加「合成 vs 实包提取建议」一节；为 3 级拓扑数据集提供帧型/层级/方向/四协议表号标识符 | 31,406 B | 355 | `85ed1ee6b1179cb53b9340d6fb6d69bfe78f5ee4519b667f1409fe36797e8b80` |
+| 11 | `docs/TEST_FRAME_SELFTEST.md` | **扩展自校验报告** — 固定头长度 + rowspan 继承值：独立算法全表交叉比对，从源 HTML 独立重建期望网格与生成器网格逐格比对 | 9,039 B | 132 | `1b6a168fbb3d66f37d1b5033b59741d8ca497ab5f68a2ae2a4cf768a3bef8de2` |
+
+> **本表覆盖范围**：上表 11 件即文档侧复核的全部交付物。
+> 仓库另有在库文档但**不属于文档侧复核范围**（故不列，各自归属与责任人不同）：
+> `docs/USER_MANUAL_zh-CN.md` / `docs/USER_MANUAL_en.md`（用户手册，发布产物）、
+> `docs/TEST_TOPOLOGY_NW_BPLC.md`（南网拓扑验收记录）、
+> `docs/TOPO_NEIGHBOR_SCORE.md`（拓扑评分算法说明）。
 
 ## 二、复核重点（四条，务必逐项核）
 
