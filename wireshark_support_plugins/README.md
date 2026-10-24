@@ -15,20 +15,28 @@
 
 ## 文件
 
-| 文件 | 说明 |
-|---|---|
-| `packet-gw_2022.lua` | **国网 GW_2022 Lua dissector（即装即用，HDC 1.0；入口含版本分派）** |
-| `packet-gw_2026.lua` | **国网 GW_2026 / HDC 2.0 Lua dissector（由 gw_2022 按版本号委托进入）** |
-| `packet-nw_2021.lua` | **南网 NW_2021 Lua dissector（BPLC；入口含版本分派）** |
-| `packet-nw_2026.lua` | **南网 NW_2026 / SPLC 2026 Lua dissector（由 nw_2021 按版本号委托进入；另：version≠2 但 PB 头聚合标志=1 的载波 SOF 聚合 BPLC 帧也委托进入，表20 布局 + 级联 MAC 帧拆分）** |
-| `test_2026/` | 新协议测试帧生成器与 pcap（GW: gen_gw2026_test_pcap.py；NW: gen_2026_test_pcap.py） |
-| `bin2pcap.py` | BIN 回放文件 → pcap（协议自动识别，`--gw`/`--nw` 可强制） |
-| `serial2pcap.py` | **实时串口抓包 → pcap**（`--gw`/`--nw` 可强制协议） |
-| `BPLC_Serial_Capture.bat` + `bplc_serial_extcap.py` | **Wireshark 原生串口采集（extcap）** |
-| `gen_test_pcap.py` / `gen_assoc_req_test.py` | 国网测试帧生成 |
-| `gen_nw_test_pcap.py` | 南网测试帧生成（含完整 FCCS/PB CRC24/BPCS/ICV 校验值） |
-| `test_nw_bplc_agg.pcap` | 聚合 BPLC 帧回归（帧1=聚合 v1 → nw_2026 5 条级联 / 帧2=非聚合 → nw_2021） |
-| `DESIGN.md` | 实现思路说明 |
+安装包内 `wireshark_support_plugins/` 目录**只分发下表标 ✅ 的 10 个文件**（另加本说明的中英文 PDF 各 1 份，共 12 个）。
+标 ❌ 的文件**仅存在于源码仓库**，不随安装包分发 —— 它们是开发期的回归样本与中间产物，
+普通用户用不上，放进安装包只会让目录变脏。
+
+| 文件 | 说明 | 随包 |
+|---|---|---|
+| `packet-gw_2022.lua` | **国网 GW_2022 Lua dissector（即装即用，HDC 1.0；入口含版本分派）** | ✅ |
+| `packet-gw_2026.lua` | **国网 GW_2026 / HDC 2.0 Lua dissector（由 gw_2022 按版本号委托进入）** | ✅ |
+| `packet-nw_2021.lua` | **南网 NW_2021 Lua dissector（BPLC；入口含版本分派）** | ✅ |
+| `packet-nw_2026.lua` | **南网 NW_2026 / SPLC 2026 Lua dissector（由 nw_2021 按版本号委托进入；另：version≠2 但 PB 头聚合标志=1 的载波 SOF 聚合 BPLC 帧也委托进入，表20 布局 + 级联 MAC 帧拆分）** | ✅ |
+| `bin2pcap.py` | BIN 回放文件 → pcap（协议自动识别，`--gw`/`--nw` 可强制） | ✅ |
+| `serial2pcap.py` | **实时串口抓包 → pcap**（`--gw`/`--nw` 可强制协议） | ✅ |
+| `BPLC_Serial_Capture.bat` + `bplc_serial_extcap.py` | **Wireshark 原生串口采集（extcap）** | ✅ |
+| `README.md` / `README_EN.md` | 本说明（中/英），安装包内另附 PDF 版 | ✅ |
+| `test_2026/` | 新协议测试帧生成器与 pcap（GW: gen_gw2026_test_pcap.py；NW: gen_2026_test_pcap.py） | ❌ 仅仓库 |
+| `gen_test_pcap.py` / `gen_assoc_req_test.py` | 国网测试帧生成 | ❌ 仅仓库 |
+| `gen_nw_test_pcap.py` | 南网测试帧生成（含完整 FCCS/PB CRC24/BPCS/ICV 校验值） | ❌ 仅仓库 |
+| `test_nw_bplc_agg.pcap` | 聚合 BPLC 帧回归（帧1=聚合 v1 → nw_2026 5 条级联 / 帧2=非聚合 → nw_2021） | ❌ 仅仓库 |
+| `DESIGN.md` | 实现思路说明 | ❌ 仅仓库 |
+
+> 需要这些回归样本时，从源码仓库取用（`samples/` 与 `wireshark_support_plugins/` 下的同款文件），
+> 或用随包的 `gen_*.py` / `bin2pcap.py` 现场生成。
 
 ## 新旧协议版本自适应委托
 

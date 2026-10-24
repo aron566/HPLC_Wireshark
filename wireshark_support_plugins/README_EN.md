@@ -19,19 +19,30 @@ coloring never clash; captures are told apart by pcap linktype (see
 
 ## Files
 
-| File | Description |
-|---|---|
-| `packet-gw_2022.lua` | **SGCC GW_2022 Lua dissector (HDC 1.0; entry with version dispatch)** |
-| `packet-gw_2026.lua` | **SGCC GW_2026 / HDC 2.0 Lua dissector (entered via gw_2022 version delegation)** |
-| `packet-nw_2021.lua` | **CSG NW_2021 Lua dissector (BPLC; entry with version dispatch)** |
-| `packet-nw_2026.lua` | **CSG NW_2026 / SPLC 2026 Lua dissector (entered via nw_2021 version delegation; also entered by carrier SOF frames with version≠2 but PB-header aggregation flag=1 — aggregated BPLC frames, Table 20 layout + cascade MAC frame splitting)** |
-| `test_2026/` | New-protocol test frame generators and pcaps (GW: gen_gw2026_test_pcap.py; NW: gen_2026_test_pcap.py) |
-| `bin2pcap.py` | BIN replay file → pcap (auto protocol detect, `--gw`/`--nw` to force) |
-| `serial2pcap.py` | **Live serial capture → pcap** (`--gw`/`--nw` to force protocol) |
-| `BPLC_Serial_Capture.bat` + `bplc_serial_extcap.py` | **Native serial capture inside Wireshark (extcap)** |
-| `gen_test_pcap.py` / `gen_assoc_req_test.py` | SGCC test frame generators |
-| `gen_nw_test_pcap.py` | CSG test frame generator (full FCCS/PB CRC24/BPCS/ICV values) |
-| `DESIGN.md` | Implementation notes |
+The installer's `wireshark_support_plugins/` directory ships **only the 10 files marked ✅**
+below (plus one PDF of this manual in each language — 12 files in total).
+Files marked ❌ exist **in the source repository only** and are not distributed: they are
+development regression samples and intermediate artifacts that ordinary users never need,
+and shipping them only clutters the installed directory.
+
+| File | Description | Shipped |
+|---|---|---|
+| `packet-gw_2022.lua` | **SGCC GW_2022 Lua dissector (HDC 1.0; entry with version dispatch)** | ✅ |
+| `packet-gw_2026.lua` | **SGCC GW_2026 / HDC 2.0 Lua dissector (entered via gw_2022 version delegation)** | ✅ |
+| `packet-nw_2021.lua` | **CSG NW_2021 Lua dissector (BPLC; entry with version dispatch)** | ✅ |
+| `packet-nw_2026.lua` | **CSG NW_2026 / SPLC 2026 Lua dissector (entered via nw_2021 version delegation; also entered by carrier SOF frames with version≠2 but PB-header aggregation flag=1 — aggregated BPLC frames, Table 20 layout + cascade MAC frame splitting)** | ✅ |
+| `bin2pcap.py` | BIN replay file → pcap (auto protocol detect, `--gw`/`--nw` to force) | ✅ |
+| `serial2pcap.py` | **Live serial capture → pcap** (`--gw`/`--nw` to force protocol) | ✅ |
+| `BPLC_Serial_Capture.bat` + `bplc_serial_extcap.py` | **Native serial capture inside Wireshark (extcap)** | ✅ |
+| `README.md` / `README_EN.md` | This manual (zh/en); also attached as PDF in the installer | ✅ |
+| `test_2026/` | New-protocol test frame generators and pcaps (GW: gen_gw2026_test_pcap.py; NW: gen_2026_test_pcap.py) | ❌ repo only |
+| `gen_test_pcap.py` / `gen_assoc_req_test.py` | SGCC test frame generators | ❌ repo only |
+| `gen_nw_test_pcap.py` | CSG test frame generator (full FCCS/PB CRC24/BPCS/ICV values) | ❌ repo only |
+| `DESIGN.md` | Implementation notes | ❌ repo only |
+
+> When you need those regression samples, take them from the source repository (the equivalents
+> under `samples/` and `wireshark_support_plugins/`), or regenerate them on the fly with the
+> shipped `gen_*.py` / `bin2pcap.py`.
 
 ## Quick start
 

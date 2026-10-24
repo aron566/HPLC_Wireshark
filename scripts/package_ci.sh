@@ -37,14 +37,21 @@ else
     echo "::warning::未找到 $HANDLER_BIN,崩溃转储不可用(后端将回退)"
 fi
 # 附 Wireshark 解析插件(方便用户配合 Wireshark 用)
+# 按**白名单**分发(与 scripts/package.sh 同款), 不用 cp -r 整目录:
+# 整目录复制会把开发期回归样本(几十个 test_*.pcap / *_fields.txt / 生成器)一起塞进安装包。
 mkdir -p release/wireshark_support_plugins
-cp -r wireshark_support_plugins/. release/wireshark_support_plugins/
-rm -f release/wireshark_support_plugins/*.c   # 排除已落后的 C 版(README 标注勿用)
-rm -rf release/wireshark_support_plugins/__pycache__  # Python 缓存垃圾不进包
-rm -f release/wireshark_support_plugins/*.log          # 调试日志不进包
-# 大文件不进包(与 scripts/package.sh 同款): 插件目录里未入库的巨文件
-# (74MB / 73MB / 40MB 实帧 / 5MB 切片)不该让安装包多带 ~190MB。
-find release/wireshark_support_plugins -type f \( -name '*.pcap' -o -name '*.bin' \) -size +3M -delete
+# 注意: 通配必须写在**源路径**上(wireshark_support_plugins/packet-*.lua) —— 写在 for 的
+# 词表里会按当前目录展开, 仓库根没有 packet-*.lua, cp 会拿到字面量而失败。
+cp -f wireshark_support_plugins/packet-*.lua release/wireshark_support_plugins/
+for f in bplc_serial_extcap.py BPLC_Serial_Capture.bat bin2pcap.py serial2pcap.py \
+         README.md README_EN.md; do
+    cp -f "wireshark_support_plugins/$f" release/wireshark_support_plugins/
+done
+n=$(find release/wireshark_support_plugins -type f | wc -l)
+if [ "$n" -ne 10 ]; then
+    echo "::error::插件分发件应为 10 个, 实际 $n"
+    exit 1
+fi
 # 打包后自检: release/ 里的插件必须与仓库源逐字节一致。
 # 防止将来有人改坏上面的拷贝逻辑(漏 cp / 路径写错), 导致安装包携带旧解析器 ——
 # 用户装完发现"仓库里修了协议 bug 但 Wireshark 里没生效", 根因就在这种静默分叉。
@@ -59,6 +66,13 @@ echo "打包插件与仓库源一致性自检通过"
 # 中英文使用说明 md → pdf 附带
 bash scripts/md2pdf.sh wireshark_support_plugins/README.md    "release/wireshark_support_plugins/Wireshark插件使用说明.pdf"
 bash scripts/md2pdf.sh wireshark_support_plugins/README_EN.md "release/wireshark_support_plugins/Wireshark_Plugin_Manual_EN.pdf"
+# 断言: 插件目录最终 10 个分发件 + 2 份 PDF = 12(多了少了都要立刻失败, 不让脏包流出去)
+n=$(find release/wireshark_support_plugins -type f | wc -l)
+if [ "$n" -ne 12 ]; then
+    echo "::error::插件目录应恰为 12 个文件(10 分发件 + 2 PDF), 实际 $n"
+    exit 1
+fi
+echo "插件目录分发件计数自检通过: 12 个"
 # 本软件使用说明书(中英文)md → pdf 附带
 mkdir -p release/docs
 bash scripts/md2pdf.sh docs/USER_MANUAL_zh-CN.md "release/docs/BPLC_STA_Monitor使用说明书.pdf"
