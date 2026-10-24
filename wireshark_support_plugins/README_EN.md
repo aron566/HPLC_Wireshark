@@ -119,6 +119,33 @@ How it works: Wireshark 4.x stores the UI language in `%APPDATA%\Wireshark\langu
 > Env vars override (take priority over the UI language): SGCC `HPLC_RF_LANG=en` / `=zh`,
 > CSG `NW_2021_LANG=en` / `=zh`.
 
+## Updating the installed plugins (avoiding dissector divergence)
+
+Once installed, the plugins are **copied** into `%APPDATA%\Wireshark\plugins\`, so a change on
+the repository side does not propagate automatically. The symptom is "the protocol bug was
+clearly fixed in the code, but Wireshark still shows the old behaviour" — the root cause is a
+**silent divergence between the deployed copy and the repository source**.
+
+Sync from the repository (recommended, one command):
+
+```bash
+bash scripts/sync_wireshark_plugins.sh --install
+```
+
+The script compares file contents and only copies what actually differs; **restart Wireshark**
+afterwards so the new plugins get loaded.
+
+Check for divergence without modifying anything (returns non-zero if any file differs):
+
+```bash
+bash scripts/sync_wireshark_plugins.sh --check
+```
+
+> The installer package does not have this problem: `scripts/package_ci.sh` re-copies from this
+> `wireshark_support_plugins/` directory into `release/` on every build, and then verifies the
+> result byte-for-byte (a mismatch fails CI). Only the copy you placed into `%APPDATA%`
+> by hand needs manual syncing.
+
 ## Capture file format requirements
 
 - Encapsulation = **USER DLT**; frame content = raw_wire byte stream as-is

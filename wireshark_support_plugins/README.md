@@ -131,6 +131,29 @@ dissector 加载时读取该文件决定字段名。
 
 > 环境变量可强制覆盖（优先于界面语言）：国网 `HPLC_RF_LANG=en` / `=zh`，南网 `NW_2021_LANG=en` / `=zh`。
 
+## 更新已安装的插件（避免解析器分叉）
+
+插件装到 Wireshark 后是**拷贝**到 `%APPDATA%\Wireshark\plugins\` 的，仓库侧改了不会自动跟着更新。
+于是会出现"代码里明明修了协议 bug，Wireshark 里却看不到效果"——根因是**部署副本与仓库源静默分叉**。
+
+从仓库同步（推荐，一条命令）：
+
+```bash
+bash scripts/sync_wireshark_plugins.sh --install
+```
+
+脚本会逐个比对内容，只复制真正不同的文件；复制完**重启 Wireshark** 才会加载新插件。
+
+只想检查有没有分叉（不改动任何文件，有差异则返回非 0）：
+
+```bash
+bash scripts/sync_wireshark_plugins.sh --check
+```
+
+> 安装包里的插件不存在这个问题：`scripts/package_ci.sh` 每次打包都从本目录 `wireshark_support_plugins/`
+> 重新复制到 `release/`，并在打包后逐字节校验一致性（不一致直接让 CI 失败）。
+> 所以**只有手工拷贝到 `%APPDATA%` 的那一份**需要手工同步。
+
 ## 抓包文件格式要求
 
 - 封装类型 = **USER DLT**，帧内容 = raw_wire 原样字节流（0x3C 帧流，不含 BIN 回放文件头）
