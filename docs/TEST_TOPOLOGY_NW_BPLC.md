@@ -96,20 +96,20 @@ py -3 bin2pcap.py samples/test_topology_nw.bin x.pcap --nw    # 33 帧 0 跳过
 | 成功率上报 0x005E | 表82 (L1658) | TEI 0-1 / 站点总数 2-3 / 成功率信息 N×表83（**仅代理站点发送**，≠ RFDL 14B 站点属性成功率） |
 | 成功率条目 | 表83 (L1674) | 站点TEI 0-1(16bit 小端) / 下行 2(1B) / 上行 3(1B)，取值 0-100 |
 
-- 心跳位图规则（L1540-1542）：第 0 字节 bit1=TEI1，第 1 字节 bit0=TEI8 → TEI `t`（1 起）落在 byte `(t-1)//8` 的 bit `(t-1)%8`
+- 心跳位图规则（L1540-1542）：第 0 字节 bit1=TEI1，第 1 字节 bit0=TEI8 → TEI `t` 落在 byte `t//8` 的 bit `t%8`（0-based 位号，bit0=LSB）
 - 心跳 OSTEI（原始源 TEI）沿代理转发时不变（L1524-1526）
 
 ## 7. P2 事件帧（8 帧，已构造待复核）
 
-产物：`samples/gen_nw_bplc_p2.py` + `samples/test_topology_nw_p2.bin` / `.json`（工作区，入 git 等用户通知）。
+产物：`samples/gen_nw_bplc_p2.py` + `samples/test_topology_nw_p2.bin` / `.json` / `.pcap`（已入库，`b250248` / `1a5f53b`）。
 
 | # | 帧 | MMe | 说明 |
 |---|---|---|---|
 | 1 | leave_ind_tei9 | 0x0049 | CCO→代理7，TEI9 离线，原因 0x4（立即） |
 | 2 | leave_ind_tei6 | 0x0049 | CCO→代理5，TEI6 离线，原因 0x0（未入网） |
 | 3 | delay_leave_tei8_9 | 0x005D | CCO→广播，TEI8/9 延迟 30s（0x3 白名单） |
-| 4 | heartbeat_tei9 | 0x0051 | OSTEI=9，最大发现=代理7/3 站，位图 TEI7/8/9（byte0=0xC0, byte1=0x01） |
-| 5 | heartbeat_tei6 | 0x0051 | OSTEI=6，最大发现=代理5/3 站，位图 TEI5/6/7（byte0=0x70） |
+| 4 | heartbeat_tei9 | 0x0051 | OSTEI=9，最大发现=代理7/3 站，位图 TEI7/8/9（byte0=0x80, byte1=0x03） |
+| 5 | heartbeat_tei6 | 0x0051 | OSTEI=6，最大发现=代理5/3 站，位图 TEI5/6/7（byte0=0xE0） |
 | 6 | succ_rate_tei2 | 0x005E | 代理2 → TEI3(↓85/↑92) TEI4(↓73/↑64) |
 | 7 | succ_rate_tei5 | 0x005E | 代理5 → TEI6(↓78/↑88) TEI7(↓91/↑95) |
 | 8 | succ_rate_tei7 | 0x005E | 代理7 → TEI8(↓67/↑79) TEI9(↓82/↑93) |
@@ -118,9 +118,15 @@ py -3 bin2pcap.py samples/test_topology_nw.bin x.pcap --nw    # 33 帧 0 跳过
 
 验证（tshark 实测）：FCCS 8/8、PB CRC 8/8、ICV 8/8；`nw_2021.mme.type` 0x0049/0x005D/0x0051/0x005E 全对（无 nw_2026 委托）；0x005E 帧解析器逐字段显示与构造一致（代理TEI 2 / 总数 2 / 条目 85/92/73/64）。
 
-**⚠ 观察（提请复核，非数据集缺陷）**：心跳位图 tshark 显示「位图[0] = 0x00」，但原始字节为 `C0 01`（byte0 bit6+bit7 = TEI7/8，byte1 bit0 = TEI9，符合 L1540-1542 规则）。疑解析器位图显示下标偏移，或 tshark 用的安装版 Lua 旧于仓库版——请核 `packet-nw_2021.lua` 心跳位图显示段。
+**已定案（原「观察」已闭环）**：位图 TEI 编码为 **0-based**（`TEI = 8×i + j`，无 +1），依据三点——
+① 规约原文（南网 表196 / SPLC 第4部分 / 国网 HDC2.0 表102）均出现「**第 1 字节的第 0 比特 = TEI8**」，1-based 体系里不存在「第 0 比特」；
+② 实帧同帧互证（南网实包帧14 bit1→TEI1、帧16/17 bit2→TEI2，与同帧「接收发现列表数(TEI n)」逐帧一致）；
+③ 仓库 12 处实现（gw_2022/gw_2026/nw_2021 + 三份 Lua）全部 0-based。
+→ 解析器**零改动**；原先位图字节 `C0 01` 是生成器旧 1-based 编码（`(t-1)//8`）所致，已改 0-based（`t//8`），现为 **`80 03`** = TEI7/8/9。
+→ 附带修复：Lua 心跳位图 tvb 偏移 `@20→@14`、保留 `@150→@144`（表196 body 8-137/138 + MMe 头 6B），`wireshark_support_plugins/` 与 `release/wireshark_support_plugins/` 两份均已更新。
 
 ## 8. 未做项
 
 - P3 帧型（代理变更三件 / 网络诊断 / 过零NTB / TEI列表 / 汇聚）——按 bot 提醒暂不构造
-- 本文档 + P2 产物为工作区文件，**入 git 等用户通知**
+- 本文档 + P0/P1/P2 产物**均已入库**（`b250248` P2 事件帧数据集 / `d7ac8be` P0/P1 单跳帧改实包真字节 + 层级修正 / `a31f95a` 表号双体系说明）
+- 遗留：两个 `samples/*.bin`（`nw_bplc_3frames.bin` / `test_topology_nw_p2.bin`）受 `.gitignore:20 samples/*.bin` 约束，其中 P1 的 `test_topology_nw.bin` 已用 `-f` 强加入库（符合 P1 口径：bin 入库、pcap 忽略），而 P2 的 pcap 反而入库 —— **P2 入库口径倒挂待用户决定后统一**
