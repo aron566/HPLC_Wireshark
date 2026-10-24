@@ -844,9 +844,12 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
                 out.topo_event.proxy_tei = (quint16)get_bits(content, 6, 0, 12);
                 out.topo_event.rf_role = (quint8)get_bits(content, 7, 4, 4);
                 out.topo_event.rf_hop = (quint8)get_bits(content, 8, 4, 4);
-                out.topo_event.proxy_up_rate = (qint16)get_bits(content, 9, 0, 8);
-                out.topo_event.proxy_down_rate = (qint16)get_bits(content, 10, 0, 8);
-                out.topo_event.min_link_rate = (qint16)get_bits(content, 11, 0, 8);
+                const quint8 up_v   = (quint8)get_bits(content, 9, 0, 8);
+                const quint8 down_v = (quint8)get_bits(content, 10, 0, 8);
+                const quint8 min_v  = (quint8)get_bits(content, 11, 0, 8);
+                out.topo_event.proxy_up_rate   = (up_v   <= 100) ? (qint16)up_v   : -1;
+                out.topo_event.proxy_down_rate = (down_v <= 100) ? (qint16)down_v : -1;
+                out.topo_event.min_link_rate   = (min_v  <= 100) ? (qint16)min_v  : -1;
                 translate_enum(g.children, "Role", kRole, 5);
                 annotate_unit(g.children, "ProxyUpRcvRate", QStringLiteral("%"));
                 annotate_unit(g.children, "ProxyDownRcvRate", QStringLiteral("%"));
