@@ -11,6 +11,7 @@
 #include "common/fieldspec.h"
 #include "common/crc.h"
 #include "i18n.h"
+#include "parse_anomaly.h"
 
 namespace {
 
@@ -457,8 +458,11 @@ static void append_msdu_crc(MsduInfo& out, const QByteArray& body, int payload_s
                                      payload_len + 4);
         crc.value = QStringLiteral("0x%1 %2").arg(stored, 8, 16, QChar('0'))
             .arg(stored == calc ? QStringLiteral("OK") : QStringLiteral("FAIL"));
+        if (stored != calc)
+            pa::warn("nw_2026:crc_fail", QStringLiteral("MSDU CRC32 stored=0x%1 calc=0x%2").arg(stored,8,16,QChar('0')).arg(calc,8,16,QChar('0')));
     } else {
         crc.value = trl::L("校验数据缺失（已有%1/4字节）").arg(available);
+        pa::warn("nw_2026:crc_missing", QStringLiteral("CRC data %1/4 bytes").arg(available));
         append_summary(out, trl::L(" (CRC 缺失)"));
     }
     out.tree.append(crc);
@@ -1294,9 +1298,19 @@ static const int kChBitmapSnrBits[6] = { 0, 4, 0, 6, 4, 0 };
 static const int kChBitmapRssiBits[6] = { 0, 0, 8, 6, 4, 4 };
 
 // 站点属性信息(表217)
-static void parse_sta_attr_info(QVector<MsduFieldNode>& nodes, const QByteArray& c, int rel_base) {
-    if (c.size() < 14) return;
+static void parse_sta_attr_info(QVector<MsduFieldNode>& nodes, const QByteArray& c, int rel_base,
+                                TopoEvent* ev = nullptr) {
+    if (c.size() < 14) { pa::warn("nw_2026:content_short", QStringLiteral("site attr %1B<14B").arg(c.size())); return; }
     add_fields(nodes, c, 0, kRfStaAttrSpec, kRfStaAttrSpecN, rel_base);
+    // 拓扑采集(表217 站点属性,不改渲染):代理 TEI/上下行接收率/最小接收率/RF 跳数/角色
+    if (ev) {
+        ev->proxy_tei = (quint16)get_bits(c, 6, 0, 12);
+        ev->rf_role = (quint8)get_bits(c, 7, 4, 4);
+        ev->rf_hop = (quint8)get_bits(c, 8, 4, 4);
+        ev->proxy_up_rate = (qint16)get_bits(c, 9, 0, 8);
+        ev->proxy_down_rate = (qint16)get_bits(c, 10, 0, 8);
+        ev->min_link_rate = (qint16)get_bits(c, 11, 0, 8);
+    }
     translate_enum_i18n(nodes, "Role", kRoleZh, 5);
     annotate_unit(nodes, "ProxyUpRate", QStringLiteral("%"));
     annotate_unit(nodes, "ProxyDownRate", QStringLiteral("%"));
@@ -1351,7 +1365,9 @@ static QString rssi_meaning(quint32 bits, quint64 v) {
 static int render_ch_entry(QVector<MsduFieldNode>& nodes, const QByteArray& c, int bitpos,
                            const QString& label, int rel_base,
                            int tei_bits, quint16 tei, int snr_bits, int rssi_bits,
-                           int rcv_bits = 8, QVector<QPair<quint16, int>>* rssi_out = nullptr) {
+                           int rcv_bits = 8, QVector<QPair<quint16, int>>* rssi_out = nullptr,
+                           QVector<QPair<quint16, quint8>>* rates_out = nullptr,
+                           QVector<QPair<quint16, qint16>>* snrs_out = nullptr) {
     const int total = tei_bits + rcv_bits + snr_bits + rssi_bits;
     if (bitpos + total > c.size() * 8) return 0;
     const int b0 = bitpos / 8, bi = bitpos % 8;
@@ -1365,10 +1381,14 @@ static int render_ch_entry(QVector<MsduFieldNode>& nodes, const QByteArray& c, i
     }
     if (rcv_bits > 0) {
         // 接收率位宽由组合表给定(南网表220/227 恒 8b;国网表68/77 才可变,勿混)
+        const quint64 rv = get_bits(c, b0, bi + o, rcv_bits);
         MsduFieldNode& r = group(g.children, QStringLiteral("UpRate"),
-            QStringLiteral("%1%").arg(get_bits(c, b0, bi + o, rcv_bits)));
+            QStringLiteral("%1%").arg(rv));
         o += rcv_bits;
         r.rel_start = rel_base + b0; r.rel_len = (bi + o + 7) / 8;
+        // 拓扑采集:该邻居上行成功率%(方向=邻居→我;南网接收率恒 8b=实际%)
+        if (rates_out && tei)
+            rates_out->append({tei, (quint8)rv});
     }
     if (snr_bits) {
         // 表222:6bit 量化值=SNR+7(dB) → SNR=v-7;4bit 映射表文档引用缺失,仅展示量化值
@@ -1378,6 +1398,9 @@ static int render_ch_entry(QVector<MsduFieldNode>& nodes, const QByteArray& c, i
                             : QStringLiteral("%1 dB").arg(v));
         o += snr_bits;
         snr.rel_start = rel_base + b0; snr.rel_len = (bi + o + 7) / 8;
+        // 拓扑采集:该邻居 SNR(dB;6bit=量化值-7,4bit 映射缺失取量化值)
+        if (snrs_out && tei)
+            snrs_out->append({tei, (snr_bits == 6) ? (qint16)(int(v) - 7) : (qint16)v});
     }
     if (rssi_bits) {
         // 表148(SPLC):8bit 量化值=RSSI+111(dBm) → RSSI=v-111;4/6bit 走表149/150(SPLC) 硬编码区间查表
@@ -1397,10 +1420,12 @@ static int render_ch_entry(QVector<MsduFieldNode>& nodes, const QByteArray& c, i
 
 // 邻居节点信道信息非位图版(表219/220):组合类型(0,0,4)+保留(0,4,4) + 每邻居 TEI12b+接收率8b+[SNR]+[强度]
 static void parse_channel_non_bitmap(QVector<MsduFieldNode>& nodes, const QByteArray& c, int rel_base,
-                                  QVector<QPair<quint16, int>>* rssi_out = nullptr) {
-    if (c.size() < 1) return;
+                                  QVector<QPair<quint16, int>>* rssi_out = nullptr,
+                                  QVector<QPair<quint16, quint8>>* rates_out = nullptr,
+                                  QVector<QPair<quint16, qint16>>* snrs_out = nullptr) {
+    if (c.size() < 1) { pa::warn("nw_2026:content_short", QStringLiteral("channel non-bitmap <1B")); return; }
     const quint8 combo = (quint8)get_bits(c, 0, 0, 4);
-    if (combo > 3) return;   // 表220 仅定义 0-3
+    if (combo > 3) { pa::warn("nw_2026:combo_unsupported", QStringLiteral("non-bitmap combo=%1>3").arg(combo)); return; }
     MsduFieldNode& head = group(nodes, QStringLiteral("ChannelInfoHead"));
     head.rel_start = rel_base + 0; head.rel_len = 1;
     // 表220 语义:TEI 12b + 接收率 8b 恒有,SNR/RSSI 按组合类型附加
@@ -1425,7 +1450,7 @@ static void parse_channel_non_bitmap(QVector<MsduFieldNode>& nodes, const QByteA
         const quint16 tei = (quint16)get_bits(c, b0, bi, 12);
         const int used = render_ch_entry(nodes, c, bitpos + 12,
             QStringLiteral("Neighbor[%1] TEI=%2").arg(idx).arg(tei),
-            rel_base, 0, tei, snr_bits, rssi_bits, 8, rssi_out);
+            rel_base, 0, tei, snr_bits, rssi_bits, 8, rssi_out, rates_out, snrs_out);
         if (used <= 0) break;
         bitpos += 12 + used;
     }
@@ -1435,10 +1460,12 @@ static void parse_channel_non_bitmap(QVector<MsduFieldNode>& nodes, const QByteA
 // 表227 接收率恒 8bit(0-5 全 8);可变接收率是国网表77 的语义,勿混入南网
 static const int kChBitmapRcvBits[6] = { 8, 8, 8, 8, 8, 8 };
 static void parse_channel_bitmap(QVector<MsduFieldNode>& nodes, const QByteArray& c, int rel_base,
-                                QVector<QPair<quint16, int>>* rssi_out = nullptr) {
-    if (c.size() < 4) return;
+                                QVector<QPair<quint16, int>>* rssi_out = nullptr,
+                                QVector<QPair<quint16, quint8>>* rates_out = nullptr,
+                                QVector<QPair<quint16, qint16>>* snrs_out = nullptr) {
+    if (c.size() < 4) { pa::warn("nw_2026:content_short", QStringLiteral("channel bitmap %1B<4B").arg(c.size())); return; }
     const quint8 combo = (quint8)get_bits(c, 0, 0, 4);
-    if (combo > 5) return;   // 表227 仅定义 0-5
+    if (combo > 5) { pa::warn("nw_2026:combo_unsupported", QStringLiteral("bitmap combo=%1>5").arg(combo)); return; }
     MsduFieldNode& head = group(nodes, QStringLiteral("ChannelInfoHead"));
     head.rel_start = rel_base + 0; head.rel_len = 1;
     // 表227 语义:接收率 0/8b + SNR/RSSI 按组合类型附加(组合 1/2/3 无接收率)
@@ -1496,7 +1523,7 @@ static void parse_channel_bitmap(QVector<MsduFieldNode>& nodes, const QByteArray
             const int used = render_ch_entry(g.children, c, bitpos,
                 trl::L("Neighbor[%1] TEI=%2 (位图 byte %3 bit %4)")
                     .arg(entry_idx).arg(start_tei + k).arg(k >> 3).arg(k & 7),
-                rel_base, 0, start_tei + k, snr_bits, rssi_bits, rcv_bits, rssi_out);
+                rel_base, 0, start_tei + k, snr_bits, rssi_bits, rcv_bits, rssi_out, rates_out, snrs_out);
             if (used <= 0) break;
             bitpos += used;
             ++entry_idx;
@@ -1536,6 +1563,7 @@ static QString rf_info_unit_type_name(quint8 t) {
 // 信息单元:类型 7b + 长度类型 1b(0=长度1B/1=长度2B) + 长度 + 内容(可变)
 static void parse_rf_discover_list(MsduInfo& out, const QByteArray& msdu, int rel_base) {
     if (msdu.size() < 7) {
+        pa::warn("nw_2026:truncated", QStringLiteral("RF discover list %1B<7B").arg(msdu.size()));
         append_summary(out, trl::L(" (无线发现节点列表截断)"));
         return;
     }
@@ -1556,15 +1584,15 @@ static void parse_rf_discover_list(MsduInfo& out, const QByteArray& msdu, int re
         const bool  len2     = (get_bits(msdu, off, 7, 1) != 0);
         int len = 0, content_start = off + 1;
         if (!len2) {
-            if (off + 2 > msdu.size()) break;
+            if (off + 2 > msdu.size()) { pa::warn("nw_2026:ie_overflow", QStringLiteral("IE hdr @%1 exceeds %2").arg(off).arg(msdu.size())); break; }
             len = (quint8)msdu[off + 1];
             content_start = off + 2;
         } else {
-            if (off + 3 > msdu.size()) break;
+            if (off + 3 > msdu.size()) { pa::warn("nw_2026:ie_overflow", QStringLiteral("IE hdr(2B) @%1 exceeds %2").arg(off).arg(msdu.size())); break; }
             len = (int)((quint16)(quint8)msdu[off + 1] | ((quint16)(quint8)msdu[off + 2] << 8));
             content_start = off + 3;
         }
-        if (content_start + len > msdu.size()) break;
+        if (content_start + len > msdu.size()) { pa::warn("nw_2026:ie_overflow", QStringLiteral("IE type=%1 len=%2 exceeds remaining %3").arg(type7).arg(len).arg(msdu.size()-content_start)); break; }
         auto& g = group(dl.children,
             QStringLiteral("InfoUnit[%1] (%2 - %3)")
                 .arg(idx).arg(type7).arg(rf_info_unit_type_name(type7)));
@@ -1578,13 +1606,19 @@ static void parse_rf_discover_list(MsduInfo& out, const QByteArray& msdu, int re
         // 信息单元内容按类型(表215)结构化解析;未知类型保留 hex
         const QByteArray content = msdu.mid(content_start, len);
         switch (type7) {
-            case 0:  parse_sta_attr_info(g.children, content, rel_base + content_start); break;
+            case 0:  parse_sta_attr_info(g.children, content, rel_base + content_start,
+                                          &out.topo_event); break;
             case 1:  parse_sta_route_info(g.children, content, rel_base + content_start); break;
             case 2:  parse_channel_non_bitmap(g.children, content, rel_base + content_start,
-                                              &out.topo_event.rssi_entries); break;
+                                              &out.topo_event.rssi_entries,
+                                              &out.topo_event.neighbor_rates,
+                                              &out.topo_event.neighbor_snrs); break;
             case 3:  parse_channel_bitmap(g.children, content, rel_base + content_start,
-                                          &out.topo_event.rssi_entries); break;
+                                          &out.topo_event.rssi_entries,
+                                          &out.topo_event.neighbor_rates,
+                                          &out.topo_event.neighbor_snrs); break;
             default: {
+                pa::warn("nw_2026:unknown_ie", QStringLiteral("IE type=%1 len=%2 (hex fallback)").arg(type7).arg(len));
                 MsduFieldNode& ct = group(g.children, QStringLiteral("Content [%1 B]").arg(len),
                     QString::fromLatin1(content.toHex(' ').toUpper()));
                 ct.rel_start = rel_base + content_start; ct.rel_len = len;
@@ -1617,6 +1651,7 @@ static void parse_single_hop(MsduInfo& out, const QByteArray& body) {
     annotate_unit(mh.children, "MSDULength", QStringLiteral(" B"));
 
     if (body.size() < 4 + msdu_len) {
+        pa::warn("nw_2026:truncated", QStringLiteral("single-hop body %1B < 4+len %2").arg(body.size()).arg(4+msdu_len));
         append_summary(out, trl::L(" (截断)"));
         append_msdu_crc(out, body, 4, msdu_len);
         out.present = true;
@@ -1648,7 +1683,7 @@ static void parse_single_hop(MsduInfo& out, const QByteArray& body) {
 
 MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
     MsduInfo out;
-    if (body.size() < 4) return out;
+    if (body.size() < 4) { pa::warn("nw_2026:content_short", QStringLiteral("body %1B<4B").arg(body.size())); return out; }
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
 
     // 帧类型:Version 字段(bit1-2)。表6:1=本标准协议,0/3 保留,2=单跳帧协议。
@@ -1662,7 +1697,7 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
 
     // 标准 MAC 帧头 MSDU_BASE:MACHeadFlag(0,0,1) 决定长(32B)/短(12B)
     // 短头至少 12 字节(读到 msdu_seq 在 byte 10-11),不足则无法解析。
-    if (body.size() < 12) return out;
+    if (body.size() < 12) { pa::warn("nw_2026:content_short", QStringLiteral("body %1B<12B (short MAC hdr)").arg(body.size())); return out; }
     const quint8 mac_head_flag = (quint8)get_bits(p, 0, 0, 1);
     const quint16 msdu_len     = (quint16)get_bits(p, 2, 0, 16);
 
@@ -1701,7 +1736,7 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
         }
     }
 
-    if (body.size() < mac_hdr_len + msdu_len) return out;
+    if (body.size() < mac_hdr_len + msdu_len) { pa::warn("nw_2026:truncated", QStringLiteral("body %1B < hdr %2+len %3").arg(body.size()).arg(mac_hdr_len).arg(msdu_len)); return out; }
     const QByteArray msdu_body = body.mid(mac_hdr_len, msdu_len);
     out.total_len = mac_hdr_len + msdu_len + 4;
 
@@ -1874,12 +1909,16 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
                 const quint16 pco_sum = (quint16)get_bits(mme, rb + 2, 0, 16);
                 int off = rb + 8;
                 for (int i = 0; i < sta_sum && off + 2 <= mme.size(); ++i) {
+                    const quint16 sta_tei = (quint16)get_bits(mme, off, 0, 12);
+                    out.topo_event.node_link_types.append({sta_tei, (quint8)get_bits(mme, off + 1, 4, 1)});
                     MsduFieldNode& n = group(rg.children, QStringLiteral("StraightSTA[%1]").arg(i));
                     n.rel_start = mme_rel_base + (off); n.rel_len = 2;
                     add_fields(n.children, mme, off, kSTATEISpec, kSTATEISpecN, mme_rel_base);
                     off += 2;
                 }
                 for (int i = 0; i < pco_sum && off + 4 <= mme.size(); ++i) {
+                    const quint16 pco_tei = (quint16)get_bits(mme, off, 0, 12);
+                    out.topo_event.node_link_types.append({pco_tei, (quint8)get_bits(mme, off + 1, 4, 1)});
                     MsduFieldNode& n = group(rg.children, QStringLiteral("StraightPCO[%1]").arg(i));
                     n.rel_start = mme_rel_base + (off); n.rel_len = 4;
                     add_fields(n.children, mme, off, kStraightPCOSpec, kStraightPCOSpecN, mme_rel_base);
@@ -1955,12 +1994,16 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
                 const quint16 pco_sum = (quint16)get_bits(mme, rb + 2, 0, 16);
                 int off = rb + 8;
                 for (int i = 0; i < sta_sum && off + 2 <= mme.size(); ++i) {
+                    const quint16 sta_tei = (quint16)get_bits(mme, off, 0, 12);
+                    out.topo_event.node_link_types.append({sta_tei, (quint8)get_bits(mme, off + 1, 4, 1)});
                     MsduFieldNode& n = group(rg.children, QStringLiteral("StraightSTA[%1]").arg(i));
                     n.rel_start = mme_rel_base + (off); n.rel_len = 2;
                     add_fields(n.children, mme, off, kSTATEISpec, kSTATEISpecN, mme_rel_base);
                     off += 2;
                 }
                 for (int i = 0; i < pco_sum && off + 4 <= mme.size(); ++i) {
+                    const quint16 pco_tei = (quint16)get_bits(mme, off, 0, 12);
+                    out.topo_event.node_link_types.append({pco_tei, (quint8)get_bits(mme, off + 1, 4, 1)});
                     MsduFieldNode& n = group(rg.children, QStringLiteral("StraightPCO[%1]").arg(i));
                     n.rel_start = mme_rel_base + (off); n.rel_len = 4;
                     add_fields(n.children, mme, off, kStraightPCOSpec, kStraightPCOSpecN, mme_rel_base);
@@ -2155,18 +2198,17 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
                 if (out.msdu_src_tei == 1 && out.msdu_src_mac)
                     out.topo_event.cco_mac = out.msdu_src_mac;
                 if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
-                // 发现列表携带该 STA 经代理的上下行成功率:填入 comm_rates,
-                // TopoState::apply 会无条件更新通讯成功率状态(不入路由表)。
-                // 偏移:spec 相对 mme+6,ProxyCommRate@16/ProxyDownCommRate@20
+                // 发现列表携带该 STA 经代理的上下行成功率(表77 byte16-19/20-23,32bit,取值0-100,超出无效):
+                // 填 proxy_comm_rate/proxy_down_comm_rate/min_comm_rate(独立于 0x005E comm_rates)。
+                // 偏移:spec 相对 mme+6,ProxyCommRate@16/ProxyDownCommRate@20/MinCommRate@36 → mme 22/26/42
                 {
                     const quint32 up_rate = (quint32)get_bits(mme, 22, 0, 32);
                     const quint32 down_rate = (quint32)get_bits(mme, 26, 0, 32);
-                    if (sta_tei && (up_rate <= 100 || down_rate <= 100)) {
-                        CommRateInfo cr;
-                        cr.tei = sta_tei;
-                        cr.up = (quint8)qMin(up_rate, 100u);
-                        cr.down = (quint8)qMin(down_rate, 100u);
-                        out.topo_event.comm_rates.append(cr);
+                    const quint8  min_rate = (quint8)get_bits(mme, 42, 0, 8);
+                    if (sta_tei) {
+                        out.topo_event.proxy_comm_rate = (up_rate <= 100) ? (qint32)up_rate : -1;
+                        out.topo_event.proxy_down_comm_rate = (down_rate <= 100) ? (qint32)down_rate : -1;
+                        out.topo_event.min_comm_rate = (min_rate <= 100) ? (qint16)min_rate : -1;
                     }
                 }
                 out.topo_event.desc = trl::L("发现列表: STA TEI=%1 代理=%2")
