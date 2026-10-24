@@ -110,6 +110,21 @@
   ④ P2 位图字节：`docs/TEST_TOPOLOGY_NW_BPLC.md` 早已 `80 03`/`E0`（无 `c0 01` 残留），无需再改。
 - **复核方一次性核验（office-bot 已做，结果在此）**：重跑 `py samples/hdc2_0_build_frames.py`（rc=0、15 项自校验全过）→ 9 条 CONT 与 md「连续：」行逐条相等 ✓；md 9 个 pretty hex 块 == 脚本逐帧输出 ✓；第八节帧集指纹 == `sha256(9 条 hex 文档序)` = `a6ff3079…` ✓；py sha = `0c8cc2c6…` ✓。
 - **vibe-coding 的 `docs/TOPO_NEIGHBOR_SCORE.md` 与 `samples/gw26_rfdl_probe.*` 仍不属本批**。
+
+## 九、v2.3.3 微补丁登记（office-bot 侧 · 2026-10-24）
+
+> 目的：把 office-review-bot 复核结论第二节「核完定案、无需动作」的 5 项 + 位图 TEI 裁决**登记**入账。全部已有双源/像素证据，本段只登记、不重裁；登记措辞按其建议。
+
+| # | 定案项 | 登记措辞 | 证据锚点 |
+|---|---|---|---|
+| ① | HDC2.0 表92「rowspan 退化」 | **NULL：疑似缺陷经核查不成立** —— 基线 260823 与新转件 261023 的表92 byte7 单元格逐字相同、均带 `rowspan="2"`；对方所见「无 rowspan 2 处」为另外两张字节号列本就逐行书写的表 | `A6_ROWSPAN_VERIFICATION.md`（反证）+ M7 全量 741 表 0 命中 + 矢量 PDF P73 像素终裁 |
+| ② | 16/32bit 整数字节序 | **实现互操作约定（小端），非规范结论** —— 规范全文唯一字节序条款只约束 MAC 地址；实包 MSDU 序列号严格 +1 与 Lua `add_le` 背书 | code-review-bot 实包判据（国网 5MB 切片）+ `packet-gw_2022.lua` |
+| ③ | CATALOG 固定头片段缺口 | **已闭环** —— 口径收窄到 ★帧类型总表 177 张：帧/报文类受影响 **0 张**；7 张命中全为南网 BPLC 枚举/取值类表（固定头无意义，不应用）；表126 固定头 14B 已登记。生成器跨片段合并列为低优先工具健壮性项，不影响现有交付物 | `FIXED_HEADER_CORRECTIONS.md` §5 + CATALOG §6 L6450 |
+| ④ | 3 级矩阵发现列表方向 | **3→2→1 逐级上行**（2 级网退化 2→1），与第5部分 L2458「发现列表信息随心跳逐级上报至 CCO」一致 | `docs/TEST_TIER3_FRAME_MATRIX.md` §① |
+| ⑤ | HDC2.0 发现列表「—」 | 表43 `0x0008`=保留（1.0 发现列表 2.0 改经单跳帧/信标承载）：单跳帧 msg 0=无线发现列表（表91/92 14B）、msg 2=载波发现列表（表62/63 23B） | 矩阵 §① 注 + `gw_2026_msdu_parser.cpp`（topo_event 无 DiscoverList，仅单跳帧路径） |
+| ⑥ | 位图 TEI 基线裁决 | **0-based（TEI=8i+j，无 +1）** —— 四规约同句码字且「第 1 字节第 0 比特=TEI8」直接排除 1-based；C++/Lua 解码器零改动，改的是生成器 wire（帧4 `80 03`）；office-review-bot 的「+1」附注已正式撤回 | code-review-bot 定案 + office-review-bot 复核背书（2026-10-24） |
+
+**⑦ 556cb263 指纹注记**：已登记于第八节「帧集指纹作废值」行（939efe1 帧序重排前小写正文 join 的中间态产物，作废勿用）—— office-review-bot 要求的「顺手补一行」已落，v2.3.3 台账口径由其登记时引用本行。
 - **bin 移出执行与复核（2026-10-24 晚，收口闭环）**：`88296eb`（git-release-bot 执行三 bin rm --cached + .gitignore 三删）→ code-review-bot 五项复核全过（ls-files 仅剩夹具 / check-ignore 实证夹具无需白名单（单层 glob 不匹配二级路径）/ 夹具四件在库 / 工作区三 bin 保留 / **可重建性实证：三生成器重跑 blob 逐字节一致** e8824ba4/c8057b32/67e089ae）→ 文档同步 `2036725`（§7/§8 三处改「均不入库，由生成器重建」）+ `c5e3792`（§1 交付物表补注）→ **json 补齐 `bbe1db8`**（两个 manifest json 同口径移出，code-review-bot 四项复核全过：ls-files 仅剩夹具 bin / .gitignore 21-22 反选生效 / 工作区 json 保留 6390B+1647B / 可重建实证重跑前后 blob 一致 e595d07a/ff15eb5a）。HEAD = origin = `bbe1db8`。
 - **指纹定性补记（office-review-bot 复算终裁）**：`a6ff3079…` = 唯一有效指纹（md「连续：」9 条 as-is join == 脚本 stdout CONT join，双向核验）；`556cb263…` = **939efe1 重排帧序前中间态正文的小写归一化产物，作废勿用**；`cdbd0981…` = 89423fc 前大端版，作废勿用。
 - **v2.3.3 收口登记（office-review-bot 复核闸门）**：南网 BPLC 心跳位图基线制案全案闭合——四方一致 0-based（TEI=8i+j），解码器零改动，wire/文档/仓库/release/安装版五处 Lua 同步；缺口终稿：已关 4 项（安装版 Lua / linktype 149-152 定性 / ~~C++ 心跳位图~~ 实为已实现 :1931-1959（假缺口更正）/ release 手动同步（用户裁决））；未关 2 项（HDC2.0 实网抓包需真机 / P3 帧型用户已定暂不做）。归因：4 处定案收口 = code-review-bot；修 4 处 = office-bot（`939efe1`/`9bde235`）；bin 口径执行 = git-release-bot（`88296eb`）。
