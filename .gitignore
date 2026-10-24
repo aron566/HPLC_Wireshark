@@ -18,6 +18,9 @@ qrc_*.cpp
 # ---- 本地测试/采样产物(含现场报文与 OCR 素材,不上传仓库) ----
 samples/*_build/
 samples/*.bin
+!samples/nw_bplc_3frames.bin
+!samples/test_topology_nw.bin
+!samples/test_topology_nw_p2.bin
 samples/*.png
 samples/*.txt
 samples/updcheck_dbg/
@@ -85,3 +88,4 @@ samples/*_3frames.pcap
 
 # 数据集 pcap 为 bin 的转换中间产物
 samples/test_topology_nw.pcap
+samples/test_topology_nw_p2.pcap
