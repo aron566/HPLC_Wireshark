@@ -4,6 +4,9 @@
 import json
 import os
 import re
+ROW = re.compile(r"<tr[^>]*>(.*?)</tr>", re.S)
+CELLF = re.compile(r"<(t[dh])([^>]*)>(.*?)</\1>", re.S)
+TBL = re.compile(r"<table[^>]*>(.*?)</table>", re.S)
 
 R = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # <repo>/docs/protocol_doc/gw(由脚本位置推导,勿硬编码本机路径)
 OUT = os.path.dirname(os.path.abspath(__file__))
@@ -89,3 +92,78 @@ for tag, path in DOCS.items():
 
 json.dump(res, open(os.path.join(OUT, "merge_scan.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 print("-> merge_scan.json")
+
+
+# ============================================================
+# M7 检测器 (2026-10-24 增补)
+# 判据: 某行单元格数 < 本表列数, 且该行【无任何 rowspan 继承来的格】
+#       -> 该行存在「字节归属断链」: 朴素解析器会把比特位误读进字节号列
+# 计数口径:
+#   - 表级: 一张表只要有 >=1 个 M7 命中行, 该表计 1 次
+#   - 行级: 每个 M7 命中行计 1 次
+#   - 列数: 取该表所有行格数的最大值
+#   - 「继承格」= 该格在展开网格中由上方单元格的 rowspan 填充而来
+# 说明: 「字节号列逐行书写(上行6/续行7)」且其余列用 rowspan 合并的表,
+#       其续行【有】继承格, 不计 M7 —— 属正常表风格, 不是缺陷。
+# ============================================================
+def m7_scan_table(html):
+    """返回 (命中列表, 表列数, 展开网格)"""
+    grid, pending = [], {}
+    for rm in ROW.finditer(html):
+        r, col = [], 0
+        for cm in CELLF.finditer(rm.group(1)):
+            attrs, inner = cm.group(2), cm.group(3)
+            while col in pending:
+                t, n = pending[col]
+                r.append((t, True))
+                if n > 1:
+                    pending[col] = (t, n - 1)
+                else:
+                    del pending[col]
+                col += 1
+            text = re.sub(r"<[^>]+>", "", inner).strip()
+            mr = re.search(r'rowspan="(\d+)"', attrs)
+            mc = re.search(r'colspan="(\d+)"', attrs)
+            rs = int(mr.group(1)) if mr else 1
+            cs = int(mc.group(1)) if mc else 1
+            for k in range(cs):
+                r.append((text, False))
+                if rs > 1:
+                    pending[col + k] = (text, rs - 1)
+            col += cs
+        while col in pending:
+            t, n = pending[col]
+            r.append((t, True))
+            if n > 1:
+                pending[col] = (t, n - 1)
+            else:
+                del pending[col]
+            col += 1
+        grid.append(r)
+    ncol = max((len(r) for r in grid), default=0)
+    hits = []
+    for ri, r in enumerate(grid):
+        if len(r) < ncol and sum(1 for _, inh in r if inh) == 0:
+            hits.append((ri, ncol, len(r), [t[:16] for t, _ in r]))
+    return hits, ncol, grid
+
+
+def m7_scan_file(md_path):
+    """对单个 .md 全文扫 M7, 返回 (扫描表数, 命中表数, 命中行数, 明细)"""
+    lines = open(md_path, encoding="utf-8").read().split("\n")
+    tcount = hcount = rcount = 0
+    details = []
+    for i, l in enumerate(lines, 1):
+        if not re.match(r"^\s*(?:#{1,5}\s*)?(表|图)\s*\d+", l):
+            continue
+        for j in range(i, min(i + 8, len(lines))):
+            tm = TBL.search(lines[j]) or TBL.search("\n".join(lines[j:j + 3]))
+            if tm:
+                tcount += 1
+                hits, ncol, _ = m7_scan_table(tm.group(1))
+                if hits:
+                    hcount += 1
+                    rcount += len(hits)
+                    details.append((l.strip()[:46], i, len(hits), ncol, hits[0][3]))
+                break
+    return tcount, hcount, rcount, details
