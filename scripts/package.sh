@@ -45,6 +45,17 @@ cp -r wireshark_support_plugins/. release/wireshark_support_plugins/
 rm -f release/wireshark_support_plugins/*.c   # 排除已落后的 C 版(README 标注勿用)
 rm -rf release/wireshark_support_plugins/__pycache__  # Python 缓存垃圾不进包
 rm -f release/wireshark_support_plugins/*.log          # 调试日志不进包
+# 打包后自检: release/ 里的插件必须与仓库源逐字节一致(与 scripts/package_ci.sh 同款校验)。
+# 本地与 CI 两套打包脚本都做这道校验, 保证"本地打的包"与"CI 打的包"插件来源一致,
+# 杜绝安装包携带旧解析器 —— 用户装完发现"仓库里修了协议 bug 但 Wireshark 里没生效"。
+for f in wireshark_support_plugins/*.lua; do
+    b=$(basename "$f")
+    if ! cmp -s "$f" "release/wireshark_support_plugins/$b"; then
+        echo "错误: 打包插件与仓库源不一致: $b" >&2
+        exit 1
+    fi
+done
+echo "打包插件与仓库源一致性自检通过"
 # 中英文使用说明 md → pdf 附带
 bash scripts/md2pdf.sh wireshark_support_plugins/README.md    "release/wireshark_support_plugins/Wireshark插件使用说明.pdf"
 bash scripts/md2pdf.sh wireshark_support_plugins/README_EN.md "release/wireshark_support_plugins/Wireshark_Plugin_Manual_EN.pdf"
