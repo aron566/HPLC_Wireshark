@@ -75,3 +75,6 @@ wireshark_support_plugins/GW_HDC1.0_sample_5MB.pcap
 
 # BPLC 实包转 pcap 的中间产物(bin2pcap 可随时重生成)
 wireshark_support_plugins/nw_bplc.pcap
+
+# tshark 字段分析中间产物
+wireshark_support_plugins/nw_bplc_fields*.txt
