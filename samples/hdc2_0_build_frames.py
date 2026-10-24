@@ -108,7 +108,7 @@ def assoc_cnf(tei, proxy_tei, lt):
     b += bytes([tei & 0xFF, ((tei >> 8) & 0x0F) | (lt << 4)])
     b += bytes([proxy_tei & 0xFF, (proxy_tei >> 8) & 0x0F])
     b += bytes([0x01, 0x01])
-    b += bytes.fromhex("11223344") + bytes.fromhex("00000000") + bytes.fromhex("00010000")   # 端到端序列号 32bit 小端 = 0x00010000 = 65536 (大端会读成 0x00000100=256)
+    b += bytes.fromhex("11223344") + bytes.fromhex("00000000") + bytes.fromhex("00000100")   # 端到端序列号 32bit 小端 = 0x00010000 = 65536 (大端会读成 0x00000100=256)
     b += bytes.fromhex("00000000") * 3
     return bytes(b)
 
