@@ -66,3 +66,6 @@ wireshark_support_plugins/test_splc2_new.pcap
 
 # 国网 HDC1.0 实测抓包(40MB, 体积过大不入库; 见 wireshark_support_plugins/README.md)
 wireshark_support_plugins/BPLC_20260913_112353.bin
+
+# NASM 汇编器(uasm, 构建期工具, 不入库)
+3rdparty/tools/
