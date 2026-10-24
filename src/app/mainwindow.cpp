@@ -1353,6 +1353,9 @@ struct I18nRegMainWindow {
         trl::register_en("回放进度: %1%", "Replay progress: %1%");
         trl::register_en("立即更新", "Update Now");
         trl::register_en("发现新版本,点击下载安装", "New version available, click to download");
+        trl::register_en("发现新版本,请点击右上角\"立即更新\"下载",
+                         "New version found, click [Update Now] at top-right to download");
+        trl::register_en("正在导出 %1 帧...", "Exporting %1 frames...");
         trl::register_en("协议已更改", "Protocol changed");
         trl::register_en("协议已更改,重启后生效。若点击「开始」则立即生效。",
                          "Protocol changed. Takes effect after restart, or click [Start] to apply immediately.");
