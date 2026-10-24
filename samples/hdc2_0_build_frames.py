@@ -9,6 +9,26 @@ GD = R + "/docs/protocol_doc/gw/HDC1.0"
 NEW = os.path.join(GD, "双模通信互联互通技术规范_第4_2部分数据链路层通信协议_261023_152656.md")
 BASE = os.path.join(GD, "双模通信互联互通技术规范_第4_2部分数据链路层通信协议_260823_193255.md")
 CAP = re.compile(r"^\s*(?:#{1,4}\s*)?(表|图)\s*(\d+)\s*(.*)$")
+def w16(v):
+    """16bit 整数字段: 小端写入(低字节在前)。国网 HDC 实证: Lua 插件用 add_le 读。"""
+    return bytes([v & 0xFF, (v >> 8) & 0xFF])
+
+
+def w32(v):
+    """32bit 整数字段: 小端写入(低字节在前)。"""
+    return bytes([v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF, (v >> 24) & 0xFF])
+
+
+def r16(b, i):
+    """16bit 小端读回"""
+    return b[i] | (b[i + 1] << 8)
+
+
+def r32(b, i):
+    """32bit 小端读回"""
+    return b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24)
+
+
 STA_MAC = bytes.fromhex("001122334455")
 CCO_MAC = bytes.fromhex("66778899AABB")
 
@@ -94,9 +114,9 @@ def attr23(tei, proxy_tei, role, level):
     b[3] = (role & 0x0F) | (level << 4)
     b[4:10] = CCO_MAC
     b[10], b[11], b[12], b[13] = 0x00, 0x2A, 0x4E, 0x5A
-    b[14:16] = (30).to_bytes(2, "little")      # 16bit 整数字段: LSB-first 小端! (大端会读成 0x1E00=7680)
+    b[14:16] = w16(30)                          # 16bit: 小端 -> 1E 00 (大端会读成 7680)
     b[16], b[17], b[18] = 60, 10, 3
-    b[19:23] = (0x12345678).to_bytes(4, "little")   # 32bit 整数字段: 小端 -> 78 56 34 12
+    b[19:23] = w32(0x12345678)                  # 32bit: 小端 -> 78 56 34 12 (大端会读成 0x78563412)
     return bytes(b)
 
 
@@ -108,8 +128,8 @@ def assoc_cnf(tei, proxy_tei, lt):
     b += bytes([tei & 0xFF, ((tei >> 8) & 0x0F) | (lt << 4)])
     b += bytes([proxy_tei & 0xFF, (proxy_tei >> 8) & 0x0F])
     b += bytes([0x01, 0x01])
-    b += bytes.fromhex("11223344") + bytes.fromhex("00000000") + bytes.fromhex("00000100")   # 端到端序列号 32bit 小端 = 0x00010000 = 65536 (大端会读成 0x00000100=256)
-    b += bytes.fromhex("00000000") * 3
+    b += w32(0x12345678) + w32(0x00000E10) + w32(0x00010000)   # 随机数/重新关联时间(3600s)/端到端序列号, 均小端且非对称
+    b += w32(0x00000005) + bytes.fromhex("00000000") * 2   # 路径序号(小端可判别) + 保留 8B
     return bytes(b)
 
 
@@ -125,13 +145,13 @@ def assoc_req():
     b[17] = 0x01                          # 设备类型
     b[18] = 0x00                          # MAC 地址类型
     b[19] = 0x01                          # 模块类型=1(双模)
-    b[20:24] = bytes.fromhex("11223344")
+    b[20:24] = w32(0x12345678)                  # 站点关联随机数: 非对称值, 字节序可判别
     b[24:42] = bytes(18)
     b[42:52] = bytes(10)
     b[52:54] = (0x1122).to_bytes(2, "little")   # 硬复位累积次数 16bit 小端 -> 22 11
     b[54:56] = (0x3344).to_bytes(2, "little")   # 软复位累积次数 16bit 小端 -> 44 33
     b[56] = 0x01                          # 代理类型
-    b[60:64] = bytes.fromhex("00000001")
+    b[60:64] = w32(0x00010000)                  # 端到端序列号 32bit: 小端 -> 00 00 01 00 (=0x00010000; 大端会读成 0x00000100)
     b[64:88] = bytes(24)
     return bytes(b)
 
@@ -217,3 +237,42 @@ _c = assoc_cnf(0x123, 156, 1)
 assert _le32(_c, 28) == 0x00010000, "表70 端到端序列号 32bit 小端自校验失败"
 print(f"  表70 端到端序列号(32bit 小端) = 0x{_le32(_c, 28):08X}   (大端会读成 0x00000100)")
 print("  \u2713 全部多字节整数字段均为小端")
+
+
+# ===== 全帧多字节字段自校验 (小端) =====
+def _all_multibyte_checks():
+    """逐帧核验每个 16/32bit 标量字段的小端读回值。判据: 值必须非对称(大端读出不同值)。"""
+    chk = []
+
+    def add(name, got, want, width=2):
+        chk.append((name, got, want))
+        assert got == want, f"{name} 小端读回 {got} != 期望 {want}"
+        # 同时确认大端读法会给出不同值(否则该字段测不出字节序)
+        assert want != int.from_bytes(want.to_bytes(width, 'little'), 'big'), \
+            f"{name} 的值 {want} 大小端读法相同, 测不出字节序"
+
+    # --- 表63 站点属性(帧B) ---
+    a = attr23(0x123, 0x234, 1, 2)
+    add("表63 路由周期到期剩余时间(16bit)", r16(a, 14), 30)
+    add("表63 代理BRUSNR(32bit)", r32(a, 19), 0x12345678, 4)
+    add("表63 代理TEI(非字节对齐12bit)", (a[1] >> 4) | (a[2] << 4), 0x234)
+    # --- 表60 关联请求(帧2) ---
+    r = assoc_req()
+    add("表60 站点关联随机数(32bit)", r32(r, 20), 0x12345678, 4)
+    add("表60 硬复位累积次数(16bit)", r16(r, 52), 0x1122)
+    add("表60 软复位累积次数(16bit)", r16(r, 54), 0x3344)
+    add("表60 端到端序列号(32bit)", r32(r, 60), 0x00010000, 4)
+    # --- 表70/表47 关联确认(帧3/帧4) ---
+    for tei, ptei, lt in ((0x123, 156, 1), (0x123, 156, 0)):
+        c = assoc_cnf(tei, ptei, lt)
+        add("表70 站点关联随机数(32bit)", r32(c, 20), 0x12345678, 4)
+        add("表70 重新关联时间(32bit)", r32(c, 24), 0x00000E10, 4)
+        add("表70 端到端序列号(32bit)", r32(c, 28), 0x00010000, 4)
+        add("表70 路径序号(32bit)", r32(c, 32), 0x00000005, 4)
+    return chk
+
+
+print("=== 全帧多字节字段自校验 (小端) ===")
+for _n, _g, _w in _all_multibyte_checks():
+    print(f"  OK {_n:<34s} 小端读回 {_g} (0x{_g:08X})")
+print(f"  ✓ {len(_all_multibyte_checks())} 项多字节字段全部小端且可判别")
