@@ -70,7 +70,11 @@ Section "主程序" SEC_MAIN
   ; 另注: NSIS 的 File 指令**不支持 "source destination" 双参数**(第二个参数会被当 source),
   ; 且省略 destination 时 destination = source 的**文件名**(不含目录) —— 会把 PDF 装到安装根目录。
   ; 故用 /oname=<目标路径> 单文件形式(注意 /oname 后的值**不能加引号**, 否则引号会被当名字的一部分)。
-  File /r /x "*.o" /x "*.obj" /x "*.res" /x "*.cpp" /x "*.h" /x "mocinclude.opt" /x "object_script*" /x "Makefile*" /x ".qmake.stash" /x "*.pdf" "${SRC}\*.*"
+  ; 纵深防御: 打包脚本已按**白名单**只拷 12 个文件(见 scripts/package.sh / package_ci.sh),
+  ; 但万一有人把拷贝逻辑改回 cp -r 整目录, 这里的 /x 是最后一道闸 —— 开发期回归样本与调试产物
+  ; (pcap/bin/txt/生成器/DESIGN.md/test_2026)绝不能进安装包。
+  ; (NSIS 安装器自身的 $PLUGINSDIR/ 资源不在 ${SRC} 下, 不会被这里影响)
+  File /r /x "*.o" /x "*.obj" /x "*.res" /x "*.cpp" /x "*.h" /x "mocinclude.opt" /x "object_script*" /x "Makefile*" /x ".qmake.stash" /x "*.pdf" /x "*.pcap" /x "*.bin" /x "*.txt" /x "gen_*.py" /x "DESIGN.md" /x "test_2026" "${SRC}\*.*"
   File /oname=docs\BPLC_STA_Monitor使用说明书.pdf "${SRC}\docs\BPLC_STA_Monitor使用说明书.pdf"
   File /oname=docs\BPLC_STA_Monitor_User_Manual_EN.pdf "${SRC}\docs\BPLC_STA_Monitor_User_Manual_EN.pdf"
   File /oname=wireshark_support_plugins\Wireshark插件使用说明.pdf "${SRC}\wireshark_support_plugins\Wireshark插件使用说明.pdf"
