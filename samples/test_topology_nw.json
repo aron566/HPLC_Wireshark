@@ -83,10 +83,10 @@
     },
     {
       "no": 2,
-      "name": "singlehop_rfdl_sta4",
-      "src": 4,
-      "dst": "广播",
-      "purpose": "STA4 单跳无线发现列表"
+      "name": "singlehop_rfdl_sta2",
+      "src": 1,
+      "dst": 2,
+      "purpose": "CCO→TEI2 单跳无线发现列表(STA2 站点属性实包真字节, P0 提取)"
     },
     {
       "no": 3,

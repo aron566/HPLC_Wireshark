@@ -176,10 +176,10 @@ def build_all():
     frames.append(("beacon_cco", build_beacon()))
     manifest.append(("beacon_cco", 1, "广播", "CCO 中央信标"))
 
-    # 单跳帧发现列表 (STA4 无线, 表217)
+    # 单跳帧发现列表: P0 提取产物, MMe 体为实包 STA2 站点属性真字节(表217)
     from gen_nw_bplc_frames import build_singlehop_rfdl
-    frames.append(("singlehop_rfdl_sta4", build_singlehop_rfdl()))
-    manifest.append(("singlehop_rfdl_sta4", 4, "广播", "STA4 单跳无线发现列表"))
+    frames.append(("singlehop_rfdl_sta2", build_singlehop_rfdl()))
+    manifest.append(("singlehop_rfdl_sta2", 1, 2, "CCO→TEI2 单跳无线发现列表(STA2 站点属性实包真字节, P0 提取)"))
 
     # P1: 每个 STA(2-9) 关联请求 → CCO
     for tei, _, _, proxy, link in NODES[1:]:

@@ -227,7 +227,7 @@ def build_singlehop_rfdl():
     put_tei12(b, 0, 1)                    # 6-7  代理 TEI = 1 (12b @ byte6)
     b[1] |= 0x10                          # 7 高4  角色=1 (mask 0xF0)
     attr += bytes(b)
-    attr += bytes([0x11])                 # 8   层级=1(低4) | RF跳数=1(高4)
+    attr += bytes([0x12])                 # 8   层级=2(低4) | RF跳数=1(高4)  (STA4 在 3 级拓扑中为 L2)
     attr += bytes([0x64])                 # 9   代理上行接收率 = 100 (真值)
     attr += bytes([0x64])                 # 10  代理下行接收率 = 100 (真值)
     attr += bytes([0x64])                 # 11  最小接收率 = 100 (真值)
