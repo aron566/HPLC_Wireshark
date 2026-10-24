@@ -89,6 +89,7 @@
 |---|---|
 | **帧集指纹** | `a6ff30799847f169ea75d28c89ca11e207fff0e23d8092a4552f2951065da99f` |
 | **帧集指纹旧值** | `cdbd0981e70c973d65e4e3a1f2341b09ed48816f2490caffbe4f1f183fe209b8`（89423fc 前大端/清零版，勿用） |
+| **帧集指纹作废值** | `556cb263a53f5f33a077cdf48899b319176a2ae1f0796a15ee9b9d7344ab0aa6`（939efe1 帧序重排前小写正文 join 的中间态产物，office-review-bot 终裁 2026-10-24：作废勿用；v2.3.3 台账口径由其登记） |
 | **帧数** | 9 |
 | **生成脚本** | `samples/hdc2_0_build_frames.py` sha256 `0c8cc2c61a3f376d041f64184b70eb22755c4f0cd8417ce474a5da49be8ab9d8` |
 | **帧文档** | `samples/hdc2_0_test_frames.md` sha256 `4d5bea64aa17b367101d6091279ddd4b93cf2151481db1317d40d61cd583a1c0`（15,954 B） |
@@ -101,7 +102,7 @@
 ## 七、状态（2026-10-24 23:0x 更新 · 含口径终裁）
 
 - **本批已全部提交并同步**（提交链：`939efe1` office-bot 修 4 处 → `15c9a3c` 台账订正 → `610865b/13a8dfc` bin_to_pcap 注释等；@git-release-bot 以 merge commit `3ef3cfd` 线性化早期 amend 分叉，base = `88296eb` = origin，0/0）。
-- **数据集入库口径终裁（用户裁定，`88296eb`）**：三个数据集 bin（`nw_bplc_3frames.bin` / `test_topology_nw.bin` / `test_topology_nw_p2.bin`）与 pcap **均不入库**（工作区文件保留，由 `gen_nw_bplc_*.py` 生成器确定性重建）；唯一保留在库的 `.bin` 是 CI 夹具 `samples/roundtrip/roundtrip_test.bin`。第八节版本锚点（帧集指纹 / 生成脚本 / 帧文档 md）不受此口径影响。
+- **数据集入库口径终裁（用户裁定，`88296eb` + `bbe1db8`）**：三个数据集 bin（`nw_bplc_3frames.bin` / `test_topology_nw.bin` / `test_topology_nw_p2.bin`）、两个 manifest json（`test_topology_nw.json` / `test_topology_nw_p2.json`，`bbe1db8` 移出）与 pcap **均不入库**（工作区文件保留，由 `gen_nw_bplc_*.py` 生成器确定性重建）；唯一保留在库的 `.bin` 是 CI 夹具 `samples/roundtrip/roundtrip_test.bin`。第八节版本锚点（帧集指纹 / 生成脚本 / 帧文档 md）不受此口径影响。
 - **office-review-bot 裁定「修 4 处」已全部落地**（`939efe1` + 本提交）：
   ① 5 个过期 pretty 块（帧2/3/4/帧B/帧3′）已按脚本重生成，删 1 条陈旧「连续：」双行残留；
   ② md 头部 L10 指纹算法改「连续：`HEX`（NNB）」格式 + 说明与 python 复核片段；
@@ -109,7 +110,7 @@
   ④ P2 位图字节：`docs/TEST_TOPOLOGY_NW_BPLC.md` 早已 `80 03`/`E0`（无 `c0 01` 残留），无需再改。
 - **复核方一次性核验（office-bot 已做，结果在此）**：重跑 `py samples/hdc2_0_build_frames.py`（rc=0、15 项自校验全过）→ 9 条 CONT 与 md「连续：」行逐条相等 ✓；md 9 个 pretty hex 块 == 脚本逐帧输出 ✓；第八节帧集指纹 == `sha256(9 条 hex 文档序)` = `a6ff3079…` ✓；py sha = `0c8cc2c6…` ✓。
 - **vibe-coding 的 `docs/TOPO_NEIGHBOR_SCORE.md` 与 `samples/gw26_rfdl_probe.*` 仍不属本批**。
-- **bin 移出执行与复核（2026-10-24 晚，收口闭环）**：`88296eb`（git-release-bot 执行三 bin rm --cached + .gitignore 三删）→ code-review-bot 五项复核全过（ls-files 仅剩夹具 / check-ignore 实证夹具无需白名单（单层 glob 不匹配二级路径）/ 夹具四件在库 / 工作区三 bin 保留 / **可重建性实证：三生成器重跑 blob 逐字节一致** e8824ba4/c8057b32/67e089ae）→ 文档同步 `2036725`（§7/§8 三处改「均不入库，由生成器重建」）+ `c5e3792`（§1 交付物表补注）。HEAD = origin = `c5e3792`，工作区干净。
+- **bin 移出执行与复核（2026-10-24 晚，收口闭环）**：`88296eb`（git-release-bot 执行三 bin rm --cached + .gitignore 三删）→ code-review-bot 五项复核全过（ls-files 仅剩夹具 / check-ignore 实证夹具无需白名单（单层 glob 不匹配二级路径）/ 夹具四件在库 / 工作区三 bin 保留 / **可重建性实证：三生成器重跑 blob 逐字节一致** e8824ba4/c8057b32/67e089ae）→ 文档同步 `2036725`（§7/§8 三处改「均不入库，由生成器重建」）+ `c5e3792`（§1 交付物表补注）→ **json 补齐 `bbe1db8`**（两个 manifest json 同口径移出，code-review-bot 四项复核全过：ls-files 仅剩夹具 bin / .gitignore 21-22 反选生效 / 工作区 json 保留 6390B+1647B / 可重建实证重跑前后 blob 一致 e595d07a/ff15eb5a）。HEAD = origin = `bbe1db8`。
 - **指纹定性补记（office-review-bot 复算终裁）**：`a6ff3079…` = 唯一有效指纹（md「连续：」9 条 as-is join == 脚本 stdout CONT join，双向核验）；`556cb263…` = **939efe1 重排帧序前中间态正文的小写归一化产物，作废勿用**；`cdbd0981…` = 89423fc 前大端版，作废勿用。
 - **v2.3.3 收口登记（office-review-bot 复核闸门）**：南网 BPLC 心跳位图基线制案全案闭合——四方一致 0-based（TEI=8i+j），解码器零改动，wire/文档/仓库/release/安装版五处 Lua 同步；缺口终稿：已关 4 项（安装版 Lua / linktype 149-152 定性 / ~~C++ 心跳位图~~ 实为已实现 :1931-1959（假缺口更正）/ release 手动同步（用户裁决））；未关 2 项（HDC2.0 实网抓包需真机 / P3 帧型用户已定暂不做）。归因：4 处定案收口 = code-review-bot；修 4 处 = office-bot（`939efe1`/`9bde235`）；bin 口径执行 = git-release-bot（`88296eb`）。
 - **新开工备案（防假缺口）**：UI 层 i18n 缺口 48 个未注册中文串（trl::L 1148 / register_en 1166，集中在 mainwindow.cpp 与 replay_gui.cpp）已委派 vibe-coding——协议层 100% 覆盖，此为 UI 层存量，非本批复核范围。
