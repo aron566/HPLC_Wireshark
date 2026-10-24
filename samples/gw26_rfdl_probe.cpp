@@ -38,6 +38,10 @@ int main(int argc, char* argv[]) {
             (int)info.topo_event.neighbor_teis.size());
     for (quint16 t : info.topo_event.neighbor_teis)
         fprintf(stderr, "    nb TEI=%u\n", (unsigned)t);
+    for (const auto& pr : info.topo_event.neighbor_rates)
+        fprintf(stderr, "  rate: TEI=%u -> %u%%\n", (unsigned)pr.first, (unsigned)pr.second);
+    for (const auto& pr : info.topo_event.neighbor_snrs)
+        fprintf(stderr, "  snr: TEI=%u -> %d dB\n", (unsigned)pr.first, pr.second);
     for (const auto& pr : info.topo_event.rssi_entries)
         fprintf(stderr, "  rssi: TEI=%u -> %d dBm\n", (unsigned)pr.first, pr.second);
     return 0;

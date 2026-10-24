@@ -602,18 +602,18 @@ static const int kRfdlAttrSpecN = int(sizeof(kRfdlAttrSpec)/sizeof(kRfdlAttrSpec
 
 // 站点属性信息(表63):23B 定长,字节对齐(载波发现列表 §5.1.3.10)
 static const FieldSpec kCarrierRfdlAttrSpec[] = {
-    {"TEI",               0, 0, 12, Fmt::DEC},   // 发送站点 TEI
+    {"STATEI",            0, 0, 12, Fmt::DEC},   // 发送站点 TEI
     {"ProxyTEI",          1, 4, 12, Fmt::DEC},   // 代理 TEI
     {"Role",              3, 0, 4,  Fmt::DEC},   // 角色
     {"Level",             3, 4, 4,  Fmt::DEC},   // 层级
     {"CCOMACAddr",        4, 0, 48, Fmt::MAC},   // CCO MAC 地址
-    {"Phase",             10, 0, 6, Fmt::DEC},   // 相线
-    {"ProxyChQuality",    11, 0, 8, Fmt::DEC},   // 代理站点信道质量(原始 SNR)
+    {"CandidateLinePhase",10, 0, 6, Fmt::DEC},   // 相线
+    {"ProxyChannelQuality",11, 0, 8, Fmt::DEC},  // 代理站点信道质量(原始 SNR)
     {"ProxyCommRate",     12, 0, 8, Fmt::DEC},   // 代理站点通信成功率 %
     {"ProxyDownCommRate", 13, 0, 8, Fmt::DEC},   // 代理站点下行通信成功率 %
-    {"RouteRemainTime",   14, 0, 16, Fmt::DEC},  // 路由周期到期剩余时间(s)
+    {"RouteTimeout",      14, 0, 16, Fmt::DEC},  // 路由周期到期剩余时间(s)
     {"MinCommRate",       16, 0, 8, Fmt::DEC},   // 最小通信成功率 %
-    {"DiscoverPeriod",    17, 0, 8, Fmt::DEC},   // 发现列表周期(s)
+    {"RFDLPeriod",        17, 0, 8, Fmt::DEC},   // 发现列表周期(s)
     {"RcvAgingCycles",    18, 0, 8, Fmt::DEC},   // 接收率老化周期个数
     {"ProxyBRUSnr",       19, 0, 32, Fmt::DEC},  // 代理 BRU SNR 信息(表64)
 };
@@ -835,9 +835,9 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
                 annotate_unit(g.children, "ProxyCommRate", QStringLiteral("%"));
                 annotate_unit(g.children, "ProxyDownCommRate", QStringLiteral("%"));
                 annotate_unit(g.children, "MinCommRate", QStringLiteral("%"));
-                annotate_unit(g.children, "ProxyChQuality", QStringLiteral("dB"));
-                annotate_unit(g.children, "RouteRemainTime", QStringLiteral("s"));
-                annotate_unit(g.children, "DiscoverPeriod", QStringLiteral("s"));
+                annotate_unit(g.children, "ProxyChannelQuality", QStringLiteral("dB"));
+                annotate_unit(g.children, "RouteTimeout", QStringLiteral("s"));
+                annotate_unit(g.children, "RFDLPeriod", QStringLiteral("s"));
             } else {
                 // 无线发现列表(msg_type 0)站点属性:表92 14B
                 add_fields(g.children, content, 0, kRfdlAttrSpec, kRfdlAttrSpecN, content_abs);

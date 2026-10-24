@@ -878,6 +878,18 @@ f.rfdl_attr_down_rate = ProtoField.uint8 ("gw_2026.rfdl.attr.down_rate", T("代�
 f.rfdl_attr_min_rate = ProtoField.uint8 ("gw_2026.rfdl.attr.min_rate", T("链路最小接收率(%)", "Min Link Rate (%)"), base.DEC)
 f.rfdl_attr_period = ProtoField.uint8 ("gw_2026.rfdl.attr.period", T("无线发现列表周期(s)", "RFDL Period (s)"), base.DEC)
 f.rfdl_attr_aging = ProtoField.uint8 ("gw_2026.rfdl.attr.aging", T("接收率老化周期个数", "Rate Aging Cycles"), base.DEC)
+-- 表63 载波发现列表站点属性(23B)
+f.rfdl_attr_tei = ProtoField.uint16 ("gw_2026.rfdl.attr.tei", T("发送站点 TEI", "STA TEI"), base.DEC)
+f.rfdl_attr_carrier_role = ProtoField.uint8 ("gw_2026.rfdl.attr.carrier_role", T("角色", "Role"), base.DEC, role_vals, 0x0F)
+f.rfdl_attr_carrier_level = ProtoField.uint8 ("gw_2026.rfdl.attr.carrier_level", T("层级", "Level"), base.DEC, nil, 0xF0)
+f.rfdl_attr_phase = ProtoField.uint8 ("gw_2026.rfdl.attr.phase", T("相线", "Phase"), base.DEC, nil, 0x3F)
+f.rfdl_attr_ch_quality = ProtoField.uint8 ("gw_2026.rfdl.attr.ch_quality", T("代理站点信道质量(dB)", "Proxy Channel Quality (dB)"), base.DEC)
+f.rfdl_attr_comm_rate = ProtoField.uint8 ("gw_2026.rfdl.attr.comm_rate", T("代理站点通信成功率(%)", "Proxy Comm Rate (%)"), base.DEC)
+f.rfdl_attr_down_comm_rate = ProtoField.uint8 ("gw_2026.rfdl.attr.down_comm_rate", T("代理站点下行通信成功率(%)", "Proxy Down Comm Rate (%)"), base.DEC)
+f.rfdl_attr_remain_time = ProtoField.uint16 ("gw_2026.rfdl.attr.remain_time", T("路由周期到期剩余时间(s)", "Route Remain Time (s)"), base.DEC)
+f.rfdl_attr_min_comm_rate = ProtoField.uint8 ("gw_2026.rfdl.attr.min_comm_rate", T("最小通信成功率(%)", "Min Comm Rate (%)"), base.DEC)
+f.rfdl_attr_discover_period = ProtoField.uint8 ("gw_2026.rfdl.attr.discover_period", T("发现列表周期(s)", "Discover Period (s)"), base.DEC)
+f.rfdl_attr_brusnr = ProtoField.uint32 ("gw_2026.rfdl.attr.brusnr", T("代理BRUSNR信息", "Proxy BRU SNR"), base.DEC)
 f.rfdl_route_tei = ProtoField.uint16 ("gw_2026.rfdl.route.tei", T("下一跳 TEI", "Next-hop TEI"), base.DEC)
 f.rfdl_route_type = ProtoField.uint8 ("gw_2026.rfdl.route.type", T("路由类型", "Route Type"), base.DEC, route_type_vals, 0xF0)
 f.rfdl_combo = ProtoField.uint8 ("gw_2026.rfdl.combo", T("信道信息组合类型", "Channel Info Combo Type"), base.DEC, nil, 0x0F)
@@ -1014,6 +1026,10 @@ gw.fields = {
     f.rfdl_attr_cco_mac, f.rfdl_attr_proxy_tei, f.rfdl_attr_role, f.rfdl_attr_level,
     f.rfdl_attr_rfhop, f.rfdl_attr_up_rate, f.rfdl_attr_down_rate, f.rfdl_attr_min_rate,
     f.rfdl_attr_period, f.rfdl_attr_aging, f.rfdl_route_tei, f.rfdl_route_type,
+    f.rfdl_attr_tei, f.rfdl_attr_carrier_role, f.rfdl_attr_carrier_level, f.rfdl_attr_phase,
+    f.rfdl_attr_ch_quality, f.rfdl_attr_comm_rate, f.rfdl_attr_down_comm_rate,
+    f.rfdl_attr_remain_time, f.rfdl_attr_min_comm_rate, f.rfdl_attr_discover_period,
+    f.rfdl_attr_brusnr,
     f.rfdl_combo, f.rfdl_nbr_tei, f.rfdl_nbr_rate, f.rfdl_nbr_snr, f.rfdl_nbr_rssi,
     f.rfdl_nbr_brusnr, f.rfdl_grp_tei, f.rfdl_grp_size, f.rfdl_grp_bitmap,
     f.ce_bru_valid, f.ce_sat_len, f.ce_bru_snr, f.ce_sat_id, f.ce_sat_mode,
@@ -2100,18 +2116,36 @@ end
 local function dissect_rfdl_ie_content(tree, tvb, pos, elen, ie_type, carrier)
     if elen <= 0 then return end
     local ok, err = pcall(function()
-        if ie_type == 0 and elen >= 14 then
-            -- 站点属性信息(表92, 14B 定长)
-            tree:add(f.rfdl_attr_cco_mac, tvb(pos, 6))
-            add_val(tree, f.rfdl_attr_proxy_tei, tvb, pos+6, 2, read_bits(tvb, pos*8+6*8, 12))
-            tree:add(f.rfdl_attr_role, tvb(pos+7, 1))
-            tree:add(f.rfdl_attr_level, tvb(pos+8, 1))
-            tree:add(f.rfdl_attr_rfhop, tvb(pos+8, 1))
-            tree:add(f.rfdl_attr_up_rate, tvb(pos+9, 1))
-            tree:add(f.rfdl_attr_down_rate, tvb(pos+10, 1))
-            tree:add(f.rfdl_attr_min_rate, tvb(pos+11, 1))
-            tree:add(f.rfdl_attr_period, tvb(pos+12, 1))
-            tree:add(f.rfdl_attr_aging, tvb(pos+13, 1))
+        if ie_type == 0 and ((not carrier and elen >= 14) or (carrier and elen >= 23)) then
+            if carrier then
+                -- 站点属性信息(表63, 23B 定长, 载波发现列表)
+                add_val(tree, f.rfdl_attr_tei, tvb, pos, 2, read_bits(tvb, pos*8, 12))
+                add_val(tree, f.rfdl_attr_proxy_tei, tvb, pos+1, 2, read_bits(tvb, pos*8+12, 12))
+                tree:add(f.rfdl_attr_carrier_role, tvb(pos+3, 1))
+                tree:add(f.rfdl_attr_carrier_level, tvb(pos+3, 1))
+                tree:add(f.rfdl_attr_cco_mac, tvb(pos+4, 6))
+                tree:add(f.rfdl_attr_phase, tvb(pos+10, 1))
+                tree:add(f.rfdl_attr_ch_quality, tvb(pos+11, 1))
+                tree:add(f.rfdl_attr_comm_rate, tvb(pos+12, 1))
+                tree:add(f.rfdl_attr_down_comm_rate, tvb(pos+13, 1))
+                add_le(tree, f.rfdl_attr_remain_time, tvb, pos+14, 2)
+                tree:add(f.rfdl_attr_min_comm_rate, tvb(pos+16, 1))
+                tree:add(f.rfdl_attr_discover_period, tvb(pos+17, 1))
+                tree:add(f.rfdl_attr_aging, tvb(pos+18, 1))
+                add_le(tree, f.rfdl_attr_brusnr, tvb, pos+19, 4)
+            else
+                -- 站点属性信息(表92, 14B 定长, 无线发现列表)
+                tree:add(f.rfdl_attr_cco_mac, tvb(pos, 6))
+                add_val(tree, f.rfdl_attr_proxy_tei, tvb, pos+6, 2, read_bits(tvb, pos*8+6*8, 12))
+                tree:add(f.rfdl_attr_role, tvb(pos+7, 1))
+                tree:add(f.rfdl_attr_level, tvb(pos+8, 1))
+                tree:add(f.rfdl_attr_rfhop, tvb(pos+8, 1))
+                tree:add(f.rfdl_attr_up_rate, tvb(pos+9, 1))
+                tree:add(f.rfdl_attr_down_rate, tvb(pos+10, 1))
+                tree:add(f.rfdl_attr_min_rate, tvb(pos+11, 1))
+                tree:add(f.rfdl_attr_period, tvb(pos+12, 1))
+                tree:add(f.rfdl_attr_aging, tvb(pos+13, 1))
+            end
         elseif ie_type == 1 then
             -- 站点路由信息(表93): 每条 2B = 下一跳 TEI 12b + 路由类型 4b(bit4-7)
             local n = math.floor(elen / 2)
