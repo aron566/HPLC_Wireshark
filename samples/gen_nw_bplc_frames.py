@@ -263,7 +263,9 @@ def special_handle(buf: bytes) -> bytes:
     return bytes(out)
 
 def wrap_frame(mpdu: bytes, ts=0, channel=1, is_rf=0) -> bytes:
-    inner_len = len(mpdu) + 4            # media 3B + isRF 1B
+    # 内层 = le16(len) + le32(ts) + media3B + isRF1B + MPDU
+    # 长度字段覆盖 ts 之后全部字节, 即 4(ts) + 4(media+isRF) + len(mpdu)
+    inner_len = len(mpdu) + 8            # 4B ts + 3B media + 1B isRF
     inner = le16(inner_len) + le32(ts) + bytes([0, 0, channel]) + bytes([is_rf]) + mpdu
     return bytes([0x3C]) + special_handle(inner) + bytes([0x3E])
 
