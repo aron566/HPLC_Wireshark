@@ -14,9 +14,9 @@
   |---|---|
   | `samples/gen_nw_bplc_frames.py` | P0 三帧构造（信标 / 关联确认 / 单跳帧发现列表） |
   | `samples/gen_nw_bplc_topology.py` | 9 节点 33 帧构造 + manifest 生成 |
-  | `samples/test_topology_nw.bin` | 数据集（9646 B，33 帧拼接，确定性可复现） |
+  | `samples/test_topology_nw.bin` | 数据集（9646 B，33 帧拼接，确定性可复现；**不入库**，由生成器重建） |
   | `samples/test_topology_nw.json` | Manifest（节点表 + 帧清单） |
-  | `samples/nw_bplc_3frames.bin` | P0 三帧（501 B） |
+  | `samples/nw_bplc_3frames.bin` | P0 三帧（501 B；**不入库**，由生成器重建） |
   | pcap | `bin2pcap.py` 转换中间产物，已 gitignore |
 
 ## 2. 拓扑（9 节点 3 级，载波+无线混合）
