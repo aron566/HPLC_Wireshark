@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""HDC1.0/HDC2.0 构造帧全集 v3: LSB-first TEI + 基线等价性核验 + 写文档。"""
+"""HDC1.0/HDC2.0 构造帧全集 v4.2: 全部 16/32bit 标量小端 + 零值占位清除 + 15 项全字段自校验。
+
+与 samples/hdc2_0_test_frames.md 同源(文档由本脚本输出再生成); 指纹见 md 头部。
+注: HDC1.0 载波频段位宽 2bit, HDC2.0 3bit —— 自校验按帧所在协议区分。"""
 import os
 import re
 
@@ -169,9 +172,9 @@ F = {
     "HDC1.0帧4_关联确认_link0": std_frame(0x0001, assoc_cnf(0x123, 156, 0)),
     "HDC2.0帧A_无线_表92": single_hop(0, A14),
     "HDC2.0帧B_载波_表63": single_hop(2, B23),
+    "HDC2.0帧3_关联确认": std_frame(0x0001, assoc_cnf(0x123, 156, 1)),
     "反例X1_7B_无线": single_hop(0, X7A),
     "反例X2_7B_载波": single_hop(2, X7B),
-    "HDC2.0帧3_关联确认": std_frame(0x0001, assoc_cnf(0x123, 156, 1)),
 }
 
 print("\n" + "=" * 92)
