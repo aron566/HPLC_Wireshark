@@ -624,7 +624,8 @@ f.media_channel = ProtoField.uint8 ("gw_2026.media.channel", T("信道", "Channe
 f.media_is_rf = ProtoField.uint8 ("gw_2026.media.is_rf", T("媒介(0=载波,非0=无线)", "Media (0=PLC, non-0=RF)"), base.DEC, {[0]=T("载波 HPLC", "PLC"), [1]=T("无线 RF", "RF")})
 
 -- 原始目标地址列 (自定义列引用, 显示 ODTEI + MAC 映射)
-f.col_orig_dst = ProtoField.string ("gw_2026.col_orig_dst", T("原始目标地址", "Original Destination Address"))
+f.col_orig_dst = ProtoField.string ("gw_2026.col_orig_dst", "Original Destination Address")
+f.col_orig_src = ProtoField.string ("gw_2026.col_orig_src", "Original Source Address")
 
 -- 通用保留字段 (各帧共用)
 f.rsvd = ProtoField.uint8 ("gw_2026.rsvd", T("保留", "Reserved"), base.HEX)
@@ -975,7 +976,7 @@ gw.fields = {
     f.mac_rsv3, f.mac_rsv4, f.mac_osmac, f.mac_odmac, f.mac_icv,
     f.mac_icv_calc, f.mac_icv_ok,
     f.media_phr_mcs, f.media_option, f.media_channel, f.media_is_rf,
-    f.col_orig_dst,
+    f.col_orig_dst, f.col_orig_src,
     f.rsvd, f.beacon_vf_rsv, f.sack_rsv, f.coord_rsv,
     f.sh_version, f.sh_msgtype, f.sh_msdulen,
     f.sh_aggregate, f.sh_rsv1, f.sh_msdu_crc, f.sh_msdu_crc_ok,
@@ -2327,7 +2328,8 @@ local function dissect_ch_eval(tvb, tree, off)
     end
     if sat_len <= 0 or pos + sat_len > tvb:len() then return end
     local sat = tvb(pos, sat_len)
-    local stree = tree:add(f.ce_table, sat, T("SAT 配置", "SAT Config"))
+    local stree = tree:add(f.ce_table, sat)
+    stree:append_text(": " .. T("SAT 配置", "SAT Config"))
     if sat_len < 2 then return end
     stree:add(f.ce_sat_id, sat(0, 1))
     stree:add(f.ce_sat_mode, sat(0, 1))
@@ -2431,7 +2433,8 @@ local function dissect_mgmt_body(tvb, tree, off, mmtype)
     elseif mmtype == 0x0007 then dissect_heartbeat(tvb, tree, off)
     elseif mmtype == 0x0008 then
         -- HDC 2.0 表43: 0x0008 发现列表改保留(改经单跳帧/信标 0xC2 承载), 保留 hex
-        tree:add(f.rfdl_ie_data, tvb(off), T("保留(1.0 发现列表,2.0 不再使用)", "Reserved (1.0 DiscoverNodeList, unused in 2.0)"))
+        local t = tree:add(f.rfdl_ie_data, tvb(off))
+        t:append_text(": " .. T("保留(1.0 发现列表,2.0 不再使用)", "Reserved (1.0 DiscoverNodeList, unused in 2.0)"))
     elseif mmtype == 0x0009 then dissect_succ_rate(tvb, tree, off)
     elseif mmtype == 0x000A then dissect_net_conflict(tvb, tree, off)
     elseif mmtype == 0x000B then dissect_zc_collect(tvb, tree, off)
@@ -2518,7 +2521,7 @@ function gw.dissector(tvb, pinfo, tree)
     if dst_tei then
         local base
         if dst_tei == 0xFFF then
-            base = T("Broadcast (TEI 4095)", "Broadcast (TEI 4095)")
+            base = T("广播 (TEI 4095)", "Broadcast (TEI 4095)")
         else
             base = string.format("TEI %d", dst_tei)
         end
@@ -2705,7 +2708,7 @@ function gw.dissector(tvb, pinfo, tree)
                 -- 原始目标地址列: ODTEI 格式化 + MAC 映射
                 local ods
                 if odtei == 0xFFF then
-                    ods = T("Broadcast (TEI 4095)", "Broadcast (TEI 4095)")
+                    ods = T("广播 (TEI 4095)", "Broadcast (TEI 4095)")
                 elseif odtei == 1 then
                     ods = T("CCO (TEI 1)", "CCO (TEI 1)")
                 else
@@ -2714,6 +2717,17 @@ function gw.dissector(tvb, pinfo, tree)
                 local odmac = lookup_tei_mac(nid, odtei)
                 if odmac then ods = ods .. " [" .. odmac .. "]" end
                 tree:add(f.col_orig_dst, mac_tvb(mac_off+2, 2), ods)
+                local oss
+                if ostei == 0xFFF then
+                    oss = T("广播 (TEI 4095)", "Broadcast (TEI 4095)")
+                elseif ostei == 1 then
+                    oss = T("CCO (TEI 1)", "CCO (TEI 1)")
+                else
+                    oss = string.format(T("STA (TEI %d)", "STA (TEI %d)"), ostei)
+                end
+                local osmac = lookup_tei_mac(nid, ostei)
+                if osmac then oss = oss .. " [" .. osmac .. "]" end
+                tree:add(f.col_orig_src, mac_tvb(mac_off, 2), oss)
                 local dir_mark = ""
                 if ostei == 1 and odtei ~= 0xFFF then
                     dir_mark = T(" ↓下行", " ↓Downlink")

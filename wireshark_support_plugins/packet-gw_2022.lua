@@ -509,7 +509,8 @@ f.media_channel = ProtoField.uint8 ("gw_2022.media.channel", T("信道", "Channe
 f.media_is_rf = ProtoField.uint8 ("gw_2022.media.is_rf", T("媒介(0=载波,非0=无线)", "Media (0=PLC, non-0=RF)"), base.DEC, {[0]=T("载波 HPLC", "PLC"), [1]=T("无线 RF", "RF")})
 
 -- 原始目标地址列 (自定义列引用, 显示 ODTEI + MAC 映射)
-f.col_orig_dst = ProtoField.string ("gw_2022.col_orig_dst", T("原始目标地址", "Original Destination Address"))
+f.col_orig_dst = ProtoField.string ("gw_2022.col_orig_dst", "Original Destination Address")
+f.col_orig_src = ProtoField.string ("gw_2022.col_orig_src", "Original Source Address")
 
 -- 通用保留字段 (各帧共用)
 f.rsvd = ProtoField.uint8 ("gw_2022.rsvd", T("保留", "Reserved"), base.HEX)
@@ -810,7 +811,7 @@ gw.fields = {
     f.mac_rsv3, f.mac_rsv4, f.mac_osmac, f.mac_odmac, f.mac_icv,
     f.mac_icv_calc, f.mac_icv_ok,
     f.media_phr_mcs, f.media_option, f.media_channel, f.media_is_rf,
-    f.col_orig_dst,
+    f.col_orig_dst, f.col_orig_src,
     f.rsvd, f.beacon_vf_rsv, f.sack_rsv, f.coord_rsv,
     f.sh_version, f.sh_msgtype, f.sh_msdulen,
     f.mgmt_mmtype, f.mgmt_resv,
@@ -2124,7 +2125,7 @@ function gw.dissector(tvb, pinfo, tree)
     if dst_tei then
         local base
         if dst_tei == 0xFFF then
-            base = T("Broadcast (TEI 4095)", "Broadcast (TEI 4095)")
+            base = T("广播 (TEI 4095)", "Broadcast (TEI 4095)")
         else
             base = string.format("TEI %d", dst_tei)
         end
@@ -2281,7 +2282,7 @@ function gw.dissector(tvb, pinfo, tree)
                 -- 原始目标地址列: ODTEI 格式化 + MAC 映射
                 local ods
                 if odtei == 0xFFF then
-                    ods = T("Broadcast (TEI 4095)", "Broadcast (TEI 4095)")
+                    ods = T("广播 (TEI 4095)", "Broadcast (TEI 4095)")
                 elseif odtei == 1 then
                     ods = T("CCO (TEI 1)", "CCO (TEI 1)")
                 else
@@ -2290,6 +2291,17 @@ function gw.dissector(tvb, pinfo, tree)
                 local odmac = lookup_tei_mac(nid, odtei)
                 if odmac then ods = ods .. " [" .. odmac .. "]" end
                 tree:add(f.col_orig_dst, mac_tvb(mac_off+2, 2), ods)
+                local oss
+                if ostei == 0xFFF then
+                    oss = T("广播 (TEI 4095)", "Broadcast (TEI 4095)")
+                elseif ostei == 1 then
+                    oss = T("CCO (TEI 1)", "CCO (TEI 1)")
+                else
+                    oss = string.format(T("STA (TEI %d)", "STA (TEI %d)"), ostei)
+                end
+                local osmac = lookup_tei_mac(nid, ostei)
+                if osmac then oss = oss .. " [" .. osmac .. "]" end
+                tree:add(f.col_orig_src, mac_tvb(mac_off, 2), oss)
                 local dir_mark = ""
                 if ostei == 1 and odtei ~= 0xFFF then
                     dir_mark = T(" ↓下行", " ↓Downlink")

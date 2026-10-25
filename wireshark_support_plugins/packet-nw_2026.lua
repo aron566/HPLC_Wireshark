@@ -295,6 +295,17 @@ local mme_type_vals = {
     [0x00A1] = T("物联终端接入确认 MMeIoTAssocInd", "MMeIoTAssocInd"),
     [0x00A2] = T("物联终端离线指示 MMeIoTLeaveInd", "MMeIoTLeaveInd"),
 }
+
+-- MMe 短名(聚合帧子帧摘要用, 与 C++ nw_2026_msdu_parser mme_type_name 对齐:
+-- 中文短名不带英文后缀, 未知类型 "MMe 0x%04x")
+local function mme_short_name(mmtype)
+    local full = mme_type_vals[mmtype]
+    if not full then
+        return string.format("MMe 0x%04x", mmtype)
+    end
+    local short = full:match("^[^%s]+")
+    return short or full
+end
 -- 关联确认结果 (表53)
 local assoc_cnf_result_vals = {
     [0x00] = T("关联请求成功", "Association succeeded"), [0x01] = T("站点不在白名单中", "STA not in whitelist"),
@@ -912,7 +923,8 @@ f.media_channel = ProtoField.uint8 ("nw_2026.media.channel", T("信道", "Channe
 f.media_is_rf = ProtoField.uint8 ("nw_2026.media.is_rf", T("媒介(0=载波,非0=无线)", "Media (0=PLC, non-0=RF)"), base.DEC, {[0]=T("载波 HPLC", "PLC"), [1]=T("无线 RF", "RF")})
 
 -- 原始目标地址列 (自定义列引用, 显示目的TEI + MAC 映射)
-f.col_orig_dst = ProtoField.string ("nw_2026.col_orig_dst", T("原始目标地址", "Original Destination Address"))
+f.col_orig_dst = ProtoField.string ("nw_2026.col_orig_dst", "Original Destination Address")
+f.col_orig_src = ProtoField.string ("nw_2026.col_orig_src", "Original Source Address")
 
 -- 位图逐字节解析节点 (string, 承载 "值 (TEI列表)" 文本)
 f.bmp_byte = ProtoField.string ("nw_2026.bmp.byte", T("位图字节", "Bitmap Byte"))
@@ -1993,7 +2005,7 @@ local function dissect_mme_bitload_req(tvb, tree)
     add_val(tree, f.mme_bl_rsv0, tvb, 10, 1, read_bits(tvb, 82, 6))
     tree:add(f.mme_bl_rsv1, tvb(11, 1))
     add_val(tree, f.mme_bl_tablen, tvb, 12, 2, tvb(12, 2):le_uint())
-    if tvb:len() > 14 then tree:add(f.pb_tbl, tvb(14), T("可变比特加载表", "Variable Bit Load Table")) end
+    if tvb:len() > 14 then local t = tree:add(f.pb_tbl, tvb(14)); t:append_text(": " .. T("可变比特加载表", "Variable Bit Load Table")) end
 end
 local function dissect_mme_bitload_cnf(tvb, tree)
     -- 表157(PDF 第63页原文,与 C++ kMMeBitLoadUpdateCnfSpec 同表): 4B
@@ -2019,7 +2031,8 @@ local function dissect_mme_ru_snr(tvb, tree)
     -- 表159 各 RU 5bit SNR 的载波范围(仅 RU分组 ID0 有定义)
     local ru_carrier = {{32,101},{109,178},{186,255},{263,332},{340,409},{417,490}}
     if bm_len > 0 and 14 + bm_len <= tvb:len() then
-        local bmn = tree:add(f.pb_tbl, tvb(14, bm_len), T("邻居站点位图", "Neighbor Bitmap"))
+        local bmn = tree:add(f.pb_tbl, tvb(14, bm_len))
+        bmn:append_text(": " .. T("邻居站点位图", "Neighbor Bitmap"))
         -- 位图逐位展开(位序与表226 一致:byte k/8 的 bit k%8,LSB 在前):
         -- bit=1 的邻居 TEI = NeighborStartTEI + k(表158 语义),值标注该 bit
         -- 所在的字节号(k>>3);bit=0 的位不列
@@ -2130,8 +2143,8 @@ end
 -- =========================================================================
 -- APP 应用层报文 (通道控制信息 4B + 业务报文头 8B + APP Data)
 -- =========================================================================
-local function dissect_app(tvb, tree, pinfo)
-    if tvb:len() < 12 then return end
+local function dissect_app(tvb, tree, pinfo, no_info)
+    if tvb:len() < 12 then return nil end
     -- 通道控制信息 (4B)
     tree:add(f.app_port, tvb(0, 1))
     tree:add(f.app_packet_id, tvb(1, 2), read_bits(tvb, 8, 16))
@@ -2160,14 +2173,21 @@ local function dissect_app(tvb, tree, pinfo)
     if tvb:len() > 12 then
         add_span(tree, f.app_payload, tvb, 12, nil)
     end
-    -- info 列追加帧类型 + BID 释义
+    -- 子帧摘要(C++ cm.summary 格式: 应用报文 类型 (BID=0xXX 释义)), 供聚合帧收集
     local pt_name = app_packet_type_vals[packet_type] or string.format("0x%X", packet_type)
-    local cur_info = tostring(pinfo.cols.info)
-    if bid_name then
-        pinfo.cols.info = cur_info .. string.format(" APP[%s BID=0x%02X %s]", pt_name, bid, bid_name)
-    else
-        pinfo.cols.info = cur_info .. string.format(" APP[%s BID=0x%02X]", pt_name, bid)
+    local summary = string.format(
+        T("应用报文 %s (BID=0x%02X%s)", "APP %s (BID=0x%02X%s)"),
+        pt_name, bid, (bid_name and (" " .. bid_name) or ""))
+    -- info 列追加帧类型 + BID 释义 (非聚合帧)
+    if not no_info then
+        local cur_info = tostring(pinfo.cols.info)
+        if bid_name then
+            pinfo.cols.info = cur_info .. string.format(" APP[%s BID=0x%02X %s]", pt_name, bid, bid_name)
+        else
+            pinfo.cols.info = cur_info .. string.format(" APP[%s BID=0x%02X]", pt_name, bid)
+        end
     end
+    return summary
 end
 
 -- =========================================================================
@@ -2252,7 +2272,7 @@ f.mme_iot_reason = ProtoField.uint8 ("nw_2026.mme.iot.reason", T("离线原因",
 })
 f.pb_tbl = ProtoField.bytes ("nw_2026.pb.tbl", T("可变表", "Variable Table"), base.NONE)
 
-local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
+local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei, no_info)
     local version = read_bits(tvb, 1, 2)   -- byte0 bits1-2: 1=标准帧, 2=单跳帧
 
     -- 单跳帧 (MSDU_BASE_S, 4B)
@@ -2481,6 +2501,17 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
     local odmac = lookup_tei_mac(snid, dst_tei)
     if odmac then ods = ods .. " [" .. odmac .. "]" end
     tree:add(f.col_orig_dst, tvb(4, 2), ods)
+    local oss
+    if src_tei == 0xFFF then
+        oss = T("广播 (TEI 4095)", "Broadcast (TEI 4095)")
+    elseif src_tei == 1 then
+        oss = T("CCO (TEI 1)", "CCO (TEI 1)")
+    else
+        oss = string.format(T("STA (TEI %d)", "STA (TEI %d)"), src_tei)
+    end
+    local osmac = lookup_tei_mac(snid, src_tei)
+    if osmac then oss = oss .. " [" .. osmac .. "]" end
+    tree:add(f.col_orig_src, tvb(5, 2), oss)
     local dir_mark = ""
     if src_tei == 1 and dst_tei ~= 0xFFF then
         dir_mark = T(" ↓下行", " ↓Downlink")
@@ -2490,7 +2521,7 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
     if sof_src_tei and src_tei and sof_src_tei ~= src_tei then
         dir_mark = dir_mark .. " Relay"
     end
-    if dir_mark ~= "" then
+    if dir_mark ~= "" and not no_info then
         pinfo.cols.info = tostring(pinfo.cols.info) .. dir_mark
     end
 
@@ -2519,24 +2550,30 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
 
     -- MSDU 载荷: VLAN=0x8100 → MMe 管理消息; 否则 APP 应用层报文
     local payload_len = msdu_len - (msdu_off - hdr_len)
+    local mac_summary = nil
     if payload_len > 0 and msdu_off + payload_len <= tvb:len() then
         local body_tvb = view_slice(tvb, msdu_off)
         if vlan == 0x8100 then
             -- MMe: 头 6B (MMVersion + MMType 16b + RSV 24b)
             local mmt = mac_tree:add(nw, tvb(msdu_off, payload_len), T("管理消息(MMe)", "Management Message (MMe)"))
+            local mme_summary = nil
             if payload_len >= 6 then
                 local mmtype = read_bits(body_tvb, 8, 16)
                 mmt:add(f.mme_version, body_tvb(0, 1))
                 mmt:add(f.mme_type, body_tvb(1, 2), mmtype)
                 mmt:add(f.mme_rsv, body_tvb(3, 3))
-                -- info 列追加管理消息类型
-                local mt_name = mme_type_vals[mmtype] or ""
-                local cur_info = tostring(pinfo.cols.info)
-                if mt_name ~= "" then
-                    -- info 列拼接:cur_info 为空时不加前导空格(保持左对齐)
-                    pinfo.cols.info = (cur_info == "" or cur_info == "NW-HPLC" or cur_info == "NW-RF")
-                        and mt_name or (cur_info .. string.format(" %s", mt_name))
-                    pinfo.cols.info = cur_info .. string.format(" MMType=0x%04x", mmtype)
+                mme_summary = mme_short_name(mmtype)
+                -- info 列追加管理消息类型 (非聚合帧)
+                if not no_info then
+                    local mt_name = mme_type_vals[mmtype] or ""
+                    local cur_info = tostring(pinfo.cols.info)
+                    if mt_name ~= "" then
+                        -- info 列拼接:cur_info 为空时不加前导空格(保持左对齐)
+                        pinfo.cols.info = (cur_info == "" or cur_info == "NW-HPLC" or cur_info == "NW-RF")
+                            and mt_name or (cur_info .. string.format(" %s", mt_name))
+                    else
+                        pinfo.cols.info = cur_info .. string.format(" MMType=0x%04x", mmtype)
+                    end
                 end
                 -- 消息体 (MMe 头 6B 之后)
                 if payload_len > 6 then
@@ -2546,13 +2583,19 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
                             T("管理消息体解析失败(可能截断): ", "MMe body parse failed (possibly truncated): ") .. tostring(err))
                     end
                 end
+            else
+                mme_summary = T("未识别", "unrecognized")
             end
+            mac_summary = mme_summary
         else
             local app_tree = mac_tree:add(nw, tvb(msdu_off, payload_len), T("应用层报文", "Application Layer Packet"))
-            local ok, err = pcall(dissect_app, body_tvb, app_tree, pinfo)
+            local ok, app_summary = pcall(dissect_app, body_tvb, app_tree, pinfo, no_info)
             if not ok then
                 app_tree:add_expert_info(PI_MALFORMED, PI_WARN,
-                    T("应用层报文解析失败(可能截断): ", "APP parse failed (possibly truncated): ") .. tostring(err))
+                    T("应用层报文解析失败(可能截断): ", "APP parse failed (possibly truncated): ") .. tostring(app_summary))
+                mac_summary = T("未识别", "unrecognized")
+            else
+                mac_summary = app_summary
             end
         end
     end
@@ -2566,6 +2609,7 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
         tree:add(f.mac_icv_calc, tvb(icv_off, 4), icv_calc)
         tree:add(f.mac_icv_ok, tvb(icv_off, 1), icv_calc == icv_rx)
     end
+    return mac_summary, dir_mark
 end
 
 -- =========================================================================
@@ -2687,7 +2731,7 @@ nw.fields = {
     f.app_start_flag, f.app_trans_dir, f.app_business_id, f.app_bid_desc,
     f.app_version, f.app_packet_sn, f.app_packet_len, f.app_payload,
     f.media_phr_mcs, f.media_option, f.media_channel, f.media_is_rf,
-    f.col_orig_dst,
+    f.col_orig_dst, f.col_orig_src,
     f.bmp_byte,
 }
 
@@ -2917,6 +2961,8 @@ function nw.dissector(tvb, pinfo, tree)
                     local body = make_block_view(tvb, pb_base + 4, pbsize, pb_num)
                     local o = 0
                     local idx = 0
+                    local cas_sums = {}
+                    local cas_dir = nil
                     while o + 2 <= body:len() do
                         local clen = body(o, 1):uint()
                                    + band(body(o + 1, 1):uint(), 0x0F) * 256
@@ -2931,10 +2977,40 @@ function nw.dissector(tvb, pinfo, tree)
                             return body(base + off, math.min(ln, clen - off))
                         end })
                         sv.len = function() return clen end
-                        dissect_mac_frame(sv, ct, pinfo, snid, src_tei)
+                        local sum, dmark = dissect_mac_frame(sv, ct, pinfo, snid, src_tei, true)
+                        if not cas_dir and dmark and dmark ~= "" then cas_dir = dmark end
+                        cas_sums[#cas_sums + 1] = (sum and sum ~= "") and sum or T("未识别", "unrecognized")
                         o = base + clen
                         idx = idx + 1
                     end
+                    -- 聚合帧摘要(与 C++ nw_2026_parser.cpp r.msdu.summary 对齐):
+                    -- 全同型压缩 "类型 ×N";混合型列前4项(>4 加" 等");空流计数式
+                    local cas_cnt = idx
+                    local agg_summary
+                    if #cas_sums == 0 then
+                        agg_summary = string.format(T("聚合帧(%d 个级联 MAC 帧)", "Aggregated Frame (%d cascade MAC frames)"), cas_cnt)
+                    else
+                        local all_same = true
+                        for i = 2, #cas_sums do
+                            if cas_sums[i] ~= cas_sums[1] then
+                                all_same = false
+                                break
+                            end
+                        end
+                        if all_same then
+                            agg_summary = string.format(T("聚合帧(%d 帧: %s ×%d)", "Aggregated Frame (%d frames: %s x%d)"), cas_cnt, cas_sums[1], cas_cnt)
+                        else
+                            local head = {}
+                            for i = 1, math.min(#cas_sums, 4) do head[#head + 1] = cas_sums[i] end
+                            local list = table.concat(head, T(", ", ", "))
+                            if #cas_sums > 4 then list = list .. T(" 等", " etc.") end
+                            agg_summary = string.format(T("聚合帧(%d 帧: %s)", "Aggregated Frame (%d frames: %s)"), cas_cnt, list)
+                        end
+                    end
+                    -- 方向标记(取首个级联子帧) + 聚合摘要一次性写入, 不再逐子帧重复
+                    local base_info = tostring(pinfo.cols.info)
+                    if cas_dir then base_info = base_info .. cas_dir end
+                    pinfo.cols.info = base_info .. " " .. agg_summary
                 else
                     dissect_mac_frame(make_block_view(tvb, pb_base + 4, pbsize, pb_num), root, pinfo, snid, src_tei)
                 end
