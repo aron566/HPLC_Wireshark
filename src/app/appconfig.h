@@ -10,6 +10,7 @@
 #include <QSettings>
 #include <QCoreApplication>
 #include <QFile>
+#include <QSet>
 #include <QByteArray>
 
 namespace appcfg {
@@ -22,54 +23,145 @@ inline QString ini_path() {
 /// @brief 配置文件读写句柄(IniFormat,UTF-8)
 inline QSettings settings() { return QSettings(ini_path(), QSettings::IniFormat); }
 
-/// @brief 把旧格式 ini 的保留段 [general]/[General] 迁移为非保留段 [app]
-/// @details 实测(QSettings 6.11, IniFormat) 的 ini 解析规则:
-///          · 普通段(非保留名, 如 [app]/[reader]/[crash])的键读作 "<段名>/<键>";
-///          · 但 "General"/"general" 是 QSettings 的**保留默认组名**, 其键映射到
-///            顶层(不带组前缀) —— 于是 value("general/protocol") 读不到,
-///            南网帧被国网解析器 DROP, 且用户手改 config.ini 完全无效。
-///          故把保留名段 [general]/[General] 迁移为非保留段 [app] —— [reader]/[crash] 等普通段本就正常, 不能动。
-///          已是 [app] 段的文件不动。
+/// @brief 把旧格式 ini 的保留段 [general]/[General] 及其组段 [%general] 迁移为非保留段 [app]
+/// @details 背景: "General" 是 QSettings INI 的**保留默认组名**, 该段的键会被映射到
+///          根级(不带组前缀) —— 故 value("general/xxx") 永远读不到, protocol/lang 等
+///          8 项配置全部回退默认值(协议恒 gw_2026, 南网帧被国网解析器 DROP),
+///          且用户手改 config.ini 完全无效。
+///          其它任何段名([app]/[reader]/[crash])不受影响, 普通写法即可正常分组。
+///          (对照实验已证伪"首段特殊"的说法: [app] 作首段照样正常分组。)
+///          迁移规则:
+///          · 收集 [general]/[General] 普通段与 [%general]/[%General] 组段里的全部键;
+///          · 并入 [app] 段, **[app] 已有的键不覆盖**(以 [app] 为准);
+///          · 删除旧的 general 相关段, 不留下 [%...] 形式的歧义段;
+///          · 其它段([reader]/[crash])与注释原样保留;
+///          · 迁移前自动备份 config.ini.bak; 已是 [app] 格式的文件不动(幂等)。
 inline void migrate_ini_groups(const QString& path) {
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) return;
     const QByteArray data = f.readAll();
     f.close();
-    if (data.contains("[app]")) return;               // 已是组段格式
-    QByteArray out = data;
-    // 精确替换段头行 "[general]"/"[General]" → "[app]"(只在行首, 允许前导空白)
-    // 旧版本代码会把 [general] 规范化成 [General](大写), 故两种大小写都要迁移
+
     const char kLf = 10;
-    const char kCr = 13;
-    // 大小写不敏感地匹配保留段名, 覆盖 [general]/[General]/[GENERAL] 等变体
-    // (QSettings 写回会把段名规范化成 [General]; 用户手写也可能用其它大小写)
+    QList<QByteArray> lines;
     {
-        const QByteArray probe("[general]");
-        const QByteArray target("[app]");
-        const int n = probe.size();
-        int pos = 0;
-        while ((pos = out.indexOf('[', pos)) >= 0) {
-            if (pos + n <= out.size() && out.mid(pos, n).toLower() == probe) {
-                const bool atLineStart = (pos == 0) || (out.at(pos - 1) == kLf) || (out.at(pos - 1) == kCr);
-                const bool exactEnd = (pos + n >= out.size())
-                                   || (out.at(pos + n) == kLf) || (out.at(pos + n) == kCr);
-                if (atLineStart && exactEnd) {
-                    out.replace(pos, n, target);
-                    pos += target.size();
-                    continue;
-                }
-            }
-            pos += 1;
+        int start = 0;
+        while (start <= data.size()) {
+            int nl = data.indexOf(kLf, start);
+            if (nl < 0) { if (start < data.size()) lines.append(data.mid(start)); break; }
+            lines.append(data.mid(start, nl - start));
+            start = nl + 1;
         }
     }
-    if (out == data) return;
+    // 段头识别: 段名(去掉 % 前缀) + 是否组段
+    auto parse_header = [](const QByteArray& line, QByteArray* name, bool* isGroup) {
+        int t = 0;
+        while (t < line.size() && (line[t] == ' ' || line[t] == '\t')) ++t;
+        if (t >= line.size() || line[t] != '[') return false;
+        int e = line.indexOf(']', t);
+        if (e < 0) return false;
+        QByteArray n = line.mid(t + 1, e - t - 1).trimmed();
+        if (n.isEmpty()) return false;
+        *isGroup = n.startsWith('%');
+        if (*isGroup) n = n.mid(1);
+        *name = n;
+        return true;
+    };
+    auto is_named = [](const QByteArray& n, const char* target) {
+        return n.toLower() == QByteArray(target);
+    };
+    // 键名解析: "key=value" -> key; 注释/空行/段头返回空
+    auto key_of = [](const QByteArray& line) {
+        int t = 0;
+        while (t < line.size() && (line[t] == ' ' || line[t] == '\t')) ++t;
+        if (t >= line.size() || line[t] == ';' || line[t] == '#' || line[t] == '[') return QByteArray();
+        int eq = line.indexOf('=', t);
+        if (eq < 0) return QByteArray();
+        return line.mid(t, eq - t).trimmed();
+    };
+
+    // 第一遍: 收集 general 段(普通段/组段)的内容行, 以及 [app] 段已有内容行
+    QList<QByteArray> generalBody, appBody;
+    bool appSeen = false;
+    {
+        QByteArray name; bool isGroup = false;
+        int mode = 0;  // 0=其它 1=general 2=app
+        for (const QByteArray& line : lines) {
+            if (parse_header(line, &name, &isGroup)) {
+                if (is_named(name, "general")) mode = 1;
+                else if (!isGroup && is_named(name, "app")) { mode = 2; appSeen = true; }
+                else mode = 0;
+                continue;
+            }
+            if (mode == 1) generalBody.append(line);
+            else if (mode == 2) appBody.append(line);
+        }
+    }
+    if (generalBody.isEmpty()) return;   // 已是 [app] 格式或无 general 段, 无需迁移(幂等)
+
+    // [app] 已有键名集合 —— 这些键不覆盖
+    QSet<QByteArray> appKeys;
+    for (const QByteArray& l : appBody) {
+        const QByteArray k = key_of(l);
+        if (!k.isEmpty()) appKeys.insert(k);
+    }
+
+    // 第二遍: 输出(丢弃 general 段, 把它的键并入 [app])
+    QList<QByteArray> out;
+    bool appWritten = false;
+    {
+        QByteArray name; bool isGroup = false;
+        int mode = 0;
+        for (const QByteArray& line : lines) {
+            if (parse_header(line, &name, &isGroup)) {
+                if (is_named(name, "general")) {
+                    // 原文件没有 [app] 段时, 就在此处生成 [app]
+                    if (!appSeen && !appWritten) {
+                        out.append("[app]");
+                        for (const QByteArray& l : generalBody) {
+                            const QByteArray k = key_of(l);
+                            if (!k.isEmpty() && appKeys.contains(k)) continue;   // [app] 优先
+                            out.append(l);
+                        }
+                        appWritten = true;
+                    }
+                    mode = 1;
+                    continue;   // 丢弃 general 段头
+                }
+                if (!isGroup && is_named(name, "app")) {
+                    out.append(line);
+                    for (const QByteArray& l : generalBody) {
+                        const QByteArray k = key_of(l);
+                        if (!k.isEmpty() && appKeys.contains(k)) continue;       // [app] 优先
+                        out.append(l);
+                    }
+                    appWritten = true;
+                    mode = 2;
+                    continue;
+                }
+                out.append(line);
+                mode = 0;
+                continue;
+            }
+            if (mode == 1) continue;                  // 丢弃 general 段内容
+            if (mode == 2) { out.append(line); continue; }
+            out.append(line);
+        }
+    }
+    if (out.isEmpty()) return;
+
+    // 组装输出(统一 CRLF 行尾)
+    QByteArray result;
+    for (const QByteArray& l : out) { result += l; result += '\r'; result += '\n'; }
+    if (result == data) return;
+
     // 先备份再改写, 出问题可回退
     QFile::remove(path + ".bak");
     QFile bak(path + ".bak");
     if (bak.open(QIODevice::WriteOnly)) { bak.write(data); bak.close(); }
     QFile w(path);
     if (!w.open(QIODevice::WriteOnly | QIODevice::Truncate)) return;
-    w.write(out);
+    w.write(result);
     w.close();
 }
 
