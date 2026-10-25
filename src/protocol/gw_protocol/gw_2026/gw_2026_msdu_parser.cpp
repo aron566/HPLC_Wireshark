@@ -420,8 +420,8 @@ static const int kHeartBeatSpecN = int(sizeof(kHeartBeatSpec) / sizeof(kHeartBea
 // 子载波分组大小(表104)/拒绝原因(表105),在 case 分支内按语义改名注释。
 // (文档表题"Bitloadeing"系规约拼写错误,代码统一用 Bitloading)
 static const FieldSpec kBitloadingTrainReqSpec[] = {
-    {"SourceTEI",          0, 0, 12, Fmt::DEC},
-    {"DestinationTEI",     2, 0, 12, Fmt::DEC},
+    {"SourceTEI",          0, 0, 12, Fmt::DEC},   // 表104: byte0 全8位 + byte1 bit0-3
+    {"DestinationTEI",     1, 4, 12, Fmt::DEC},   // 表104: byte1 bit4-7 + byte2 全8位
     {"SubCarrierGroupSize", 3, 0, 8, Fmt::DEC},  ///< 表104:0-3=4/8/12/16 个子载波一组;表105 复用为拒绝原因
 };
 static const int kBitloadingTrainReqSpecN = int(sizeof(kBitloadingTrainReqSpec) / sizeof(kBitloadingTrainReqSpec[0]));

@@ -526,7 +526,6 @@ static const FieldSpec kMMeAssocCnfSpec[] = {
     { "LinkType", 15, 0, 1, Fmt::DEC },
     { "CarrierFreq", 15, 1, 3, Fmt::DEC },
     { "RSV1", 15, 4, 4, Fmt::HEX4 },
-    { "RSV1", 15, 3, 5, Fmt::HEX4 },
     { "STAAssocRandomData", 16, 0, 32, Fmt::DEC },
     { "STAReAssocTime", 20, 0, 32, Fmt::DEC },
     { "EndSequence", 24, 0, 32, Fmt::DEC },
@@ -569,7 +568,6 @@ static const FieldSpec kMMeAssocIndSpec[] = {
     { "LinkType", 18, 0, 1, Fmt::DEC },
     { "CarrierFreq", 18, 1, 3, Fmt::DEC },
     { "RSV1", 18, 4, 20, Fmt::HEX4 },
-    { "RSV1", 18, 3, 21, Fmt::HEX4 },
     { "PacketIndex", 21, 0, 8, Fmt::DEC },
     { "TotalPacketNum", 22, 0, 8, Fmt::DEC },
     { "LastPacketFlag", 23, 0, 8, Fmt::DEC },
@@ -606,10 +604,9 @@ static const FieldSpec kMMeAssocGatherIndSpec[] = {
     { "ProxyTEI", 8, 0, 16, Fmt::DEC },
     { "NetSN", 10, 0, 8, Fmt::DEC },
     { "NewSTANumber", 11, 0, 8, Fmt::DEC },
-    // 链路类型(表79:byte12 1bit)+载波频段(表102:byte12 3bit,取值见表95)+保留 124bit
-    { "LinkType", 12, 0, 1, Fmt::DEC },
-    { "CarrierFreq", 12, 1, 3, Fmt::DEC },
-    { "RSV3", 12, 4, 124, Fmt::HEX4 },
+    // 载波频段(表102:byte12 bit0-2 3bit,取值见表95)+保留(bit3-7 5bit + byte13-27 15字节)=125bit
+    // 注意: 表102 关联汇总指示无「链路类型」字段(与表92/99 不同)
+    { "CarrierFreq", 12, 0, 3, Fmt::DEC },
     { "RSV3", 12, 3, 125, Fmt::HEX4 },
 };
 static const int kMMeAssocGatherIndSpecN = int(sizeof(kMMeAssocGatherIndSpec)/sizeof(kMMeAssocGatherIndSpec[0]));
