@@ -2371,7 +2371,7 @@ end
 -- (请求: 子载波分组大小 0-3=4/8/12/16 个一组; 拒绝: 0x0 未定义/0x1 节点正在训练/0x2 训练节点已满)
 local function dissect_bitloading_train(tvb, tree, off, is_reject)
     add_val(tree, f.mme_bl_src_tei, tvb, off, 2, read_bits(tvb, off*8, 12))
-    add_val(tree, f.mme_bl_dst_tei, tvb, off+2, 2, read_bits(tvb, (off+2)*8, 12))
+    add_val(tree, f.mme_bl_dst_tei, tvb, off+1, 2, read_bits(tvb, (off+1)*8+4, 12))
     local v = tvb(off+3, 1):uint()
     local it = tree:add(f.mme_bl_param, tvb(off+3, 1), v)
     if not is_reject then

@@ -342,7 +342,14 @@ local mac_addr_type_vals = {
 local proxy_type_vals = { [2] = T("动态代理", "Dynamic proxy") }
 local band_support_vals = { [0] = T("频段0和频段1", "Band 0 & 1"), [1] = T("频段0/1/2", "Band 0/1/2") }
 local boot_reason_vals = { [0] = T("正常重启", "Normal boot") }
-local band_vals = { [0] = "Band 0", [1] = "Band 1", [2] = "Band 2" }
+local band_vals = {
+    [0] = T("频段0 (1.953~11.96)", "Band 0 (1.953~11.96)"),
+    [1] = T("频段1 (2.441~5.615)", "Band 1 (2.441~5.615)"),
+    [2] = T("频段2 (0.781~2.930)", "Band 2 (0.781~2.930)"),
+    [3] = T("频段3 (0.781~11.963)", "Band 3 (0.781~11.963)"),
+    [4] = T("频段4 (0.781~5.615)", "Band 4 (0.781~5.615)"),
+    [5] = T("保留", "Reserved"), [6] = T("保留", "Reserved"), [7] = T("保留", "Reserved"),
+}
 local chip_id_vals = {
     [0] = T("保留", "Reserved"), [1] = "HS", [2] = "ES", [3] = "TC", [4] = "LH",
     [5] = "HT", [6] = "RS", [7] = "SW", [8] = "SC",
@@ -715,7 +722,7 @@ f.ac_total_pkgs = ProtoField.uint8 ("nw_2026.assoc_cnf.total_pkgs", T("总分包
 f.ac_pkg_idx = ProtoField.uint8 ("nw_2026.assoc_cnf.pkg_idx", T("分包序号", "Package Index"), base.DEC)
 f.ac_last_pkg = ProtoField.uint8 ("nw_2026.assoc_cnf.last_pkg", T("最后一个分包标识", "Last Packet Flag"), base.DEC, last_pkt_vals)
 f.ac_link_type = ProtoField.bool ("nw_2026.assoc_cnf.link_type", T("链路类型(1=无线)", "Link Type (1=RF)"), 8, nil, 0x01)
-f.ac_carrier = ProtoField.uint8 ("nw_2026.assoc_cnf.carrier", T("载波频段", "Carrier Band"), base.DEC, band_vals, 0x06)
+f.ac_carrier = ProtoField.uint8 ("nw_2026.assoc_cnf.carrier", T("载波频段", "Carrier Band"), base.DEC, band_vals, 0x0E)
 f.ac_assoc_rand = ProtoField.uint32 ("nw_2026.assoc_cnf.assoc_rand", T("站点关联随机数", "Association Random Number"), base.DEC)
 f.ac_reassoc_time = ProtoField.uint32 ("nw_2026.assoc_cnf.reassoc_time", T("重新关联时间(ms)", "Re-association Time (ms)"), base.DEC)
 f.ac_e2e_seq = ProtoField.uint32 ("nw_2026.assoc_cnf.e2e_seq", T("端到端序列号", "End-to-End Sequence Number"), base.DEC)
@@ -757,7 +764,7 @@ f.ai_cco_mac = ProtoField.ether ("nw_2026.assoc_ind.cco_mac", T("CCO MAC地址",
 f.ai_sta_tei = ProtoField.uint16 ("nw_2026.assoc_ind.sta_tei", T("站点TEI", "STA TEI"), base.DEC)
 f.ai_proxy_tei = ProtoField.uint16 ("nw_2026.assoc_ind.proxy_tei", T("代理TEI", "Proxy TEI"), base.DEC)
 f.ai_link_type = ProtoField.bool ("nw_2026.assoc_ind.link_type", T("链路类型(1=无线)", "Link Type (1=RF)"), 8, nil, 0x01)
-f.ai_carrier = ProtoField.uint8 ("nw_2026.assoc_ind.carrier", T("载波频段", "Carrier Band"), base.DEC, band_vals, 0x06)
+f.ai_carrier = ProtoField.uint8 ("nw_2026.assoc_ind.carrier", T("载波频段", "Carrier Band"), base.DEC, band_vals, 0x0E)
 f.ai_rsv = ProtoField.bytes ("nw_2026.assoc_ind.rsv", T("保留", "Reserved"), base.NONE)
 f.ai_total_pkgs = ProtoField.uint8 ("nw_2026.assoc_ind.total_pkgs", T("总分包数", "Total Packages"), base.DEC)
 f.ai_pkg_idx = ProtoField.uint8 ("nw_2026.assoc_ind.pkg_idx", T("分包序号", "Package Index"), base.DEC)
@@ -788,7 +795,7 @@ f.ag_cco_mac = ProtoField.ether ("nw_2026.assoc_gather.cco_mac", T("CCO MAC地�
 f.ag_proxy_tei = ProtoField.uint16 ("nw_2026.assoc_gather.proxy_tei", T("代理TEI", "Proxy TEI"), base.DEC)
 f.ag_net_sn = ProtoField.uint8 ("nw_2026.assoc_gather.net_sn", T("组网序列号", "Networking Sequence Number"), base.DEC)
 f.ag_gather_cnt = ProtoField.uint8 ("nw_2026.assoc_gather.gather_cnt", T("新站点数", "New STA Count"), base.DEC)
-f.ag_carrier = ProtoField.uint8 ("nw_2026.assoc_gather.carrier", T("载波频段", "Carrier Band"), base.DEC, band_vals, 0x03)
+f.ag_carrier = ProtoField.uint8 ("nw_2026.assoc_gather.carrier", T("载波频段", "Carrier Band"), base.DEC, band_vals, 0x07)
 f.ag_rsv = ProtoField.bytes ("nw_2026.assoc_gather.rsv", T("保留", "Reserved"), base.NONE)
 f.ag_sta_mac = ProtoField.ether ("nw_2026.assoc_gather.sta_mac", T("站点MAC地址", "STA MAC Address"))
 f.ag_sta_tei = ProtoField.uint16 ("nw_2026.assoc_gather.sta_tei", T("站点TEI", "STA TEI"), base.DEC)
