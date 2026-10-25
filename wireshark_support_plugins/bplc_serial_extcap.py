@@ -44,20 +44,20 @@ NTB_WRAP_NS = NTB_WRAP_TICKS * NTB_TICK_NS  # ≈171.8s
 # 接口 → linktype 映射 (与 packet-gw_2022.lua / packet-nw_2021.lua 的注册一致)
 INTERFACES = {
     'nw2021': {
-        'display': 'NW_2021_Capture (南网串口, 载波/无线混合)',
+        'display': 'NW_2021/NW_2026_Capture (南网串口, BPLC+SPLC 载波/无线混合)',
         'dlt': 152,                             # USER5: 媒介头+MPDU, 逐帧 isRF 自选载波/无线
         'dlt_name': 'USER5',
-        'dlt_display': 'CSG NW_2021 dual-mode serial, mixed PLC/RF (media header + MPDU)',
+        'dlt_display': 'CSG NW_2021/NW_2026 dual-mode serial, BPLC+SPLC mixed PLC/RF (media header + MPDU)',
     },
     'gw2022': {
-        'display': 'GW_2022_Capture (国网串口, 载波/无线混合)',
+        'display': 'GW_2022/GW_2026_Capture (国网串口, HDC1.0+2.0 载波/无线混合)',
         'dlt': 151,                             # USER4: 媒介头+MPDU
         'dlt_name': 'USER4',
-        'dlt_display': 'SGCC GW_2022 dual-mode serial, mixed PLC/RF (media header + MPDU)',
+        'dlt_display': 'SGCC GW_2022/GW_2026 dual-mode serial, HDC1.0+2.0 mixed PLC/RF (media header + MPDU)',
     },
 }
 
-BAUDS = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600]
+BAUDS = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600, 1500000, 2000000]
 
 
 def out(msg):

@@ -6,6 +6,7 @@
 #include "common/fieldspec.h"
 #include "crc.h"
 #include "i18n.h"
+#include "parse_anomaly.h"
 #include <QtEndian>
 #include <cstdint>
 
@@ -44,27 +45,27 @@ static const FieldSpec kMsduMacSpec[] = {
 // ================= MMe 公共头(MMe_BASE):MMType(0,0,8) RSV(2,0,8) =================
 static QString mme_type_name(quint8 t) {
     switch (static_cast<GW_2022_MMeType>(t)) {
-        case GW_2022_MMeType::MME_ASSOC_REQ: return QStringLiteral("MMeAssocReq");
-        case GW_2022_MMeType::MME_ASSOC_CNF: return QStringLiteral("MMeAssocCnf");
-        case GW_2022_MMeType::MME_ASSOC_GATHER_IND: return QStringLiteral("MMeAssocGatherInd");
-        case GW_2022_MMeType::MME_CHANGE_PROXY_REQ: return QStringLiteral("MMeChangeProxyReq");
-        case GW_2022_MMeType::MME_CHANGE_PROXY_CNF: return QStringLiteral("MMeChangeProxyCnf");
-        case GW_2022_MMeType::MME_CHANGE_PROXY_BITMAP_CNF: return QStringLiteral("MMeChangeProxyBitMapCnf");
-        case GW_2022_MMeType::MME_LEAVE_IND: return QStringLiteral("MMeLeaveInd");
-        case GW_2022_MMeType::MME_HEARTBEAT_CHECK: return QStringLiteral("MMeHeartBeatCheck");
-        case GW_2022_MMeType::MME_DISCOVER_NODE_LIST: return QStringLiteral("MMeDiscoveryNodeList");
-        case GW_2022_MMeType::MME_SUCCESS_RATE_REPORT: return QStringLiteral("MMeSuccessRateReport");
-        case GW_2022_MMeType::MME_NETWORK_CONFLICT_REPORT: return QStringLiteral("MMeNetworkConflictReport");
-        case GW_2022_MMeType::MME_ZERO_CROSS_NTB_COLLECT_IND: return QStringLiteral("MMeZeroCrossNTBCollectInd");
-        case GW_2022_MMeType::MME_ZERO_CROSS_NTB_REPORT: return QStringLiteral("MMeZeroCrossNTBReport");
-        case GW_2022_MMeType::MME_DIAGNOSE: return QStringLiteral("MMeDiagnose");
-        case GW_2022_MMeType::MME_ROUTE_REQUEST: return QStringLiteral("MMeRouteRequest");
-        case GW_2022_MMeType::MME_ROUTE_REPLY: return QStringLiteral("MMeRouteReply");
-        case GW_2022_MMeType::MME_ROUTE_ERROR: return QStringLiteral("MMeRouteError");
-        case GW_2022_MMeType::MME_ROUTE_ACK: return QStringLiteral("MMeRouteAck");
-        case GW_2022_MMeType::MME_LINK_CONFIRM_REQUEST: return QStringLiteral("MMeLinkConfirmRequest");
-        case GW_2022_MMeType::MME_LINK_CONFIRM_RESPONSE: return QStringLiteral("MMeLinkConfirmResponse");
-        case GW_2022_MMeType::MME_RF_CHANNEL_CONFLICT_REPORT: return QStringLiteral("MMeRFChannelConflictReport");
+        case GW_2022_MMeType::MME_ASSOC_REQ: return trl::L("关联请求");
+        case GW_2022_MMeType::MME_ASSOC_CNF: return trl::L("关联确认");
+        case GW_2022_MMeType::MME_ASSOC_GATHER_IND: return trl::L("关联汇总指示");
+        case GW_2022_MMeType::MME_CHANGE_PROXY_REQ: return trl::L("代理变更请求");
+        case GW_2022_MMeType::MME_CHANGE_PROXY_CNF: return trl::L("代理变更确认");
+        case GW_2022_MMeType::MME_CHANGE_PROXY_BITMAP_CNF: return trl::L("代理变更确认位图版");
+        case GW_2022_MMeType::MME_LEAVE_IND: return trl::L("离线指示");
+        case GW_2022_MMeType::MME_HEARTBEAT_CHECK: return trl::L("心跳检测");
+        case GW_2022_MMeType::MME_DISCOVER_NODE_LIST: return trl::L("发现列表");
+        case GW_2022_MMeType::MME_SUCCESS_RATE_REPORT: return trl::L("通信成功率上报");
+        case GW_2022_MMeType::MME_NETWORK_CONFLICT_REPORT: return trl::L("网络冲突上报");
+        case GW_2022_MMeType::MME_ZERO_CROSS_NTB_COLLECT_IND: return trl::L("过零NTB采集指示");
+        case GW_2022_MMeType::MME_ZERO_CROSS_NTB_REPORT: return trl::L("过零NTB上报");
+        case GW_2022_MMeType::MME_DIAGNOSE: return trl::L("网络诊断");
+        case GW_2022_MMeType::MME_ROUTE_REQUEST: return trl::L("路由请求");
+        case GW_2022_MMeType::MME_ROUTE_REPLY: return trl::L("路由应答");
+        case GW_2022_MMeType::MME_ROUTE_ERROR: return trl::L("路由错误");
+        case GW_2022_MMeType::MME_ROUTE_ACK: return trl::L("路由确认");
+        case GW_2022_MMeType::MME_LINK_CONFIRM_REQUEST: return trl::L("链路确认请求");
+        case GW_2022_MMeType::MME_LINK_CONFIRM_RESPONSE: return trl::L("链路确认响应");
+        case GW_2022_MMeType::MME_RF_CHANNEL_CONFLICT_REPORT: return trl::L("无线信道冲突上报");
         default:   return QStringLiteral("Unknown(0x%1)").arg(t, 2, 16, QChar('0'));
     }
 }
@@ -564,7 +565,7 @@ static void annotate_route_loaddata(QVector<MsduFieldNode>& nodes,
           : v == 1 ? QStringLiteral("Propagation path list")
                    : QStringLiteral("Reserved"));
     }
-    if (b.size() < 8) return;
+    if (b.size() < 8) { pa::warn("gw_2022:content_short", QStringLiteral("block %1B<8B").arg(b.size())); return; }
     const int len = (int)get_bits(b, 6, 0, 8);   // LoadDataLength
     const int cnt = len / 4;
     if (cnt <= 0) return;
@@ -680,6 +681,7 @@ static const int kRfdlAttrSpecN = int(sizeof(kRfdlAttrSpec)/sizeof(kRfdlAttrSpec
 static void rfdl_bit_field(MsduFieldNode& parent, const char* name,
                            const QByteArray& c, int bitpos, int bits,
                            int cbase_abs, const QString& val) {
+    Q_UNUSED(c)   // 位置取值用 cbase_abs(调用方已换算),c 仅为签名对称保留
     MsduFieldNode n;
     n.name = QStringLiteral("%1 [%2b]").arg(QLatin1String(name)).arg(bits);
     n.value = val;
@@ -691,10 +693,14 @@ static void rfdl_bit_field(MsduFieldNode& parent, const char* name,
 /// 渲染一条邻居信道信息(位流内,自 bitpos 起),返回下一条起始位
 static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
                                int bitpos, const RfdlChCombo& cb,
-                               int cbase_abs, bool has_tei) {
+                               int cbase_abs, bool has_tei,
+                               quint16 tei = 0,
+                               QVector<QPair<quint16, int>>* rssi_out = nullptr,
+                               QVector<QPair<quint16, quint8>>* rates_out = nullptr,
+                               QVector<QPair<quint16, qint16>>* snrs_out = nullptr) {
     int bp = bitpos;
     if (has_tei) {
-        const quint16 tei = (quint16)get_bits(c, bp / 8, bp % 8, 12);
+        tei = (quint16)get_bits(c, bp / 8, bp % 8, 12);   // 非位图:TEI 在条目内,覆盖调用方传入值
         rfdl_bit_field(parent, "TEI", c, bp, 12, cbase_abs, QString::number(tei));
         bp += 12;
     }
@@ -704,18 +710,76 @@ static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
         const quint64 pct = (cb.rcv == 6) ? v * 2 : v;
         rfdl_bit_field(parent, "RcvRate", c, bp, cb.rcv, cbase_abs,
                        QStringLiteral("%1 (%2%)").arg(v).arg(pct));
+        // 拓扑采集:该邻居上行成功率%(方向=邻居→我;6b=量化/2,8b=实际)
+        if (rates_out && tei)
+            rates_out->append({tei, (quint8)pct});
         bp += cb.rcv;
     }
     if (cb.snr) {
+        // 表131(6bit): 量化值=SNR+6 → SNR=v-6(v=0 表示 ≤-6dB);表132(4bit): 非均匀 -6 起
+        // 2dB/3dB 步进至 >25(与 2.0 表98 逐行一致;1.0 原文负号被 MinerU 吞掉,如"SNR≤6"实为"SNR≤-6")
         const quint64 v = get_bits(c, bp / 8, bp % 8, cb.snr);
-        rfdl_bit_field(parent, "SNR", c, bp, cb.snr, cbase_abs,
-                       QStringLiteral("0x%1").arg(v, 1, 16, QChar('0')));
+        QString sv;
+        if (v == 0) {
+            sv = QStringLiteral("%1 (SNR≤-6dB)").arg(v);
+        } else if (cb.snr == 6) {
+            sv = QStringLiteral("%1 (SNR=%2dB)").arg(v).arg(int(v) - 6);
+        } else {
+            static const int hi[14] = { -4, -2, 0, 2, 4, 6, 8, 10, 12, 14, 16, 19, 22, 25 };
+            const int lo = (v == 1) ? -6 : hi[v - 2];
+            sv = (v == 15) ? QStringLiteral("%1 (SNR>25dB)").arg(v)
+                           : QStringLiteral("%1 (SNR %2~%3dB)").arg(v).arg(lo).arg(hi[v - 1]);
+        }
+        rfdl_bit_field(parent, "SNR", c, bp, cb.snr, cbase_abs, sv);
+        // 拓扑采集:该邻居 SNR(dB,区间下限;1.0 无线单簇映射与文案一致)
+        if (snrs_out && tei) {
+            int snr_db = 0;
+            if (cb.snr == 6) {
+                snr_db = (v == 0) ? -6 : int(v) - 6;
+            } else {
+                static const int hi[14] = { -4, -2, 0, 2, 4, 6, 8, 10, 12, 14, 16, 19, 22, 25 };
+                snr_db = (v == 0) ? -6 : (v >= 15 ? 25 : ((v == 1) ? -6 : hi[v - 2]));
+            }
+            snrs_out->append({tei, (qint16)snr_db});
+        }
         bp += cb.snr;
     }
     if (cb.rssi) {
+        // 表133:8bit 量化值=RSSI+110(dBm) → RSSI=v-110(v=0 表示 ≤-110dBm);
+        // 表135:6bit 2dB 步进,量化值 v → RSSI∈[2v-110, 2v-108](与 2.0 表101 同);
+        // 表134(1.0,无线,与 2.0 表100 逐档一致):4bit 非均匀区间硬编码
         const quint64 v = get_bits(c, bp / 8, bp % 8, cb.rssi);
-        rfdl_bit_field(parent, "RSSI", c, bp, cb.rssi, cbase_abs,
-                       QStringLiteral("0x%1").arg(v, 1, 16, QChar('0')));
+        QString rv;
+        if (cb.rssi == 8) {
+            rv = QStringLiteral("%1 (RSSI=%2dBm)").arg(v).arg(int(v) - 110);
+        } else if (cb.rssi == 6) {
+            rv = (v == 0) ? QStringLiteral("%1 (RSSI≤-110dBm)").arg(v)
+                          : QStringLiteral("%1 (RSSI %2~%3dBm)").arg(v).arg(int(v) * 2 - 110).arg(int(v) * 2 - 108);
+        } else {
+            // 表134 4bit:0=RSSI≤-105;1:-105~-95;2:-95~-86;3:-86~-80;4:-80~-74;5:-74~-68;
+            //   6:-68~-62;7:-62~-56;8:-56~-48;9:-48~-42;10:-42~-36;11:-36~-30;12:-30~-20;
+            //   13:-20~-10;14:-10~0;15=RSSI>0 (dBm)
+            static const int kLo[14] = {-105, -95, -86, -80, -74, -68, -62,
+                                        -56, -48, -42, -36, -30, -20, -10};
+            static const int kHi[14] = {-95, -86, -80, -74, -68, -62, -56,
+                                        -48, -42, -36, -30, -20, -10, 0};
+            if (v == 0)       rv = QStringLiteral("%1 (RSSI≤-105dBm)").arg(v);
+            else if (v == 15) rv = QStringLiteral("%1 (RSSI>0dBm)").arg(v);
+            else              rv = QStringLiteral("%1 (RSSI=%2~%3dBm)").arg(v).arg(kLo[v - 1]).arg(kHi[v - 1]);
+        }
+        // 拓扑采集:该邻居信号强度 dBm(档位下限;gw_2022 单簇映射与文案一致)
+        if (rssi_out && tei) {
+            int dbm = 0;
+            if (cb.rssi == 8)      dbm = int(v) - 110;
+            else if (cb.rssi == 6) dbm = (v == 0) ? -110 : int(v) * 2 - 110;
+            else {                 // 表134(4bit)档位下限
+                static const int kLo[14] = {-105, -95, -86, -80, -74, -68, -62,
+                                            -56, -48, -42, -36, -30, -20, -10};
+                dbm = (v == 0) ? -105 : (v >= 15 ? 0 : kLo[v - 1]);
+            }
+            rssi_out->append({tei, dbm});
+        }
+        rfdl_bit_field(parent, "RSSI", c, bp, cb.rssi, cbase_abs, rv);
         bp += cb.rssi;
     }
     return bp;
@@ -724,7 +788,7 @@ static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
 /// 解析无线发现列表(RFDL)载荷,挂到 out.tree;rfdl=载荷本身,rel_base=其在 body 中的偏移
 static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
     const QByteArray d = rfdl;
-    if (d.size() < 7) { out.summary += QStringLiteral(" (RFDL truncated)"); return; }
+    if (d.size() < 7) { pa::warn("gw_2022:truncated", QStringLiteral("RFDL %1B<7B").arg(d.size())); append_summary(out, trl::L(" (RFDL 截断)")); return; }
 
     // 表123 头:站点MAC 6B + 统计序号 1B
     {
@@ -757,7 +821,7 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
         ++pos;
         if (pos >= d.size()) break;
         const int len_bytes = long_len ? 2 : 1;
-        if (pos + len_bytes > d.size()) break;
+        if (pos + len_bytes > d.size()) { pa::warn("gw_2022:ie_overflow", QStringLiteral("IE len hdr @%1 exceeds %2").arg(pos).arg(d.size())); break; }
         quint32 elen = (quint8)d[pos];
         if (len_bytes == 2) elen = ((quint32)(quint8)d[pos] << 8) | (quint8)d[pos + 1];
         {
@@ -768,7 +832,7 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
             out.tree.append(l);
         }
         pos += len_bytes;
-        if (pos + elen > d.size()) break;
+        if (pos + elen > d.size()) { pa::warn("gw_2022:ie_overflow", QStringLiteral("IE type=%1 len=%2 exceeds remaining %3").arg(ie_type).arg(elen).arg(d.size()-pos)); break; }
         const QByteArray content = d.mid(pos, elen);
         const int content_abs = rel_base + pos;
 
@@ -778,6 +842,16 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
             auto& g = group(out.tree, QStringLiteral("IE[%1] Station Attribute [%2B]").arg(ie_idx).arg(elen));
             g.rel_start = content_abs; g.rel_len = elen;
             add_fields(g.children, content, 0, kRfdlAttrSpec, kRfdlAttrSpecN, content_abs);
+            // 拓扑采集(表126 站点属性,不改渲染):代理 TEI/上下行接收率/最小接收率/RF 跳数/角色
+            out.topo_event.proxy_tei = (quint16)get_bits(content, 6, 0, 12);
+            out.topo_event.rf_role = (quint8)get_bits(content, 7, 4, 4);
+            out.topo_event.rf_hop = (quint8)get_bits(content, 8, 4, 4);
+            const quint8 up_v   = (quint8)get_bits(content, 9, 0, 8);
+            const quint8 down_v = (quint8)get_bits(content, 10, 0, 8);
+            const quint8 min_v  = (quint8)get_bits(content, 11, 0, 8);
+            out.topo_event.proxy_up_rate   = (up_v   <= 100) ? (qint16)up_v   : -1;
+            out.topo_event.proxy_down_rate = (down_v <= 100) ? (qint16)down_v : -1;
+            out.topo_event.min_link_rate   = (min_v  <= 100) ? (qint16)min_v  : -1;
             translate_enum(g.children, "Role", kRole, 5);
             annotate_unit(g.children, "ProxyUpRcvRate", QStringLiteral("%"));
             annotate_unit(g.children, "ProxyDownRcvRate", QStringLiteral("%"));
@@ -812,20 +886,40 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
         case 2: {  // 邻居信道信息非位图版(表128/129)
             auto& g = group(out.tree, QStringLiteral("IE[%1] Neighbor Ch Info [%2B]").arg(ie_idx).arg(elen));
             g.rel_start = content_abs; g.rel_len = elen;
-            if (content.size() < 1) break;
+            if (content.size() < 1) { pa::warn("gw_2022:content_short", QStringLiteral("neighbor ch info <1B")); break; }
             const quint8 combo = (quint8)get_bits(content, 0, 0, 4);
             if (combo > 9) {  // 组合类型越界(表129 仅 0-9):内容 hex 兜底,避免静默丢弃
+                pa::warn("gw_2022:combo_unsupported", QStringLiteral("non-bitmap combo=%1>9").arg(combo));
                 g.value = QString(content.toHex(' '));
                 break;
             }
             const RfdlChCombo& cb = kRfdlNonBitmap[combo];
             const int entry_bits = 12 + cb.rcv + cb.snr + cb.rssi;
+            // 表128/129 头:信道信息组合类型(0,0-3,4b)+保留(0,4-7,4b)——此前整字节跳过未渲染
+            {
+                QStringList sem;
+                sem << QStringLiteral("TEI");
+                if (cb.rcv) sem << QStringLiteral("Rcv%1b").arg(cb.rcv);
+                if (cb.snr) sem << QStringLiteral("SNR%1b").arg(cb.snr);
+                if (cb.rssi) sem << QStringLiteral("RSSI%1b").arg(cb.rssi);
+                MsduFieldNode& hd = group(g.children, QStringLiteral("ChannelInfoHead"));
+                hd.rel_start = content_abs; hd.rel_len = 1;
+                MsduFieldNode& ct = group(hd.children, QStringLiteral("ComboType"),
+                    trl::L("%1 - %2 (%3b/邻居)").arg(combo)
+                        .arg(sem.join(QLatin1Char('+'))).arg(entry_bits));
+                ct.rel_start = content_abs; ct.rel_len = 1;
+                MsduFieldNode& cr = group(hd.children, QStringLiteral("RSV [4b]"),
+                    QString::number(get_bits(content, 0, 4, 4)));
+                cr.rel_start = content_abs; cr.rel_len = 1;
+            }
             const int total_bits = content.size() * 8;  // 内容绝对末位(邻居自 bit8 起)
             int bitpos = 8;   // 跳过组合类型字节
             int i = 0;
             while (bitpos + entry_bits <= total_bits) {
                 auto& e = group(g.children, QStringLiteral("Neighbor[%1]").arg(i));
-                bitpos = rfdl_neighbour_bits(e, content, bitpos, cb, content_abs, /*has_tei=*/true);
+                bitpos = rfdl_neighbour_bits(e, content, bitpos, cb, content_abs, /*has_tei=*/true,
+                                     0, &out.topo_event.rssi_entries,
+                                     &out.topo_event.neighbor_rates, &out.topo_event.neighbor_snrs);
                 ++i;
             }
             break;
@@ -833,20 +927,38 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
         case 3: {  // 邻居信道信息位图版(表136/137)
             auto& g = group(out.tree, QStringLiteral("IE[%1] Neighbor Ch Bitmap [%2B]").arg(ie_idx).arg(elen));
             g.rel_start = content_abs; g.rel_len = elen;
-            if (content.size() < 2) break;
+            if (content.size() < 2) { pa::warn("gw_2022:content_short", QStringLiteral("neighbor ch bitmap %1B<2B").arg(content.size())); break; }
             const quint8 combo = (quint8)get_bits(content, 0, 0, 4);
             if (combo > 10) {  // 组合类型越界(表137 仅 0-10):内容 hex 兜底,避免静默丢弃
+                pa::warn("gw_2022:combo_unsupported", QStringLiteral("bitmap combo=%1>10").arg(combo));
                 g.value = QString(content.toHex(' '));
                 break;
             }
             const RfdlChCombo& cb = kRfdlBitmap[combo];
             const int entry_bits = cb.rcv + cb.snr + cb.rssi;
+            const int total_bits = content.size() * 8;  // 越界防护基准(与 gw_2026 P1 同)
+            // 表136/137 头:信道信息组合类型(0,0-3,4b)+保留(0,4-7,4b)——此前整字节跳过未渲染
+            {
+                QStringList sem;
+                if (cb.rcv) sem << QStringLiteral("Rcv%1b").arg(cb.rcv);
+                if (cb.snr) sem << QStringLiteral("SNR%1b").arg(cb.snr);
+                if (cb.rssi) sem << QStringLiteral("RSSI%1b").arg(cb.rssi);
+                MsduFieldNode& hd = group(g.children, QStringLiteral("ChannelInfoHead"));
+                hd.rel_start = content_abs; hd.rel_len = 1;
+                MsduFieldNode& ct = group(hd.children, QStringLiteral("ComboType"),
+                    trl::L("%1 - %2 (%3b/邻居)").arg(combo)
+                        .arg(sem.join(QLatin1Char('+'))).arg(entry_bits));
+                ct.rel_start = content_abs; ct.rel_len = 1;
+                MsduFieldNode& cr = group(hd.children, QStringLiteral("RSV [4b]"),
+                    QString::number(get_bits(content, 0, 4, 4)));
+                cr.rel_start = content_abs; cr.rel_len = 1;
+            }
             int off = 1;   // 跳过组合类型字节
             int k = 0;
             while (off + 4 <= content.size()) {
                 const quint16 start_tei = (quint16)get_bits(content, off, 0, 12);
                 const quint8  bmp_size  = (quint8)content[off + 2];
-                if (off + 3 + bmp_size > content.size()) break;
+                if (off + 3 + bmp_size > content.size()) { pa::warn("gw_2022:bitmap_overflow", QStringLiteral("bmp_size=%1 exceeds remaining %2").arg(bmp_size).arg(content.size()-off-3)); break; }
                 const QByteArray bmp = content.mid(off + 3, bmp_size);
                 int nk = 0;
                 for (int i = 0; i < bmp.size(); ++i)
@@ -854,17 +966,60 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
                         if (bmp[i] & (1u << j)) ++nk;
                 auto& kg = group(g.children, QStringLiteral("Group[%1] StartTEI=%2").arg(k).arg(start_tei));
                 kg.rel_start = content_abs + off; kg.rel_len = 3 + bmp_size + (nk * entry_bits + 7) / 8;
+                // 表136/137 组内:起始TEI 12b(off+0 起)+保留 4b(off+1 bit4-7)+位图大小 1B(off+2)
+                MsduFieldNode& st = group(kg.children, QStringLiteral("StartTEI"), QString::number(start_tei));
+                st.rel_start = content_abs + off; st.rel_len = 2;
+                MsduFieldNode& gr = group(kg.children, QStringLiteral("RSV [4b]"),
+                    QString::number(get_bits(content, off + 1, 4, 4)));
+                gr.rel_start = content_abs + off + 1; gr.rel_len = 1;
+                MsduFieldNode& bl = group(kg.children, QStringLiteral("BitmapSize [8b]"), QString::number(bmp_size));
+                bl.rel_start = content_abs + off + 2; bl.rel_len = 1;
+                QVector<QPair<int,int>> bm_pos;   // 置位位(位图内字节,位)
+                // 位图组(表136/137):hex + 置位 TEI 推导(bit i = StartTEI+i,LSB 在前)
+                // + 逐位子节点(仅 bit=1,值标注该 bit 所在的字节号,与下方条目一一对应)
+                {
+                    QStringList teis;
+                    for (int i = 0; i < bmp.size() * 8; ++i)
+                        if (bmp[i / 8] & (1u << (i % 8))) {
+                            teis << QString::number(start_tei + i);
+                            bm_pos.append({i / 8, i % 8});
+                        }
+                    MsduFieldNode bn;
+                    bn.name = QStringLiteral("Bitmap [%1b]").arg(bmp.size() * 8);
+                    bn.value = QStringLiteral("0x%1 (TEI: %2)")
+                                   .arg(QString(bmp.toHex()))
+                                   .arg(teis.isEmpty() ? QStringLiteral("-")
+                                                       : teis.join(QLatin1String(",")));
+                    bn.rel_start = content_abs + off + 3;
+                    bn.rel_len   = bmp.size();
+                    for (int i = 0; i < bmp.size() * 8; ++i)
+                        if (bmp[i / 8] & (1u << (i % 8))) {
+                            MsduFieldNode bp = group(bn.children,
+                                QStringLiteral("Neighbor[%1] TEI=%2").arg(i).arg(start_tei + i),
+                                trl::L("在位图(第%1字节)").arg(i / 8));
+                            bp.rel_start = content_abs + off + 3 + (i / 8);
+                            bp.rel_len = 1;
+                        }
+                    kg.children.append(bn);
+                }
                 int bitpos = (off + 3 + bmp_size) * 8;  // 邻居信道信息起始位
                 for (int i = 0; i < nk; ++i) {
-                    auto& e = group(kg.children, QStringLiteral("Neighbor[%1]").arg(i));
-                    bitpos = rfdl_neighbour_bits(e, content, bitpos, cb, content_abs, /*has_tei=*/false);
+                    // P1 同款越界防护(与 gw_2026 对齐):位图置位数 nk 是发端声明,截断帧可虚大
+                    if (bitpos + entry_bits > total_bits) { pa::warn("gw_2022:entry_overflow", QStringLiteral("entry %1bit @%2 exceeds %3").arg(entry_bits).arg(bitpos).arg(total_bits)); break; }
+                    auto& e = group(kg.children, trl::L("Neighbor[%1] (位图 byte %2 bit %3)")
+                        .arg(i).arg(bm_pos[i].first).arg(bm_pos[i].second));
+                    const quint16 ntei = (quint16)(start_tei + bm_pos[i].first * 8 + bm_pos[i].second);
+                    bitpos = rfdl_neighbour_bits(e, content, bitpos, cb, content_abs, /*has_tei=*/false,
+                                                 ntei, &out.topo_event.rssi_entries,
+                                                 &out.topo_event.neighbor_rates, &out.topo_event.neighbor_snrs);
                 }
-                off = off + 3 + bmp_size + (nk * entry_bits + 7) / 8;
+                off = (bitpos + 7) / 8;   // 下一组自本组实际消费末尾起(截断时按已解析推进)
                 ++k;
             }
             break;
         }
         default: {  // 保留/未知类型:整段 hex
+            pa::warn("gw_2022:unknown_ie", QStringLiteral("IE type=%1 len=%2 (hex fallback)").arg(ie_type).arg(elen));
             auto& g = group(out.tree, QStringLiteral("IE[%1] Reserved [%2B]").arg(ie_idx).arg(elen),
                             QString(content.toHex(' ')));
             g.rel_start = content_abs; g.rel_len = elen;
@@ -881,7 +1036,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
     MsduInfo out;
     out.present = false;
     out.simple_head = false;
-    if (body.size() < 8) return out;
+    if (body.size() < 8) { pa::warn("gw_2022:content_short", QStringLiteral("body %1B<8B").arg(body.size())); return out; }
 
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
     // 单跳帧判定:版本字段(字节0 低4位)==1 为单跳帧协议(表2/5.1.1.4.2);
@@ -903,17 +1058,17 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
         QByteArray msdu_body = body.mid(4, msdu_len);
         if (static_cast<GW_2022_MsduSType>(msdu_type) == GW_2022_MsduSType::DISCOVERY_LIST) {
             // 消息类型0 = 无线发现列表(表123),按 TLV 逐字段解析
-            out.summary = QStringLiteral("Discovery List Message");
+            out.summary = trl::L("发现列表消息");
             parse_rfdl(out, msdu_body, 4);   // RFDL 载荷自单跳头(4B)之后
         } else {
-            out.summary = QStringLiteral("Simple MSDU type %1").arg(msdu_type);
+            out.summary = trl::L("单跳 MSDU 类型 %1").arg(msdu_type);
         }
         out.present = true;
         return out;
     }
 
     // ---- 标准 MSDU_BASE(16B 头, MACAddrFlag=1 时 28B)----
-    if (body.size() < 16) return out;
+    if (body.size() < 16) { pa::warn("gw_2022:content_short", QStringLiteral("body %1B<16B").arg(body.size())); return out; }
     add_fields(out.tree, body, 0, kMsduBaseSpec, kMsduBaseSpecN);
     annotate_msdu_base(out.tree);   // 标志/枚举字段加数值解释
     out.msdu_seq = (quint16)get_bits(p, 5, 0, 16);   // MSDU Seq(MSDUIndex)
@@ -938,13 +1093,15 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
 
     // MSDU 数据区从 head_size 起;头不完整(mac_flag 但 body<28)时无法解析,直接放弃
     if (body.size() < head_size) {
+        pa::warn("gw_2022:truncated", QStringLiteral("body %1B < head_size %2").arg(body.size()).arg(head_size));
         out.present = false;
         return out;
     }
     if (msdu_len > body.size() - head_size) {
+        pa::warn("gw_2022:truncated", QStringLiteral("msdu_len %1 > avail %2").arg(msdu_len).arg(body.size()-head_size));
         // 声明长度超出实际帧长:异常帧,标记但跳过深解析(避免 MMe/APP 子字段越界)
         out.present = true;
-        out.summary = QStringLiteral("MSDU truncated (len %1 > avail %2)")
+        out.summary = trl::L("MSDU 截断(长度 %1 > 可用 %2)")
                           .arg(msdu_len).arg(body.size() - head_size);
         return out;
     }
@@ -954,7 +1111,8 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
     if (static_cast<GW_2022_MsduType>(msdu_type) == GW_2022_MsduType::NET_MANAGEMENT) {
         // ---- 网络管理消息:MMe_BASE(4B) ----
         if (msdu_body.size() < 4) {
-            out.summary = QStringLiteral("MMe (truncated)");
+            pa::warn("gw_2022:truncated", QStringLiteral("MMe body %1B<4B").arg(msdu_body.size()));
+            out.summary = trl::L("MMe (截断)");
             return out;
         }
         quint8 mm_type = (quint8)get_bits(msdu_body, 0, 0, 8);
@@ -1067,7 +1225,8 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                         // 关联失败:不更新拓扑(但保留字段解析)
                     } else {
                     out.topo_event.kind = TopoEventKind::AssocCnf;
-                    // 链路类型(关联确认 kAssocCnfSpec):0=HPLC载波/1=HRF无线,确认 STA 接入方式
+                    // 链路类型(关联确认 kAssocCnfSpec byte15 bit4):0=HPLC载波/1=HRF无线,确认 STA 接入方式
+                    out.topo_event.link_type = (int)get_bits(b, 15, 4, 1);
                     out.topo_event.is_rf = (get_bits(b, 15, 4, 1) != 0);
                     out.topo_event.is_rf_known = true;
                     if (cco_mac) out.topo_event.cco_mac = cco_mac;
@@ -1363,6 +1522,16 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                     out.topo_event.desc = trl::L("发现列表: STA TEI=%1 代理=%2")
                         .arg(sta_tei)
                         .arg(proxy_tei ? QString::number(proxy_tei) : QStringLiteral("-"));
+                    // 载波组(表95 byte18/19/28):与代理站点通信成功率/下行/最小 → proxy_comm_rate/down/min_comm_rate
+                    // (独立于 RFDL proxy_* 与 0x005E comm_rates;值 0-100,超出无效=-1)
+                    {
+                        const quint8 up_v  = (quint8)get_bits(b, 18, 0, 8);
+                        const quint8 dwn_v = (quint8)get_bits(b, 19, 0, 8);
+                        const quint8 min_v = (quint8)get_bits(b, 28, 0, 8);
+                        out.topo_event.proxy_comm_rate      = (up_v  <= 100) ? (qint32)up_v  : -1;
+                        out.topo_event.proxy_down_comm_rate = (dwn_v <= 100) ? (qint32)dwn_v : -1;
+                        out.topo_event.min_comm_rate        = (min_v <= 100) ? (qint16)min_v : -1;
+                    }
                 }
                 apply_dicts(root.children);
                 // 成功率字段带 %(与 Python log "ProxyCommRate: 85%" 一致)
@@ -1453,7 +1622,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 if (!bm_any) {
                     // 全 0(如 bitmap size=1 且 bitmap[0]=0)→ NULL
                     MsduFieldNode bl;
-                    bl.name = QStringLiteral("DiscoverySTAList BitMap [%1b]")
+                    bl.name = QStringLiteral("DiscoverySTAList BitMap [%1B]")
                                   .arg(bm.size());
                     bl.value = QStringLiteral("NULL");
                     if (bm_base >= 0) { bl.rel_start = bm_base; bl.rel_len = bm.size(); }
@@ -1461,7 +1630,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 } else {
                     // 逐字节一行:DiscoverySTABitMap[i] [8b] = TEI0, TEI7 …
                     auto& bmg = group(root.children,
-                                      QStringLiteral("DiscoverySTAList BitMap [%1b]")
+                                      QStringLiteral("DiscoverySTAList BitMap [%1B]")
                                           .arg(bm.size()));
                     for (int i = 0; i < bm.size(); ++i) {
                         if (per_byte[i].isEmpty()) continue;   // 空字节跳过
@@ -1891,7 +2060,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
     } else if (static_cast<GW_2022_MsduType>(msdu_type) == GW_2022_MsduType::APPLICATION) {
         // ---- 应用层报文:APP_BASE(4B) ----
         quint16 packet_id = (quint16)get_bits(msdu_body, 1, 0, 16);
-        out.summary = QStringLiteral("APP %1 (0x%2)")
+        out.summary = trl::L("应用报文 %1 (0x%2)")
                           .arg(packet_id_name(packet_id))
                           .arg(packet_id, 4, 16, QChar('0'));
         auto& root = group(out.tree, QStringLiteral("APP"));
@@ -1919,7 +2088,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
         }
     } else if (static_cast<GW_2022_MsduType>(msdu_type) == GW_2022_MsduType::IP) {
         // ---- IP 报文(表10:49):独立于应用层报文(48),内部格式见应用层分册,此处仅呈现 hex ----
-        out.summary = QStringLiteral("IP Packet");
+        out.summary = trl::L("IP 报文");
         auto& ipg = group(out.tree, QStringLiteral("IP"));
         MsduFieldNode raw;
         raw.name = QStringLiteral("IP Payload");
@@ -1928,7 +2097,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
         raw.rel_len   = msdu_body.size();
         ipg.children.append(raw);
     } else {
-        out.summary = QStringLiteral("MSDUType %1").arg(msdu_type);
+        out.summary = trl::L("MSDU 类型 %1").arg(msdu_type);
     }
 
     // ---- MSDU 帧尾 4B CRC32 ----
@@ -1944,6 +2113,8 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 | ((quint32)(quint8)body[crc_off + 1] << 8)
                 | ((quint32)(quint8)body[crc_off + 2] << 16)
                 | ((quint32)(quint8)body[crc_off + 3] << 24);
+// crc32_le 内部遍历 len-4 字节;此处传 载荷+4(全长)即校验载荷区,
+// 末 4B 为本 CRC 自身(crc.h 约定,勿传 payload_len/msdu_len 否则少算 4B)
             quint32 calc = crc32_le(
                 reinterpret_cast<const quint8*>(msdu_body.constData()),
                 msdu_len + 4);
@@ -1953,6 +2124,8 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 .arg(stored, 8, 16, QChar('0'))
                 .arg(stored == calc ? QStringLiteral("OK")
                                     : QStringLiteral("FAIL"));
+            if (stored != calc)
+                pa::warn("gw_2022:crc_fail", QStringLiteral("MSDU CRC32 stored=0x%1 calc=0x%2").arg(stored,8,16,QChar('0')).arg(calc,8,16,QChar('0')));
             crc.rel_start = crc_off;
             crc.rel_len   = 4;
             out.tree.append(crc);
@@ -1966,6 +2139,37 @@ namespace {
 
 struct I18nReg {
     I18nReg() {
+        trl::register_en("网络诊断", "MMeDiagnose");
+        trl::register_en("在位图(第%1字节)", "in bitmap (byte %1)");
+        trl::register_en("Neighbor[%1] (位图 byte %2 bit %3)", "Neighbor[%1] (bitmap byte %2 bit %3)");
+        trl::register_en("关联确认", "MMeAssocCnf");
+        trl::register_en("关联汇总指示", "MMeAssocGatherInd");
+        trl::register_en("关联请求", "MMeAssocReq");
+        trl::register_en("代理变更确认位图版", "MMeChangeProxyBitMapCnf");
+        trl::register_en("代理变更确认", "MMeChangeProxyCnf");
+        trl::register_en("代理变更请求", "MMeChangeProxyReq");
+        trl::register_en("发现列表", "MMeDiscoveryNodeList");
+        trl::register_en("心跳检测", "MMeHeartBeatCheck");
+        trl::register_en("离线指示", "MMeLeaveInd");
+        trl::register_en("链路确认请求", "MMeLinkConfirmRequest");
+        trl::register_en("链路确认响应", "MMeLinkConfirmResponse");
+        trl::register_en("网络冲突上报", "MMeNetworkConflictReport");
+        trl::register_en("无线信道冲突上报", "MMeRFChannelConflictReport");
+        trl::register_en("路由确认", "MMeRouteAck");
+        trl::register_en("路由错误", "MMeRouteError");
+        trl::register_en("路由应答", "MMeRouteReply");
+        trl::register_en("路由请求", "MMeRouteRequest");
+        trl::register_en("通信成功率上报", "MMeSuccessRateReport");
+        trl::register_en("过零NTB采集指示", "MMeZeroCrossNTBCollectInd");
+        trl::register_en("过零NTB上报", "MMeZeroCrossNTBReport");
+        trl::register_en(" (RFDL 截断)", " (RFDL truncated)");
+        trl::register_en("发现列表消息", "Discovery List Message");
+        trl::register_en("单跳 MSDU 类型 %1", "Simple MSDU type %1");
+        trl::register_en("MSDU 截断(长度 %1 > 可用 %2)", "MSDU truncated (len %1 > avail %2)");
+        trl::register_en("MMe (截断)", "MMe (truncated)");
+        trl::register_en("应用报文 %1 (0x%2)", "APP %1 (0x%2)");
+        trl::register_en("IP 报文", "IP Packet");
+        trl::register_en("MSDU 类型 %1", "MSDUType %1");
         trl::register_en("终端主动抄表", "Terminal meter reading");
         trl::register_en("路由主动抄表", "Router meter reading");
         trl::register_en("终端主动并发抄表", "Terminal concurrent meter reading");
@@ -2019,6 +2223,7 @@ struct I18nReg {
         trl::register_en("代理变更请求: STA TEI=%1 %2→%3", "Proxy change request: STA TEI=%1 %2→%3");
         trl::register_en("代理变更(批量): %1 个站点代理→%2", "Proxy change (batch): %1 stations proxy→%2");
         trl::register_en("离线指示: %1 个站点离线", "Leave indication: %1 stations left");
+        trl::register_en("%1 - %2 (%3b/邻居)", "%1 - %2 (%3b/neighbor)");
     }
 };
 const I18nReg g_i18n_reg_msdu;

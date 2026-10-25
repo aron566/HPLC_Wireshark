@@ -80,7 +80,7 @@ Updater::Updater()
 {
 #if defined Q_OS_WIN
   m_platform = "windows";
-#elif defined Q_OS_MAC
+#elif defined Q_OS_MACOS
   m_platform = "osx";
 #elif defined Q_OS_LINUX
   m_platform = "linux";
@@ -165,7 +165,25 @@ QString Updater::platformKey() const
  */
 QString Updater::downloadUrl() const
 {
+  // Mirror acceleration (local extension): when a mirror prefix was
+  // selected for this check, GitHub-hosted download URLs are routed
+  // through it; any other URL is returned unchanged.
+  if (!m_downloadPrefix.isEmpty()
+      && (m_downloadUrl.startsWith(QStringLiteral("https://github.com/"))
+          || m_downloadUrl.startsWith(
+              QStringLiteral("https://raw.githubusercontent.com/"))))
+    return m_downloadPrefix + m_downloadUrl;
   return m_downloadUrl;
+}
+
+/**
+ * @brief Sets a mirror prefix (e.g. "https://ghfast.top/") that
+ *        downloadUrl() prepends to GitHub-hosted download URLs.
+ *        An empty prefix disables mirroring (default behavior).
+ */
+void Updater::setDownloadPrefix(const QString& prefix)
+{
+  m_downloadPrefix = prefix;
 }
 
 /**

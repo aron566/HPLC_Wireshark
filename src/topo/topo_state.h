@@ -25,6 +25,22 @@ struct TopoNode {
     NodeStatus status = NodeStatus::OnlineGoing;
     qint64  last_seen_ms = 0;
     bool    is_rf = false;            ///< 接入方式:false=PLC 载波;true=HRF 无线
+    bool    is_rf_known = false;      ///< is_rf 是否已判定(方案②:仅首次/未知时写入,防事件帧外高频重写)
+    int     rssi_dbm = 0;             ///< 无线信号强度(dBm 估计,档位下限;RF 发现列表信道信息)
+    bool    rssi_known = false;       ///< rssi_dbm 是否有效(RF 帧携带过信号强度)
+    qint16  proxy_up_rate = -1;       ///< 代理上行接收率%(表217/表126 站点属性;-1=无)
+    qint16  proxy_down_rate = -1;     ///< 代理下行接收率%(表217/表126)
+    qint16  min_link_rate = -1;       ///< 链路最小接收率%(表217/表126)
+    quint8  rf_hop = 0;               ///< RF 跳数(表217/表126 byte8 高4bit)
+    quint8  rf_role = 0;              ///< 角色(表217/表126 byte7 高4bit;0未知/1站点/2代理站点/4CCO)
+    bool    proxy_rate_known = false; ///< 站点属性速率是否有效
+    quint8  link_type = 0xFF;         ///< 入网链路类型(表79/表160:0=载波链路 1=无线链路 0xFF=未定)
+    bool    link_type_known = false;  ///< 入网链路是否已确定(权威帧赋值后锁定,不被后续帧翻转)
+    bool    rf_capable = false;       ///< 双模标记:该 TEI 作为发送方发过 RF 帧(置位后不清除)
+    qint32  proxy_comm_rate = -1;      ///< 与代理站点通信成功率(表77 byte16-19,32bit;0-100%;-1=无)
+    qint32  proxy_down_comm_rate = -1; ///< 与代理站点下行通信成功率(表77 byte20-23,32bit)
+    qint16  min_comm_rate = -1;        ///< 最小通信成功率(表77 byte36,8bit)
+    bool    comm_rate_known = false;   ///< 来自 0x0055 载波发现列表(独立于 RFDL proxy_* 与 0x005E comm_rates)
 
     /// @brief 是否在线(非离线)
     bool online() const { return status != NodeStatus::Offline; }
@@ -43,10 +59,39 @@ public:
     QHash<quint16, CommRateInfo> comm_rates; ///< TEI → 通讯成功率(成功率上报)
     QHash<quint16, QVector<quint16>> neighbors; ///< TEI → 邻居 TEI 列表(发现列表位图,按帧更新)
     QHash<quint16, QHash<quint16, int>> neighbor_counts; ///< STA TEI → (邻居 TEI → 发现列表接收数,累计)
+    QHash<quint16, QHash<quint16, quint8>> neighbor_rates; ///< 上报方 STA → (邻居 → 接收率%·方向=邻居→上报方,即上行)
+    QHash<quint16, QHash<quint16, qint16>> neighbor_snrs;  ///< 上报方 STA → (邻居 → SNR dB)
     QVector<TopoEvent> events;      ///< 路由变更事件(时间序,供底部表格)
 
     /// @brief 应用一个拓扑事件,增量更新节点/路由/入网状态并记录事件
-    void apply(const TopoEvent& e);
+        /// @brief 逐帧接入方式兜底(方案②):仅对"已存在且接入方式未确定"的节点写入
+    /// @note  不建占位节点(避免数据帧/广播帧在拓扑里凭空生成 TEI 节点);不覆盖已确定值(防双模抖动)
+    /// @return 是否实际发生写入(UI 刷新节流用)
+    bool note_frame_medium(quint16 tei, bool is_rf) {
+        if (!tei || tei == 0xFFFF) return false;
+        auto it = nodes.find(tei);
+        if (it == nodes.end()) return false;   // 节点不存在 → 不建(等事件帧创建)
+        if (it->is_rf_known) return false;     // 已确定 → 不覆盖(双模设备会来回跳)
+        it->is_rf = is_rf;
+        it->is_rf_known = true;
+        return true;
+    }
+    /// @brief 双模标记:该 TEI 作为发送方发过 RF 帧则置 rf_capable(置位后永不清除)
+    /// @note  判据取"发过"而非"收发过"(收到 RF 帧不能证明该节点有 RF 发射能力)
+    /// @return 是否实际发生写入(UI 刷新节流用)
+    bool note_rf_capable(quint16 src_tei, bool is_rf) {
+        if (!src_tei || src_tei == 0xFFFF || !is_rf) return false;
+        auto it = nodes.find(src_tei);
+        if (it == nodes.end() || it->rf_capable) return false;   // 已置位不清除
+        it->rf_capable = true;
+        return true;
+    }
+void apply(const TopoEvent& e);
+
+    /// @brief 应用 RFDL(单跳帧)邻居信道信息:接收率/SNR 按上报方 STA 键控,rssi 更新节点属性
+    /// @note 单跳帧 topo_event.kind=Other(不触发 apply()),其信道信息单独走此路径;
+    ///       上报方 TEI 取自帧 FCH SrcTEI(单跳无中继,源=发送方)
+    void apply_channel_info(quint16 reporter_tei, const TopoEvent& e);
 
     /// @brief 计算各节点层级(从 CCO=0 沿父链向下;不可达=-1)
     QHash<quint16, int> compute_levels() const;

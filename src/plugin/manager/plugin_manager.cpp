@@ -219,9 +219,11 @@ void PluginManager::handle_message(const QString& plugin_id, quint8 type,
         if (ok) {
             rt->ready = true;
             rt->last_pong_ms = QDateTime::currentMSecsSinceEpoch();
-            // 注册到解析器工厂(插件协议 id → 代理)
+            // 注册到协议注册表(协议 id → 代理;显示名取自 plugin.json,供界面协议列表)
             const QString pid = rt->manifest.protocol_id;
-            register_parser(pid, [pid]() { return make_plugin_parser(pid); });
+            register_parser_provider(pid, rt->manifest.display_name,
+                                     rt->manifest.display_name_en,
+                                     [pid]() { return make_plugin_parser(pid); });
             emit plugin_status_changed(plugin_id, QStringLiteral("ready"));
         } else {
             disable_plugin(plugin_id, QStringLiteral("handshake failed"));

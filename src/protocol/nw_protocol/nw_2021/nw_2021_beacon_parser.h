@@ -40,6 +40,9 @@ enum class NW_2021_BeaconItemType : quint8 {
     BAND_CHANGE     = 0x07, ///< 频段变更条目
     BAND_PROBE      = 0x0A, ///< 频段探测条目
     CALENDAR_SYNC   = 0x0B, ///< 万年历同步条目
+    RF_ROUTE_PARAM  = 0x0C, ///< 无线路由参数条目(表142;表152 头列 0x09 为旧编号残留)
+    RF_CHANNEL_CHANGE = 0x0D, ///< 无线信道变更条目(表142;表153 头列 0x0A 为旧编号残留)
+    LITE_STA_SLOT   = 0x0E, ///< 精简信标站点信息及时隙条目(表142/表155)
 };
 
 namespace NW_2021_BeaconParser {

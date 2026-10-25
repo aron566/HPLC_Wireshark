@@ -2,13 +2,15 @@
 /// @brief 主窗口实现
 #include "mainwindow.h"
 
+#include <QDebug>
+
 #include "packetlistmodel.h"
 #include "hexview.h"
 #include "protocoltree.h"
-#include "protocolfactory.h"
 #include "commconfigdialog.h"
 #include "QSimpleUpdater.h"
 #include "appconfig.h"
+#include "updatemirror.h"
 #include "playbackwriter.h"
 #include "i18n.h"
 #include "packetentry_serialize.h"
@@ -179,6 +181,18 @@ void MainWindow::build_ui() {
     btn_autofit->setText(trl::L("自动列宽"));
     btn_autofit->setToolTip(trl::L("按内容自动调整列表各列宽度"));
     connect(btn_autofit, &QToolButton::clicked, this, [this] {
+        // 性能护栏:resizeColumnsToContents() → QTableView::sizeHintForColumn()
+        // 会按 resizeContentsPrecision(默认 1000) 逐行回调 data(),而本模型
+        // 的 data() 会 locate() 解码整条 PacketEntry(盘块 + 字段树,约 30 µs)。
+        // 实测 14 列 × 1000 行 ≈ 460 ms 主线程阻塞,界面明显卡顿。
+        // 列宽只需"当前看到的内容放得下",采样可见行数的 2 倍即可(约 70 行,
+        // 实测 14 列 × 70 行 ≈ 20~90 ms)。上下限兜住:表不可见时 Qt 会把
+        // bottom 退回 rowCount-1(全表扫描),固定上限 200 行保证最坏也快。
+        // precision 只是上限,行数不足时 Qt 遍历到 actualBottom 即停,无越界。
+        const int row_h = qMax(1, m_table_packets->verticalHeader()->defaultSectionSize());
+        const int visible_rows = qMax(1, m_table_packets->viewport()->height() / row_h);
+        m_table_packets->horizontalHeader()
+            ->setResizeContentsPrecision(qBound(20, visible_rows * 2, 200));
         m_table_packets->resizeColumnsToContents();
     });
     m_toolbar->addWidget(btn_autofit);
@@ -236,7 +250,6 @@ void MainWindow::build_ui() {
 
     m_tree_protocol = new ProtocolTree(m_splitter_bottom);
     m_tree_protocol->setMinimumWidth(220);
-    m_tree_protocol->set_variant(protocol_from_key(appcfg::protocol()));
 
     auto* hex_pane   = new QWidget(m_splitter_bottom);
     auto* hex_layout = new QVBoxLayout(hex_pane);
@@ -371,7 +384,8 @@ void MainWindow::build_ui() {
     m_btn_update->setVisible(false);
     menuBar()->setCornerWidget(m_btn_update, Qt::TopRightCorner);
     connect(m_btn_update, &QToolButton::clicked, this, [this]() {
-        const QString u = appcfg::update_url();
+        // 用本次检查实际的清单地址取下载地址(内置下载器/此处打开均已含代理前缀改写)
+        const QString u = m_last_check_url.isEmpty() ? appcfg::update_url() : m_last_check_url;
         const QString dl = QSimpleUpdater::getInstance()->getDownloadUrl(u);
         if (!dl.isEmpty())
             QDesktopServices::openUrl(QUrl(dl));
@@ -807,7 +821,6 @@ void MainWindow::rebuild_dispatcher() {
     if (m_reader) m_reader->stop();
     on_clear();                       // 清空列表/协议树/hex/统计(旧 dispatcher 仍在)
     reset_dispatcher();
-    m_tree_protocol->set_variant(protocol_from_key(appcfg::protocol()));  // 字段树切协议
     m_status_left->setText(trl::L("协议已立即生效(Ctrl+E 开始捕获)"));
 }
 
@@ -898,14 +911,16 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
     e.delta_us = playback::next_delta_us(r.meta, m_last_ntb, m_have_last_ntb);
     e.meta      = r.meta;
     e.mpdu      = r.mpdu;
-    e.protocol  = (r.protocol == ProtocolVariant::NW_2021)
-                      ? kProtocolNw2021 : kProtocolGw2022;   // 协议身份来自解析器,非全局配置
+    // 协议身份来自解析器,非全局配置。
+    // 映射统一走 entry_protocol_id():它保留插件位(0x80),否则插件帧会被当内置帧渲染。
+    e.protocol = entry_protocol_id(r.protocol);
     e.msdu_body = r.msdu_body;
     e.raw_wire  = r.raw_wire;
     e.msdu      = r.msdu;    // MSDU/MAC 层字段树(SOF 重组完成时非空)
     e.beacon    = r.beacon;  // BEACON 载荷区字段树(BEACON 帧时非空)
     e.msdu_raw_base = r.msdu_raw_base;
     e.raw_bytes = r.payload_for_log;
+    e.dissect_fields = r.dissect_fields;  // 插件解析器通用字段树(内置解析恒空)
     // 拓扑:关键管理消息(关联确认/代理变更/发现列表/离网)喂给拓扑状态;
     // 同时记入回放日志:事件直接填充在 entry 内(nid/epoch_ms/is_rf),
     // 供 TOPO 历史回放调试(点击帧 → 按帧序号重放到该帧)
@@ -916,8 +931,16 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
         // 接入方式判定口径:
         // - 国网(GW_2022)关联确认/代理变更确认:解析层已从「链路类型」字段判定
         //   (is_rf + is_rf_known 已填);其余帧保持默认载波(is_rf_known=false)
-        // - 南网(NW_2021):无链路类型字段,统一用物理层介质 meta.is_rf 判定
-        if (e.protocol == kProtocolNw2021) {
+        // - 南网(NW_2021/NW_2026):无链路类型字段,统一用物理层介质 meta.is_rf 判定
+        if (te.link_type >= 0) {
+            // 帧内链路类型(表79/表160)优先:0=高速载波链路 1=无线链路
+            te.is_rf = (te.link_type == 1);
+            te.is_rf_known = true;
+        } else if ((e.protocol & 0x7F) == kProtocolNw2021 || (e.protocol & 0x7F) == kProtocolNw2026) {
+            te.is_rf = e.meta.is_rf;
+            te.is_rf_known = true;
+        } else if (!te.is_rf_known) {
+            // 其余(国网解析层未判定的帧):物理媒介兜底;解析层已判定的保持原值
             te.is_rf = e.meta.is_rf;
             te.is_rf_known = true;
         }
@@ -929,6 +952,57 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
         // 拓扑窗口节流刷新:仅置脏标志,由 TopoWindow 定时器批量刷新(防高频卡顿)
         // (历史回放模式下 mark_dirty 会被 TopoWindow 忽略,保持冻结)
         if (m_topo_window)
+            m_topo_window->mark_dirty();
+    }
+    // RFDL 单跳帧(kind=Other,不走事件门):邻居信道信息(接收率/SNR/RSSI)按发送方 FCH src_tei 键控落地
+    if (e.msdu.simple_head && e.msdu.present
+        && (!e.msdu.topo_event.neighbor_rates.isEmpty()
+            || !e.msdu.topo_event.neighbor_snrs.isEmpty()
+            || !e.msdu.topo_event.rssi_entries.isEmpty()
+            || e.msdu.topo_event.proxy_tei != 0xFFFF)) {
+        // [诊断 A1/A2] RFDL 单跳帧落地入口
+        QLOG_DEBUG() << "[RFDL落地] simple_head=" << e.msdu.simple_head
+                     << "present=" << e.msdu.present
+                     << "neighbor_rates=" << e.msdu.topo_event.neighbor_rates.size()
+                     << "neighbor_snrs=" << e.msdu.topo_event.neighbor_snrs.size()
+                     << "rssi=" << e.msdu.topo_event.rssi_entries.size()
+                     << "proxy_tei=" << e.msdu.topo_event.proxy_tei
+                     << "src_tei=" << e.mpdu.src_tei
+                     << "net_id=" << e.mpdu.net_id
+                     << "has_state=" << m_topo_states.contains(e.mpdu.net_id);
+        auto ts_it = m_topo_states.find(e.mpdu.net_id);
+        if (ts_it != m_topo_states.end()) {
+            ts_it.value().apply_channel_info(e.mpdu.src_tei, e.msdu.topo_event);
+            if (m_topo_window) m_topo_window->mark_dirty();
+        }
+    }
+    // TOPO 接入方式盲区修复(方案②,用户拍板):非事件帧也更新 is_rf,
+    // 但仅节点首次出现或 is_rf 未判定时写入(避免高频重写 last_seen 等字段);
+    // 来源:物理媒介(链路类型字段已在事件帧/解析层优先判定)。
+    // is_rf 权威来源 = 帧内链路类型(A+C 批);无链路类型时用首次出现的物理媒介兜底并定住,
+    // 已确定后不再被后续帧覆盖(防双模设备载波+无线并存时拓扑颜色跳变)
+    {
+        bool topo_touched = false;
+        auto ts_it = m_topo_states.find(e.mpdu.net_id);   // find 不新建空状态
+        if (ts_it != m_topo_states.end()) {
+            TopoState& ts = ts_it.value();
+            // FCH TEI 源优先/目的兜底(覆盖无 MSDU 的帧)
+            const quint16 t = e.mpdu.src_tei ? e.mpdu.src_tei : e.mpdu.dst_tei;
+            if (ts.note_frame_medium(t, e.meta.is_rf)) topo_touched = true;
+            // 双模标记:发送方(src_tei)发过 RF 帧即置位(判据取"发过"而非"收发过")
+            if (ts.note_rf_capable(e.mpdu.src_tei, e.meta.is_rf)) topo_touched = true;
+            // 正在入网节点(pending,按 MAC):同样仅未判定时写入
+            if (e.msdu.msdu_src_mac) {
+                auto pit = ts.pending.find(e.msdu.msdu_src_mac);
+                if (pit != ts.pending.end() && !pit.value().is_rf_known) {
+                    pit.value().is_rf = e.meta.is_rf;
+                    pit.value().is_rf_known = true;
+                    topo_touched = true;
+                }
+            }
+        }
+        // 实际发生接入方式写入才刷新拓扑窗口(节流语义与事件帧一致)
+        if (topo_touched && m_topo_window)
             m_topo_window->mark_dirty();
     }
     e.search_text = make_search_text(e);   // 缓存可搜索全文,过滤匹配复用
@@ -1143,19 +1217,35 @@ void MainWindow::on_ranges_selected(const QList<QPair<int, int>>& ranges,
 }
 
 void MainWindow::check_for_updates(bool silent) {
+    m_check_silent = silent;
+    // 先经加速解析(区域识别 + 镜像探活)选出实际清单地址,再正式检查;
+    // 每次检查重建解析器,避免上一次未完成的探活链与本次重叠。
+    if (m_mirror_resolver) {
+        m_mirror_resolver->disconnect(this);
+        m_mirror_resolver->deleteLater();
+    }
+    m_mirror_resolver = new UpdateMirrorResolver(this);
+    connect(m_mirror_resolver, &UpdateMirrorResolver::resolved,
+            this, &MainWindow::on_mirror_resolved);
+    m_mirror_resolver->resolve(appcfg::update_url());   // 更新地址来自 config.ini
+}
+
+void MainWindow::on_mirror_resolved(const QString& effectiveUrl, const QString& prefix) {
+    m_last_check_url = effectiveUrl;
     auto* su = QSimpleUpdater::getInstance();
-    const QString up_url = appcfg::update_url();   // 更新地址来自 config.ini
-    su->setModuleVersion(up_url, kAppVersion);
-    su->setModuleName(up_url, kModuleName);
-    su->setNotifyOnUpdate(up_url, true);      // 有新版本 → 弹窗 + 显示"立即更新"按钮
-    su->setNotifyOnFinish(up_url, !silent);   // 静默(启动):无新版本不弹窗
-    if (!silent)
+    su->setModuleVersion(effectiveUrl, kAppVersion);
+    su->setModuleName(effectiveUrl, kModuleName);
+    su->setNotifyOnUpdate(effectiveUrl, true);      // 有新版本 → 弹窗 + 显示"立即更新"按钮
+    su->setNotifyOnFinish(effectiveUrl, !m_check_silent);   // 静默(启动):无新版本不弹窗
+    su->setDownloadPrefix(effectiveUrl, prefix);   // 安装包下载地址同步走命中的代理前缀
+    if (!m_check_silent)
         m_status_left->setText(trl::L("正在检查更新…"));
-    su->checkForUpdates(up_url);
+    su->checkForUpdates(effectiveUrl);
 }
 
 void MainWindow::on_check_finished(const QString& url) {
-    if (url != appcfg::update_url()) return;
+    const QString key = m_last_check_url.isEmpty() ? appcfg::update_url() : m_last_check_url;
+    if (url != key) return;
     bool avail = QSimpleUpdater::getInstance()->getUpdateAvailable(url);
     if (m_btn_update)
         m_btn_update->setVisible(avail);   // 有新版本 → 显示"立即更新"按钮
@@ -1263,6 +1353,9 @@ struct I18nRegMainWindow {
         trl::register_en("回放进度: %1%", "Replay progress: %1%");
         trl::register_en("立即更新", "Update Now");
         trl::register_en("发现新版本,点击下载安装", "New version available, click to download");
+        trl::register_en("发现新版本,请点击右上角\"立即更新\"下载",
+                         "New version found, click [Update Now] at top-right to download");
+        trl::register_en("正在导出 %1 帧...", "Exporting %1 frames...");
         trl::register_en("协议已更改", "Protocol changed");
         trl::register_en("协议已更改,重启后生效。若点击「开始」则立即生效。",
                          "Protocol changed. Takes effect after restart, or click [Start] to apply immediately.");

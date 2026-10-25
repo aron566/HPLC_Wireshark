@@ -112,6 +112,8 @@ bool GW_2022_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QSt
     if (body.size() < 16) { err = trl::L("MPDU_BASE 长度不足 16B"); return false; }
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
 
+// crc24_lsb 内部遍历 len-3 字节;此处传 16(FCH 全长)即校验前 13B,
+// 末 3B 为本 CRC 自身(crc.h 约定,勿传 13 否则少算 3B)
     quint32 calc_crc = crc24_lsb(p, 16);
     // FCH CRC24 字段小端存储(字节 6c 13 2a → 0x2a136c)
     quint32 fch_crc  = (quint32)p[13]

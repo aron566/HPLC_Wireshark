@@ -88,7 +88,7 @@ def detect_protocol(frames):
             votes[v] += 1
     return 'nw' if votes['nw'] > votes['gw'] else 'gw', votes
 
-def convert(bin_path, pcap_path=None, proto=None):
+def convert(bin_path, pcap_path=None, proto=None, mode=None):
     data = open(bin_path, 'rb').read()
     if len(data) < 8:
         print("文件过短"); return 1
@@ -122,19 +122,32 @@ def convert(bin_path, pcap_path=None, proto=None):
     if pcap_path is None:
         pcap_path = os.path.splitext(bin_path)[0] + '.pcap'
 
-    # 探测首帧 isRF 决定载波/无线; 协议(GW/NW)决定 USER 组:
-    #   GW_2022: 载波 147 (USER0) / 无线 148 (USER1); NW_2021: 载波 149 (USER2) / 无线 150 (USER3)
-    is_rf = False
-    for f in frames:
-        if len(f) > 9:
-            is_rf = (f[9] != 0)
-            break
+    # 模式:默认混合(逐帧保留媒介头,载波/无线自动切换);--plc/--rf 强制单模式
+    #   混合: NW_2021/NW_2026 → 152 (USER5) / GW_2022/GW_2026 → 151 (USER4)
+    #         记录 = 媒介头 4B(f[6:10]) + 纯 MPDU,与 extcap dlt 完全一致,
+    #         Lua 逐帧读媒介头 isRF → NW-RF/NW-HPLC(或 GW)自动切换
+    #   单模式: NW_2021: 载波 149 (USER2) / 无线 150 (USER3);GW_2022: 载波 147 (USER0) / 无线 148 (USER1)
+    #           记录 = 纯 MPDU(剥离媒介头);mode 由 --plc/--rf 指定,不再探测首帧
     if proto is None:
         proto, votes = detect_protocol(frames)
         print(f"协议识别: {proto.upper()} (国网 {votes['gw']} 票 / 南网 {votes['nw']} 票)")
     elif proto not in ('gw', 'nw'):
         print(f"未知协议参数: {proto} (可选 gw/nw)"); return 1
-    linktype = (149 if proto == 'nw' else 147) if not is_rf else (150 if proto == 'nw' else 148)
+    if mode == 'mixed':
+        linktype = 152 if proto == 'nw' else 151
+    else:
+        # 单模式:探测首帧 isRF(仅用于 linktype 选择);--plc/--rf 可强制覆盖
+        is_rf = False
+        for f in frames:
+            if len(f) > 9:
+                is_rf = (f[9] != 0)
+                break
+        if mode == 'plc':
+            is_rf = False
+        elif mode == 'rf':
+            is_rf = True
+        linktype = (149 if proto == 'nw' else 147) if not is_rf else (150 if proto == 'nw' else 148)
+        print(f"单模式: {'RF' if is_rf else '载波'} → linktype {linktype}")
 
     # pcap 全局头
     gheader = struct.pack('<IHHiIII', 0xa1b2c3d4, 2, 4, 0, 0, 65535, linktype)
@@ -155,7 +168,9 @@ def convert(bin_path, pcap_path=None, proto=None):
             skipped += 1
             continue
         ntb = f[2] | (f[3] << 8) | (f[4] << 16) | (f[5] << 24)
-        mpdu = f[6 + 4:]   # 跳过 data_len + timestamp + 媒介头4B (载荷=纯 MPDU)
+        # 混合模式:媒介头 4B + 纯 MPDU(逐帧保留,Lua 逐帧判 isRF);
+        # 单模式:剥离媒介头,载荷=纯 MPDU
+        mpdu = f[6:] if mode == 'mixed' else f[6 + 4:]
         if not mpdu:
             skipped += 1
             continue
@@ -185,12 +200,15 @@ def convert(bin_path, pcap_path=None, proto=None):
 
 if __name__ == '__main__':
     proto = None
+    mode = 'mixed'   # mixed(默认 USER5/USER4 混合) / plc(强制载波单模式) / rf(强制无线的单模式)
     paths = []
     for a in sys.argv[1:]:
         if a == '--nw': proto = 'nw'
         elif a == '--gw': proto = 'gw'
+        elif a == '--plc': mode = 'plc'
+        elif a == '--rf': mode = 'rf'
         else: paths.append(a)
     src = paths[0] if paths else \
         r"C:\Users\work\Desktop\645工具\BPLC_20260909_235120.bin"
     dst = paths[1] if len(paths) > 1 else None
-    sys.exit(convert(src, dst, proto))
+    sys.exit(convert(src, dst, proto, mode))

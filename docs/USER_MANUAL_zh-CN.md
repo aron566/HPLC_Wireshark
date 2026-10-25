@@ -20,6 +20,15 @@ BPLC STA Monitor 是 BPLC/HRF（HPLC）协议 STA 报文监控上位机。它用
 - 支持导出 CSV 表格（含本地编码，Excel 可直接打开）。
 - 崩溃时自动生成 minidump 转储（`*.dmp`），可配置上报 Sentry。
 
+### 1.1 南网新协议（NW_2026/SPLC）帧解析策略
+
+上位机对南网双模帧（BPLC 2021 / SPLC 2026）按帧类型采用如下解析策略：
+
+1. **SOF 帧**：按 FCH 标准版本号（表16，byte12 高 4bit）区分——`1`=BPLC 走旧协议（NW_2021）解析，`2`=SPLC 走新协议（NW_2026）解析（新旧 PB/TMI 布局差异大，须按版本分派）。
+2. **信标 / ACK / COORD 帧**：不判断版本号，默认按新协议（SPLC）解析——SPLC 相对 BPLC 为"保留位启用"补充（信标 表119→表18、ACK 表7→表30、COORD 表15→表41 均为保留位启用，新旧字段无冲突），新解析器兼容旧帧。
+3. **自动回退**：非 SOF 帧若新协议解析失败（结构不完整/载荷不足等），自动回退到旧协议（BPLC/NW_2021）解析。
+4. **国网差异**：国网侧对非 1.0 版本号的帧按 GW_2026（HDC 2.0）布局尝试解析。
+
 ## 2. 安装与启动
 
 ### 2.1 使用安装包
@@ -342,6 +351,8 @@ TIME: 2026-09-07 18:43:00.123
 [general]
 lang=auto
 update_url=https://raw.githubusercontent.com/aron566/HPLC_Wireshark/main/update.json
+mirror_mode=auto
+mirror_list=
 filter=
 theme=auto
 protocol=gw_2022
@@ -366,6 +377,8 @@ db_path=
 | `theme` | `auto`、`dark`、`light` |
 | `filter` | 帧列表显示过滤器 |
 | `update_url` | `update.json` 更新清单地址 |
+| `mirror_mode` | 更新下载加速：`auto`（默认，按出口 IP 区域自动选路）、`native`（始终直连 GitHub）、`proxy`（始终走代理） |
+| `mirror_list` | 代理前缀列表（逗号分隔，按序探活、首个可用生效）；留空使用内置：`https://ghfast.top/`、`https://gh-proxy.com/`、`https://ghproxy.net/` |
 | `mode` | `0` 串口、`1` `.bin` 回放、`2` 裸 hex |
 | `com` | 串口名称 |
 | `baud` | 波特率 |
@@ -413,6 +426,14 @@ db_path=
 ```
 
 更新说明字符串支持 `<br/>`。
+
+### 9.1 更新下载加速（中国网络自动走代理）
+
+每次检查更新前，程序先识别当前网络出口 IP 所在区域（`general/mirror_mode=auto`，默认）：
+
+- 出口在中国时，按 `general/mirror_list` 的顺序逐个代理探活——用更新清单地址实际请求，必须返回合法清单才算可用；第一个可用的代理同时用于清单获取和安装包下载，非中国出口则直连 GitHub。
+- 区域识别失败、代理全部不可用或代理中途失效时，自动回退直连 GitHub，不会让检查更新比不加速时更差；整个选路过程可在日志中以 `[update-mirror]` 前缀查看。
+- `mirror_mode=native` 可强制始终直连；`mirror_mode=proxy` 可强制始终走代理（例如排查代理可用性时）。某个内置代理失效时，可直接编辑 `mirror_list` 换成其他可用前缀（每项以 `/` 结尾、逗号分隔），无需更新程序。
 
 ## 10. 输入文件格式
 

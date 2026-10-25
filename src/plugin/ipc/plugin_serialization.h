@@ -36,6 +36,10 @@ QDataStream& operator>>(QDataStream& in, MpduInfo& m);
 QDataStream& operator<<(QDataStream& out, const MsduFieldNode& n);
 QDataStream& operator>>(QDataStream& in, MsduFieldNode& n);
 
+// ---- DissectField (递归;插件通用字段树) ----
+QDataStream& operator<<(QDataStream& out, const DissectField& f);
+QDataStream& operator>>(QDataStream& in, DissectField& f);
+
 // ---- TeiMacPair ----
 QDataStream& operator<<(QDataStream& out, const TeiMacPair& p);
 QDataStream& operator>>(QDataStream& in, TeiMacPair& p);

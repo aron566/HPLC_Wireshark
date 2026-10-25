@@ -19,17 +19,30 @@ coloring never clash; captures are told apart by pcap linktype (see
 
 ## Files
 
-| File | Description |
-|---|---|
-| `packet-gw_2022.lua` | **SGCC GW_2022 Lua dissector (drop-in)** |
-| `packet-nw_2021.lua` | **CSG NW_2021 Lua dissector** |
-| `packet-gw_2022.c` | SGCC C plugin source (outdated, do not use) |
-| `bin2pcap.py` | BIN replay file → pcap (auto protocol detect, `--gw`/`--nw` to force) |
-| `serial2pcap.py` | **Live serial capture → pcap** (`--gw`/`--nw` to force protocol) |
-| `BPLC_Serial_Capture.bat` + `bplc_serial_extcap.py` | **Native serial capture inside Wireshark (extcap)** |
-| `gen_test_pcap.py` / `gen_assoc_req_test.py` | SGCC test frame generators |
-| `gen_nw_test_pcap.py` | CSG test frame generator (full FCCS/PB CRC24/BPCS/ICV values) |
-| `DESIGN.md` | Implementation notes |
+The installer's `wireshark_support_plugins/` directory ships **only the 10 files marked ✅**
+below (plus one PDF of this manual in each language — 12 files in total).
+Files marked ❌ exist **in the source repository only** and are not distributed: they are
+development regression samples and intermediate artifacts that ordinary users never need,
+and shipping them only clutters the installed directory.
+
+| File | Description | Shipped |
+|---|---|---|
+| `packet-gw_2022.lua` | **SGCC GW_2022 Lua dissector (HDC 1.0; entry with version dispatch)** | ✅ |
+| `packet-gw_2026.lua` | **SGCC GW_2026 / HDC 2.0 Lua dissector (entered via gw_2022 version delegation)** | ✅ |
+| `packet-nw_2021.lua` | **CSG NW_2021 Lua dissector (BPLC; entry with version dispatch)** | ✅ |
+| `packet-nw_2026.lua` | **CSG NW_2026 / SPLC 2026 Lua dissector (entered via nw_2021 version delegation; also entered by carrier SOF frames with version≠2 but PB-header aggregation flag=1 — aggregated BPLC frames, Table 20 layout + cascade MAC frame splitting)** | ✅ |
+| `bin2pcap.py` | BIN replay file → pcap (auto protocol detect, `--gw`/`--nw` to force) | ✅ |
+| `serial2pcap.py` | **Live serial capture → pcap** (`--gw`/`--nw` to force protocol) | ✅ |
+| `BPLC_Serial_Capture.bat` + `bplc_serial_extcap.py` | **Native serial capture inside Wireshark (extcap)** | ✅ |
+| `README.md` / `README_EN.md` | This manual (zh/en); also attached as PDF in the installer | ✅ |
+| `test_2026/` | New-protocol test frame generators and pcaps (GW: gen_gw2026_test_pcap.py; NW: gen_2026_test_pcap.py) | ❌ repo only |
+| `gen_test_pcap.py` / `gen_assoc_req_test.py` | SGCC test frame generators | ❌ repo only |
+| `gen_nw_test_pcap.py` | CSG test frame generator (full FCCS/PB CRC24/BPCS/ICV values) | ❌ repo only |
+| `DESIGN.md` | Implementation notes | ❌ repo only |
+
+> When you need those regression samples, take them from the source repository (the equivalents
+> under `samples/` and `wireshark_support_plugins/`), or regenerate them on the fly with the
+> shipped `gen_*.py` / `bin2pcap.py`.
 
 ## Quick start
 
@@ -57,8 +70,9 @@ Copy `BPLC_Serial_Capture.bat` and `bplc_serial_extcap.py` to `%APPDATA%\Wiresha
 (requires python + pyserial on PATH), restart Wireshark — two interfaces appear in the
 capture list:
 
-- **NW_2021_Capture** → dissected by `packet-nw_2021.lua` (USER5)
-- **GW_2022_Capture** → dissected by `packet-gw_2022.lua` (USER4)
+- **NW_2021/NW_2026_Capture** (BPLC+SPLC) → dissected by `packet-nw_2021.lua` (USER5;
+  aggregated BPLC frames are dispatched to `packet-nw_2026.lua` by version)
+- **GW_2022/GW_2026_Capture** (HDC1.0+2.0) → dissected by `packet-gw_2022.lua` (USER4)
 
 Configure **COM port** (auto-enumerated, incl. com0com virtual pairs) and **baud rate**
 (default 460800), then Start. Each record carries a 4-byte media header
@@ -80,12 +94,27 @@ the MAC frame):
 - Field values and ICV/PB CRC checks are computed byte-exactly over the reassembled
   block-body stream
 
-### Dissection
+### Dissection（IMPORTANT: load BOTH scripts per protocol）
 
-Wireshark GUI: copy `packet-gw_2022.lua` and/or `packet-nw_2021.lua` to
-`%APPDATA%\Wireshark\plugins\`, then restart to auto-load.
-Command line: `tshark -r capture.pcap -X lua_script:packet-gw_2022.lua -V`
-(for CSG captures use `-X lua_script:packet-nw_2021.lua`)
+Wireshark GUI: copy all 4 Lua files (`packet-gw_2022.lua` / `packet-gw_2026.lua` /
+`packet-nw_2021.lua` / `packet-nw_2026.lua`) to `%APPDATA%\Wireshark\plugins\`,
+then restart to auto-load.
+Command line (**both old+new scripts of a protocol must be loaded together** —
+2.0/SPLC frames are delegated by the entry dissector via the FCH version field;
+loading only the old script shows a fallback warning and best-effort 1.0 parsing
+on 2.0 frames):
+
+```
+tshark -r capture.pcap -X lua_script:packet-gw_2022.lua -X lua_script:packet-gw_2026.lua -V
+tshark -r capture.pcap -X lua_script:packet-nw_2021.lua -X lua_script:packet-nw_2026.lua -V
+```
+
+Version dispatch (FCH standard version, byte12 high nibble): SGCC 0=HDC 1.0 inline /
+1 and reserved → delegate `gw_2026`; CSG SOF dispatched by standard version (1=BPLC
+inline / 2=SPLC → delegate `nw_2026`); **aggregation exception: carrier SOF frames with
+version≠2 but PB-header aggregation flag=1 (Table 47 byte2 bit0) are also delegated to
+`nw_2026`** (nw_2021 has no cascade splitting; parsed as Table 20 layout + cascade MAC
+frame splitting, verified with 5 cascaded APP messages). See "Version-adaptive delegation" below (Chinese section).
 
 ## English display
 
@@ -100,6 +129,33 @@ How it works: Wireshark 4.x stores the UI language in `%APPDATA%\Wireshark\langu
 
 > Env vars override (take priority over the UI language): SGCC `HPLC_RF_LANG=en` / `=zh`,
 > CSG `NW_2021_LANG=en` / `=zh`.
+
+## Updating the installed plugins (avoiding dissector divergence)
+
+Once installed, the plugins are **copied** into `%APPDATA%\Wireshark\plugins\`, so a change on
+the repository side does not propagate automatically. The symptom is "the protocol bug was
+clearly fixed in the code, but Wireshark still shows the old behaviour" — the root cause is a
+**silent divergence between the deployed copy and the repository source**.
+
+Sync from the repository (recommended, one command):
+
+```bash
+bash scripts/sync_wireshark_plugins.sh --install
+```
+
+The script compares file contents and only copies what actually differs; **restart Wireshark**
+afterwards so the new plugins get loaded.
+
+Check for divergence without modifying anything (returns non-zero if any file differs):
+
+```bash
+bash scripts/sync_wireshark_plugins.sh --check
+```
+
+> The installer package does not have this problem: `scripts/package_ci.sh` re-copies from this
+> `wireshark_support_plugins/` directory into `release/` on every build, and then verifies the
+> result byte-for-byte (a mismatch fails CI). Only the copy you placed into `%APPDATA%`
+> by hand needs manual syncing.
 
 ## Capture file format requirements
 
@@ -146,11 +202,41 @@ pure-MPDU files (linktype 147-150) keep working unchanged.
 | Beacon payload (6B fixed head + 6 mgmt item types + BPCS + reserved byte) | ✅ complete |
 | SOF physical blocks (4B PB header + body + reserved + CRC24, multi-block MAC reassembly) | ✅ complete |
 | MAC header (long 32B / short 12B / single-hop 4B) + MSDU header (MAC48b + VLAN + type) | ✅ complete |
-| MMe management message body (17 MMType) | ✅ complete (0x0083/0x0084/0x00A0 deferred, same as Qt monitor) |
+| MMe management message body (17 MMType) | ✅ complete (0x0083/0x0084 deferred, same as Qt monitor; 0x00A0-0x00A2 IoT access implemented) |
 | APP application packet (channel control info + business header + BID description) | ✅ complete |
 | Source/Destination columns (with TEI↔MAC learning) | ✅ complete |
 | Bilingual (Chinese/English) display | ✅ complete |
 | FCCS / PB CRC24 / BPCS / MSDU ICV check | ✅ complete (raw value + calculated + pass flag) |
+
+### SGCC GW_2026 / HDC 2.0 (packet-gw_2026.lua, entered via gw_2022 version delegation)
+
+| Layer | Status |
+|---|---|
+| MPDU frame control 16B (Table 4: NID 16bit + standard version) | ✅ complete |
+| SOF variant field (Table 7: frame-type dispatch data/channel-probe/OFDMA/TDA) + PB size (Table 8) | ✅ complete |
+| SACK (Table 14, 68-bit bitstream) | ✅ complete |
+| Beacon (Table 5 + new entries 0x06/0x07/0x08/0xC1/0xC2) | ✅ complete |
+| Standard/single-hop MAC header (Table 2 new fields / Table 3 aggregate flag) | ✅ complete |
+| Single-hop message types 0/1/2/128/129 (Table 3) | ✅ complete |
+| RF discovery list (Tables 91-103: attr/route/neighbor non-bitmap+bitmap/BRUSNR32) | ✅ complete |
+| Carrier discovery list (Tables 62/63-68/76/77, combos 10/11 with BRU) | ✅ complete |
+| Channel evaluation update (Tables 106-108: BRU SNR/SAT config/select/bitload) | ✅ complete |
+| MMe body (Table 43: 0x0011-0x0014 Bitloading/grouping) | ✅ complete |
+| SNR/RSSI quantization (wireless Tables 97-101, carrier Tables 70-74) | ✅ complete |
+| Bilingual + FCCS/PB/MSDU CRC/ICV verification | ✅ complete |
+
+### CSG NW_2026 / SPLC 2026 (packet-nw_2026.lua, entered via nw_2021 version delegation)
+
+| Layer | Status |
+|---|---|
+| MPDU frame control 16B (Table 16: ConInd/SNID 4b+per-frame-type high bit merged to 5bit/version) | ✅ complete |
+| SPLC SOF (Tables 23-26: single-site/multi-site DL-OFDMA eFC 16B→PB base 32/training) | ✅ complete |
+| RF SOF (Table 131: frame length/payload PB size/MCS/retransmit) | ✅ complete |
+| PB lookup tables (BPLC TMI / SPLC TMI index / RF PBLen; PB block 4B header+body+reserved+CRC24) | ✅ complete |
+| Beacon (Table 51 additions: PLC capability/network version) | ✅ complete |
+| MAC header (long 32B/short 12B/single-hop 4B, Table 6 dispatch) + RF discovery list (Tables 214-227) | ✅ complete |
+| MMe incl. IoT access 0x00A0-0x00A2 (Tables 39/40/42/243/244/246) | ✅ complete |
+| Source/Destination columns (with TEI↔MAC learning) + bilingual + all CRC verification | ✅ complete |
 
 ## Key implementation notes (byte order)
 
@@ -190,6 +276,13 @@ holding the port; a parent-process watchdog now releases it within 0.5 s.
 
 **7. Multi-block frames: ICV failed / stray bytes inside the APP payload** — fixed by the
 block-body logical view (see Multi-block frames above).
+
+**8. Changes via `-X lua_script:` seem to have no effect**
+The installed copy under `%APPDATA%\Wireshark\plugins\` and the dev file passed to
+`-X lua_script:` register the **same Proto name and conflict** (`-X` load aborts; the
+installed copy wins — easily misread as "my change did nothing"). Before debugging with
+`-X`, `cp` the latest script into the plugins folder, or use `--persconf` with a separate
+config directory.
 
 ## Compatibility
 

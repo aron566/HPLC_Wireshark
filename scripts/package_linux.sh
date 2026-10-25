@@ -43,17 +43,8 @@ chmod +x AppDir/usr/bin/bplc-plugin-host
 # crashpad_handler 必须与主程序同目录(后端按 exe 目录查找)
 cp 3rdparty/install/crashpad/bin/crashpad_handler AppDir/usr/bin/
 chmod +x AppDir/usr/bin/crashpad_handler
-# 默认配置文件模板(用户首次运行可复制为 config.ini)
-if [ -f config.ini ]; then
-    cp config.ini AppDir/usr/bin/config.ini.example
-else
-    # 仓库无 config.ini 时生成最小模板,避免静默缺失
-    cat > AppDir/usr/bin/config.ini.example <<'EOF'
-# BPLC STA Monitor 配置模板:复制为 config.ini 后按需修改
-# [crash]
-# dsn = https://xxx@sentry.io/xxx   ; sentry 上报 DSN(可选,不填则仅本地落盘)
-EOF
-fi
+# 配置文件【不入包】: 用户的 config.ini 绝不拷进发行包, 示范模板也不带。
+# 程序首次启动时会在 exe 同目录自动生成带注释的完整配置模板(src/app/appconfig.h)。
 # 附 Wireshark 解析插件:全量复制,仅剔除强平台相关的文件
 # (Windows 批处理 .bat、dissector C 源码 .c 不进 Linux 包,其余 .lua/.py/
 # 测试 pcap/文档等平台中立文件全部保留)
@@ -109,7 +100,7 @@ cd usr/bin
 - \`usr/bin/run.sh\` — 启动器(设置库路径与 Qt 插件路径)
 - \`usr/bin/bplc-plugin-host\` — 插件宿主进程(须与主程序同目录,勿删除)
 - \`usr/bin/crashpad_handler\` — 崩溃转储辅助进程(须与主程序同目录,勿删除)
-- \`usr/bin/config.ini.example\` — 配置模板,复制为 \`config.ini\` 后按需修改
+- 配置文件由程序首次启动时在程序同目录自动生成(带注释的完整模板); 包内不含任何配置文件
 - \`usr/lib/\` — Qt6 及第三方运行时库
 - \`usr/share/bplc_sta_monitor/wireshark_support_plugins/\` — Wireshark 解析插件
   (\`packet-*.lua\` 放 Wireshark 插件目录,\`bplc_serial_extcap.py\` 为 extcap 抓包接口)

@@ -3,9 +3,23 @@
 #include "framedispatcher.h"
 #include "protocolfactory.h"
 #include "appconfig.h"
+#include "parse_anomaly.h"
 #include "QsLog.h"
 
 #include <QElapsedTimer>
+
+namespace {
+/// @brief 协议变体 → 短名(异常日志 key 前缀,与各 parser 硬编码一致)
+QString proto_name(ProtocolVariant v) {
+    switch (v) {
+        case ProtocolVariant::GW_2022: return QStringLiteral("gw_2022");
+        case ProtocolVariant::NW_2021: return QStringLiteral("nw_2021");
+        case ProtocolVariant::GW_2026: return QStringLiteral("gw_2026");
+        case ProtocolVariant::NW_2026: return QStringLiteral("nw_2026");
+    }
+    return QStringLiteral("unknown");
+}
+} // namespace
 
 DispatcherWorker::DispatcherWorker(std::unique_ptr<IProtocolParser> parser,
                                    QObject* parent)
@@ -15,10 +29,20 @@ void DispatcherWorker::on_filter_changed(ParseFilter f) {
     m_filter = f;
 }
 
+void DispatcherWorker::on_replay_finished() {
+    // 经队列投递到 worker 线程,晚于全部 frame_ready → 此刻积压帧已解析完,汇总计数完整
+    pa::summarize();
+}
+
 void DispatcherWorker::on_frame(const BplcFrame& frame) {
     if (m_stopped.load()) return;   // 已停止:立即返回,快速清空积压帧
     QElapsedTimer t; t.start();
     auto r = m_parser->parse(frame, m_msdu, m_filter);
+    // 帧级拒绝留痕(限流):协议 + 帧序号 + 原因,便于现场排查帧被丢弃的根因
+    if (!r.accept && !r.reject_reason.isEmpty())
+        pa::warn(proto_name(r.protocol) + QStringLiteral(":frame_rejected"),
+                 QStringLiteral("idx=%1 reason=%2")
+                     .arg(m_frame_count.load() + 1).arg(r.reject_reason));
     r.meta.seg_start = frame.meta.seg_start;
     r.meta.replay_time_tag = frame.meta.replay_time_tag;
     emit parsed(r);
@@ -44,8 +68,8 @@ FrameDispatcher::FrameDispatcher(QObject* parent)
     // 按 config.ini 协议选择实例化解析器(内置国网/南网,或插件协议)
     // 协议键统一转大写为注册表 id: "gw_2022"→"GW_2022",插件协议直接存大写 id
     auto parser = make_parser_by_id(appcfg::protocol().toUpper());
-    if (!parser)  // 未知协议回退国网
-        parser = make_parser_by_id(QStringLiteral("GW_2022"));
+    if (!parser)  // 未知协议回退国网 2026
+        parser = make_parser_by_id(QStringLiteral("GW_2026"));
     m_thread = new QThread(this);
     m_worker = new DispatcherWorker(std::move(parser));
     m_worker->moveToThread(m_thread);
@@ -78,6 +102,11 @@ void FrameDispatcher::set_filter(const ParseFilter& f) {
 void FrameDispatcher::connect_source(QObject* source) {
     connect(source, SIGNAL(frame_ready(BplcFrame)),
             m_worker, SLOT(on_frame(BplcFrame)),
+            Qt::QueuedConnection);
+    // 回放/采集结束信号同样排队投递:worker 按 FIFO 先解析完积压帧再汇总,
+    // 避免回放线程早于解析线程汇总导致计数不全
+    connect(source, SIGNAL(finished()),
+            m_worker, SLOT(on_replay_finished()),
             Qt::QueuedConnection);
 }
 

@@ -101,6 +101,8 @@ bool NW_2021_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QSt
     if (body.size() < 16) { err = trl::L("MPDU_BASE 长度不足 16B"); return false; }
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
 
+// crc24_lsb 内部遍历 len-3 字节;此处传 16(FCH 全长)即校验前 13B,
+// 末 3B 为本 CRC 自身(crc.h 约定,勿传 13 否则少算 3B)
     quint32 calc_crc = crc24_lsb(p, 16);
     quint32 fch_crc  = (quint32)p[13] | ((quint32)p[14] << 8) | ((quint32)p[15] << 16);
     info.fch_crc_ok = (calc_crc == fch_crc);
@@ -134,6 +136,31 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
         r.reject_reason = err;
         r.accept = false;
         return r;
+    }
+
+    // SNID 共 5bit(试行规约 §5.1.2.2.1/表16):低位在 FCH(0,4,4),高位按帧型坐标合并:
+    //   SOF 载波 BPLC(表20)=(5,0,1) / 信标 载波(12,1,1) 无线(12,0,1) /
+    //   ACK(表19/21)=(4,0,1) / COORD(表41)=(12,0,1);无线 SOF(表131)byte12 为保留,无高位。
+    // 过滤与列显示统一用合并后的 5bit SNID(有效取值 1-31)。
+    {
+        const quint8* fch = reinterpret_cast<const quint8*>(r.payload_for_log.constData());
+        quint8 snid_high = 0;
+        switch (r.mpdu.frame_type) {
+            case 0:  // 信标帧:载波(12,1,1) 无线(12,0,1)
+                snid_high = (r.meta.is_rf ? ((fch[12] >> 0) & 0x01) : ((fch[12] >> 1) & 0x01));
+                break;
+            case 1:  // SOF:BPLC 载波(5,0,1);无线 SOF 无 SNID 高位
+                if (!r.meta.is_rf) snid_high = (fch[5] & 0x01);
+                break;
+            case 2:  // ACK(4,0,1)
+                snid_high = (fch[4] & 0x01);
+                break;
+            case 3:  // COORD(12,0,1)
+                snid_high = (fch[12] & 0x01);
+                break;
+            default: break;
+        }
+        r.mpdu.net_id |= (quint32(snid_high) << 4);
     }
 
     if (f.nid_filter && !f.nid_list.contains(r.mpdu.net_id)) {
@@ -197,6 +224,8 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
                 // PB CRC24:覆盖 PB 头 + 块体 + 保留字节(块内前 pb_size-3 字节,表7)
                 const quint8* blk = reinterpret_cast<const quint8*>(
                     r.payload_for_log.constData()) + block_start;
+// crc24_lsb 内部遍历 len-3 字节;此处传 pb_size(全长)即校验块头+块体+尾保留,
+// 末 3B 为本 CRC 自身(crc.h 约定,勿传 pb_size-3 否则少算 3B)
                 const quint32 calc = crc24_lsb(blk, r.mpdu.pb_size);
                 const quint32 rx = (quint32)blk[r.mpdu.pb_size - 3]
                                  | ((quint32)blk[r.mpdu.pb_size - 2] << 8)
@@ -209,6 +238,9 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.pb_crc_ok = all_pb_ok;
             if (!msdu_body.isEmpty()) {
                 r.msdu_body = msdu_body;
+                // 表6:单跳帧协议(版本=2)仅无线信道支持;载波信道收到属异常(排查信道/串口错配)
+                if (!r.meta.is_rf && (((quint8)msdu_body[0] >> 1) & 0x03) == 2)
+                    qWarning("NW_2021: single-hop MAC version=2 on PLC channel (isRF=0)");
                 r.msdu = NW_2021_MsduParser::parse(msdu_body);
                 r.msdu_raw_base = (r.mpdu.pb_num == 1) ? (16 + 4) : -1;
             }

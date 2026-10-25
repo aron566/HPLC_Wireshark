@@ -75,7 +75,8 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
     tree_add_bit_field(mpdu_base, "SNID", QStringLiteral("0x%1")
         .arg(e.mpdu.net_id, 1, 16, QChar('0')), 0, 4, 4);
     {
-        // 标准版本号(表13):0=保留 1=本标准版本号
+        // 标准版本号(表13):0=保留 1=本标准版本号(2=SPLC 帧由 NW_2026 会话解析;
+        // NW_2021 会话下 version=2 帧按默认解析展示,"2 - 保留"为预期行为,用户决策)
         QString ver = (e.mpdu.version == 1)
             ? QStringLiteral("1 - %1").arg(trl::L("本标准版本号"))
             : QStringLiteral("%1 - %2").arg(e.mpdu.version).arg(trl::L("保留"));
@@ -98,17 +99,20 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             const quint8 rsv_hi = (e.raw_bytes.size() > 11)
                 ? (quint8)(((quint8)e.raw_bytes[11] >> 4) & 0x0F) : 0;
             tree_add_bit_field(bcn, "RSV", QStringLiteral("0x%1").arg(rsv_hi, 1, 16, QChar('0')), 11, 4, 4);
+            // 无线信标 FCH:短网络标识高位(12,0,1)+保留(12,1,3)
+            const quint8 snid_hi = (e.raw_bytes.size() > 12) ? ((quint8)e.raw_bytes[12] & 0x01) : 0;
+            tree_add_bit_field(bcn, "SNID High", QString::number(snid_hi), 12, 0, 1);
             const quint8 rsv_lo = (e.raw_bytes.size() > 12)
-                ? (quint8)((quint8)e.raw_bytes[12] & 0x0F) : 0;
-            tree_add_bit_field(bcn, "RSV", QStringLiteral("0x%1").arg(rsv_lo, 1, 16, QChar('0')), 12, 0, 4);
+                ? (quint8)(((quint8)e.raw_bytes[12] >> 1) & 0x07) : 0;
+            tree_add_bit_field(bcn, "RSV", QStringLiteral("0x%1").arg(rsv_lo, 1, 16, QChar('0')), 12, 1, 3);
         } else {
-            // 载波:TMI(10,4,4) SymbolNum(11,0,9) 保留(12,1,1) 相线(12,2,2)
+            // 载波:TMI(10,4,4) SymbolNum(11,0,9) 短网络标识高位(12,1,1) 相线(12,2,2)
             tree_add_bit_field(bcn, "TMI", QString::number(e.mpdu.tmi), 10, 4, 4);
             tree_add_bit_field(bcn, "Symbol Num", QString::number(e.mpdu.symbol_num), 11, 0, 9);
             {
                 const quint8 b12 = (e.raw_bytes.size() > 12) ? (quint8)e.raw_bytes[12] : 0;
-                const quint8 rsv = (b12 >> 1) & 0x01;
-                tree_add_bit_field(bcn, "RSV", QString::number(rsv), 12, 1, 1);
+                const quint8 snid_hi = (b12 >> 1) & 0x01;
+                tree_add_bit_field(bcn, "SNID High", QString::number(snid_hi), 12, 1, 1);
             }
             // 相线(表15):0=未知 1=A 2=B 3=C
             QString line;
@@ -182,11 +186,15 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv32, 8, 16, QChar('0')), 8, 0, 32);
             tree_add_bit_field(sof, "RSV", QString::number(e.mpdu.tmi_ext), 12, 0, 4);
         } else {
-            // 载波 SOF(表16):保留16b(5,0,16) + PBNum(7,0,4)/TMI(7,4,4)/FrameLen(8,0,12)
+            // 载波 SOF(表20):短网络标识高位(5,0,1)+保留15b(5,1,15) + PBNum(7,0,4)/TMI(7,4,4)/FrameLen(8,0,12)
             //   + 保留9b(9,4,9) + TEI过滤(10,5,1)/重传(10,6,1)/符号数(10,7,9) + TMI_EXT(12,0,4)
-            // 保留 16b(字节5-6)
-            const quint16 rsv0 = (raw_sz > 6) ? (quint16)(d[5] | (d[6] << 8)) : 0;
-            tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv0, 4, 16, QChar('0')), 5, 0, 16);
+            // 短网络标识高位(表20:SNID 5bit 的高1bit,与 FCH 低位共同构成 SNID)
+            const quint8 snid_hi = (raw_sz > 5) ? (d[5] & 0x01) : 0;
+            tree_add_bit_field(sof, "SNID High", QString::number(snid_hi), 5, 0, 1);
+            // 保留 15b(字节5 bit1-7 + 字节6)
+            const quint16 rsv0 = (raw_sz > 6)
+                ? (quint16)(((quint8)d[5] >> 1) | ((quint16)(quint8)d[6] << 7)) : 0;
+            tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv0, 4, 16, QChar('0')), 5, 1, 15);
             tree_add_bit_field(sof, "PB Num", QString::number(e.mpdu.pb_num), 7, 0, 4);
             tree_add_bit_field(sof, "TMI", QString::number(e.mpdu.tmi), 7, 4, 4);
             tree_add_bit_field(sof, "Frame Length",

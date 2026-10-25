@@ -15,17 +15,51 @@
 
 ## 文件
 
-| 文件 | 说明 |
-|---|---|
-| `packet-gw_2022.lua` | **国网 GW_2022 Lua dissector（即装即用）** |
-| `packet-nw_2021.lua` | **南网 NW_2021 Lua dissector** |
-| `packet-gw_2022.c` | 国网 C 插件源（已落后于 Lua 版，勿用） |
-| `bin2pcap.py` | BIN 回放文件 → pcap（协议自动识别，`--gw`/`--nw` 可强制） |
-| `serial2pcap.py` | **实时串口抓包 → pcap**（`--gw`/`--nw` 可强制协议） |
-| `BPLC_Serial_Capture.bat` + `bplc_serial_extcap.py` | **Wireshark 原生串口采集（extcap）** |
-| `gen_test_pcap.py` / `gen_assoc_req_test.py` | 国网测试帧生成 |
-| `gen_nw_test_pcap.py` | 南网测试帧生成（含完整 FCCS/PB CRC24/BPCS/ICV 校验值） |
-| `DESIGN.md` | 实现思路说明 |
+安装包内 `wireshark_support_plugins/` 目录**只分发下表标 ✅ 的 10 个文件**（另加本说明的中英文 PDF 各 1 份，共 12 个）。
+标 ❌ 的文件**仅存在于源码仓库**，不随安装包分发 —— 它们是开发期的回归样本与中间产物，
+普通用户用不上，放进安装包只会让目录变脏。
+
+| 文件 | 说明 | 随包 |
+|---|---|---|
+| `packet-gw_2022.lua` | **国网 GW_2022 Lua dissector（即装即用，HDC 1.0；入口含版本分派）** | ✅ |
+| `packet-gw_2026.lua` | **国网 GW_2026 / HDC 2.0 Lua dissector（由 gw_2022 按版本号委托进入）** | ✅ |
+| `packet-nw_2021.lua` | **南网 NW_2021 Lua dissector（BPLC；入口含版本分派）** | ✅ |
+| `packet-nw_2026.lua` | **南网 NW_2026 / SPLC 2026 Lua dissector（由 nw_2021 按版本号委托进入；另：version≠2 但 PB 头聚合标志=1 的载波 SOF 聚合 BPLC 帧也委托进入，表20 布局 + 级联 MAC 帧拆分）** | ✅ |
+| `bin2pcap.py` | BIN 回放文件 → pcap（协议自动识别，`--gw`/`--nw` 可强制） | ✅ |
+| `serial2pcap.py` | **实时串口抓包 → pcap**（`--gw`/`--nw` 可强制协议） | ✅ |
+| `BPLC_Serial_Capture.bat` + `bplc_serial_extcap.py` | **Wireshark 原生串口采集（extcap）** | ✅ |
+| `README.md` / `README_EN.md` | 本说明（中/英），安装包内另附 PDF 版 | ✅ |
+| `test_2026/` | 新协议测试帧生成器与 pcap（GW: gen_gw2026_test_pcap.py；NW: gen_2026_test_pcap.py） | ❌ 仅仓库 |
+| `gen_test_pcap.py` / `gen_assoc_req_test.py` | 国网测试帧生成 | ❌ 仅仓库 |
+| `gen_nw_test_pcap.py` | 南网测试帧生成（含完整 FCCS/PB CRC24/BPCS/ICV 校验值） | ❌ 仅仓库 |
+| `test_nw_bplc_agg.pcap` | 聚合 BPLC 帧回归（帧1=聚合 v1 → nw_2026 5 条级联 / 帧2=非聚合 → nw_2021） | ❌ 仅仓库 |
+| `DESIGN.md` | 实现思路说明 | ❌ 仅仓库 |
+
+> 需要这些回归样本时，从源码仓库取用（`samples/` 与 `wireshark_support_plugins/` 下的同款文件），
+> 或用随包的 `gen_*.py` / `bin2pcap.py` 现场生成。
+
+## 新旧协议版本自适应委托
+
+四个 Lua 文件构成两套"入口 + 委托"链（与上位机 C++ 解析器同架构）：
+
+```
+USER0/1/4 ──► packet-gw_2022.lua ──(FCH 标准版本号 byte12 高nibble)──┬─ 0(1.0) → 内联旧布局解析
+                                                                    └─ 1/保留(2.0) → 整帧委托 gw_2026
+USER2/3/5 ──► packet-nw_2021.lua ──(FCH 标准版本号 byte12 高nibble)──┬─ 0/1(BPLC) → 聚合例外:载波且
+                    （聚合标志=表47 PB头 byte2 bit0）                │   PB头聚合标志=1 → 委托 nw_2026(表20+级联拆分)
+                                                                    └─ 其余(非聚合) → 内联旧布局解析
+                                                                    └─ 2(SPLC) → 整帧委托 nw_2026
+```
+
+- 委托在**媒介剥离前**发生（原始 tvb 连同 USER4/USER5 的 4B 媒介头一并传入），媒介剥离与
+  载波/无线判定由新协议文件自行完成（`gw_2026.*` / `nw_2026.*` 媒介头字段），避免 is_rf 信息
+  在委托中丢失
+- 新协议文件不注册 wtap_encap，只能经委托进入；旧协议入口对"新文件未加载"有兜底提示
+- 版本字段受 FCH FCCS CRC24 保护，链路噪声不会造成误派
+- GW:版本 0=HDC 1.0 / 1=HDC 2.0 / 保留值按 2.0 尝试；NW:表16 0 保留 / 1=BPLC / 2=SPLC，
+  保留值保守归旧解析（与上位机 GW_2026_Parser / NW_2026_Parser 策略一一对应）
+- 测试：`test_2026/` 下的生成器可构造 2.0 帧（含单跳 RFDL/位图 IE/MMe 0x0011/0x00A0 等），
+  既有 1.0 pcap 回归无变化
 
 ## 快速使用
 
@@ -52,20 +86,36 @@ python serial2pcap.py COM8 460800 capture.pcap    # 自动识别协议（可用 
 把 `BPLC_Serial_Capture.bat` 和 `bplc_serial_extcap.py` 复制到 `%APPDATA%\Wireshark\extcap\`
 （需 python + pyserial 在 PATH），重启 Wireshark 后捕获列表出现两个接口：
 
-- **NW_2021_Capture (南网串口)** → 自动用 `packet-nw_2021.lua` 解析（USER2/3）
-- **GW_2022_Capture (国网串口)** → 自动用 `packet-gw_2022.lua` 解析（USER0/1）
+- **NW_2021/NW_2026_Capture (南网串口, BPLC+SPLC)** → 自动用 `packet-nw_2021.lua` 解析（USER2/3；
+  聚合 BPLC 帧经版本分派由 `packet-nw_2026.lua` 解析）
+- **GW_2022/GW_2026_Capture (国网串口, HDC1.0+2.0)** → 自动用 `packet-gw_2022.lua` 解析（USER0/1）
 
 选中接口后可配置：**串口号**（自动枚举 COM 口，含 com0com 虚拟串口）、**波特率**
-（默认 460800，9600~921600），点"开始"即可实时采集解析。
+（默认 460800，9600~2000000），点"开始"即可实时采集解析。
 采集记录带 4B 媒介头（USER4/USER5 格式），解析器**逐帧按 isRF 判断载波/无线**，
 两种帧混合出现都能正确解析。时间轴与 serial2pcap 一致（首帧=本地时刻，后续=NTB 差×40ns）。
 
-### 解析
+### 解析（重要：新旧协议各加载两个脚本）
 
-Wireshark GUI：把 `packet-gw_2022.lua`、`packet-nw_2021.lua`（按需）复制到
-`%APPDATA%\Wireshark\plugins\`，重启即自动加载。
-命令行：`tshark -r capture.pcap -X lua_script:packet-gw_2022.lua -V`
-（南网文件换成 `-X lua_script:packet-nw_2021.lua`）
+Wireshark GUI：把 4 个 Lua 文件（`packet-gw_2022.lua` / `packet-gw_2026.lua` /
+`packet-nw_2021.lua` / `packet-nw_2026.lua`）复制到 `%APPDATA%\Wireshark\plugins\`，
+重启即自动加载。
+命令行（**每套协议的新旧两个脚本必须同时加载**——2.0/SPLC 帧由入口按版本号委托给新
+协议文件，只加载旧脚本会在 2.0 帧上显示兜底警告并按 1.0 布局尽力解析）：
+
+```
+tshark -r capture.pcap -X lua_script:packet-gw_2022.lua -X lua_script:packet-gw_2026.lua -V
+tshark -r capture.pcap -X lua_script:packet-nw_2021.lua -X lua_script:packet-nw_2026.lua -V
+```
+
+版本分派规则（FCH 标准版本号 byte12 高 nibble）：国网 0=HDC 1.0 内联 / 1 及保留值委托
+`gw_2026`；南网（用户决策 2026-10 分派策略）：**仅 SOF 帧按标准版本号分派**（1=BPLC 内联 /
+2=SPLC 委托 `nw_2026`）；**聚合例外（用户需求）：载波 SOF version≠2 但 PB 头聚合标志=1
+（表47 byte2 bit0）的聚合 BPLC 帧也委托 `nw_2026`**（nw_2021 无聚合拆分能力，由 nw_2026 按
+BPLC 表20 布局 + 级联 MAC 帧拆分解析，实测 5 条级联 APP 报文逐条展示）；**信标/ACK/COORD 不判版本号默认委托 `nw_2026`**（SPLC 是 BPLC 的
+保留位启用补充、兼容旧帧：信标 表119→表18 / ACK 表7→表30 / COORD 表15→表41 均为保留位
+启用无冲突），nw_2026 解析异常时 pcall 回退内联旧布局解析。详见上文
+"新旧协议版本自适应委托"。
 
 ### 多物理块帧与字节高亮行为
 
@@ -88,6 +138,29 @@ MSDU 跨多个物理块时（块尾 CRC24 与下块 PB 头夹在 MAC 帧中间�
 dissector 加载时读取该文件决定字段名。
 
 > 环境变量可强制覆盖（优先于界面语言）：国网 `HPLC_RF_LANG=en` / `=zh`，南网 `NW_2021_LANG=en` / `=zh`。
+
+## 更新已安装的插件（避免解析器分叉）
+
+插件装到 Wireshark 后是**拷贝**到 `%APPDATA%\Wireshark\plugins\` 的，仓库侧改了不会自动跟着更新。
+于是会出现"代码里明明修了协议 bug，Wireshark 里却看不到效果"——根因是**部署副本与仓库源静默分叉**。
+
+从仓库同步（推荐，一条命令）：
+
+```bash
+bash scripts/sync_wireshark_plugins.sh --install
+```
+
+脚本会逐个比对内容，只复制真正不同的文件；复制完**重启 Wireshark** 才会加载新插件。
+
+只想检查有没有分叉（不改动任何文件，有差异则返回非 0）：
+
+```bash
+bash scripts/sync_wireshark_plugins.sh --check
+```
+
+> 安装包里的插件不存在这个问题：`scripts/package_ci.sh` 每次打包都从本目录 `wireshark_support_plugins/`
+> 重新复制到 `release/`，并在打包后逐字节校验一致性（不一致直接让 CI 失败）。
+> 所以**只有手工拷贝到 `%APPDATA%` 的那一份**需要手工同步。
 
 ## 抓包文件格式要求
 
@@ -130,11 +203,41 @@ dissector 加载时读取该文件决定字段名。
 | 信标帧载荷（固定头 6B + 管理信息 6 种条目 + BPCS + 保留字节） | ✅ 完整 |
 | SOF 物理块（4B PB 头 + 块体 + 保留 + CRC24，多块重组 MAC 帧） | ✅ 完整 |
 | MAC 帧头（长 32B / 短 12B / 单跳 4B） + MSDU 帧头（MAC48b + VLAN + 类型） | ✅ 完整 |
-| MMe 管理消息体（17 种 MMType） | ✅ 完整（0x0083/0x0084/0x00A0 暂缓，与 Qt 监控器一致） |
+| MMe 管理消息体（17 种 MMType） | ✅ 完整（0x0083/0x0084 暂缓，与 Qt 监控器一致；0x00A0-0x00A2 物联终端接入已实现） |
 | APP 应用层报文（通道控制信息 + 业务报文头 + BID 释义） | ✅ 完整 |
 | 源/目的地址列（含 TEI↔MAC 学习） | ✅ 完整 |
 | 中英双语显示 | ✅ 完整 |
 | FCCS / PB CRC24 / BPCS / MSDU ICV 校验 | ✅ 完整(原始值 + 计算值 + 校验通过标志) |
+
+### 国网 GW_2026 / HDC 2.0（packet-gw_2026.lua，经 gw_2022 入口版本委托进入）
+
+| 层 | 状态 |
+|---|---|
+| MPDU 帧控制 16B（表4：NID 16bit + 标准版本号） | ✅ 完整 |
+| SOF 可变区域（表7：帧类型分派 数据/信道探测/OFDMA/TDA）+ PB 大小（表8） | ✅ 完整 |
+| SACK（表14，68bit 位流） | ✅ 完整 |
+| 信标（表5 + 新条目 0x06/0x07/0x08/0xC1/0xC2） | ✅ 完整 |
+| 标准/单跳 MAC 帧头（表2 新3字段 / 表3 含聚合标识） | ✅ 完整 |
+| 单跳消息类型 0/1/2/128/129（表3） | ✅ 完整 |
+| 无线发现列表（表91-103：站点属性/路由/邻居信道非位图+位图/BRUSNR32） | ✅ 完整 |
+| 载波发现列表（表62/63-68/76/77，与无线同构，组合 10/11 含 BRU） | ✅ 完整 |
+| 信道评估参数更新（表106-108：BRU SNR/SAT 配置/子载波选择/比特加载） | ✅ 完整 |
+| MMe 管理消息体（表43：0x0011-0x0014 Bitloading/分组等） | ✅ 完整 |
+| SNR/RSSI 量化渲染（无线 表97/98/99/100/101，载波 表70/71/72/73/74） | ✅ 完整 |
+| 中英双语 + FCCS/PB/MSDU CRC/ICV 校验 | ✅ 完整 |
+
+### 南网 NW_2026 / SPLC 2026（packet-nw_2026.lua，经 nw_2021 入口版本委托进入）
+
+| 层 | 状态 |
+|---|---|
+| MPDU 帧控制 16B（表16：ConInd/SNID 4b+高位按帧型合并 5bit/版本） | ✅ 完整 |
+| SPLC SOF（表23-26：单站点/多站点 DL-OFDMA eFC 16B→PB 基址 32/训练帧） | ✅ 完整 |
+| 无线 SOF（表131：帧长/载荷 PB 大小/MCS/重传） | ✅ 完整 |
+| PB 三张查表（BPLC TMI / SPLC TMI编号 / 无线 PBLen；PB 块 4B 头+体+保留+CRC24） | ✅ 完整 |
+| 信标（表51 增量：PLC 能力/网络版本号等） | ✅ 完整 |
+| MAC 帧头（长 32B/短 12B/单跳 4B，表6 版本分派）+ 无线发现列表（表214-227） | ✅ 完整 |
+| MMe 含物联终端接入 0x00A0-0x00A2（表39/40/42/243/244/246） | ✅ 完整 |
+| 源/目的地址列（含 TEI↔MAC 学习）+ 中英双语 + FCCS/PB/ICV 全部 CRC 校验 | ✅ 完整 |
 
 ## 关键实现约定（字节序）
 
@@ -158,6 +261,8 @@ dissector 加载时读取该文件决定字段名。
 **2. 旧插件与新版抢占 DLT / 信标帧报 Lua 越界错误**
 删除或改名 `%APPDATA%\Wireshark\plugins\packet-hplc_rf.lua`（旧名已退役，改为
 `packet-gw_2022.lua`）。保留旧文件会抢占 encap 45-60 并在新 USER2/3 上抢先解析。
+旧 extcap 采集脚本同理：`hplc_rf_extcap.py` / `hplc_rf_extcap.bat.bak` 已在 extcap 目录
+改名 `.bak` 退役（其接口名与现接口混杂），如需恢复去掉后缀即可。
 
 **3. extcap 报"无法打开串口"（PermissionError）**
 端口被其他程序占用（监控器/串口助手/另一次抓包），或 **com0com 虚拟串口选了数据发送端** ——
@@ -178,6 +283,11 @@ SERIALCOMM 注册表补充枚举，插上设备即可见。
 **7. 多物理块帧 ICV 校验失败 / APP 载荷里混入怪字节**
 旧版对 MAC 帧按单块线性解析（块间 CRC/头被当数据）。已改"块体逻辑视图"重组语义，
 多块帧 ICV/载荷/填充全部正确。
+
+**8. 用 `-X lua_script:` 调试时改动"未生效"**
+`%APPDATA%\Wireshark\plugins\` 里的安装副本与 `-X lua_script:` 开发文件**同名 Proto 会冲突**
+（`-X` 加载中止、实际以安装副本为准，易误判改动无效）。用 `-X` 调试前先 `cp` 最新脚本到
+plugins 目录，或临时改用 `--persconf` 指定独立配置目录。
 
 ## 兼容性
 

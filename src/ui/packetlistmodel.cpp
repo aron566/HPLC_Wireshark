@@ -7,6 +7,7 @@
 #include <QColor>
 #include <QDataStream>
 #include <QDir>
+#include "i18n.h"
 #include <QFile>
 #include <QtConcurrent>
 #include <QFutureWatcher>
@@ -14,6 +15,14 @@
 
 namespace {
 // 南网 NW_2021 应用层帧类型域(表4)确认/否认帧 + 业务标识(表9)确认/否认取值
+struct I18nReg {
+    I18nReg() {
+        trl::register_en("训练帧(MIMO)", "Training Frame (MIMO)");
+        trl::register_en("训练帧(Bitloading)", "Training Frame (Bitloading)");
+    }
+};
+const I18nReg g_i18n_reg_pktlist;
+
 constexpr quint8 kAppPacketAckNack = 0x0;   ///< 帧类型域=确认/否认
 constexpr quint8 kBidConfirm       = 0x00;  ///< BID=确认(ACK)
 constexpr quint8 kBidDeny          = 0x01;  ///< BID=否认(NACK)
@@ -180,7 +189,12 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                 return QString();
             }
             case COL_MSDU_SEQ: {
-                if (e.accepted && e.msdu.present) return (int)e.msdu.msdu_seq;
+                if (e.accepted && e.msdu.present) {
+                    // 单跳帧精简头(南网表113 4B/国网表3 4B)无 MSDU 序号字段(标准帧头才有
+                    // MSDU_SEQ (5,0,16)/(10,0,16)),显示 "*" 避免误读为解析缺失
+                    if (e.msdu.simple_head) return QStringLiteral("*");
+                    return (int)e.msdu.msdu_seq;
+                }
                 return QString();
             }
             case COL_LENGTH: return e.raw_bytes.size();
@@ -192,6 +206,15 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                            .arg(nid).arg(e.meta.timestamp);
                 }
                 if (e.mpdu.frame_type == 1) {
+                    // 训练帧(表24/25,SPLC 载波 SOF:训练帧标识 FCH byte4 bit1=1):
+                    // Info 列显示帧性质,替代 TMI/PBNum/MSDU 段(用户需求)
+                    if (e.mpdu.version == 2 && !e.meta.is_rf
+                        && e.raw_bytes.size() > 5 && (quint8(e.raw_bytes.at(4)) & 0x02)) {
+                        const bool bitload = (quint8(e.raw_bytes.at(5)) & 0x01) != 0;
+                        return QStringLiteral("NetID=0x%1 src=%2 dst=%3 %4")
+                            .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
+                            .arg(bitload ? trl::L("训练帧(Bitloading)") : trl::L("训练帧(MIMO)"));
+                    }
                     QString msdu = e.msdu_body.isEmpty() ? QString() :
                                    QStringLiteral(" MSDU[%1B]").arg(e.msdu_body.size());
                     return QStringLiteral("NetID=0x%1 src=%2 dst=%3 TMI=%4 PBNum=%5%6")
@@ -203,7 +226,15 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
             }
         }
     } else if (role == Qt::ForegroundRole) {
-        // 整行着色优先级:管理消息(MMe 暖色系) > APP 层(BID 冷色系) > 帧类型(DROP灰/ACK校验失败红不变)
+        // 整行着色优先级:CRC 失败红(FCH/PB 物理层校验,最高) > 管理消息(MMe 暖色系)
+        // > APP 层(BID 冷色系) > 帧类型(DROP灰/ACK校验失败红不变)
+        // 仅 FCH CRC24 FAIL 或任一 PB CRC24 FAIL 标红(与 ACK 失败同色);MSDU CRC32
+        // FAIL 不改颜色(应用层校验,常因抓包截断/设备异常,不掩盖业务着色)
+        if (!e.mpdu.fch_crc_ok)
+            return QColor(224, 64, 64);   // FCH CRC24 校验失败(表7)
+        if (std::any_of(e.mpdu.pb_crc_oks.cbegin(), e.mpdu.pb_crc_oks.cend(),
+                        [](bool ok) { return !ok; }))
+            return QColor(224, 64, 64);   // 任一物理块 CRC24 校验失败
         if (e.msdu.present && e.msdu.mme_type != kMmeTypeNone)
             return mme_color(e.msdu.mme_type);
         if (e.msdu.present && e.msdu.business_id != 0xFF) {
@@ -229,6 +260,12 @@ QVariant PacketListModel::data_color(const PacketEntry& e) const {
         case 0: return QColor(86, 156, 214);
         case 1: return QColor(106, 153, 78);
         case 2:  // ACK 选择确认帧:校验失败(≥1 PB CRC 未过)红色显著指示
+            // GW_2022(表25/36)/南网:byte4 bit0-3 = RxRes(0成功 1失败);
+            // GW_2026(表14)该 4bit 拆为 BRU SNR/SAT ID/RxPBNum,无 RxRes,
+            // 用 PB 位图 RxStatus 全 0 判失败(全失败=无任何块 CRC 通过)
+            if ((e.protocol & 0x7F) == kProtocolGw2026)
+                return (e.mpdu.ack_rx_status == 0 && e.mpdu.ack_rx_pb_num > 0)
+                           ? QColor(224, 64, 64) : QColor(196, 181, 79);
             if (e.mpdu.ack_rx_res == 1) return QColor(224, 64, 64);
             return QColor(196, 181, 79);
         case 3: return QColor(140, 110, 190);   // COORD 协调帧:紫色(非异常,不用红)

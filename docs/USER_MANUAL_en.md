@@ -20,6 +20,15 @@ BPLC STA Monitor is a Windows desktop application for monitoring BPLC/HRF (HPLC)
 - Export CSV tables (locale-aware encoding, opens directly in Excel).
 - Generates a minidump crash dump (`*.dmp`) on crash, with optional Sentry upload.
 
+### 1.1 Southern Grid NW_2026 (SPLC) Frame Parsing Strategy
+
+For Southern Grid dual-mode frames (BPLC 2021 / SPLC 2026), the parser applies the following strategy by frame type:
+
+1. **SOF frames**: dispatched by the FCH standard version number (Table 16, high nibble of byte 12) — `1` = BPLC, parsed by the legacy parser (NW_2021); `2` = SPLC, parsed by the new parser (NW_2026). (PB/TMI layouts differ greatly between generations, so version dispatch is required.)
+2. **BEACON / ACK / COORD frames**: no version check — always parsed by the new protocol (SPLC). SPLC is a "reserved-bit enablement" extension of BPLC (beacon Table 119→18, ACK Table 7→30, COORD Table 15→41 are all reserved-bit enablements with no field conflicts), so the new parser is backward-compatible with legacy frames.
+3. **Automatic fallback**: if a non-SOF frame fails to parse under the new protocol (incomplete structure / insufficient payload), the parser automatically falls back to the legacy protocol (BPLC/NW_2021).
+4. **State Grid difference**: State Grid frames whose version is not 1.0 are parsed with the GW_2026 (HDC 2.0) layout as an attempt.
+
 ## 2. Installation and Startup
 
 ### 2.1 Installer
@@ -334,6 +343,8 @@ Main settings:
 [general]
 lang=auto
 update_url=https://raw.githubusercontent.com/aron566/HPLC_Wireshark/main/update.json
+mirror_mode=auto
+mirror_list=
 filter=
 theme=auto
 protocol=gw_2022
@@ -358,6 +369,8 @@ db_path=
 | `theme` | `auto`, `dark`, `light` |
 | `filter` | Frame-list display filter |
 | `update_url` | `update.json` manifest URL |
+| `mirror_mode` | Update download acceleration: `auto` (default, route by egress IP region), `native` (always direct to GitHub), `proxy` (always via mirror) |
+| `mirror_list` | Mirror prefixes (comma-separated, probed in order, first working one wins); empty = built-in: `https://ghfast.top/`, `https://gh-proxy.com/`, `https://ghproxy.net/` |
 | `mode` | `0` serial, `1` `.bin` replay, `2` raw hex |
 | `com` | Serial port name |
 | `baud` | Baud rate |
@@ -405,6 +418,14 @@ Manifest format:
 ```
 
 The changelog string may contain `<br/>`.
+
+### 9.1 Update Download Acceleration (automatic mirror for China networks)
+
+Before each update check, the application identifies the region of the current network egress IP (`general/mirror_mode=auto`, the default):
+
+- For a China egress, the mirrors in `general/mirror_list` are probed in order with the real manifest URL — a mirror only counts as usable if it returns a valid manifest; the first working mirror is then used for both the manifest and the installer download. Non-China egresses connect to GitHub directly.
+- If region detection fails, all mirrors are down, or a mirror stops working, the check automatically falls back to a direct GitHub connection, so acceleration can never make update checks worse than before. Look for the `[update-mirror]` prefix in the log to see which route was taken.
+- Set `mirror_mode=native` to always connect directly, or `mirror_mode=proxy` to always use a mirror (e.g. to test mirror availability). If a built-in mirror dies, edit `mirror_list` with any working prefixes (each ending with `/`, comma-separated) — no application update needed.
 
 ## 10. Input File Formats
 

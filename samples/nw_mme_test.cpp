@@ -128,7 +128,7 @@ static void truncated(const QByteArray& data) {
     const QString context = QString("type=0x%1 length=%2")
         .arg(data.size() >= 3 ? get_bits(data, 1, 0, 16) : 0, 4, 16, QChar('0'))
         .arg(data.size());
-    check(info.summary.endsWith(" (truncated)"), "truncation marked: " + context);
+    check(info.summary.endsWith(" (截断)"), "truncation marked: " + context);
     no_topology(info, context);
 }
 
@@ -140,14 +140,14 @@ static void unsupported_version(const QByteArray& data) {
           "unsupported MMe version displayed as unsigned with original range");
     // 合并 MAC 头分支后树多出 "MAC Header" 段根节点(其字段为子节点),总数 8 -> 9;
     // 断言意图不变:不支持版本时仅保留公共头与 CRC,不解释报文体
-    check(info.summary.contains("unsupported MMe version") && info.tree.size() == 9,
+    check(info.summary.contains("不支持的 MMe 版本") && info.tree.size() == 9,
           "unsupported version retains common header and CRC only");
     no_topology(info, "unsupported MMe version");
 }
 
 static MsduInfo complete(const QByteArray& data) {
     const auto info = parse(data);
-    check(!info.summary.contains("truncated"), "complete MMe accepted");
+    check(!info.summary.contains("截断"), "complete MMe accepted");
     return info;
 }
 
@@ -200,8 +200,11 @@ static void check_vlan(bool short_head, quint32 vlan, quint16 type, bool english
     check(crc && crc->value.endsWith("OK"), "VLAN display preserves CRC parsing");
     // 分发用 VLAN+MSDU类型 双条件(表98/8.2.13):仅 VLAN=0x8100 且 类型=0x88E1 走 MMe
     const bool is_mme = !short_head && vlan == 0x8100 && type == 0x88e1;
-    check(info.summary.startsWith(is_mme ? "MMe" : "APP"),
-          "VLAN+type double condition controls payload dispatch (表98)");
+    // 摘要已双语:en "APP ..."/"MMe ..." / zh "应用报文 ..."/"MMe ..."(english 由外层循环切换)
+    const bool ok_sum = english
+        ? info.summary.startsWith(is_mme ? "MMe" : "APP")
+        : info.summary.startsWith(is_mme ? "MMe" : "应用报文");
+    check(ok_sum, "VLAN+type double condition controls payload dispatch (表98)");
 }
 
 static void vlan_tests() {
@@ -218,18 +221,18 @@ static void vlan_tests() {
     const auto management = NW_2021_MsduParser::parse(vlan_frame(false, 0x8100, 0x88e1, mme(0x0031, 50)));
     check(management.topo_event.kind == TopoEventKind::AssocCnf, "VLAN meaning preserves complete MMe topology");
     const auto minimal = NW_2021_MsduParser::parse(vlan_frame(true, 3, 1, QByteArray()));
-    check(node(minimal, "VLAN Tag [8b]") && minimal.summary.endsWith("(truncated)"),
+    check(node(minimal, "VLAN Tag [8b]") && minimal.summary.endsWith("(截断)"),
           "complete short VLAN shown even when APP is truncated");
     QByteArray partial(13, char(0));
     partial[0] = 3;
     put(partial, 2, 16, 1);
     const auto missing_type = NW_2021_MsduParser::parse(partial);
     check(!node(missing_type, "VLAN Tag [8b]"), "incomplete short header does not invent a VLAN meaning");
-    QByteArray reserved_v2(4, char(0));
-    reserved_v2[0] = 4;  // Version(bit1-2)=2:南网表6为保留(单跳简头是国网帧型),不解释帧体
-    const auto simple = NW_2021_MsduParser::parse(reserved_v2);
-    check(!simple.present && !simple.simple_head,
-          "version 2 is reserved in NW (single-hop is GW-only) and not interpreted");
+    QByteArray single_hop(4, char(0));
+    single_hop[0] = 4;  // Version(bit1-2)=2:南网单跳帧协议(第2部分 §8.1.2.4 表113,4B 帧头)
+    const auto simple = NW_2021_MsduParser::parse(single_hop);
+    check(simple.present && simple.simple_head,
+          "version 2 = NW single-hop protocol (表113): stub parsed as single-hop (MSDU absent)");
     QByteArray app(12, char(0));
     app[0] = 0x11;
     put(app, 1, 16, 0x0101);
@@ -257,11 +260,11 @@ static void diagnostic_tests() {
                   && bool(rsv) == (length >= 4), "only available common header bytes displayed");
             if (mv) check(mv->value.startsWith(QString::number(version)), "available version byte stays unsigned");
             if (mt) check(mt->rel_len == qMin(2, length - 1)
-                          && (length >= 3 ? mt->value == "0x0031 - MMeAssocCnf" : mt->value == "0x??31 (truncated)"),
+                          && (length >= 3 ? mt->value == "0x0031 - 关联确认" : mt->value == "0x??31 (truncated)"),
                           "partial type does not invent its missing high byte");
             if (rsv) check(rsv->rel_len == qMin(3, length - 3)
                            && rsv->value.contains("truncated") == (length < 6), "partial RSV explicitly marked");
-            if (length < 6) check(info.summary.endsWith(" (truncated)"), "incomplete common header marked truncated");
+            if (length < 6) check(info.summary.endsWith(" (截断)"), "incomplete common header marked truncated");
             no_topology(info, "incomplete/unsupported common header");
             header_mappings(info, raw);
         }
@@ -283,7 +286,7 @@ static void diagnostic_tests() {
             const auto* crc = node(info, "MSDU CRC32");
             check(info.present && crc && crc->rel_start == (available ? raw.size() - 4 : -1) && crc->rel_len == available,
                   "CRC presence/absence retains parsed MSDU with exact byte range");
-            check(info.summary.contains("CRC missing") == (available < 4), "missing CRC explicit in summary");
+            check(info.summary.contains("CRC 缺失") == (available < 4), "missing CRC explicit in summary");
             check(available == 4 ? crc->value.endsWith("OK")
                                 : crc->value == QString("校验数据缺失（已有%1/4字节）").arg(available),
                   "CRC missing never appears as OK/FAIL");
@@ -292,7 +295,7 @@ static void diagnostic_tests() {
         auto corrupt = raw;
         corrupt[corrupt.size() - 1] = char(quint8(corrupt.back()) ^ 0x01);
         const auto info = NW_2021_MsduParser::parse(corrupt);
-        check(node(info, "MSDU CRC32")->value.endsWith("FAIL") && !info.summary.contains("CRC missing"),
+        check(node(info, "MSDU CRC32")->value.endsWith("FAIL") && !info.summary.contains("CRC 缺失"),
               "bad complete CRC remains distinct from missing CRC");
     }
     trl::set_enabled(true);
@@ -416,12 +419,12 @@ int main(int argc, char** argv) {
     // (保留/端到端/路径序列号,至 154B)缺失时警告而非按截断处理。
     for (int len = 145; len < 154; ++len) {
         const auto info = parse(mme(0x003b, len));
-        check(info.summary.contains("fields missing") && !info.summary.contains("truncated"),
+        check(info.summary.contains("字段缺失") && !info.summary.contains("截断"),
               "bitmap body complete but tail fields missing warns");
         check(info.topo_event.kind == TopoEventKind::ChangeProxyCnf,
               "bitmap topo retained when tail fields missing");
     }
-    check(!complete(mme(0x003b, 154)).summary.contains("fields missing"),
+    check(!complete(mme(0x003b, 154)).summary.contains("字段缺失"),
           "full bitmap frame has no missing-field warning");
 
     auto gather = mme(0x003a, 50);

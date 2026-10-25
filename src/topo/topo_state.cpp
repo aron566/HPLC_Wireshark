@@ -2,6 +2,7 @@
 /// @brief 拓扑状态模型实现(节点/路由累积 + 层级计算)
 #include "topo_state.h"
 #include "i18n.h"
+#include "QsLog.h"
 
 namespace {
 
@@ -32,6 +33,27 @@ NodeStatus status_for(TopoEventKind k) {
     switch (k) {
         case TopoEventKind::AssocReq: return NodeStatus::OnlineGoing;
         default:                      return NodeStatus::Online;
+    }
+}
+
+/// @brief 入网链路类型赋值(用户拍板优先级):
+///        1) 关联确认/关联指示/关联汇总指示 的 LinkType 字段权威,赋值即锁定
+///        2) 无权威帧时取首个带 link_type 的事件(不锁);link_type==-1 回退物理媒介 e.is_rf
+///        3) 都没有保持 0xFF(未定)
+static void assign_link_type(TopoNode& n, const TopoEvent& e) {
+    if (n.link_type_known) return;
+    const bool authoritative = (e.kind == TopoEventKind::AssocCnf
+                                || e.kind == TopoEventKind::AssocInd
+                                || e.kind == TopoEventKind::AssocGatherInd);
+    if (e.link_type >= 0) {
+        if (authoritative) {
+            n.link_type = (quint8)e.link_type;
+            n.link_type_known = true;    // 权威:赋值即锁定
+        } else if (n.link_type == 0xFF) {
+            n.link_type = (quint8)e.link_type;   // 首个为准,不锁,等权威帧覆盖
+        }
+    } else if (e.is_rf_known && n.link_type == 0xFF) {
+        n.link_type = e.is_rf ? 1 : 0;   // 回退物理媒介,不锁
     }
 }
 
@@ -174,7 +196,7 @@ void TopoState::apply(const TopoEvent& e) {
             n.mac = p.mac;
             n.status = NodeStatus::OnlineGoing;
             n.last_seen_ms = e.epoch_ms;
-            if (e.is_rf_known) n.is_rf = e.is_rf;
+            if (e.is_rf_known) { n.is_rf = e.is_rf; n.is_rf_known = true; }
             pending[p.mac] = n;
             continue;
         }
@@ -184,7 +206,8 @@ void TopoState::apply(const TopoEvent& e) {
         n.mac = p.mac;
         n.status = status_for(e.kind);
         n.last_seen_ms = e.epoch_ms;
-        if (e.is_rf_known) n.is_rf = e.is_rf;
+        if (e.is_rf_known) { n.is_rf = e.is_rf; n.is_rf_known = true; }
+        assign_link_type(n, e);
         // 若该 MAC 之前正在入网(关联请求),现已分配到 TEI → 移除 pending。
         // pending 的 key 恒等于 TopoNode.mac(写入处 pending[p.mac]=n),等价于哈希直接删除。
         pending.remove(p.mac);
@@ -197,7 +220,49 @@ void TopoState::apply(const TopoEvent& e) {
         n.parent_tei = r.second;
         n.status = status_for(e.kind);
         n.last_seen_ms = e.epoch_ms;
-        if (e.is_rf_known) n.is_rf = e.is_rf;
+        if (e.is_rf_known) { n.is_rf = e.is_rf; n.is_rf_known = true; }
+        assign_link_type(n, e);
+    }
+    // 路由表(表55/56)每节点入网链路类型:关联确认/指示帧权威,逐个赋值+锁定(与 assign_link_type 同语义)
+    for (const auto& pr : e.node_link_types) {
+        const quint16 tei = pr.first;
+        if (!tei || tei == 0xFFFF) continue;
+        TopoNode& n = nodes[tei];
+        n.tei = tei;
+        if (n.link_type_known) continue;   // 已锁定不覆盖
+        n.link_type = pr.second;
+        n.link_type_known = true;
+    }
+    // 载波发现列表(0x0055 表77)与代理站点通信成功率:独立于 RFDL proxy_* 与 0x005E comm_rates;
+    // 值 0-100(超出无效=-1),任一有效即置 comm_rate_known;按发送方(sta_tei,即 e.nodes 单条目)落节点
+    if (e.kind == TopoEventKind::DiscoverList
+        && (e.proxy_comm_rate >= 0 || e.proxy_down_comm_rate >= 0 || e.min_comm_rate >= 0)) {
+        for (const auto& p : e.nodes) {
+            TopoNode& n = nodes[p.tei];
+            n.proxy_comm_rate = e.proxy_comm_rate;
+            n.proxy_down_comm_rate = e.proxy_down_comm_rate;
+            n.min_comm_rate = e.min_comm_rate;
+            n.comm_rate_known = true;
+        }
+    }
+    // 邻居信号强度(RF 发现列表信道信息):仅更新已存在节点,不为纯 RSSI 建占位
+    for (const auto& r : e.rssi_entries) {
+        auto nit = nodes.find(r.first);
+        if (nit == nodes.end()) continue;
+        nit.value().rssi_dbm = r.second;
+        nit.value().rssi_known = true;
+    }
+    // 子站点表(代理变更确认 0x003B 位图):按帧内链路类型更新各子站点接入方式;
+    // 节点不存在时建占位(parent 未知),后续关联/发现事件再补全 MAC/父节点
+    if (e.link_type >= 0) {
+        for (quint16 ctei : e.child_teis) {
+            if (!ctei || ctei == 0xFFFF) continue;   // 0=根(CCO 自身);0xFFFF=未知,均不建节点
+            TopoNode& n = nodes[ctei];
+            n.tei = ctei;
+            if (n.last_seen_ms == 0) n.last_seen_ms = e.epoch_ms;
+            n.is_rf = (e.link_type == 1);
+            n.is_rf_known = true;   // 帧内链路类型明确判定
+        }
     }
     // 离网节点(按 MAC 匹配,标记离线):先走 MAC→TEI 索引 O(1),索引不一致时回退线性扫描
     for (quint64 mac : e.leaves) {
@@ -262,6 +327,76 @@ void TopoState::apply(const TopoEvent& e) {
             break;
         default:
             break;
+    }
+}
+
+void TopoState::apply_channel_info(quint16 reporter_tei, const TopoEvent& e) {
+    if (!reporter_tei || reporter_tei == 0xFFFF) return;
+    // [诊断 B1] 站点属性落地入口
+    QLOG_DEBUG() << "[TOPO] apply_channel_info 入口 reporter_tei=" << reporter_tei
+                 << "proxy_tei=" << e.proxy_tei;
+    // 站点属性(表217/表126):代理上行/下行接收率、最小接收率、RF 跳数、角色 + parent_tei 校正
+    // 站点属性直报的代理 TEI 比路由推导权威;节点不存在时据此建占位(站点属性自带 proxy/role 身份)
+    if (e.proxy_tei != 0xFFFF) {
+        TopoNode& node = nodes[reporter_tei];   // operator[] 自动创建(站点属性即身份来源)
+        if (node.tei == 0) node.tei = reporter_tei;
+        node.is_rf = true;                       // RFDL 站点属性来自无线发现列表(无线媒介)
+        node.is_rf_known = true;
+        if (node.last_seen_ms == 0) node.last_seen_ms = e.epoch_ms;
+        node.proxy_up_rate = e.proxy_up_rate;
+        node.proxy_down_rate = e.proxy_down_rate;
+        node.min_link_rate = e.min_link_rate;
+        node.rf_hop = e.rf_hop;
+        node.rf_role = e.rf_role;
+        node.proxy_rate_known = true;
+        // 站点属性直报的代理 TEI 比路由推导权威,用于校正 parent_tei
+        if (e.proxy_tei != reporter_tei)
+            node.parent_tei = e.proxy_tei;
+        // [诊断 B2] 写入后核验
+        QLOG_DEBUG() << "[TOPO] 站点属性写入后 tei=" << reporter_tei
+                     << "proxy_up_rate=" << node.proxy_up_rate
+                     << "proxy_down_rate=" << node.proxy_down_rate
+                     << "min_link_rate=" << node.min_link_rate
+                     << "proxy_rate_known=" << node.proxy_rate_known
+                     << "parent_tei=" << node.parent_tei;
+    }
+    // 表39 站点属性(7B,无代理TEI,仅成功率+BRU SNR):按 reporter_tei 落地(代理TEI 由 parent_tei 已知)
+    if (e.proxy_up_rate >= 0 || e.proxy_down_rate >= 0
+        || e.proxy_comm_rate >= 0 || e.proxy_down_comm_rate >= 0) {
+        TopoNode& node = nodes[reporter_tei];
+        if (node.tei == 0) node.tei = reporter_tei;
+        if (node.last_seen_ms == 0) node.last_seen_ms = e.epoch_ms;
+        if (e.proxy_up_rate >= 0) node.proxy_up_rate = e.proxy_up_rate;
+        if (e.proxy_down_rate >= 0) node.proxy_down_rate = e.proxy_down_rate;
+        if (e.proxy_comm_rate >= 0) node.proxy_comm_rate = e.proxy_comm_rate;
+        if (e.proxy_down_comm_rate >= 0) node.proxy_down_comm_rate = e.proxy_down_comm_rate;
+        if (e.proxy_up_rate >= 0 || e.proxy_down_rate >= 0) node.proxy_rate_known = true;
+        if (e.proxy_comm_rate >= 0 || e.proxy_down_comm_rate >= 0) node.comm_rate_known = true;
+    }
+    // 邻居接收率/SNR:按上报方 STA 键控(方向=邻居→上报方,即上行成功率;下行查 neighbor_rates[nb][me])
+    {
+        auto& rates = neighbor_rates[reporter_tei];
+        for (const auto& pr : e.neighbor_rates)
+            rates[pr.first] = pr.second;
+        auto& snrs = neighbor_snrs[reporter_tei];
+        for (const auto& pr : e.neighbor_snrs)
+            snrs[pr.first] = pr.second;
+    }
+    // 邻居信号强度(节点属性,仅更新已存在节点,不为纯 RSSI 建占位)
+    for (const auto& r : e.rssi_entries) {
+        auto nit = nodes.find(r.first);
+        if (nit == nodes.end()) continue;
+        nit.value().rssi_dbm = r.second;
+        nit.value().rssi_known = true;
+    }
+    // 邻居表(位图版,discover_src_tei=reporter_tei):按发送方 TEI 覆盖更新 + 累计次数(供排序/信号强度)
+    if (e.neighbor_teis_present) {
+        neighbors[reporter_tei] = e.neighbor_teis;
+        auto& counts = neighbor_counts[reporter_tei];
+        for (quint16 nb : e.neighbor_teis) {
+            if (!nb) continue;   // TEI 0 = 广播/保留,不计邻居次数
+            counts[nb]++;
+        }
     }
 }
 
