@@ -27,6 +27,62 @@ windeployqt --release --no-translations --no-system-d3d-compiler \
     release/BPLC_STA_Monitor.exe
 # 防 config.ini 被打包:用户配置文件永不属于安装包(升级时旧配置保留)
 rm -f release/config.ini
+# 示范配置(参考 Linux 包的 config.ini.example): 让用户看到可配置项与默认值。
+# 内容与 src/app/appconfig.h 的程序模板逐键一致 —— 下面的自检保证两者不漂移。
+cat > release/config.ini.example <<'EOF'
+; BPLC STA Monitor 配置示范文件
+; BPLC STA Monitor configuration example
+; 复制为 config.ini 后按需修改; 正式配置文件由程序首次启动自动生成(内容同本示范)。
+; Copy to config.ini and edit as needed; the program auto-generates config.ini on first run.
+;
+; 段名带 % 的组段是 QSettings 的组段标记, 不可去掉 —— 否则程序读不到本段里的键。
+; Section names prefixed with % are QSettings group markers; removing them breaks key lookup.
+
+[app]
+; 语言:auto=跟随系统 / zh=中文 / en=English
+lang=auto
+; 更新检查地址(update.json 清单)
+update_url=https://raw.githubusercontent.com/aron566/HPLC_Wireshark/main/update.json
+; 显示过滤器(启动时自动应用,留空=不过滤)
+filter=
+; 界面主题:auto=跟随系统(默认)/ dark=深色 / light=浅色
+theme=auto
+; 启动时自动检查更新(true=检查 / false=不检查)
+auto_check=true
+; 更新下载加速:auto=按出口IP区域自动(中国IP走代理)/ native=始终原生GitHub / proxy=始终走代理
+mirror_mode=auto
+; 代理前缀列表(逗号分隔,按序探活取首个可用;留空=内置 ghfast.top/gh-proxy.com/ghproxy.net)
+mirror_list=
+; 协议:gw_2026=国网双模标准2026(默认) / gw_2022=国网双模标准2022 / nw_2021=南网双模2021报批版 / nw_2026=南网双模2026
+protocol=gw_2026
+
+[reader]
+; 输入源:0=串口 1=文件回放(bin) 2=裸hex文本
+mode=0
+; 串口参数
+com=COM3
+baud=460800
+; 回放/裸hex 文件路径
+file_path=
+
+[crash]
+; 崩溃捕获后端:sentry=上报Sentry服务 / crashpad=仅本地minidump / auto=自动(默认)
+; 编译时用 qmake CONFIG+=crash_sentry / CONFIG+=crash_crashpad 选择包含的后端
+backend=auto
+; Sentry DSN(backend=sentry 时上报用);留空则只本地落盘不上报
+dsn=
+; 本地 dump 目录(留空=exe 同目录 crashpad_db)
+db_path=
+EOF
+# 自检: 示范配置的键集合必须与程序模板(appconfig.h)的键集合完全一致, 防两处漂移
+_example_keys=$(grep -oE '^[a-z_]+=' release/config.ini.example | sort -u)
+# 只提取模板字面量里的键(行首空白 + 引号开头), 排除注释里出现的 "key=value" 之类
+_tmpl_keys=$(grep -oE '^[[:space:]]+"[a-z_]+=' src/app/appconfig.h | grep -oE '[a-z_]+=' | sort -u)
+if [ "$_example_keys" != "$_tmpl_keys" ]; then
+    echo "::error::示范配置与 appconfig.h 模板的键不一致"
+    diff <(echo "$_tmpl_keys") <(echo "$_example_keys") || true
+    exit 1
+fi
 # 运行期产物: 程序启动时会在 exe 同目录建 logs/(QsLog 日志目录) 与
 # crashpad_db/(崩溃转储数据库), 而 installer.nsi 的 File /r 是递归的
 # ⇒ 增量打包时会把上一轮的运行日志与转储数据库打进安装包(用户机器上会带着
