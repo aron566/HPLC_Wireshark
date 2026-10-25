@@ -1,15 +1,15 @@
 {
  "updates": {
   "linux": {
-   "changelog": "<b>v2.0.0 重大更新</b><br/>1. 配置格式重构: 旧 <code>[general]</code> 段改为非保留段 <code>[app]</code>, 修复配置全部失效(协议恒为 gw_2026)<br/>2. 旧配置自动迁移(小写/大写/组段/混合四种来源全覆盖, 已有值不覆盖, 自动备份 .bak)<br/>3. 新增协议解析与拓扑 UI 增强, MMe 术语统一(代理变更请求等)<br/>4. 打包改进: 插件白名单分发, 配置文件与示范模板一律不入包<br/>",
-   "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v2.0.0/BPLC_STA_Monitor_v2.0.0_linux_x86_64.tar.gz",
-   "latest-version": "2.0.0",
+   "changelog": "拓扑UI增强:接入方式着色、节点聚焦跳转、TEI-MAC 交互暂停、NID 下拉防刷新;<br/>拓扑缩放锚点修复",
+   "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.7.0/BPLC_STA_Monitor_v1.7.0_linux_x86_64.tar.gz",
+   "latest-version": "1.7.0",
    "mandatory-update": false
   },
   "windows": {
-   "changelog": "<b>v2.0.0 重大更新</b><br/>1. 配置格式重构: 旧 <code>[general]</code> 段改为非保留段 <code>[app]</code>, 修复配置全部失效(协议恒为 gw_2026)<br/>2. 旧配置自动迁移(小写/大写/组段/混合四种来源全覆盖, 已有值不覆盖, 自动备份 .bak)<br/>3. 新增协议解析与拓扑 UI 增强, MMe 术语统一(代理变更请求等)<br/>4. 打包改进: 插件白名单分发, 配置文件与示范模板一律不入包<br/>",
-   "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v2.0.0/BPLC_STA_Monitor_Setup_v2.0.0.exe",
-   "latest-version": "2.0.0",
+   "changelog": "拓扑UI增强:接入方式着色、节点聚焦跳转、TEI-MAC 交互暂停、NID 下拉防刷新;<br/>拓扑缩放锚点修复",
+   "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.7.0/BPLC_STA_Monitor_Setup_v1.7.0.exe",
+   "latest-version": "1.7.0",
    "mandatory-update": false
   }
  }
