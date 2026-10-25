@@ -48,9 +48,9 @@ static QString mme_type_name(quint8 t) {
         case GW_2022_MMeType::MME_ASSOC_REQ: return trl::L("关联请求");
         case GW_2022_MMeType::MME_ASSOC_CNF: return trl::L("关联确认");
         case GW_2022_MMeType::MME_ASSOC_GATHER_IND: return trl::L("关联汇总指示");
-        case GW_2022_MMeType::MME_CHANGE_PROXY_REQ: return trl::L("更换代理请求");
-        case GW_2022_MMeType::MME_CHANGE_PROXY_CNF: return trl::L("更换代理确认");
-        case GW_2022_MMeType::MME_CHANGE_PROXY_BITMAP_CNF: return trl::L("更换代理比特图确认");
+        case GW_2022_MMeType::MME_CHANGE_PROXY_REQ: return trl::L("代理变更请求");
+        case GW_2022_MMeType::MME_CHANGE_PROXY_CNF: return trl::L("代理变更确认");
+        case GW_2022_MMeType::MME_CHANGE_PROXY_BITMAP_CNF: return trl::L("代理变更确认位图版");
         case GW_2022_MMeType::MME_LEAVE_IND: return trl::L("离线指示");
         case GW_2022_MMeType::MME_HEARTBEAT_CHECK: return trl::L("心跳检测");
         case GW_2022_MMeType::MME_DISCOVER_NODE_LIST: return trl::L("发现列表");
@@ -2145,9 +2145,9 @@ struct I18nReg {
         trl::register_en("关联确认", "MMeAssocCnf");
         trl::register_en("关联汇总指示", "MMeAssocGatherInd");
         trl::register_en("关联请求", "MMeAssocReq");
-        trl::register_en("更换代理比特图确认", "MMeChangeProxyBitMapCnf");
-        trl::register_en("更换代理确认", "MMeChangeProxyCnf");
-        trl::register_en("更换代理请求", "MMeChangeProxyReq");
+        trl::register_en("代理变更确认位图版", "MMeChangeProxyBitMapCnf");
+        trl::register_en("代理变更确认", "MMeChangeProxyCnf");
+        trl::register_en("代理变更请求", "MMeChangeProxyReq");
         trl::register_en("发现列表", "MMeDiscoveryNodeList");
         trl::register_en("心跳检测", "MMeHeartBeatCheck");
         trl::register_en("离线指示", "MMeLeaveInd");

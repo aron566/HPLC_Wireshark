@@ -51,9 +51,9 @@ static QString mme_type_name(quint8 t) {
         case GW_2026_MMeType::MME_ASSOC_REQ: return trl::L("关联请求");
         case GW_2026_MMeType::MME_ASSOC_CNF: return trl::L("关联确认");
         case GW_2026_MMeType::MME_ASSOC_GATHER_IND: return trl::L("关联汇总指示");
-        case GW_2026_MMeType::MME_CHANGE_PROXY_REQ: return trl::L("更换代理请求");
-        case GW_2026_MMeType::MME_CHANGE_PROXY_CNF: return trl::L("更换代理确认");
-        case GW_2026_MMeType::MME_CHANGE_PROXY_BITMAP_CNF: return trl::L("更换代理比特图确认");
+        case GW_2026_MMeType::MME_CHANGE_PROXY_REQ: return trl::L("代理变更请求");
+        case GW_2026_MMeType::MME_CHANGE_PROXY_CNF: return trl::L("代理变更确认");
+        case GW_2026_MMeType::MME_CHANGE_PROXY_BITMAP_CNF: return trl::L("代理变更确认位图版");
         case GW_2026_MMeType::MME_LEAVE_IND: return trl::L("离线指示");
         case GW_2026_MMeType::MME_HEARTBEAT_CHECK: return trl::L("心跳检测");
         case GW_2026_MMeType::MME_RESERVED_08: return trl::L("保留(0x08)");  // 表43:保留(旧版发现列表)
@@ -2144,9 +2144,9 @@ struct I18nReg {
         trl::register_en("关联请求", "MMeAssocReq");
         trl::register_en("Bitloading训练请求", "MMeBitloadingTrainReq");
         trl::register_en("Bitloading训练请求拒绝", "MMeBitloadingTrainReqReject");
-        trl::register_en("更换代理比特图确认", "MMeChangeProxyBitMapCnf");
-        trl::register_en("更换代理确认", "MMeChangeProxyCnf");
-        trl::register_en("更换代理请求", "MMeChangeProxyReq");
+        trl::register_en("代理变更确认位图版", "MMeChangeProxyBitMapCnf");
+        trl::register_en("代理变更确认", "MMeChangeProxyCnf");
+        trl::register_en("代理变更请求", "MMeChangeProxyReq");
         trl::register_en("分组确认", "MMeGroupCnf");
         trl::register_en("分组请求", "MMeGroupReq");
         trl::register_en("心跳检测", "MMeHeartBeatCheck");

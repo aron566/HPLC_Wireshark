@@ -19,11 +19,11 @@ inline QString mme_type_name(quint16 t) {
     switch (static_cast<NW_2021_MMeType>(t)) {
         case NW_2021_MMeType::MME_ASSOCREQ: return trl::L("关联请求");
         case NW_2021_MMeType::MME_ASSOCCNF: return trl::L("关联确认");
-        case NW_2021_MMeType::MME_CHANGEPROXYREQ: return trl::L("更换代理请求");
+        case NW_2021_MMeType::MME_CHANGEPROXYREQ: return trl::L("代理变更请求");
         case NW_2021_MMeType::MME_ASSOCIND: return trl::L("关联指示");
-        case NW_2021_MMeType::MME_CHANGEPROXYCNF: return trl::L("更换代理确认");
+        case NW_2021_MMeType::MME_CHANGEPROXYCNF: return trl::L("代理变更确认");
         case NW_2021_MMeType::MME_ASSOCGATHERIND: return trl::L("关联汇总指示");
-        case NW_2021_MMeType::MME_CHANGEPROXYBITMAPCNF: return trl::L("更换代理比特图确认");
+        case NW_2021_MMeType::MME_CHANGEPROXYBITMAPCNF: return trl::L("代理变更确认位图版");
         case NW_2021_MMeType::MME_LEAVEIND: return trl::L("离线指示");
         case NW_2021_MMeType::MME_HEARTBEATCHECK: return trl::L("心跳检测");
         case NW_2021_MMeType::MME_DISCOVERNODELIST: return trl::L("发现列表");
@@ -153,11 +153,11 @@ struct MMeI18nReg {
         trl::register_en(" (字段缺失)", " (fields missing)");
         trl::register_en("关联请求", "MMeAssocReq");
         trl::register_en("关联确认", "MMeAssocCnf");
-        trl::register_en("更换代理请求", "MMeChangeProxyReq");
+        trl::register_en("代理变更请求", "MMeChangeProxyReq");
         trl::register_en("关联指示", "MMeAssocInd");
-        trl::register_en("更换代理确认", "MMeChangeProxyCnf");
+        trl::register_en("代理变更确认", "MMeChangeProxyCnf");
         trl::register_en("关联汇总指示", "MMeAssocGatherInd");
-        trl::register_en("更换代理比特图确认", "MMeChangeProxyBitMapCnf");
+        trl::register_en("代理变更确认位图版", "MMeChangeProxyBitMapCnf");
         trl::register_en("离线指示", "MMeLeaveInd");
         trl::register_en("心跳检测", "MMeHeartBeatCheck");
         trl::register_en("发现列表", "MMeDiscoverNodeList");
