@@ -312,6 +312,11 @@ local route_type_vals = {
     [2] = T("上级路由类型", "Upper-level route"), [3] = T("代理主路径路由类型", "Proxy main path route"),
     [4] = T("上上级路由类型", "Upper-upper-level route"),
 }
+local single_hop_route_type_vals = {
+    [0] = T("错误的路由类型", "Incorrect route type"), [1] = T("同级备份路由类型", "Same-level backup route"),
+    [2] = T("上级备份路由类型", "Upper-level backup route"), [3] = T("代理主路径路由类型", "Proxy main path route"),
+    [4] = T("上上级路由类型", "Upper-upper-level route"),
+}
 local rate_calc_vals = { [0] = T("未完成", "Not finished"), [1] = T("已完成", "Finished") }
 local device_type_vals = {
     [1] = T("抄控器", "Reader/CCO device"), [2] = T("集中器通信模块", "Concentrator comm module"),
@@ -597,6 +602,17 @@ f.rf_attr_down = ProtoField.uint8 ("nw_2021.rf.attr.down", T("代理下行接收
 f.rf_attr_min = ProtoField.uint8 ("nw_2021.rf.attr.min", T("链路最小接收率(%)", "Min Link Rate (%)"), base.DEC)
 f.rf_attr_period = ProtoField.uint8 ("nw_2021.rf.attr.period", T("无线发现列表周期(s)", "RF Discover Period (s)"), base.DEC)
 f.rf_attr_aging = ProtoField.uint8 ("nw_2021.rf.attr.aging", T("接收率老化周期个数", "Rate Aging Cycles"), base.DEC)
+-- 站点路由信息(表218): 每条 2B = 下一跳TEI(12b) + 路由类型(4b)
+f.rf_route_next_tei = ProtoField.uint16 ("nw_2021.rf.route.next_tei", T("下一跳站点TEI", "Next Hop STA TEI"), base.DEC)
+f.rf_route_type = ProtoField.uint8 ("nw_2021.rf.route.type", T("路由类型", "Route Type"), base.DEC, single_hop_route_type_vals, 0xF0)
+-- 邻居信道信息(表219/220 非位图版, 表226/227 位图版)
+f.rf_ch_combo = ProtoField.uint8 ("nw_2021.rf.ch.combo", T("组合类型", "Combination Type"), base.DEC, nil, 0x0F)
+f.rf_ch_rsv = ProtoField.uint8 ("nw_2021.rf.ch.rsv", T("保留", "Reserved"), base.HEX, nil, 0xF0)
+f.rf_ch_rcv = ProtoField.uint8 ("nw_2021.rf.ch.rcv", T("接收率(%)", "Receive Rate (%)"), base.DEC)
+f.rf_ch_snr = ProtoField.uint8 ("nw_2021.rf.ch.snr", T("信噪比", "SNR"), base.DEC)
+f.rf_ch_rssi = ProtoField.uint8 ("nw_2021.rf.ch.rssi", T("信号强度", "Signal Strength"), base.DEC)
+f.rf_ch_start_tei = ProtoField.uint16 ("nw_2021.rf.ch.start_tei", T("起始TEI", "Start TEI"), base.DEC)
+f.rf_ch_bm = ProtoField.bytes ("nw_2021.rf.ch.bm", T("位图", "Bitmap"))
 -- MSDU 帧尾 ICV (CRC32)
 f.mac_icv = ProtoField.uint32 ("nw_2021.mac.icv", T("完整性校验值(ICV,CRC32)", "Integrity Check Value (ICV, CRC32)"), base.HEX)
 f.mac_icv_calc = ProtoField.uint32 ("nw_2021.mac.icv_calc", T("ICV 计算值", "ICV Calculated"), base.HEX)
@@ -835,8 +851,9 @@ f.media_option = ProtoField.uint8 ("nw_2021.media.option", T("option", "option")
 f.media_channel = ProtoField.uint8 ("nw_2021.media.channel", T("信道", "Channel"), base.DEC)
 f.media_is_rf = ProtoField.uint8 ("nw_2021.media.is_rf", T("媒介(0=载波,非0=无线)", "Media (0=PLC, non-0=RF)"), base.DEC, {[0]=T("载波 HPLC", "PLC"), [1]=T("无线 RF", "RF")})
 
--- 原始目标地址列 (自定义列引用, 显示目的TEI + MAC 映射)
-f.col_orig_dst = ProtoField.string ("nw_2021.col_orig_dst", T("原始目标地址", "Original Destination Address"))
+-- 原始源/目标地址列 (自定义列引用, 显示 TEI + MAC 映射; 列标题统一英文, 与内置列一致)
+f.col_orig_dst = ProtoField.string ("nw_2021.col_orig_dst", "Original Destination Address")
+f.col_orig_src = ProtoField.string ("nw_2021.col_orig_src", "Original Source Address")
 
 -- 位图逐字节解析节点 (string, 承载 "值 (TEI列表)" 文本)
 f.bmp_byte = ProtoField.string ("nw_2021.bmp.byte", T("位图字节", "Bitmap Byte"))
@@ -929,10 +946,13 @@ nw.fields = {
     f.app_start_flag, f.app_trans_dir, f.app_business_id, f.app_bid_desc,
     f.app_version, f.app_packet_sn, f.app_packet_len, f.app_payload,
     f.media_phr_mcs, f.media_option, f.media_channel, f.media_is_rf,
-    f.col_orig_dst,
+    f.col_orig_dst, f.col_orig_src,
     f.rf_mac, f.rf_seq, f.rf_ie_type, f.rf_ie_ltype, f.rf_ie_len,
     f.rf_attr_cco, f.rf_attr_proxy, f.rf_attr_role, f.rf_attr_level, f.rf_attr_hop,
     f.rf_attr_up, f.rf_attr_down, f.rf_attr_min, f.rf_attr_period, f.rf_attr_aging,
+    f.rf_route_next_tei, f.rf_route_type,
+    f.rf_ch_combo, f.rf_ch_rsv, f.rf_ch_rcv, f.rf_ch_snr, f.rf_ch_rssi,
+    f.rf_ch_start_tei, f.rf_ch_bm,
     f.bmp_byte,
 }
 
@@ -1857,6 +1877,142 @@ local function dissect_app(tvb, tree, pinfo)
 end
 
 -- =========================================================================
+-- 无线发现列表 IE 类型 1/2/3 字段树 (表218 路由 / 表219-220 信道非位图 / 表226-227 信道位图)
+-- =========================================================================
+
+-- RSSI 量化值 → 区间含义(表224 4bit / 表225 6bit)
+local function rssi_meaning(bits, v)
+    if bits == 4 then
+        if v == 0 then return "(RSSI<-105dBm)" end
+        if v == 15 then return "(RSSI>=0dBm)" end
+        local lo = { -105, -95, -86, -80, -74, -68, -62, -56, -48, -42, -36, -30, -20, -10 }
+        local hi = { -95, -86, -80, -74, -68, -62, -56, -48, -42, -36, -30, -20, -10, 0 }
+        return string.format("(RSSI=%d~%ddBm)", lo[v], hi[v])
+    end
+    if v == 0 then return "(RSSI<-110dBm)" end
+    if v == 63 then return "(RSSI>=14dBm)" end
+    return string.format("(RSSI=%d~%ddBm)", -110 + 2 * v - 2, -110 + 2 * v)
+end
+
+-- 组合类型 → SNR/RSSI 位宽(表220 非位图 / 表227 位图)
+local kChNonBitmapSnrBits = { 0, 4, 6, 0 }
+local kChNonBitmapRssiBits = { 0, 0, 6, 4 }
+local kChBitmapSnrBits = { 0, 4, 0, 6, 4, 0 }
+local kChBitmapRssiBits = { 0, 0, 8, 6, 4, 4 }
+
+-- 渲染一个邻居信道条目(接收率8b + [SNR] + [信号强度]), 返回占用比特数; TEI 由调用方并入节点名
+local function render_ch_entry(tree, tvb, bitpos, snr_bits, rssi_bits, rcv_bits, label)
+    local total = rcv_bits + snr_bits + rssi_bits
+    if bitpos + total > tvb:len() * 8 then return 0 end
+    local b0 = math.floor(bitpos / 8)
+    local bi = bitpos % 8
+    local g = tree:add(nw, tvb(b0, math.floor((bi + total + 7) / 8)), label)
+    local o = 0
+    if rcv_bits > 0 then
+        add_val(g, f.rf_ch_rcv, tvb, b0, 1, read_bits(tvb, bitpos + o, rcv_bits))
+        o = o + rcv_bits
+    end
+    if snr_bits > 0 then
+        local v = read_bits(tvb, bitpos + o, snr_bits)
+        local sn = add_val(g, f.rf_ch_snr, tvb, b0, 1, v)
+        if snr_bits == 6 then sn:append_text(string.format(" (SNR=%ddB)", v - 7))
+        else sn:append_text(" dB") end
+        o = o + snr_bits
+    end
+    if rssi_bits > 0 then
+        local v = read_bits(tvb, bitpos + o, rssi_bits)
+        local rs = add_val(g, f.rf_ch_rssi, tvb, b0, 1, v)
+        if rssi_bits == 8 then rs:append_text(string.format(" (RSSI=%ddBm)", v - 111))
+        else rs:append_text(" " .. rssi_meaning(rssi_bits, v)) end
+        o = o + rssi_bits
+    end
+    return total
+end
+
+-- 站点路由信息(表218): 每条 2B = 下一跳TEI(12b) + 路由类型(4b)
+local function dissect_rf_route_info(tvb, tree, pos, elen)
+    local hop = 0
+    local rp = pos
+    while rp + 2 <= pos + elen do
+        local htree = tree:add(nw, tvb(rp, 2), string.format("NextHop[%d]", hop))
+        add_val(htree, f.rf_route_next_tei, tvb, rp, 2, read_bits(tvb, rp * 8, 12))
+        htree:add(f.rf_route_type, tvb(rp + 1, 1))
+        rp = rp + 2
+        hop = hop + 1
+    end
+end
+
+-- 邻居信道信息 非位图版(表219/220): 组合类型(0,0,4)+保留(0,4,4) + 每邻居 TEI12b+接收率8b+[SNR]+[强度]
+local function dissect_rf_channel_non_bitmap(tvb, tree, pos, elen)
+    local combo = read_bits(tvb, pos * 8, 4)
+    if combo > 3 then return end
+    local htree = tree:add(nw, tvb(pos, 1), "ChannelInfoHead")
+    htree:add(f.rf_ch_combo, tvb(pos, 1))
+    htree:add(f.rf_ch_rsv, tvb(pos, 1))
+    local snr_bits = kChNonBitmapSnrBits[combo + 1]
+    local rssi_bits = kChNonBitmapRssiBits[combo + 1]
+    local bitpos = (pos + 1) * 8
+    local idx = 0
+    while bitpos + 12 + 8 + snr_bits + rssi_bits <= (pos + elen) * 8 do
+        local tei = read_bits(tvb, bitpos, 12)
+        local used = render_ch_entry(tree, tvb, bitpos + 12, snr_bits, rssi_bits, 8,
+                                     string.format("Neighbor[%d] TEI=%d", idx, tei))
+        if used <= 0 then break end
+        bitpos = bitpos + 12 + used
+        idx = idx + 1
+    end
+end
+
+-- 邻居信道信息 位图版(表226/227): 组合类型+保留 + 每组 [起始TEI12b+保留4b+位图大小1B+位图+条目]
+local function dissect_rf_channel_bitmap(tvb, tree, pos, elen)
+    local combo = read_bits(tvb, pos * 8, 4)
+    if combo > 5 then return end
+    local htree = tree:add(nw, tvb(pos, 1), "ChannelInfoHead")
+    htree:add(f.rf_ch_combo, tvb(pos, 1))
+    htree:add(f.rf_ch_rsv, tvb(pos, 1))
+    local snr_bits = kChBitmapSnrBits[combo + 1]
+    local rssi_bits = kChBitmapRssiBits[combo + 1]
+    local entry_bits = 8 + snr_bits + rssi_bits
+    local off = pos + 1
+    local set_idx = 0
+    while off + 3 <= pos + elen do
+        local start_tei = read_bits(tvb, off * 8, 12)
+        local bm_len = tvb(off + 2, 1):uint()
+        if off + 3 + bm_len > pos + elen then break end
+        local g = tree:add(nw, tvb(off, 3 + bm_len), string.format("BitmapSet[%d]", set_idx))
+        add_val(g, f.rf_ch_start_tei, tvb, off, 2, start_tei)
+        g:add(f.rf_ch_rsv, tvb(off + 1, 1))
+        local bmt = g:add(f.rf_ch_bm, tvb(off + 3, bm_len))
+        -- 位图逐位(仅 bit=1): TEI = 起始TEI + k
+        for k = 0, bm_len * 8 - 1 do
+            local bb = tvb(off + 3 + math.floor(k / 8), 1):uint()
+            if band(bb, 2 ^ (k % 8)) ~= 0 then
+                local bn = bmt:add(nw, tvb(off + 3 + math.floor(k / 8), 1),
+                                   string.format("Neighbor[%d] TEI=%d", k, start_tei + k))
+                bn:append_text(string.format(" %s", string.format(T("在位图(第%d字节)", "in bitmap (byte %d)"), math.floor(k / 8))))
+            end
+        end
+        -- 条目(按位图顺序): 接收率8b + [SNR] + [信号强度]
+        local bitpos = (off + 3 + bm_len) * 8
+        local entry_idx = 0
+        for k = 0, bm_len * 8 - 1 do
+            if bitpos + entry_bits > (pos + elen) * 8 then break end
+            local bb = tvb(off + 3 + math.floor(k / 8), 1):uint()
+            if band(bb, 2 ^ (k % 8)) ~= 0 then
+                local label = string.format("Neighbor[%d] TEI=%d", entry_idx, start_tei + k)
+                    .. string.format(T(" (位图 byte %d bit %d)", " (bitmap byte %d bit %d)"), math.floor(k / 8), k % 8)
+                local used = render_ch_entry(g, tvb, bitpos, snr_bits, rssi_bits, 8, label)
+                if used <= 0 then break end
+                bitpos = bitpos + used
+                entry_idx = entry_idx + 1
+            end
+        end
+        off = math.floor((bitpos + 7) / 8)
+        set_idx = set_idx + 1
+    end
+end
+
+-- =========================================================================
 -- MAC 帧解析 (输入为 SOF 各物理块块体重组出的 MAC 帧 tvb)
 -- =========================================================================
 local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
@@ -1872,6 +2028,13 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
         -- MSDU 载荷 + 帧尾 CRC32 (校验载荷, 不含单跳头)
         if msdu_len > 0 and 4 + msdu_len <= tvb:len() then
             local msg_type = tvb(1, 1):uint()
+            -- Info 列: 单跳帧 MSDU 类型摘要(表114, 统一英文, 与内置列一致)
+            local sh_name = "Reserved"
+            if msg_type == 1 then sh_name = "Application Layer Message"
+            elseif msg_type == 2 then sh_name = "RF Discover List message"
+            elseif msg_type == 128 then sh_name = "IPv4 Packet"
+            elseif msg_type >= 3 and msg_type <= 127 then sh_name = "Reserved (mgmt extension)" end
+            pinfo.cols.info = tostring(pinfo.cols.info) .. " " .. sh_name
             if msg_type == 2 then
                 -- 无线发现列表(表214): 站点MAC 6B + 统计序号 1B + IE TLV(表215 类型0-3)
                 local rtree = mac_tree:add(nw, tvb(4, msdu_len), T("无线发现列表", "RF DiscoverNodeList"))
@@ -1907,6 +2070,15 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
                             itree:add(f.rf_attr_min, tvb(pos+11, 1))
                             itree:add(f.rf_attr_period, tvb(pos+12, 1))
                             itree:add(f.rf_attr_aging, tvb(pos+13, 1))
+                        elseif ie_type == 1 then
+                            -- 站点路由信息(表218)
+                            dissect_rf_route_info(tvb, itree, pos, elen)
+                        elseif ie_type == 2 then
+                            -- 邻居信道信息 非位图版(表219/220)
+                            dissect_rf_channel_non_bitmap(tvb, itree, pos, elen)
+                        elseif ie_type == 3 then
+                            -- 邻居信道信息 位图版(表226/227)
+                            dissect_rf_channel_bitmap(tvb, itree, pos, elen)
                         end
                     end
                     pos = pos + elen
@@ -1965,6 +2137,17 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
     local odmac = lookup_tei_mac(snid, dst_tei)
     if odmac then ods = ods .. " [" .. odmac .. "]" end
     tree:add(f.col_orig_dst, tvb(4, 2), ods)
+    local oss
+    if src_tei == 0xFFF then
+        oss = T("广播 (TEI 4095)", "Broadcast (TEI 4095)")
+    elseif src_tei == 1 then
+        oss = T("CCO (TEI 1)", "CCO (TEI 1)")
+    else
+        oss = string.format(T("STA (TEI %d)", "STA (TEI %d)"), src_tei)
+    end
+    local osmac = lookup_tei_mac(snid, src_tei)
+    if osmac then oss = oss .. " [" .. osmac .. "]" end
+    tree:add(f.col_orig_src, tvb(5, 2), oss)
     local dir_mark = ""
     if src_tei == 1 and dst_tei ~= 0xFFF then
         dir_mark = T(" ↓下行", " ↓Downlink")
