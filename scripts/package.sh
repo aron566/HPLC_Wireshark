@@ -37,6 +37,14 @@ windeployqt --release --no-translations --no-system-d3d-compiler \
     release/BPLC_STA_Monitor.exe
 # 防本机 config.ini 被打包:用户配置文件永不属于安装包(升级时旧配置保留)
 rm -f release/config.ini
+# 产物新鲜度自检: exe 必须不早于最新源码 —— 否则"改了头文件但 make 只重链接、
+# 依赖的 .cpp 没重编"就会让修复悄悄不进包(code-review-bot 实测踩到过)。
+# 判据用 mtime 比较, 不用字符串查找(源码里是 path + ".bak" 拼接, 字符串不连续)。
+STALE=$(find src main.cpp BPLC_STA_Monitor.pro -newer release/BPLC_STA_Monitor.exe 2>/dev/null | head -1)
+if [ -n "$STALE" ]; then
+    echo "::error::release/BPLC_STA_Monitor.exe 比源码旧($STALE) —— 修复可能未编入包"
+    exit 1
+fi
 # crashpad_handler.exe:崩溃转储的进程外组件,必须与主 exe 同目录,
 # 否则 CrashHandler::install() 失败回退(无崩溃转储)。
 HANDLER_BIN="3rdparty/install/crashpad/bin/crashpad_handler.exe"
