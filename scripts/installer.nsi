@@ -57,20 +57,16 @@ Section "主程序" SEC_MAIN
   RMDir /r "$INSTDIR\tls"
   RMDir /r "$INSTDIR\iconengines"
   RMDir /r "$INSTDIR\imageformats"
-  ; 升级保留用户配置文件:即便包内带 config.ini 也不覆盖已存在的配置
-  ; (全新安装目录无文件时正常写入默认)
-  SetOverwrite off
-  ; 示范配置(参考 Linux 包): 让用户看到可配置项与默认值。
-  ; 用户自己的 config.ini 永不入包(升级时保留), 程序首次启动会自行生成。
-  File /oname=config.ini.example "${SRC}\config.ini.example"
-  SetOverwrite on
+  ; 用户自己的 config.ini 与示范模板都【不入包】: 配置文件由程序首次启动时
+  ; 自动生成(带中文注释的完整模板), 升级时用户已有配置原样保留。
+  ; 下面的 /x "*.ini" 是防泄漏的第二道闸(File /r 递归匹配, *.ini 也会被 *.* 命中)。
   ; 清旧版残留 DLL(升级时旧 DLL 可能多余;先删后写保证新包干净)
   ; 注意: "${SRC}\*.*" 这类通配对**非 ASCII 文件名会漏项** —— 实测中文名 PDF
   ; (BPLC_STA_Monitor使用说明书.pdf / Wireshark插件使用说明.pdf)根本没进包,
   ; 中文用户装完看不到中文使用手册。故这里 /x "*.pdf" 排除通配, 再显式列出 4 份。
   ; 本脚本为 UTF-8 with BOM, NSIS 3 Unicode 模式支持中文路径。
-  ; 注意: /x "*.ini" 只作用于上面那条通配 File —— 示范配置 config.ini.example 是用
-  ; 独立的 File /oname=... 显式列出的, 不受 /x 影响(NSIS 的 /x 只过滤通配匹配)。
+  ; 注意: /x 只过滤上面那条通配 File; NSIS 按**文件名**匹配, 所以 *.ini 挡不住
+  ; "config.ini.example" 这种以 .example 结尾的文件 ⇒ 另加 /x "*.example"。
   ; 另注: NSIS 的 File 指令**不支持 "source destination" 双参数**(第二个参数会被当 source),
   ; 且省略 destination 时 destination = source 的**文件名**(不含目录) —— 会把 PDF 装到安装根目录。
   ; 故用 /oname=<目标路径> 单文件形式(注意 /oname 后的值**不能加引号**, 否则引号会被当名字的一部分)。
@@ -78,7 +74,7 @@ Section "主程序" SEC_MAIN
   ; 但万一有人把拷贝逻辑改回 cp -r 整目录, 这里的 /x 是最后一道闸 —— 开发期回归样本与调试产物
   ; (pcap/bin/txt/生成器/DESIGN.md/test_2026)绝不能进安装包。
   ; (NSIS 安装器自身的 $PLUGINSDIR/ 资源不在 ${SRC} 下, 不会被这里影响)
-  File /r /x "*.o" /x "*.obj" /x "*.res" /x "*.cpp" /x "*.h" /x "mocinclude.opt" /x "object_script*" /x "Makefile*" /x ".qmake.stash" /x "*.pdf" /x "*.pcap" /x "*.pcapng" /x "*.bin" /x "*.ini" /x "*.txt" /x "gen_*.py" /x "DESIGN.md" /x "test_2026" "${SRC}\*.*"
+  File /r /x "*.o" /x "*.obj" /x "*.res" /x "*.cpp" /x "*.h" /x "mocinclude.opt" /x "object_script*" /x "Makefile*" /x ".qmake.stash" /x "*.pdf" /x "*.pcap" /x "*.pcapng" /x "*.bin" /x "*.ini" /x "*.example" /x "*.txt" /x "gen_*.py" /x "DESIGN.md" /x "test_2026" "${SRC}\*.*"
   File /oname=docs\BPLC_STA_Monitor使用说明书.pdf "${SRC}\docs\BPLC_STA_Monitor使用说明书.pdf"
   File /oname=docs\BPLC_STA_Monitor_User_Manual_EN.pdf "${SRC}\docs\BPLC_STA_Monitor_User_Manual_EN.pdf"
   File /oname=wireshark_support_plugins\Wireshark插件使用说明.pdf "${SRC}\wireshark_support_plugins\Wireshark插件使用说明.pdf"
