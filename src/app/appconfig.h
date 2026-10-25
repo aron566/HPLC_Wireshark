@@ -22,24 +22,22 @@ inline QString ini_path() {
 /// @brief 配置文件读写句柄(IniFormat,UTF-8)
 inline QSettings settings() { return QSettings(ini_path(), QSettings::IniFormat); }
 
-/// @brief 把旧格式 ini 的 [general] 普通段改名为 QSettings 组段 [%general]
+/// @brief 把旧格式 ini 的保留段 [general]/[General] 迁移为非保留段 [app]
 /// @details 实测(QSettings 6.11, IniFormat) 的 ini 解析规则:
-///          · 段名带 % 的是**组段**, 键读作 "<组名>/<键>";
-///          · 普通段(不带 %、非保留名)的键同样读作 "<段名>/<键>";
+///          · 普通段(非保留名, 如 [app]/[reader]/[crash])的键读作 "<段名>/<键>";
 ///          · 但 "General"/"general" 是 QSettings 的**保留默认组名**, 其键映射到
-///            顶层(不带组前缀) —— 于是 value("general/protocol") 读不到,
+///            顶层(不带组前缀) —— 于是 value("app/protocol") 读不到,
 ///            南网帧被国网解析器 DROP, 且用户手改 config.ini 完全无效。
-///          QSettings 自己写出时用的正是 [%General] 形式。
-///          故只把 [general]/[General] 改名加 % 前缀 —— [reader]/[crash] 等普通段本就正常, 不能动。
-///          已是组段(含 "[%")的文件不动(那是 QSettings 自己写过的)。
+///          故把保留名段 [general]/[General] 迁移为非保留段 [app] —— [reader]/[crash] 等普通段本就正常, 不能动。
+///          已是 [app] 段的文件不动。
 inline void migrate_ini_groups(const QString& path) {
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) return;
     const QByteArray data = f.readAll();
     f.close();
-    if (data.contains("[%")) return;               // 已是组段格式
+    if (data.contains("[app]")) return;               // 已是组段格式
     QByteArray out = data;
-    // 精确替换段头行 "[general]"/"[General]" → "[%general]"/"[%General]"(只在行首, 允许前导空白)
+    // 精确替换段头行 "[general]"/"[General]" → "[app]"(只在行首, 允许前导空白)
     // 旧版本代码会把 [general] 规范化成 [General](大写), 故两种大小写都要迁移
     const char kLf = 10;
     const char kCr = 13;
@@ -57,8 +55,8 @@ inline void migrate_ini_groups(const QString& path) {
             pos += from.size();
         }
     };
-    replace_group("[general]", "[%general]");
-    replace_group("[General]", "[%General]");
+    replace_group("[general]", "[app]");
+    replace_group("[General]", "[app]");
     if (out == data) return;
     // 先备份再改写, 出问题可回退
     QFile::remove(path + ".bak");
@@ -78,7 +76,7 @@ inline void ensure_default_file() {
         "; BPLC STA Monitor 配置文件(首次启动自动生成,删除后下次启动重建)\n"
         "; BPLC STA Monitor configuration (auto-generated)\n"
         "\n"
-        "[%general]\n"
+        "[app]\n"
         "; 语言:auto=跟随系统 / zh=中文 / en=English\n"
         "lang=auto\n"
         "; 更新检查地址(update.json 清单)\n"
@@ -117,57 +115,57 @@ inline void ensure_default_file() {
     if (f.open(QIODevice::WriteOnly)) f.write(tmpl);
 }
 
-// ---- general ----
+// ---- app ----
 inline QString update_url() {
     ensure_default_file();
-    return settings().value(QStringLiteral("general/update_url"),
+    return settings().value(QStringLiteral("app/update_url"),
         QStringLiteral("https://raw.githubusercontent.com/aron566/HPLC_Wireshark/main/update.json"))
         .toString();
 }
 inline void set_update_url(const QString& url) {
-    settings().setValue(QStringLiteral("general/update_url"), url);
+    settings().setValue(QStringLiteral("app/update_url"), url);
 }
 
 inline QString lang() {
     ensure_default_file();
-    return settings().value(QStringLiteral("general/lang"), QStringLiteral("auto")).toString();
+    return settings().value(QStringLiteral("app/lang"), QStringLiteral("auto")).toString();
 }
 inline void set_lang(const QString& v) {
-    settings().setValue(QStringLiteral("general/lang"), v);
+    settings().setValue(QStringLiteral("app/lang"), v);
 }
 
 inline QString filter() {
     ensure_default_file();
-    return settings().value(QStringLiteral("general/filter"), QString()).toString();
+    return settings().value(QStringLiteral("app/filter"), QString()).toString();
 }
 inline void set_filter(const QString& f) {
-    settings().setValue(QStringLiteral("general/filter"), f);
+    settings().setValue(QStringLiteral("app/filter"), f);
 }
 
 inline QString theme() {
     ensure_default_file();
-    return settings().value(QStringLiteral("general/theme"), QStringLiteral("auto")).toString();
+    return settings().value(QStringLiteral("app/theme"), QStringLiteral("auto")).toString();
 }
 inline void set_theme(const QString& t) {
-    settings().setValue(QStringLiteral("general/theme"), t);
+    settings().setValue(QStringLiteral("app/theme"), t);
 }
 
 inline bool auto_check() {
     ensure_default_file();
-    return settings().value(QStringLiteral("general/auto_check"), true).toBool();
+    return settings().value(QStringLiteral("app/auto_check"), true).toBool();
 }
 
 /// @brief 更新加速模式:auto(按出口区域)/ native(强制原生)/ proxy(强制代理)
 inline QString mirror_mode() {
     ensure_default_file();
-    return settings().value(QStringLiteral("general/mirror_mode"),
+    return settings().value(QStringLiteral("app/mirror_mode"),
                             QStringLiteral("auto")).toString().trimmed().toLower();
 }
 
 /// @brief 更新加速代理前缀列表(按序探活);config 留空时用内置实测可用三家
 inline QStringList mirror_list() {
     ensure_default_file();
-    const QString raw = settings().value(QStringLiteral("general/mirror_list"),
+    const QString raw = settings().value(QStringLiteral("app/mirror_list"),
                                          QString()).toString();
     QStringList out;
     for (QString s : raw.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
@@ -183,17 +181,17 @@ inline QStringList mirror_list() {
              QStringLiteral("https://ghproxy.net/") };
 }
 inline void set_auto_check(bool v) {
-    settings().setValue(QStringLiteral("general/auto_check"), v);
+    settings().setValue(QStringLiteral("app/auto_check"), v);
 }
 
 /// 协议变体:gw_2022=国网双模标准2022 / nw_2021=南网双模2021报批版
 inline QString protocol() {
     ensure_default_file();
-    return settings().value(QStringLiteral("general/protocol"),
+    return settings().value(QStringLiteral("app/protocol"),
                             QStringLiteral("gw_2026")).toString();
 }
 inline void set_protocol(const QString& v) {
-    settings().setValue(QStringLiteral("general/protocol"), v);
+    settings().setValue(QStringLiteral("app/protocol"), v);
 }
 
 // ---- reader ----
