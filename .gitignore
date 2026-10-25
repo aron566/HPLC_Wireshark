@@ -91,3 +91,7 @@ samples/*_3frames.pcap
 # 数据集 pcap 为 bin 的转换中间产物
 samples/test_topology_nw.pcap
 samples/test_topology_nw_p2.pcap
+
+# 本地新图标: 用户明确不提交(仅工作区使用)
+icons/rf_ref.png
+icons/rf_ref2.png
