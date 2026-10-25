@@ -1,16 +1,1 @@
-{
- "updates": {
-  "linux": {
-   "changelog": "拓扑UI增强:接入方式着色、节点聚焦跳转、TEI-MAC 交互暂停、NID 下拉防刷新;<br/>拓扑缩放锚点修复",
-   "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.7.0/BPLC_STA_Monitor_v1.7.0_linux_x86_64.tar.gz",
-   "latest-version": "1.7.0",
-   "mandatory-update": false
-  },
-  "windows": {
-   "changelog": "拓扑UI增强:接入方式着色、节点聚焦跳转、TEI-MAC 交互暂停、NID 下拉防刷新;<br/>拓扑缩放锚点修复",
-   "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.7.0/BPLC_STA_Monitor_Setup_v1.7.0.exe",
-   "latest-version": "1.7.0",
-   "mandatory-update": false
-  }
- }
-}
+{"updates": {"linux": {"changelog": "拓扑UI增强:接入方式着色、节点聚焦跳转、TEI-MAC 交互暂停、NID 下拉防刷新;<br/>拓扑缩放锚点修复", "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.7.0/BPLC_STA_Monitor_v1.7.0_linux_x86_64.tar.gz", "latest-version": "1.7.0", "mandatory-update": false}, "windows": {"changelog": "拓扑UI增强:接入方式着色、节点聚焦跳转、TEI-MAC 交互暂停、NID 下拉防刷新;<br/>拓扑缩放锚点修复", "download-url": "https://github.com/aron566/HPLC_Wireshark/releases/download/v1.7.0/BPLC_STA_Monitor_Setup_v1.7.0.exe", "latest-version": "1.7.0", "mandatory-update": false}}}
