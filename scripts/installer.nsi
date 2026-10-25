@@ -74,7 +74,7 @@ Section "主程序" SEC_MAIN
   ; 但万一有人把拷贝逻辑改回 cp -r 整目录, 这里的 /x 是最后一道闸 —— 开发期回归样本与调试产物
   ; (pcap/bin/txt/生成器/DESIGN.md/test_2026)绝不能进安装包。
   ; (NSIS 安装器自身的 $PLUGINSDIR/ 资源不在 ${SRC} 下, 不会被这里影响)
-  File /r /x "*.o" /x "*.obj" /x "*.res" /x "*.cpp" /x "*.h" /x "mocinclude.opt" /x "object_script*" /x "Makefile*" /x ".qmake.stash" /x "*.pdf" /x "*.pcap" /x "*.bin" /x "*.txt" /x "gen_*.py" /x "DESIGN.md" /x "test_2026" "${SRC}\*.*"
+  File /r /x "*.o" /x "*.obj" /x "*.res" /x "*.cpp" /x "*.h" /x "mocinclude.opt" /x "object_script*" /x "Makefile*" /x ".qmake.stash" /x "*.pdf" /x "*.pcap" /x "*.pcapng" /x "*.bin" /x "*.txt" /x "gen_*.py" /x "DESIGN.md" /x "test_2026" "${SRC}\*.*"
   File /oname=docs\BPLC_STA_Monitor使用说明书.pdf "${SRC}\docs\BPLC_STA_Monitor使用说明书.pdf"
   File /oname=docs\BPLC_STA_Monitor_User_Manual_EN.pdf "${SRC}\docs\BPLC_STA_Monitor_User_Manual_EN.pdf"
   File /oname=wireshark_support_plugins\Wireshark插件使用说明.pdf "${SRC}\wireshark_support_plugins\Wireshark插件使用说明.pdf"
