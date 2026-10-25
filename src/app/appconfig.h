@@ -26,7 +26,7 @@ inline QSettings settings() { return QSettings(ini_path(), QSettings::IniFormat)
 /// @details 实测(QSettings 6.11, IniFormat) 的 ini 解析规则:
 ///          · 普通段(非保留名, 如 [app]/[reader]/[crash])的键读作 "<段名>/<键>";
 ///          · 但 "General"/"general" 是 QSettings 的**保留默认组名**, 其键映射到
-///            顶层(不带组前缀) —— 于是 value("app/protocol") 读不到,
+///            顶层(不带组前缀) —— 于是 value("general/protocol") 读不到,
 ///            南网帧被国网解析器 DROP, 且用户手改 config.ini 完全无效。
 ///          故把保留名段 [general]/[General] 迁移为非保留段 [app] —— [reader]/[crash] 等普通段本就正常, 不能动。
 ///          已是 [app] 段的文件不动。
@@ -41,22 +41,27 @@ inline void migrate_ini_groups(const QString& path) {
     // 旧版本代码会把 [general] 规范化成 [General](大写), 故两种大小写都要迁移
     const char kLf = 10;
     const char kCr = 13;
-    auto replace_group = [&](const QByteArray& from, const QByteArray& to) {
+    // 大小写不敏感地匹配保留段名, 覆盖 [general]/[General]/[GENERAL] 等变体
+    // (QSettings 写回会把段名规范化成 [General]; 用户手写也可能用其它大小写)
+    {
+        const QByteArray probe("[general]");
+        const QByteArray target("[app]");
+        const int n = probe.size();
         int pos = 0;
-        while ((pos = out.indexOf(from, pos)) >= 0) {
-            const bool atLineStart = (pos == 0) || (out.at(pos - 1) == kLf) || (out.at(pos - 1) == kCr);
-            const bool exactEnd = (pos + from.size() >= out.size())
-                               || (out.at(pos + from.size()) == kLf) || (out.at(pos + from.size()) == kCr);
-            if (atLineStart && exactEnd) {
-                out.replace(pos, from.size(), to);
-                pos += to.size();
-                continue;
+        while ((pos = out.indexOf('[', pos)) >= 0) {
+            if (pos + n <= out.size() && out.mid(pos, n).toLower() == probe) {
+                const bool atLineStart = (pos == 0) || (out.at(pos - 1) == kLf) || (out.at(pos - 1) == kCr);
+                const bool exactEnd = (pos + n >= out.size())
+                                   || (out.at(pos + n) == kLf) || (out.at(pos + n) == kCr);
+                if (atLineStart && exactEnd) {
+                    out.replace(pos, n, target);
+                    pos += target.size();
+                    continue;
+                }
             }
-            pos += from.size();
+            pos += 1;
         }
-    };
-    replace_group("[general]", "[app]");
-    replace_group("[General]", "[app]");
+    }
     if (out == data) return;
     // 先备份再改写, 出问题可回退
     QFile::remove(path + ".bak");
