@@ -37,9 +37,11 @@ windeployqt --release --no-translations --no-system-d3d-compiler \
     release/BPLC_STA_Monitor.exe
 # 防本机 config.ini 被打包:用户配置文件永不属于安装包(升级时旧配置保留)
 rm -f release/config.ini
-# 运行期日志目录: 程序启动时会在 exe 同目录建 logs/(QsLog),
-# 而 installer.nsi 的 File /r 是递归的 ⇒ 增量打包时会把旧日志打进安装包。
-rm -rf release/logs
+# 运行期产物: 程序启动时会在 exe 同目录建 logs/(QsLog 日志目录) 与
+# crashpad_db/(崩溃转储数据库), 而 installer.nsi 的 File /r 是递归的
+# ⇒ 增量打包时会把上一轮的运行日志与转储数据库打进安装包(用户机器上会带着
+#   别人的运行痕迹)。两者一并清理。
+rm -rf release/logs release/crashpad_db
 # 产物新鲜度自检: exe 必须不早于最新源码 —— 否则"改了头文件但 make 只重链接、
 # 依赖的 .cpp 没重编"就会让修复悄悄不进包(code-review-bot 实测踩到过)。
 # 判据用 mtime 比较, 不用字符串查找(源码里是 path + ".bak" 拼接, 字符串不连续)。
