@@ -141,6 +141,8 @@ struct I18nReg {
         trl::register_en("未识别", "Unrecognized");
         trl::register_en("UL-OFDMA 数据帧，需 trigger 上下文（未捕获到对应 trigger）",
                          "UL-OFDMA Data Frame, Requires Trigger Context (No Matching Trigger Captured)");
+        trl::register_en("DL-OFDMA eFC CRC24 错(calc=%1 rx=%2)",
+                         "DL-OFDMA eFC CRC24 Error (calc=%1 rx=%2)");
     }
 };
 const I18nReg g_i18n_reg_nw2026_parser;
@@ -305,6 +307,20 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                     // PB 块自 p[32] 起(站点0),多站点其余站点 PB 依序随后
                     pb_base = 32;
                     const quint8* e = p + 16;
+                    // 表27 DL-OFDMA eFC 自带 CRC24(e[13..15]);FCH CRC 只覆盖前 16B,
+                    // 坏 eFC 会读出错误的 PB 数与 TMI ⇒ 分段全错 + 假 CRC FAIL
+                    {
+                        const quint32 calc = crc24_lsb(e, 16);
+                        const quint32 rx   = (quint32)e[13] | ((quint32)e[14] << 8) | ((quint32)e[15] << 16);
+                        if (calc != rx) {
+                            r.mpdu.pb_num  = 0;
+                            r.mpdu.pb_size = 0;
+                            r.reject_reason = trl::L("DL-OFDMA eFC CRC24 错(calc=%1 rx=%2)")
+                                              .arg(calc, 6, 16, QChar('0')).arg(rx, 6, 16, QChar('0'));
+                            r.accept = false;
+                            return r;
+                        }
+                    }
                     const quint8 st0_pbn_field = (quint8)get_bits(e, 0, 2, 1);
                     const quint8 st0_tmi       = (quint8)get_bits(e, 1, 7, 5);
                     r.mpdu.pb_num  = st0_pbn_field + 1;   // 表27/28:字段 0→1 块,1→2 块
@@ -535,12 +551,16 @@ static quint32 ofdma_full_snid(quint32 net_id_low4, const quint8* p) {
 void NW_2026_Parser::record_trigger_ctx(quint32 snid, const quint8* p, int raw_sz) {
     if (raw_sz < 32) return;
     const quint8* e = p + 16;                       // eFC @16, 16B(表28)
-    // eFC 自带 CRC24(e[13..15]):FCH CRC 只覆盖前 16B, eFC 损坏时不记录,
-    // 避免坏 TMI 毒化后续 UL 帧分段(旧上下文保留,靠 1024 帧失效兜底)
+    // eFC 自带 CRC24(e[13..15]):FCH CRC 只覆盖前 16B, eFC 损坏时该 SNID 旧上下文
+    // 一并作废——保留旧值会让后续 UL 帧按"上一个有效 trigger"的布局解出看似合理的
+    // 结果,用户看不出异常;明确"需 trigger 上下文"才是正确信号
     {
         const quint32 calc = crc24_lsb(e, 16);
         const quint32 rx   = (quint32)e[13] | ((quint32)e[14] << 8) | ((quint32)e[15] << 16);
-        if (calc != rx) return;
+        if (calc != rx) {
+            m_trigger_ctx.remove(snid);
+            return;
+        }
     }
     const int sn = (p[4] >> 6) & 0x03;              // 站点数-1(0=1站..3=4站)
     TriggerCtx ctx;

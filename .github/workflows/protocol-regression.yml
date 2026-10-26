@@ -50,3 +50,12 @@ jobs:
           qmake6 ../../samples/roundtrip/roundtrip.pro CONFIG+=release CONFIG-=debug
           make -j2
           ./roundtrip "$GITHUB_WORKSPACE/samples/roundtrip/roundtrip_test.bin" "$GITHUB_WORKSPACE/samples/roundtrip/roundtrip_test.txt"
+
+      - name: NW2026 OFDMA type1 regression
+        run: |
+          python3 wireshark_support_plugins/build_nw2026_ul_ofdma.py
+          cd samples && mkdir -p build_type1_build && cd build_type1_build
+          qmake6 ../nw2026_type1_test.pro CONFIG+=release CONFIG-=debug 'QMAKE_CXXFLAGS+=-Wall -Wextra -Werror'
+          make -j2
+          cd "$GITHUB_WORKSPACE"
+          ./samples/build_type1_build/nw2026_type1_test

@@ -292,6 +292,42 @@ def build_dl_sack():
     return bytes(fch) + bytes(pb)
 
 
+def build_dl_ofdma():
+    """Type 0 DL-OFDMA, 168B: FCH + table-27 eFC + sta0 1x136B PB.
+
+    eFC (table 27, same geometry as table 28): TF count 2b + sta0 PB 1b +
+    TEI 12b + TMI 5b + RU 4b + SACK RU 3b; CRC24 at bytes 13-15. PB at byte
+    32 (FCH 16 + eFC 16).
+    """
+    fch = fch_base(src_tei=1, dst_tei=0xFFFF, ofdma_type=0,
+                   station_count_code=0, pl_symbols=100, frame_len=0x200)
+    e = bytearray(16)
+    bp = 0
+
+    def put(nbits, value):
+        nonlocal bp
+        set_bits(e, bp // 8, bp % 8, nbits, value)
+        bp += nbits
+
+    put(2, 0)      # TF count code 0
+    put(1, 0)      # sta0 PB 1 (0 -> 1 block)
+    put(12, 2)     # TEI 2
+    put(5, 18)     # TMI 18 -> 136B
+    put(4, 5)      # RU 5
+    put(3, 0)      # SACK RU 0
+    store_crc24(e, 0, 16)
+    out = bytearray(fch) + bytearray(e)
+    out += pb_block(136, 0, "DL-OFDMA-")
+    return bytes(out)
+
+
+def build_dl_ofdma_badefc():
+    """DL-OFDMA with eFC body corrupted (1 bit flipped, FCH CRC intact)."""
+    d = bytearray(build_dl_ofdma())
+    d[16 + 5] ^= 0x01    # flip 1 bit in eFC body (not the CRC bytes 13-15)
+    return bytes(d)
+
+
 def verify(frame, name):
     """Independent re-check: FCH FCS + per-block PBCS + table-26 field reads."""
     fch_ok = crc24_lsb(frame, 16) == (frame[13] | (frame[14] << 8) | (frame[15] << 16))
@@ -312,13 +348,17 @@ def main():
     ul_hi = build_ul_data_hi()
     trig26 = build_trigger_tmi26()
     ul16 = build_ul_single16()
+    dl = build_dl_ofdma()
+    dl_bad = build_dl_ofdma_badefc()
     for data, name, fn in ((trig, "trigger", "nw2026_trigger.bin"),
                            (ul, "ul_data", "nw2026_ul_ofdma_data.bin"),
                            (sack, "dl_sack", "nw2026_dl_sack.bin"),
                            (trig_hi, "trigger_hi", "nw2026_trigger_hisnid.bin"),
                            (ul_hi, "ul_data_hi", "nw2026_ul_ofdma_data_hisnid.bin"),
                            (trig26, "trigger_tmi26", "nw2026_trigger_tmi26.bin"),
-                           (ul16, "ul_single16", "nw2026_ul_single16.bin")):
+                           (ul16, "ul_single16", "nw2026_ul_single16.bin"),
+                           (dl, "dl_ofdma", "nw2026_dl_ofdma.bin"),
+                           (dl_bad, "dl_ofdma_badefc", "nw2026_dl_ofdma_badefc.bin")):
         with open(os.path.join(OUT, fn), "wb") as fh:
             fh.write(data)
         ok = verify(data, name)

@@ -18,8 +18,8 @@ static void check(bool ok, const char* what) {
 static BplcFrame load(const char* fn) {
     QFile f(QString::fromLocal8Bit(fn));
     if (!f.open(QIODevice::ReadOnly)) {
-        // 测试帧由 wireshark_support_plugins/build_nw2026_ul_ofdma.py 生成并入库;
-        // 缺文件时明示原因,不要静默按空帧跑出一串误导性 FAIL
+        // 测试帧由 wireshark_support_plugins/build_nw2026_ul_ofdma.py 生成,不入库
+        // (仓库政策:数据集一律由脚本确定性重建);缺文件时明示原因,不要静默按空帧跑
         printf("FAIL: cannot open %s (regenerate with build_nw2026_ul_ofdma.py)\n", fn);
         exit(2);
     }
@@ -106,15 +106,23 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    {   // eFC CRC 损坏的 trigger 不记录上下文(FCH 只覆盖前 16B,翻 eFC 内 1bit)
+    {   // B: 坏 trigger 使旧上下文作废(先有效 trigger 建立,再坏 trigger 作废,再 UL 帧)
         NW_2026_Parser p5;
+        p5.parse(load("wireshark_support_plugins/nw2026_trigger.bin"), msdu, flt);   // 有效 trigger 建立上下文
         BplcFrame bad = load("wireshark_support_plugins/nw2026_trigger.bin");
         bad.data[1 + 20] = char(bad.data[1 + 20] ^ 0x01);   // isRF 前缀 1B + eFC 内字节
         auto rt5 = p5.parse(bad, msdu, flt);
         check(rt5.accept, "bad-efc trigger itself still accepted (FCH OK)");
         auto r = p5.parse(load("wireshark_support_plugins/nw2026_ul_ofdma_data.bin"), msdu, flt);
-        check(r.mpdu.sof_stations.isEmpty(), "bad-efc trigger records no context");
+        check(r.mpdu.sof_stations.isEmpty(), "bad-efc invalidates old context (not 2-station)");
         check(r.msdu.present && r.msdu.summary.contains(QStringLiteral("需 trigger")), "bad-efc summary 含「需 trigger」");
+    }
+
+    {   // A: DL-OFDMA eFC CRC 错(翻 eFC 体 1bit,FCH CRC 正确) → 拒绝 + pb_num=0
+        NW_2026_Parser pA;
+        auto r = pA.parse(load("wireshark_support_plugins/nw2026_dl_ofdma_badefc.bin"), msdu, flt);
+        check(!r.accept && r.reject_reason.contains(QStringLiteral("eFC CRC24")), "badefc DL-OFDMA reject 含 eFC CRC24");
+        check(r.mpdu.pb_num == 0, "badefc DL-OFDMA pb_num=0");
     }
 
     printf(fails ? "RESULT: FAIL (%d)\n" : "RESULT: PASS\n", fails);
