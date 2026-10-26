@@ -185,11 +185,11 @@ static const FieldSpec kLiteStaSlotSpec[] = {
     {"Role",             3, 0, 4,  Fmt::DEC},   // 角色(0x0 未知/0x1 STA/0x2 PCO/0x4 CCO)
     {"Level",            3, 4, 4,  Fmt::DEC},   // 层级数
     {"BeaconSTAMAC",     4, 0, 48, Fmt::MAC},   // 发送信标站点 MAC
-    {"RFLinkHop",        8, 0, 4,  Fmt::DEC},   // 链路上 RF 跳数
-    {"CarrierBand",      8, 4, 2,  Fmt::DEC},   // 载波频段(表156)
-    {"RSV0",             8, 6, 2,  Fmt::DEC},   // 保留
-    {"CSMASlotStartNTB", 9, 0, 32, Fmt::HEX8},  // CSMA 时隙开始时间(NTB)
-    {"CSMASlotLen",     13, 0, 16, Fmt::DEC},   // CSMA 时隙长度(毫秒)
+    {"RFLinkHop",       10, 0, 4,  Fmt::DEC},   // 链路上 RF 跳数(表155 byte12,内容坐标=12-2)
+    {"CarrierBand",     10, 4, 2,  Fmt::DEC},   // 载波频段(表156)(表155 byte12 bit4-5)
+    {"RSV0",            10, 6, 2,  Fmt::DEC},   // 保留(表155 byte12 bit6-7)
+    {"CSMASlotStartNTB",11, 0, 32, Fmt::HEX8},  // CSMA 时隙开始时间(NTB)(表155 byte13-16)
+    {"CSMASlotLen",     15, 0, 16, Fmt::DEC},   // CSMA 时隙长度(毫秒)(表155 byte17-18)
 };
 static const int kLiteStaSlotSpecN = int(sizeof(kLiteStaSlotSpec) / sizeof(kLiteStaSlotSpec[0]));
 

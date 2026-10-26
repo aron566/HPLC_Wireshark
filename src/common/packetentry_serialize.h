@@ -156,6 +156,21 @@ inline void write_mpdu(QDataStream& s, const MpduInfo& m) {
     write_u16(s, m.beacon_rsv);    // 追加末尾(信标保留原始值)
     write_u8(s, m.pblen);          // 追加末尾(南网无线载荷PB大小索引)
     write_u8(s, m.mcs);            // 追加末尾(无线 MCS)
+    // v11 补: SOF/信标/ACK 物理层参数(换页后不丢,13 个 quint8)
+    write_u8(s, m.sof_data_type);
+    write_u8(s, m.sof_tf_symbol_pos);
+    write_u8(s, m.sof_tf_symbol_num);
+    write_u8(s, m.sof_fch_sym_num);
+    write_u8(s, m.sof_mod_mode);
+    write_u8(s, m.sof_mod_param);
+    write_u8(s, m.sof_band);
+    write_u8(s, m.sof_gain);
+    write_u8(s, m.sof_load_table_id);
+    write_u8(s, m.beacon_fch_sym);
+    write_u8(s, m.ack_bru_snr_flag);
+    write_u8(s, m.ack_sat_id_flag);
+    write_u8(s, m.ack_remain_sta_num);
+    write_bool(s, m.fch_crc_checked);  // v12 补: FCH CRC 三态(未校验/通过/失败)
 }
 
 inline void read_mpdu(QDataStream& s, MpduInfo& m) {
@@ -220,6 +235,21 @@ inline void read_mpdu(QDataStream& s, MpduInfo& m) {
     read_u16(s, m.beacon_rsv);    // 追加末尾(信标保留原始值)
     read_u8(s, m.pblen);          // 追加末尾(南网无线载荷PB大小索引)
     read_u8(s, m.mcs);            // 追加末尾(无线 MCS)
+    // v11 补: SOF/信标/ACK 物理层参数(换页后不丢,13 个 quint8)
+    read_u8(s, m.sof_data_type);
+    read_u8(s, m.sof_tf_symbol_pos);
+    read_u8(s, m.sof_tf_symbol_num);
+    read_u8(s, m.sof_fch_sym_num);
+    read_u8(s, m.sof_mod_mode);
+    read_u8(s, m.sof_mod_param);
+    read_u8(s, m.sof_band);
+    read_u8(s, m.sof_gain);
+    read_u8(s, m.sof_load_table_id);
+    read_u8(s, m.beacon_fch_sym);
+    read_u8(s, m.ack_bru_snr_flag);
+    read_u8(s, m.ack_sat_id_flag);
+    read_u8(s, m.ack_remain_sta_num);
+    read_bool(s, m.fch_crc_checked);   // v12 补: FCH CRC 三态(未校验/通过/失败)
 }
 
 inline void write_field_node(QDataStream& s, const MsduFieldNode& n, StrPool& pool) {
@@ -258,6 +288,37 @@ inline void write_topo_event(QDataStream& s, const TopoEvent& t, StrPool& pool) 
     for (const CommRateInfo& c : t.comm_rates) { write_u16(s, c.tei); write_u8(s, c.down); write_u8(s, c.up); }
     write_str(s, t.desc, pool);
     write_i64(s, t.epoch_ms);
+    // v11 补: 换页后不丢的 23 个拓扑字段(与 read_topo_event 逐行对应)
+    write_u32(s, quint32(t.up_routes.size()));
+    for (const auto& r : t.up_routes) { write_u16(s, r.first); write_u16(s, r.second); }
+    write_u16(s, t.discover_src_tei);
+    write_u32(s, quint32(t.neighbor_teis.size()));
+    for (quint16 tei : t.neighbor_teis) write_u16(s, tei);
+    write_bool(s, t.neighbor_teis_present);
+    write_bool(s, t.is_rf);
+    write_bool(s, t.is_rf_known);
+    write_u32(s, quint32(t.rssi_entries.size()));
+    for (const auto& p : t.rssi_entries) { write_u16(s, p.first); write_i32(s, p.second); }
+    write_u32(s, quint32(t.neighbor_rates.size()));
+    for (const auto& p : t.neighbor_rates) { write_u16(s, p.first); write_u8(s, p.second); }
+    write_u32(s, quint32(t.neighbor_snrs.size()));
+    for (const auto& p : t.neighbor_snrs) { write_u16(s, p.first); write_u16(s, static_cast<quint16>(p.second)); }
+    write_u16(s, t.proxy_tei);
+    write_u16(s, static_cast<quint16>(t.proxy_up_rate));
+    write_u16(s, static_cast<quint16>(t.proxy_down_rate));
+    write_u16(s, static_cast<quint16>(t.min_link_rate));
+    write_u8(s, t.rf_hop);
+    write_u8(s, t.rf_role);
+    write_i32(s, t.link_type);
+    write_u32(s, quint32(t.node_link_types.size()));
+    for (const auto& p : t.node_link_types) { write_u16(s, p.first); write_u8(s, p.second); }
+    write_i32(s, t.proxy_comm_rate);
+    write_i32(s, t.proxy_down_comm_rate);
+    write_u16(s, static_cast<quint16>(t.min_comm_rate));
+    write_u32(s, quint32(t.child_teis.size()));
+    for (quint16 tei : t.child_teis) write_u16(s, tei);
+    write_i32(s, t.restart_count);
+    write_i64(s, t.frame_index);
 }
 
 inline void read_topo_event(QDataStream& s, TopoEvent& t,
@@ -282,11 +343,50 @@ inline void read_topo_event(QDataStream& s, TopoEvent& t,
     }
     read_str(s, t.desc, table);
     read_i64(s, t.epoch_ms);
+    // v11 补: 换页后不丢的 23 个拓扑字段(与 write_topo_event 逐行对应)
+    quint32 urc = 0; read_u32(s, urc);
+    t.up_routes.clear(); t.up_routes.reserve(int(urc));
+    for (quint32 i = 0; i < urc; ++i) { quint16 a = 0, b = 0; read_u16(s, a); read_u16(s, b); t.up_routes.append({a, b}); }
+    read_u16(s, t.discover_src_tei);
+    quint32 ntc = 0; read_u32(s, ntc);
+    t.neighbor_teis.clear(); t.neighbor_teis.reserve(int(ntc));
+    for (quint32 i = 0; i < ntc; ++i) { quint16 tei = 0; read_u16(s, tei); t.neighbor_teis.append(tei); }
+    read_bool(s, t.neighbor_teis_present);
+    read_bool(s, t.is_rf);
+    read_bool(s, t.is_rf_known);
+    quint32 rsc = 0; read_u32(s, rsc);
+    t.rssi_entries.clear(); t.rssi_entries.reserve(int(rsc));
+    for (quint32 i = 0; i < rsc; ++i) { quint16 a = 0; qint32 b = 0; read_u16(s, a); read_i32(s, b); t.rssi_entries.append({a, b}); }
+    quint32 nrc = 0; read_u32(s, nrc);
+    t.neighbor_rates.clear(); t.neighbor_rates.reserve(int(nrc));
+    for (quint32 i = 0; i < nrc; ++i) { quint16 a = 0; quint8 b = 0; read_u16(s, a); read_u8(s, b); t.neighbor_rates.append({a, b}); }
+    quint32 nsc = 0; read_u32(s, nsc);
+    t.neighbor_snrs.clear(); t.neighbor_snrs.reserve(int(nsc));
+    for (quint32 i = 0; i < nsc; ++i) { quint16 a = 0; quint16 b = 0; read_u16(s, a); read_u16(s, b); t.neighbor_snrs.append({a, static_cast<qint16>(b)}); }
+    read_u16(s, t.proxy_tei);
+    quint16 pur = 0; read_u16(s, pur); t.proxy_up_rate = static_cast<qint16>(pur);
+    quint16 pdr = 0; read_u16(s, pdr); t.proxy_down_rate = static_cast<qint16>(pdr);
+    quint16 mlr = 0; read_u16(s, mlr); t.min_link_rate = static_cast<qint16>(mlr);
+    read_u8(s, t.rf_hop);
+    read_u8(s, t.rf_role);
+    read_i32(s, t.link_type);
+    quint32 nltc = 0; read_u32(s, nltc);
+    t.node_link_types.clear(); t.node_link_types.reserve(int(nltc));
+    for (quint32 i = 0; i < nltc; ++i) { quint16 a = 0; quint8 b = 0; read_u16(s, a); read_u8(s, b); t.node_link_types.append({a, b}); }
+    read_i32(s, t.proxy_comm_rate);
+    read_i32(s, t.proxy_down_comm_rate);
+    quint16 mcr = 0; read_u16(s, mcr); t.min_comm_rate = static_cast<qint16>(mcr);
+    quint32 ctc = 0; read_u32(s, ctc);
+    t.child_teis.clear(); t.child_teis.reserve(int(ctc));
+    for (quint32 i = 0; i < ctc; ++i) { quint16 tei = 0; read_u16(s, tei); t.child_teis.append(tei); }
+    read_i32(s, t.restart_count);
+    read_i64(s, t.frame_index);
 }
 
 inline void write_msdu_info(QDataStream& s, const MsduInfo& m, StrPool& pool) {
     write_bool(s, m.present);
     write_bool(s, m.simple_head);
+    write_bool(s, m.cascade);          // 聚合帧级联标记(SPLC 表47/48)
     write_u16(s, m.msdu_seq);
     write_i32(s, m.msdu_src_tei);
     write_i32(s, m.msdu_dst_tei);
@@ -315,6 +415,7 @@ inline void read_msdu_info(QDataStream& s, MsduInfo& m,
                            const QVector<QString>& table) {
     read_bool(s, m.present);
     read_bool(s, m.simple_head);
+    read_bool(s, m.cascade);           // 聚合帧级联标记(SPLC 表47/48)
     read_u16(s, m.msdu_seq);
     read_i32(s, m.msdu_src_tei);
     read_i32(s, m.msdu_dst_tei);
@@ -419,7 +520,7 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
 // ---------------------------------------------------------------------------
 
 inline quint32 block_magic()   { return 0x50424C4Bu; }  // "PBLK"
-inline quint32 block_version() { return 10u; }  // v10: 删死字段 pb_index/coord_option/ack_search_freq;补写 coord_rsv1/2/3(树渲染依赖,原先漏写导致换页后恒 0);v9 增 mcs;v8 增 pblen;v7 增 beacon_rsv;v6 三线合流并集
+inline quint32 block_version() { return 12u; }  // v12: 补 fch_crc_checked(FCH CRC 三态);v11: 补 MsduInfo::cascade + TopoEvent 23 字段 + MpduInfo 13 字段;v10: 删死字段 pb_index/coord_option/ack_search_freq;补写 coord_rsv1/2/3(树渲染依赖,原先漏写导致换页后恒 0);v9 增 mcs;v8 增 pblen;v7 增 beacon_rsv;v6 三线合流并集
 /// @brief 独立压缩分块的条目数(随机解码粒度:解一条最多解压一个分块)
 inline constexpr int kBlockChunkEntries = 50;
 

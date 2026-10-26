@@ -18,6 +18,41 @@ static MsduFieldNode node(const QString& n, const QString& v, int rs, int rl) {
     return f;
 }
 
+static void fill_topo(TopoEvent& t, int i) {
+    t.kind = TopoEventKind::DiscoverList;
+    t.nid = quint32(i);
+    t.cco_mac = 0x112233445566ULL;
+    t.nodes.append({quint16(i), 0xDEADBEEF0000ULL + quint64(i)});
+    t.routes.append({quint16(i), quint16(i + 9)});
+    t.up_routes.append({quint16(i), quint16(i + 1)});
+    t.discover_src_tei = quint16(i + 2);
+    t.neighbor_teis.append(quint16(i + 3));
+    t.neighbor_teis_present = (i % 2 == 0);
+    t.leaves.append(0xCAFEBABE0000ULL + quint64(i));
+    t.comm_rates.append({quint16(i), quint8(i % 101), quint8((i + 1) % 101)});
+    t.is_rf = (i % 2 == 1);
+    t.is_rf_known = true;
+    t.rssi_entries.append({quint16(i), -40 + i});
+    t.neighbor_rates.append({quint16(i), quint8(i % 101)});
+    t.neighbor_snrs.append({quint16(i), qint16((i % 40) - 10)});
+    t.proxy_tei = quint16(i + 4);
+    t.proxy_up_rate = qint16(i % 101);
+    t.proxy_down_rate = qint16((i + 1) % 101);
+    t.min_link_rate = qint16((i + 2) % 101);
+    t.rf_hop = quint8(i % 16);
+    t.rf_role = quint8(i % 5);
+    t.link_type = (i % 2);
+    t.node_link_types.append({quint16(i), quint8(i % 2)});
+    t.proxy_comm_rate = qint32(i % 101);
+    t.proxy_down_comm_rate = qint32((i + 1) % 101);
+    t.min_comm_rate = qint16((i + 3) % 101);
+    t.child_teis.append(quint16(i + 5));
+    t.restart_count = (i % 16);
+    t.desc = QStringLiteral("topo-%1").arg(i);
+    t.epoch_ms = 1700000000000LL + i * 1000;
+    t.frame_index = qint64(i);
+}
+
 static PacketEntry make_entry(int i) {
     PacketEntry e;
     e.index = i; e.epoch_ms = 1700000000000LL + i; e.delta_us = 1000 + i;
@@ -34,6 +69,21 @@ static PacketEntry make_entry(int i) {
     e.mpdu.mcs = quint8(i % 7);            // 覆盖无线 MCS(表28/129 0-6)序列化 round-trip
     e.mpdu.beacon_rsv = quint16(i % 1024); // 覆盖信标保留原始值(无线16b/载波9b)序列化 round-trip
     e.mpdu.beacon_cco_mac = 0x112233445566ULL;
+    // v11: MpduInfo SOF/信标/ACK 13 字段(换页后不丢,非默认值且互不相同)
+    e.mpdu.sof_data_type      = quint8(1 + i % 255);
+    e.mpdu.sof_tf_symbol_pos  = quint8(2 + i % 254);
+    e.mpdu.sof_tf_symbol_num  = quint8(3 + i % 253);
+    e.mpdu.sof_fch_sym_num    = quint8(4 + i % 252);
+    e.mpdu.sof_mod_mode       = quint8(5 + i % 251);
+    e.mpdu.sof_mod_param      = quint8(6 + i % 250);
+    e.mpdu.sof_band           = quint8(7 + i % 249);
+    e.mpdu.sof_gain           = quint8(8 + i % 248);
+    e.mpdu.sof_load_table_id  = quint8(9 + i % 247);
+    e.mpdu.beacon_fch_sym     = quint8(10 + i % 246);
+    e.mpdu.ack_bru_snr_flag   = quint8(11 + i % 245);
+    e.mpdu.ack_sat_id_flag    = quint8(12 + i % 244);
+    e.mpdu.ack_remain_sta_num = quint8(13 + i % 243);
+    e.mpdu.fch_crc_checked = (i % 2 == 0);   // v12: FCH CRC 三态 round-trip(覆盖 checked=true/false)
     e.protocol = quint8(i % 2);   // 覆盖协议标识序列化 round-trip(0=国网/1=南网)
     e.msdu.present = true; e.msdu.msdu_seq = quint16(i);
     e.msdu.summary = QStringLiteral("summary-%1").arg(i);
@@ -46,9 +96,67 @@ static PacketEntry make_entry(int i) {
     root.children.append(grp);
     e.msdu.tree.append(root);
     e.msdu.tei_mac_pairs.append({quint16(i & 0xFFF), 0xAABBCCDDEE00ULL + quint64(i)});
+    e.msdu.cascade = (i % 3 == 0);   // v11: 聚合帧级联标记 round-trip
+    fill_topo(e.msdu.topo_event, i);              // msdu 拓扑事件 32 字段(换页后不丢)
+    fill_topo(e.beacon.topo_event, i + 1000);     // beacon 拓扑事件(同为 MsduInfo,序列化路径相同)
     e.raw_bytes = QByteArray(64, char(i & 0xFF));
     e.msdu_raw_base = 10;
     return e;
+}
+
+static bool mpdu_soffields_equal(const MpduInfo& x, const MpduInfo& y, QString& why) {
+    if (x.sof_data_type != y.sof_data_type
+        || x.sof_tf_symbol_pos != y.sof_tf_symbol_pos
+        || x.sof_tf_symbol_num != y.sof_tf_symbol_num
+        || x.sof_fch_sym_num != y.sof_fch_sym_num
+        || x.sof_mod_mode != y.sof_mod_mode
+        || x.sof_mod_param != y.sof_mod_param
+        || x.sof_band != y.sof_band
+        || x.sof_gain != y.sof_gain
+        || x.sof_load_table_id != y.sof_load_table_id
+        || x.beacon_fch_sym != y.beacon_fch_sym
+        || x.ack_bru_snr_flag != y.ack_bru_snr_flag
+        || x.ack_sat_id_flag != y.ack_sat_id_flag
+        || x.ack_remain_sta_num != y.ack_remain_sta_num
+        || x.fch_crc_checked != y.fch_crc_checked) {
+        why = QStringLiteral("mpdu SOF/beacon/ack field mismatch"); return false;
+    }
+    return true;
+}
+
+static bool topo_equal(const TopoEvent& x, const TopoEvent& y, QString& why) {
+    if (x.kind != y.kind || x.nid != y.nid || x.cco_mac != y.cco_mac
+        || x.routes != y.routes || x.up_routes != y.up_routes
+        || x.discover_src_tei != y.discover_src_tei
+        || x.neighbor_teis != y.neighbor_teis
+        || x.neighbor_teis_present != y.neighbor_teis_present
+        || x.leaves != y.leaves
+        || x.is_rf != y.is_rf || x.is_rf_known != y.is_rf_known
+        || x.rssi_entries != y.rssi_entries || x.neighbor_rates != y.neighbor_rates
+        || x.neighbor_snrs != y.neighbor_snrs || x.proxy_tei != y.proxy_tei
+        || x.proxy_up_rate != y.proxy_up_rate || x.proxy_down_rate != y.proxy_down_rate
+        || x.min_link_rate != y.min_link_rate || x.rf_hop != y.rf_hop
+        || x.rf_role != y.rf_role || x.link_type != y.link_type
+        || x.node_link_types != y.node_link_types || x.proxy_comm_rate != y.proxy_comm_rate
+        || x.proxy_down_comm_rate != y.proxy_down_comm_rate
+        || x.min_comm_rate != y.min_comm_rate || x.child_teis != y.child_teis
+        || x.restart_count != y.restart_count || x.desc != y.desc
+        || x.epoch_ms != y.epoch_ms || x.frame_index != y.frame_index
+        || x.nodes.size() != y.nodes.size()
+        || x.comm_rates.size() != y.comm_rates.size()) {
+        why = QStringLiteral("topo_event mismatch"); return false;
+    }
+    for (int k = 0; k < x.nodes.size(); ++k)
+        if (x.nodes[k].tei != y.nodes[k].tei || x.nodes[k].mac != y.nodes[k].mac) {
+            why = QStringLiteral("topo_event.nodes mismatch"); return false;
+        }
+    for (int k = 0; k < x.comm_rates.size(); ++k)
+        if (x.comm_rates[k].tei != y.comm_rates[k].tei
+            || x.comm_rates[k].down != y.comm_rates[k].down
+            || x.comm_rates[k].up != y.comm_rates[k].up) {
+            why = QStringLiteral("topo_event.comm_rates mismatch"); return false;
+        }
+    return true;
 }
 
 static bool entry_equal(const PacketEntry& a, const PacketEntry& b, QString& why) {
@@ -75,6 +183,12 @@ static bool entry_equal(const PacketEntry& a, const PacketEntry& b, QString& why
         || a.raw_bytes != b.raw_bytes || a.msdu_raw_base != b.msdu_raw_base) {
         why = QStringLiteral("scalar mismatch at index %1").arg(a.index); return false;
     }
+    if (!mpdu_soffields_equal(a.mpdu, b.mpdu, why)) return false;
+    if (a.msdu.cascade != b.msdu.cascade) {
+        why = QStringLiteral("msdu.cascade mismatch at index %1").arg(a.index); return false;
+    }
+    if (!topo_equal(a.msdu.topo_event, b.msdu.topo_event, why)) return false;
+    if (!topo_equal(a.beacon.topo_event, b.beacon.topo_event, why)) return false;
     const MsduFieldNode& x = a.msdu.tree[0], &y = b.msdu.tree[0];
     if (x.name != y.name || x.value != y.value || x.children.size() != y.children.size()
         || x.children[1].children.size() != y.children[1].children.size()
@@ -125,6 +239,25 @@ int main(int argc, char** argv) {
         QString why;
         if (!pser::deserialize_entry(p, d, table) || !entry_equal(e, d, why)) { qWarning() << "single entry FAIL" << why; ++fails; }
         else qInfo() << "single entry OK, payload_bytes=" << p.size() << "pool=" << pool.list.size();
+    }
+
+    // 2b) 反向验证: 篡改字段必须被检出(证明比较逻辑有效,而非默认值恒等)
+    {
+        QString why;
+        TopoEvent te; fill_topo(te, 7);
+        TopoEvent tampered = te; tampered.rssi_entries[0].second = -999;
+        if (topo_equal(te, tampered, why)) { qWarning() << "reverse check FAIL: topo_equal missed rssi_entries"; ++fails; }
+        else qInfo() << "reverse check OK: topo_equal caught rssi_entries (" << why << ")";
+
+        PacketEntry a = make_entry(7), b = make_entry(7);
+        b.msdu.cascade = !b.msdu.cascade;
+        if (entry_equal(a, b, why)) { qWarning() << "reverse check FAIL: entry_equal missed cascade"; ++fails; }
+        else qInfo() << "reverse check OK: entry_equal caught cascade (" << why << ")";
+
+        MpduInfo m1 = a.mpdu, m2 = b.mpdu;
+        m2.sof_band = quint8(m1.sof_band ^ 0xFF);
+        if (mpdu_soffields_equal(m1, m2, why)) { qWarning() << "reverse check FAIL: mpdu_soffields_equal missed sof_band"; ++fails; }
+        else qInfo() << "reverse check OK: mpdu_soffields_equal caught sof_band (" << why << ")";
     }
 
     // 3) corrupt / truncated inputs must fail cleanly (no crash)

@@ -230,8 +230,8 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
         // > APP 层(BID 冷色系) > 帧类型(DROP灰/ACK校验失败红不变)
         // 仅 FCH CRC24 FAIL 或任一 PB CRC24 FAIL 标红(与 ACK 失败同色);MSDU CRC32
         // FAIL 不改颜色(应用层校验,常因抓包截断/设备异常,不掩盖业务着色)
-        if (!e.mpdu.fch_crc_ok)
-            return QColor(224, 64, 64);   // FCH CRC24 校验失败(表7)
+        if (e.mpdu.fch_crc_checked && !e.mpdu.fch_crc_ok)
+            return QColor(224, 64, 64);   // 仅"校验过且失败"才标红;未校验不标红
         if (std::any_of(e.mpdu.pb_crc_oks.cbegin(), e.mpdu.pb_crc_oks.cend(),
                         [](bool ok) { return !ok; }))
             return QColor(224, 64, 64);   // 任一物理块 CRC24 校验失败

@@ -54,7 +54,9 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             : QStringLiteral("%1 (Reserved / to evolve)").arg(e.mpdu.version);
         tree_add_bit_field(mpdu_base, "Version", ver, 12, 4, 4);
     }
-    tree_add_bit_field(mpdu_base, "FCH CRC24", e.mpdu.fch_crc_ok ? "OK" : "FAIL", 13, 0, 24);
+    const QString fch_txt = !e.mpdu.fch_crc_checked ? QStringLiteral("N/A")
+                          : (e.mpdu.fch_crc_ok ? QStringLiteral("OK") : QStringLiteral("FAIL"));
+    tree_add_bit_field(mpdu_base, "FCH CRC24", fch_txt, 13, 0, 24);
 
     switch (static_cast<GW_2022_FrameType>(e.mpdu.frame_type)) {
     case GW_2022_FrameType::BEACON: {
@@ -230,14 +232,15 @@ void GW_2022_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     int o = blk_off + e.mpdu.pb_size - 3;
                     crc = (quint32)d[o] | ((quint32)d[o + 1] << 8) | ((quint32)d[o + 2] << 16);
                 }
-                bool okb = (bi < e.mpdu.pb_crc_oks.size())
-                               ? e.mpdu.pb_crc_oks[bi]
-                               : e.mpdu.pb_crc_ok;
+                // PB CRC 三态: 未校验(数组空) / 通过 / 失败
+                const bool pb_checked = (bi < e.mpdu.pb_crc_oks.size());
+                const bool okb = pb_checked ? e.mpdu.pb_crc_oks[bi] : false;
                 tree_add_item(sof,
                     multi ? QStringLiteral("PB CRC24 (block %1/%2)").arg(bi).arg(pb_num)
                           : QStringLiteral("PB CRC24"),
-                    have ? QStringLiteral("0x%1 %2").arg(crc, 6, 16, QChar('0')).arg(okb ? "OK" : "FAIL")
-                         : (okb ? QStringLiteral("OK") : QStringLiteral("FAIL")),
+                    have ? QStringLiteral("0x%1 %2").arg(crc, 6, 16, QChar('0'))
+                                 .arg(pb_checked ? (okb ? "OK" : "FAIL") : "N/A")
+                         : (pb_checked ? (okb ? "OK" : "FAIL") : "N/A"),
                     blk_off + e.mpdu.pb_size - 3, 3);
             }
         }

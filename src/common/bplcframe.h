@@ -77,6 +77,7 @@ struct MpduInfo {
     quint8  tmi_ext;       ///< 分集拷贝扩展模式(载波 SOF 表19;无线 SOF 表30 该位段为保留,存原始值、不参与解析)
     quint16 pb_size;       ///< PB 块大小(载波=TMI查表 72/136/264/520;无线=载荷PB大小表29 16/40/72/136/264/520)
     bool    fch_crc_ok;    ///< 控制头 CRC24 校验结果
+    bool    fch_crc_checked = false;  ///< FCH CRC24 是否真的校验过(false=未校验,不得据此标红/显示 FAIL)
     bool    pb_crc_ok;     ///< PB 块 CRC24 校验结果(SOF 时,全部块)
     quint8  pb_head;       ///< PB 头原始字节(bit7=END bit6=START 低6位=seq;SOF 时,首块)
     QVector<quint8> pb_heads;    ///< 各 PB 块头原始字节(按块序,SOF 时)
@@ -152,7 +153,7 @@ struct MpduInfo {
           src_tei(0), dst_tei(0), link_id(0), frame_len(0),
           pb_num(0), pb_num_field(0), pblen(0), mcs(0), symbol_num(0), bc_flag(false), re_send_flag(false),
           encryp_flag(false), tmi(0), tmi_ext(0), pb_size(0),
-          fch_crc_ok(false), pb_crc_ok(false), pb_head(0),
+          fch_crc_ok(false), fch_crc_checked(false), pb_crc_ok(false), pb_head(0),
           beacon_timestamp(0), beacon_line(0), beacon_rsv(0),
           beacon_type(0), beacon_netsn(0), beacon_cco_mac(0),
           beacon_period_cnt(0), beacon_rf_channel(0), beacon_rf_option(0),

@@ -137,6 +137,7 @@ bool GW_2026_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QSt
                      | ((quint32)p[14] << 8)
                      | ((quint32)p[15] << 16);
     info.fch_crc_ok = (calc_crc == fch_crc);
+    info.fch_crc_checked = true;
     if (!info.fch_crc_ok) {
         err = QString("FCH CRC24 错(calc=%1 rx=%2)")
               .arg(calc_crc, 6, 16, QChar('0')).arg(fch_crc, 6, 16, QChar('0'));

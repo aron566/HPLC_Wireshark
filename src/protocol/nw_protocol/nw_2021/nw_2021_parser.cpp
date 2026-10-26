@@ -106,6 +106,7 @@ bool NW_2021_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QSt
     quint32 calc_crc = crc24_lsb(p, 16);
     quint32 fch_crc  = (quint32)p[13] | ((quint32)p[14] << 8) | ((quint32)p[15] << 16);
     info.fch_crc_ok = (calc_crc == fch_crc);
+    info.fch_crc_checked = true;
     if (!info.fch_crc_ok) {
         err = QString("FCH CRC24 错(calc=%1 rx=%2)")
               .arg(calc_crc, 6, 16, QChar('0')).arg(fch_crc, 6, 16, QChar('0'));
@@ -193,7 +194,7 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
             quint8 pblen = (quint8)get_bits(p, 6, 4, 4);
             r.mpdu.mcs     = (quint8)get_bits(p, 7, 0, 4);   // MCS(表131)
             r.mpdu.pblen   = pblen;                       // 载荷 PB 大小索引(表130)
-            r.mpdu.pb_size = (quint16)nw_2021_rf_pb_size(pblen);
+            { const int sz = nw_2021_rf_pb_size(pblen); r.mpdu.pb_size = (quint16)(sz > 0 ? sz : 0); }
             r.mpdu.pb_num  = 1;                           // 无线信道仅 1 个物理块
             r.mpdu.re_send_flag = (get_bits(p, 7, 5, 1) != 0);    // 重传标志位(表131)
             r.mpdu.symbol_num   = 0;                              // 无线无符号数字段
@@ -205,7 +206,7 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.re_send_flag = (get_bits(p, 10, 6, 1) != 0);   // 重传标志位(表18)
             r.mpdu.symbol_num   = (quint16)get_bits(p, 10, 7, 9);  // 符号数(表16)
             r.mpdu.tmi_ext   = (quint8) get_bits(p, 12, 0, 4);
-            r.mpdu.pb_size   = (quint16)nw_2021_pb_size(r.mpdu.tmi, r.mpdu.tmi_ext);
+            { const int sz = nw_2021_pb_size(r.mpdu.tmi, r.mpdu.tmi_ext); r.mpdu.pb_size = (quint16)(sz > 0 ? sz : 0); }
         }
         if (f.tei_filter && !f.tei_list.contains(r.mpdu.src_tei)
                         && !f.tei_list.contains(r.mpdu.dst_tei)) {
@@ -253,12 +254,12 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
         if (r.meta.is_rf) {
             r.mpdu.mcs     = (quint8)get_bits(p, 10, 4, 4);   // MCS(表128)
             r.mpdu.pblen   = (quint8)get_bits(p, 11, 0, 4);   // 载荷 PB 大小索引(表130)
-            r.mpdu.pb_size = (quint16)nw_2021_rf_pb_size(r.mpdu.pblen);
+            { const int sz = nw_2021_rf_pb_size(r.mpdu.pblen); r.mpdu.pb_size = (quint16)(sz > 0 ? sz : 0); }
         } else {
             r.mpdu.tmi       = (quint8)get_bits(p, 10, 4, 4); // 载波映射表索引
             r.mpdu.symbol_num = (quint16)get_bits(p, 11, 0, 9);
             r.mpdu.beacon_line = (quint8)get_bits(p, 12, 2, 2);
-            r.mpdu.pb_size   = (quint16)nw_2021_pb_size(r.mpdu.tmi, 0);
+            { const int sz = nw_2021_pb_size(r.mpdu.tmi, 0); r.mpdu.pb_size = (quint16)(sz > 0 ? sz : 0); }
         }
         // 信标帧载荷区(固定头 + 管理信息 + BPCS CRC32 + 保留字节 + PB CRC24)
         if (r.mpdu.pb_size > 0)

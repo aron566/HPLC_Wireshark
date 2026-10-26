@@ -17,7 +17,9 @@ struct I18nReg {
         trl::register_en(" (超出级联流范围, 已停止解析)", " (beyond cascade stream, parsing stopped)");
         trl::register_en("不完整(无法校验)", "incomplete (cannot verify)");
         trl::register_en("级联体流长度", "Cascade Body Length");
-        trl::register_en("0 B (训练帧无数据物理块, 表26)", "0 B (no data PB for training frame, Table 26)");
+        trl::register_en("PB 大小无效(查表未命中)", "Invalid PB size (table lookup miss)");
+        trl::register_en("训练帧无数据物理块", "no data PB for training frame");
+        trl::register_en("本帧无数据物理块(SACK/trigger/UL-SACK)", "no data PB in this frame (SACK/trigger/UL-SACK)");
         trl::register_en("保留(按选择确认帧解析)", "Reserved (parsed as selective ACK)");
         trl::register_en("应用报文 LID(优先级)", "App LID (priority)");
         trl::register_en("网络管理 LID(自定义 0-255)", "Network-mgmt LID (custom 0-255)");
@@ -156,7 +158,9 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             ver = QStringLiteral("%1 - %2").arg(e.mpdu.version).arg(trl::L("保留"));
         tree_add_bit_field(mpdu_base, "Version", ver, 12, 4, 4);
     }
-    tree_add_bit_field(mpdu_base, "FCH CRC24", e.mpdu.fch_crc_ok ? "OK" : "FAIL", 13, 0, 24);
+    const QString fch_txt = !e.mpdu.fch_crc_checked ? QStringLiteral("N/A")
+                          : (e.mpdu.fch_crc_ok ? QStringLiteral("OK") : QStringLiteral("FAIL"));
+    tree_add_bit_field(mpdu_base, "FCH CRC24", fch_txt, 13, 0, 24);
 
     switch (static_cast<NW_2026_FrameType>(e.mpdu.frame_type)) {
     case NW_2026_FrameType::BEACON: {
@@ -504,13 +508,20 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             // 训练帧(表24/25,训练帧标识 d[4] bit1=1,仅 SPLC 载波;RF 的 d[4] 为 LID 勿套用)
             // 无数据物理块(表26):pb_num 保持 0,不渲染 PB 头/CRC——此前强制按 1 渲染,
             // FCH 后字节被误当 PB 头报 CRC FAIL 并触发列表标红
-            if ((e.mpdu.version == 2) && !e.meta.is_rf
-                && (raw_sz > 4) && ((d[4] & 0x02) != 0)) {
-                tree_add_item(sof, "PB",
-                    trl::L("0 B (训练帧无数据物理块, 表26)"));
+            if (e.mpdu.pb_num <= 0 || e.mpdu.pb_size <= 0) {
+                // 无数据物理块的合法情形:训练帧 / OFDMA 的 SACK·trigger·UL-SACK / pb_size 查表无效
+                // 统一按 pb_num==0 || pb_size<=0 判断,不再从 raw 反推训练帧标志
+                QString why;
+                if (e.mpdu.pb_size <= 0)
+                    why = trl::L("PB 大小无效(查表未命中)");
+                else if ((e.mpdu.version == 2) && !e.meta.is_rf
+                         && (raw_sz > 4) && ((d[4] & 0x02) != 0))
+                    why = trl::L("训练帧无数据物理块");
+                else
+                    why = trl::L("本帧无数据物理块(SACK/trigger/UL-SACK)");
+                tree_add_item(sof, "PB", QStringLiteral("0 B (%1)").arg(why));
             } else {
-            // 非训练帧 pb_num=0 属异常,保留原防御(按 1 处理)
-            const int pb_num     = (e.mpdu.pb_num > 0) ? e.mpdu.pb_num : 1;
+            const int pb_num     = e.mpdu.pb_num;
             // DL-OFDMA 帧 PB 块自 32 起(FCH 16 + eFC 16B);普通帧自 16 起
             const bool ofdma_pb = (e.mpdu.version == 2) && (raw_sz > 4) && ((d[4] & 0x01) != 0);
             int pb_received = 0;   // 完整容纳块数(截断提示"实收"依据)
@@ -620,14 +631,15 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     int o = blk_off + e.mpdu.pb_size - 3;
                     crc = (quint32)d[o] | ((quint32)d[o + 1] << 8) | ((quint32)d[o + 2] << 16);
                 }
-                bool okb = (bi < e.mpdu.pb_crc_oks.size())
-                               ? e.mpdu.pb_crc_oks[bi]
-                               : e.mpdu.pb_crc_ok;
+                // PB CRC 三态: 未校验(数组空) / 通过 / 失败
+                const bool pb_checked = (bi < e.mpdu.pb_crc_oks.size());
+                const bool okb = pb_checked ? e.mpdu.pb_crc_oks[bi] : false;
                 // 块不完整时未计算 CRC,显式标注(勿误报 OK);不设 rel(避免高亮到不存在的字节)
                 tree_add_item(sof,
                     multi ? QStringLiteral("PB CRC24 (block %1/%2)").arg(bi).arg(pb_num)
                           : QStringLiteral("PB CRC24"),
-                    have ? QStringLiteral("0x%1 %2").arg(crc, 6, 16, QChar('0')).arg(okb ? "OK" : "FAIL")
+                    have ? QStringLiteral("0x%1 %2").arg(crc, 6, 16, QChar('0'))
+                                 .arg(pb_checked ? (okb ? "OK" : "FAIL") : "N/A")
                          : trl::L("不完整(无法校验)"),
                     have ? (blk_off + e.mpdu.pb_size - 3) : -1, 3);
             }
