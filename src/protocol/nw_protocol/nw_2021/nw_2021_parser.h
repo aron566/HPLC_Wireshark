@@ -3,7 +3,7 @@
 /// @details 提供 NW_2021_Parser 类(IProtocolParser 实现)。南网 2021 报批版
 ///          链路层与国网 GW_2022 差异:FCH 网络标识为 SNID 4b(非 NID 24b),
 ///          各帧型字段坐标不同,MSDU 头用 MAC 48b + VLAN 标签。
-///          字段坐标参考 D:/code/HPLC_HRF/监控器/BPLCMonitorPython_SG。
+///          字段坐标以协议原文为准。
 #ifndef NW_2021_PARSER_H
 #define NW_2021_PARSER_H
 

@@ -6,9 +6,7 @@
 ///   - SPLC 版本(标准版本号=2)载波路径:TMI编号(表23 byte6 bit1-5)→ PB size,
 ///     Bitloading标识=0 用 nw_2026_splc_pb_size,=1 用 nw_2026_splc_bitload_pb_size
 ///   - 无线路径:载荷 PB 大小(PBLen,表130)→ PB size,0-5 → 16/40/72/136/264/520
-/// @note 参考 D:/code/HPLC_HRF/监控器/BPLCMonitorPython_SG/MPDU_Class.py
-///       (MPDU_BASE::get_pbsize / get_RFpbsize / MPDU_SOF_SPLC::get_pbsize_splc)。
-///       与国网独立,勿共享。
+/// @note PB 大小映射见协议表(物理层表13 / 数据链路层表23 / 无线表130)。与国网独立,勿共享。
 #ifndef NW_2026_PB_TABLE_H
 #define NW_2026_PB_TABLE_H
 

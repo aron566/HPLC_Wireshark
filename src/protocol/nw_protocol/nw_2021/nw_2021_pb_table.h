@@ -3,8 +3,7 @@
 /// @details 南网双模 2021 报批版,与国网 GW_2022 的 PB 定义不同:
 ///   - 载波路径:TMI(载波映射表索引)→ PB size,取值 0-14;TMI 13-14 转查 TMI_EXT
 ///   - 无线路径:载荷 PB 大小(PBLen,表130)→ PB size,0-5 → 16/40/72/136/264/520
-/// @note 参考 D:/code/HPLC_HRF/监控器/BPLCMonitorPython_SG/MPDU_Class.py
-///       (MPDU_BASE::get_pbsize / get_RFpbsize)。与国网独立,勿共享。
+/// @note PB 大小映射见协议表(载波 TMI 映射表 / 无线 PBLen 表130)。与国网独立,勿共享。
 #ifndef NW_2021_PB_TABLE_H
 #define NW_2021_PB_TABLE_H
 

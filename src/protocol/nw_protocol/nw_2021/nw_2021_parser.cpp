@@ -1,7 +1,7 @@
 /// @file nw_2021_parser.cpp
 /// @brief 南网 NW_2021 双模协议解析器实现(骨架:帧控制 + 各帧型 FCH 字段)
-/// @details 字段坐标移植自 D:/code/HPLC_HRF/监控器/BPLCMonitorPython_SG 的
-///          MPDU_Class.py。南网与国网差异:SNID 4b、各帧型字段坐标、PB 头 4B。
+/// @details 字段坐标以协议原文为准(各表号见对应实现处注释)。
+///          南网与国网差异:SNID 4b、各帧型字段坐标、PB 头 4B。
 ///          物理头 [dlen2][ts4][phr_mcs][option][channel][isRF] 与国网一致。
 #include "nw_2021_parser.h"
 #include "nw_2021_pb_table.h"

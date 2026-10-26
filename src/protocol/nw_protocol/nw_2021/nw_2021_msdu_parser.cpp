@@ -1,7 +1,6 @@
 /// @file nw_2021_msdu_parser.cpp
 /// @brief 南网 NW_2021 MSDU/MAC 层解析实现(头解析 + MMe 管理消息字段)
-/// @details 移植自 D:/code/HPLC_HRF/监控器/BPLCMonitorPython_SG/MSDU_Class.py
-///          的 MSDU_Process 流程:
+/// @details MSDU 处理流程(帧类型判定 / MAC 帧头 / MSDU 帧头 / MMe 分支):
 ///           1. 判帧类型:Version(bit1-2)=1 标准(MSDU_BASE);0/2/3 保留(表6),不解释
 ///           2. MAC 帧头(MSDU_BASE 32B 长/12B 短):TEI/SNID/重启次数/广播方向
 ///           3. MSDU 帧头(长 18B / 短 2B,由 MACHeadFlag 决定):MAC 48b + VLAN + 类型
