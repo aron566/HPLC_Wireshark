@@ -28,13 +28,16 @@ int main(int argc, char* argv[]) {
         "wireshark_support_plugins/nw2026_trigger.bin",
         "wireshark_support_plugins/nw2026_ul_ofdma_data.bin",
         "wireshark_support_plugins/nw2026_dl_sack.bin",
+        // 单站 16B UL 数据(MsgID!=0):树必须渲染为站点 PB 分组,不得标为 DL-SACK
+        "wireshark_support_plugins/nw2026_trigger_tmi26.bin",
+        "wireshark_support_plugins/nw2026_ul_single16.bin",
     };
     const char* files_nocontext[] = {
         "wireshark_support_plugins/nw2026_ul_ofdma_data.bin",
     };
     const bool nocontext = (argc > 1 && QString::fromLocal8Bit(argv[1]) == "nocontext");
     const char** fset = nocontext ? files_nocontext : files;
-    const int fcnt = nocontext ? 1 : 3;
+    const int fcnt = nocontext ? 1 : 5;
     for (int fi = 0; fi < fcnt; ++fi) {
         const char* fn = fset[fi];
         QFile f(QString::fromLocal8Bit(fn));

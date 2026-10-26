@@ -75,7 +75,7 @@
 - sack：base=16、1×16B，all_crc_ok=1，体 8B；体解码 MsgID=0、SrcTEI=2、RxStatus=0b11。
 即：帧本身按规约无误，分段与 CRC 均可由现有 assembler 验证；缺的是 parser 的类型 1 分派。
 
-## parser 实现形状（供拍板，不是已实现）
+## parser 实现形状（已实现于 main 7b68d8f7，本节为设计记录）
 
 类型 1 必须先分两个子项，不能一律按 SACK 处理：
 - DL-SACK 子项：可独立解析——单 16B PB、固定 TMI 26、基址 16、体按表 49/50 展示。

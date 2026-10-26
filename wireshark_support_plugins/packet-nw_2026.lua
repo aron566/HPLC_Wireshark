@@ -482,6 +482,8 @@ f.efc_st_tmi = ProtoField.uint8 ("nw_2026.efc.st_tmi", T("站点 TMI 编号", "S
 f.efc_st_ru = ProtoField.uint8 ("nw_2026.efc.st_ru", T("站点 RU", "Station RU"), base.DEC)
 f.efc_st0_sackru = ProtoField.uint8 ("nw_2026.efc.st0_sackru", T("站点0 SACK RU(表27)", "Sta0 SACK RU"), base.DEC, nil, 0x07)
 f.efc_st0_backoff = ProtoField.uint8 ("nw_2026.efc.st0_backoff", T("站点0 TxPowerBackoff(表28,回退 v×4dB)", "Sta0 TxPowerBackoff (v*4dB)"), base.DEC, nil, 0x07)
+f.efc_st_sackru = ProtoField.uint8 ("nw_2026.efc.st_sackru", T("站点 SACK RU(表27)", "Station SACK RU"), base.DEC, nil, 0x07)
+f.efc_st_backoff = ProtoField.uint8 ("nw_2026.efc.st_backoff", T("站点 TxPowerBackoff(表28,回退 v×4dB)", "Station TxPowerBackoff (v*4dB)"), base.DEC, nil, 0x07)
 f.efc29_st_tei = ProtoField.uint16 ("nw_2026.efc29.st_tei", T("站点 TEI", "Station TEI"), base.DEC)
 f.efc29_st_status = ProtoField.uint8 ("nw_2026.efc29.st_status", T("站点接收状态(位图 PB0-3)", "Station RxStatus (PB0-3 bitmap)"), base.DEC, nil, 0xF0)
 f.efc29_st_rsv = ProtoField.uint8 ("nw_2026.efc29.st_rsv", T("保留", "Reserved"), base.HEX)
@@ -1197,9 +1199,9 @@ local function dissect_sof_vf(tvb, tree, is_rf)
             local otype = read_bits(tvb, 4 * 8 + 1, 2)
             tree:add(f.sof_ofdma_type, tvb(4, 1))
             if (otype == 0 or otype == 2) and tvb:len() >= 32 then
-                -- 表27(DL-OFDMA/DL-SACK 共用,otype 0/1)/表28(trigger,otype 2):
+                -- 表27(DL-OFDMA,otype 0)/表28(trigger,otype 2):类型1 无 eFC,不进此分支;
                 -- eFC 16B 自字节16, 站点循环位推进(与 Qt 解析器同坐标), 仅展示不重组;
-                -- 站点数-1 取 FCH byte4 bit6-7, 站点0 专属尾字段: 表27=SACK RU / 表28=TxPowerBackoff
+                -- 站点数-1 取 FCH byte4 bit6-7, 尾字段每站都有: 表27=SACK RU / 表28=TxPowerBackoff
                 local efc_tree = tree:add(f.efc, tvb(16, 16))
                 local sn = read_bits(tvb, 4 * 8 + 6, 2)
                 efc_tree:add(f.efc_tfnum, tvb(16, 1))
@@ -1217,16 +1219,16 @@ local function dissect_sof_vf(tvb, tree, is_rf)
                     efc_tree:add(f.efc_st_ru, tvb(16 + math.floor(bp / 8), 1),
                         read_bits(tvb, 16 * 8 + bp, 4))
                     bp = bp + 4
-                    if s == 0 then
-                        if otype == 2 then
-                            efc_tree:add(f.efc_st0_backoff, tvb(16 + math.floor(bp / 8), 1),
-                                read_bits(tvb, 16 * 8 + bp, 3))
-                        else
-                            efc_tree:add(f.efc_st0_sackru, tvb(16 + math.floor(bp / 8), 1),
-                                read_bits(tvb, 16 * 8 + bp, 3))
-                        end
-                        bp = bp + 3
+                    -- 表27 SACK RU / 表28 TxPowerBackoff(3b):每站都有,不是仅站0
+                    -- (原实现仅站0推进 3b,3站以上帧的站2/站3 eFC 字段整体错位 3b;与 C++ 侧同修)
+                    if otype == 2 then
+                        efc_tree:add(f.efc_st_backoff, tvb(16 + math.floor(bp / 8), 1),
+                            read_bits(tvb, 16 * 8 + bp, 3))
+                    else
+                        efc_tree:add(f.efc_st_sackru, tvb(16 + math.floor(bp / 8), 1),
+                            read_bits(tvb, 16 * 8 + bp, 3))
                     end
+                    bp = bp + 3
                 end
                 if otype == 0 then
                     -- 仅 DL-OFDMA 数据帧重组 MSDU;PB 块自字节32 起(站点0), 其余站点 PB 依序随后

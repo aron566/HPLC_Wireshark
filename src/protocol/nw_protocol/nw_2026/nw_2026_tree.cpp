@@ -521,8 +521,12 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             // FCH 后字节被误当 PB 头报 CRC FAIL 并触发列表标红
             if (!e.mpdu.sof_stations.isEmpty()) {
                 // 类型1 多站点(UL-OFDMA 数据 / DL-SACK):逐站 PB 分组(sof_stations)
+                // DL-SACK 判别与 parser 一致:单站 + 单 16B PB + 体首 MsgID==0;
+                // 仅站数+尺寸会把单站 16B UL 数据帧误标为 SACK 并按表 49/50 误读体
+                const auto& st0 = e.mpdu.sof_stations[0];
                 const bool dl_sack = (e.mpdu.sof_stations.size() == 1
-                                      && e.mpdu.sof_stations[0].pb_size == 16);
+                                      && st0.pb_size == 16
+                                      && st0.msdu.size() >= 1 && (st0.msdu[0] & 0x0F) == 0);
                 for (int si = 0; si < e.mpdu.sof_stations.size(); ++si) {
                     const auto& st = e.mpdu.sof_stations[si];
                     auto* snode = tree_add_item(sof,
@@ -535,6 +539,10 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                             st.pb_crc_oks[bi] ? trl::L("通过") : trl::L("失败"),
                             st.block_base + bi * st.pb_size, st.pb_size);
                     }
+                    // 截断提示:实收块数 < 声明块数时标注(与均一 PB 循环的截断节点同口径)
+                    if (st.pb_crc_oks.size() < st.pb_num)
+                        tree_add_item(snode, trl::L("PB 块不完整"),
+                            trl::L("声明 %1 块 / 实收 %2 块").arg(st.pb_num).arg(st.pb_crc_oks.size()));
                     if (dl_sack && st.msdu.size() >= 3) {
                         const quint8 msgid = st.msdu[0] & 0x0F;
                         tree_add_bit_field(snode, "MsgID",

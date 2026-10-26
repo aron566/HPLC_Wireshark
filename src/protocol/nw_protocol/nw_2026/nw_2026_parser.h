@@ -46,7 +46,8 @@ private:
         quint64  frame_index = 0;     ///< 记录时的帧计数(失效基准)
     };
     static constexpr quint64 kTriggerCtxMaxAge = 1024;  ///< 超过 1024 帧未更新则失效
-    QHash<quint32, TriggerCtx> m_trigger_ctx;   ///< SNID(net_id) → 最近 trigger 上下文
+    QHash<quint32, TriggerCtx> m_trigger_ctx;   ///< 完整 5bit SNID → 最近 trigger 上下文
+                                                ///< (低 4bit=net_id,高 1bit=OFDMA SOF byte12 bit0)
     quint64 m_frame_count = 0;                  ///< 递增帧计数(trigger 上下文失效基准)
 
     /// @brief 类型2(trigger)记录 eFC 上下文(表28:每站 PB数/TEI/TMI/RU/Tx回退)

@@ -13,8 +13,7 @@ docs/protocol_doc/nw/SPLC/:
   indicated by the trigger frame's eFC TMI (table 28).
 - Table 28 trigger eFC (16B): TF count (0,0,2); per station: PB count 1b
   (0->1 block, 1->2 blocks), TEI 12b, TMI 5b, RU 4b, TxPowerBackoff 3b
-  (station 0 only in the code's reading; stations 1-3 same geometry);
-  CRC24 at bytes 13-15.
+  (every station, same geometry); CRC24 at bytes 13-15.
 - PB block (table 47 + 5.1.3.2.1): head 4B (SeqNum 16b LE + agg flag byte2
   bit0 + RSV 15b) + body (pb_size-8) + RSV 1B + CRC24 3B; CRC covers the
   first pb_size-3 bytes (head+body+RSV), stored LE in the last 3 bytes.
@@ -41,10 +40,16 @@ isRF=0 byte, or via the bare-hex replay entry):
 3. dl_sack (type 1, 32B): FCH (src 0xFFFF, dst 1, multi=1, type=1,
    1 station) + single 16B PB, fixed TMI 26: body MsgID 0 (table 49/50),
    SrcTEI 2, RxStatus 0b11 (both DL-OFDMA PBs OK).
+4. trigger_hi (type 2, 32B) + ul_data_hi (type 1, 296B): same layout as
+   1+2 but with SNID high bit set (FCH byte12 bit0 = 1, full SNID 0x10)
+   and station TEIs 4/5. The pair proves the trigger-context bucket key
+   uses the full 5-bit SNID: a low-SNID trigger must NOT serve a
+   high-SNID UL frame (and vice versa).
 
-Test values chosen in legal range (not document values): NID/SNID 0,
-TEI 1/2/3, RU 5/6, PL symbols 100, frame lengths, letter-filled PB bodies,
-PB sequence numbers.
+Test values chosen in legal range (not document values): NID/SNID 0
+(0x10 for the hi pair), TEI 1/2/3 (4/5 for the hi pair), RU 5/6,
+PL symbols 100, frame lengths, letter-filled PB bodies, PB sequence
+numbers.
 """
 
 import os
@@ -94,12 +99,12 @@ def store_crc24(buf, start, length):
 
 
 def fch_base(src_tei, dst_tei, ofdma_type, station_count_code, pl_symbols,
-             frame_len):
-    """16B OFDMA FCH (table 26) with FCS filled. SNID 0, band 0, version 2."""
+             frame_len, snid_low=0, snid_high=0):
+    """16B OFDMA FCH (table 26) with FCS filled. Band 0, version 2."""
     f = bytearray(16)
     set_bits(f, 0, 0, 3, 1)          # delimiter type 1 = SOF
     set_bits(f, 0, 3, 1, 0)          # net type 0
-    set_bits(f, 0, 4, 4, 0)          # SNID low 4b
+    set_bits(f, 0, 4, 4, snid_low)   # SNID low 4b
     set_bits(f, 1, 0, 8, src_tei & 0xFF)
     set_bits(f, 2, 0, 4, (src_tei >> 8) & 0xF)
     set_bits(f, 2, 4, 4, dst_tei & 0xF)
@@ -111,7 +116,7 @@ def fch_base(src_tei, dst_tei, ofdma_type, station_count_code, pl_symbols,
     set_bits(f, 5, 0, 2, 0)          # eFC symbol count (0 for UL: invalid/default)
     set_bits(f, 6, 0, 9, pl_symbols)
     set_bits(f, 8, 0, 12, frame_len)
-    set_bits(f, 12, 0, 1, 0)         # SNID high bit
+    set_bits(f, 12, 0, 1, snid_high)  # SNID high bit (table 26 variable region)
     set_bits(f, 12, 4, 4, 2)         # standard version 2 = SPLC
     store_crc24(f, 0, 16)
     return f
@@ -176,6 +181,93 @@ def build_ul_data():
     return bytes(out)
 
 
+def build_trigger_hi():
+    """Type 2, 32B, SNID high bit set (full SNID 0x10): stations TEI 4/5."""
+    fch = fch_base(src_tei=1, dst_tei=0xFFFF, ofdma_type=2,
+                   station_count_code=1, pl_symbols=100, frame_len=0x200,
+                   snid_low=0, snid_high=1)
+    e = bytearray(16)
+    bp = 0
+
+    def put(nbits, value):
+        nonlocal bp
+        set_bits(e, bp // 8, bp % 8, nbits, value)
+        bp += nbits
+
+    put(2, 0)
+    put(1, 0)
+    put(12, 4)
+    put(5, 18)
+    put(4, 5)
+    put(3, 0)
+    put(1, 1)
+    put(12, 5)
+    put(5, 21)
+    put(4, 6)
+    put(3, 0)
+    store_crc24(e, 0, 16)
+    return bytes(fch) + bytes(e)
+
+
+def build_ul_data_hi():
+    """Type 1 UL-OFDMA data, 296B, SNID high bit set: sta0 1x136B + sta1 2x72B."""
+    fch = fch_base(src_tei=0xFFFF, dst_tei=1, ofdma_type=1,
+                   station_count_code=1, pl_symbols=100, frame_len=0x200,
+                   snid_low=0, snid_high=1)
+    out = bytearray(fch)
+    out += pb_block(136, 0, "UL-HI-STA0-")
+    out += pb_block(72, 0, "UL-HI-STA1-PB0-")
+    out += pb_block(72, 1, "UL-HI-STA1-PB1-")
+    return bytes(out)
+
+
+def build_trigger_tmi26():
+    """Type 2, 32B, 1 station: TEI 6, TMI 26 (->16B), 1 PB.
+
+    Companion for ul_single16: proves a single-station 1x16B UL frame with
+    MsgID != 0 is NOT a DL-SACK (parser must take the UL path, tree/list
+    must not label it DL-SACK).
+    """
+    fch = fch_base(src_tei=1, dst_tei=0xFFFF, ofdma_type=2,
+                   station_count_code=0, pl_symbols=100, frame_len=0x200)
+    e = bytearray(16)
+    bp = 0
+
+    def put(nbits, value):
+        nonlocal bp
+        set_bits(e, bp // 8, bp % 8, nbits, value)
+        bp += nbits
+
+    put(2, 0)
+    put(1, 0)
+    put(12, 6)
+    put(5, 26)
+    put(4, 5)
+    put(3, 0)
+    store_crc24(e, 0, 16)
+    return bytes(fch) + bytes(e)
+
+
+def build_ul_single16():
+    """Type 1 UL-OFDMA data, 32B (same length as a DL-SACK frame):
+    single 1x16B PB, body first nibble MsgID=5 (not 0), so the parser must
+    take the UL path, not the DL-SACK path."""
+    fch = fch_base(src_tei=0xFFFF, dst_tei=1, ofdma_type=1,
+                   station_count_code=0, pl_symbols=4, frame_len=0x100)
+    pb = bytearray(16)
+    pb[0] = 0x00
+    pb[1] = 0x00
+    pb[2] = 0x00
+    pb[3] = 0x00
+    pb[4] = 0x15                     # MsgID 5, payload nibble 1
+    pat = b"UL-SINGLE16-"
+    for i in range(8):
+        pb[5 + i] = pat[i % len(pat)]
+    pb[12] = 0x00                    # tail RSV
+    store_crc24(pb, 0, 16)
+    return bytes(fch) + bytes(pb)
+
+
 def build_dl_sack():
     """Type 1 DL-OFDMA SACK, 32B: FCH + single 16B PB, fixed TMI 26."""
     fch = fch_base(src_tei=0xFFFF, dst_tei=1, ofdma_type=1,
@@ -207,7 +299,8 @@ def verify(frame, name):
           f"ver={get_bits(frame, 12, 4, 4)} multi={get_bits(frame, 4, 0, 1)} "
           f"type={get_bits(frame, 4, 1, 2)} stations={get_bits(frame, 4, 6, 2) + 1} "
           f"src=0x{get_bits(frame, 1, 0, 12):03x} "
-          f"dst=0x{get_bits(frame, 2, 4, 12):03x}")
+          f"dst=0x{get_bits(frame, 2, 4, 12):03x} "
+          f"snid=0x{(get_bits(frame, 12, 0, 1) << 4) | get_bits(frame, 0, 4, 4):02x}")
     return fch_ok
 
 
@@ -215,19 +308,32 @@ def main():
     trig = build_trigger()
     ul = build_ul_data()
     sack = build_dl_sack()
+    trig_hi = build_trigger_hi()
+    ul_hi = build_ul_data_hi()
+    trig26 = build_trigger_tmi26()
+    ul16 = build_ul_single16()
     for data, name, fn in ((trig, "trigger", "nw2026_trigger.bin"),
                            (ul, "ul_data", "nw2026_ul_ofdma_data.bin"),
-                           (sack, "dl_sack", "nw2026_dl_sack.bin")):
+                           (sack, "dl_sack", "nw2026_dl_sack.bin"),
+                           (trig_hi, "trigger_hi", "nw2026_trigger_hisnid.bin"),
+                           (ul_hi, "ul_data_hi", "nw2026_ul_ofdma_data_hisnid.bin"),
+                           (trig26, "trigger_tmi26", "nw2026_trigger_tmi26.bin"),
+                           (ul16, "ul_single16", "nw2026_ul_single16.bin")):
         with open(os.path.join(OUT, fn), "wb") as fh:
             fh.write(data)
         ok = verify(data, name)
         # PB CRC re-check per segment layout
-        if name == "ul_data":
+        if name in ("ul_data", "ul_data_hi"):
             for off, sz, tag in ((16, 136, "sta0"), (152, 72, "sta1-pb0"),
                                  (224, 72, "sta1-pb1")):
                 blk = data[off:off + sz]
                 good = crc24_lsb(blk, sz) == (blk[sz - 3] | (blk[sz - 2] << 8) | (blk[sz - 1] << 16))
                 print(f"  {tag} @{off} size={sz} PBCS {'OK' if good else 'FAIL'}")
+        elif name == "ul_single16":
+            blk = data[16:32]
+            good = crc24_lsb(blk, 16) == (blk[13] | (blk[14] << 8) | (blk[15] << 16))
+            print(f"  single PB @16 size=16 PBCS {'OK' if good else 'FAIL'} "
+                  f"MsgID={blk[4] & 0x0F} (must be != 0 to avoid the DL-SACK path)")
         elif name == "dl_sack":
             blk = data[16:32]
             good = crc24_lsb(blk, 16) == (blk[13] | (blk[14] << 8) | (blk[15] << 16))
@@ -237,7 +343,7 @@ def main():
             rx = body[2] & 0x03
             print(f"  sack PB @16 size=16 PBCS {'OK' if good else 'FAIL'} "
                   f"MsgID={msg} SrcTEI={tei} RxStatus=0b{rx:02b}")
-        elif name == "trigger":
+        elif name in ("trigger", "trigger_hi", "trigger_tmi26"):
             e = data[16:32]
             good = crc24_lsb(e, 16) == (e[13] | (e[14] << 8) | (e[15] << 16))
             print(f"  eFC @16 size=16 CRC {'OK' if good else 'FAIL'} "
