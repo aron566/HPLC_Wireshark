@@ -100,3 +100,9 @@ wireshark_support_plugins/SPLC.pcapng
 
 # 协议字段审计临时产物(PDF 表格渲染图/CSV/索引, 用户终裁: 不入库)
 audit/
+# wireshark_support_plugins 下的抓包样本一律不入库(用户裁定 A: 2026-10-25)
+# 口径同 samples/*.pcap · samples/*.bin —— 开发期抓包样本, 插件分发件是 10 个白名单文件,
+# 样本对用户无价值; 已跟踪的大文件用 git rm --cached 取消跟踪(历史体积仍在)。
+wireshark_support_plugins/*.pcap
+wireshark_support_plugins/*.bin
+wireshark_support_plugins/test_2026/*.pcap
