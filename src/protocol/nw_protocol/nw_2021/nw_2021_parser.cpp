@@ -108,7 +108,7 @@ bool NW_2021_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QSt
     info.fch_crc_ok = (calc_crc == fch_crc);
     info.fch_crc_checked = true;
     if (!info.fch_crc_ok) {
-        err = QString("FCH CRC24 错(calc=%1 rx=%2)")
+        err = trl::L("FCH CRC24 错(calc=%1 rx=%2)")
               .arg(calc_crc, 6, 16, QChar('0')).arg(fch_crc, 6, 16, QChar('0'));
         return false;
     }
@@ -165,7 +165,7 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
     }
 
     if (f.nid_filter && !f.nid_list.contains(r.mpdu.net_id)) {
-        r.reject_reason = QString("SNID 不在白名单: 0x%1").arg(r.mpdu.net_id, 1, 16);
+        r.reject_reason = trl::L("SNID 不在白名单: 0x%1").arg(r.mpdu.net_id, 1, 16);
         r.accept = false;
         return r;
     }

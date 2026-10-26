@@ -11,19 +11,21 @@ namespace {
 struct I18nReg {
     I18nReg() {
         trl::register_en("保留", "Reserved");
-        trl::register_en("广播报文", "broadcast frame");
-        trl::register_en("非广播报文", "non-broadcast frame");
-        trl::register_en("重传报文", "retransmitted frame");
-        trl::register_en("非重传报文", "non-retransmitted frame");
-        trl::register_en("预留信息段", "reserved for future encryption");
+        trl::register_en("广播报文", "Broadcast Frame");
+        trl::register_en("非广播报文", "Non-Broadcast Frame");
+        trl::register_en("重传报文", "Retransmitted Frame");
+        trl::register_en("非重传报文", "Non-Retransmitted Frame");
+        trl::register_en("预留信息段", "Reserved for Future Encryption");
+        trl::register_en("信道探测帧无数据物理块, 表9 无 PB 字段",
+                         "No Data PB in Channel Sounding Frame (Table 9 Has No PB Field)");
         // 无线 MCS 释义(表28:分集次数/调制方式/码率)
-        trl::register_en("分集4次 BPSK 码率1/2", "diversity 4, BPSK, code rate 1/2");
-        trl::register_en("分集2次 BPSK 码率1/2", "diversity 2, BPSK, code rate 1/2");
-        trl::register_en("分集2次 QPSK 码率1/2", "diversity 2, QPSK, code rate 1/2");
-        trl::register_en("分集1次 QPSK 码率1/2", "diversity 1, QPSK, code rate 1/2");
-        trl::register_en("分集1次 QPSK 码率4/5", "diversity 1, QPSK, code rate 4/5");
-        trl::register_en("分集1次 16QAM 码率1/2", "diversity 1, 16QAM, code rate 1/2");
-        trl::register_en("分集1次 16QAM 码率4/5", "diversity 1, 16QAM, code rate 4/5");
+        trl::register_en("分集4次 BPSK 码率1/2", "Diversity 4, BPSK, Code Rate 1/2");
+        trl::register_en("分集2次 BPSK 码率1/2", "Diversity 2, BPSK, Code Rate 1/2");
+        trl::register_en("分集2次 QPSK 码率1/2", "Diversity 2, QPSK, Code Rate 1/2");
+        trl::register_en("分集1次 QPSK 码率1/2", "Diversity 1, QPSK, Code Rate 1/2");
+        trl::register_en("分集1次 QPSK 码率4/5", "Diversity 1, QPSK, Code Rate 4/5");
+        trl::register_en("分集1次 16QAM 码率1/2", "Diversity 1, 16QAM, Code Rate 1/2");
+        trl::register_en("分集1次 16QAM 码率4/5", "Diversity 1, 16QAM, Code Rate 4/5");
     }
 };
 const I18nReg g_i18n_reg_gw_tree;
@@ -256,8 +258,7 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     12, 4, 4);
                 // eFC(表11,自 byte16):站点1-3 ×[TEI 12b/RU 4b/分集拷贝 5b/PB个数 1b/RSV 2b],每站 3B,
                 // 站点数由 FCH 站点数字段决定;其后加密标志位(eFC (9,0))+保留至 (12,0-7)
-                // 注:PB 实际起点=16+eFC 尺寸(随扩展帧控制符号数变化),parser 现仍按 byte16 起,
-                //    待真实 OFDMA 帧核对后修正
+                // eFC(表11,固定 16B,内部字节 0-15,其中 13-15 为帧控制校验) ⇒ PB 自 byte32 起
                 const int n_efc = (sn >= 1 && sn <= 3) ? sn : 0;
                 for (int s = 1; s <= n_efc; ++s) {
                     const int b = 16 + (s - 1) * 3;
@@ -311,7 +312,7 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     12, 4, 4);
                 // eFC(表13,自 byte16):每站 4B×(站点数-1):
                 //   TEI(b,0,12)/数据载荷符号数(b+1,4,9)/TF与数据载荷频段(b+2,5,3)/分集拷贝(b+3,0,5)/RSV(b+3,5,3)
-                //   注:PB 实际起点随 eFC 尺寸变化,parser 现仍按 byte16 起,待真实 TDA 帧核对后修正
+                //   eFC(表13,固定 16B) ⇒ PB 自 byte32 起
                 const int n_efc = (sn >= 1 && sn <= 3) ? sn : 0;
                 for (int s = 1; s <= n_efc; ++s) {
                     const int b = 16 + (s - 1) * 4;
@@ -417,8 +418,38 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         }
         tree_add_item(sof, "PB Size", QString::number(e.mpdu.pb_size));
 
-        // 逐 PB 块渲染:国网 PB 头 1B + 数据 pb_size-4 B + CRC24 3B
-        {
+        if (!e.mpdu.sof_stations.isEmpty()) {
+            // ===== 多站点（OFDMA 表10/11 / TDA 表12/13）=====
+            // 验证状态不在树里显示(维护信息见 gw_2026_sof_parser.cpp 多站点分支注释)。
+            for (int si = 0; si < e.mpdu.sof_stations.size(); ++si) {
+                const auto& st = e.mpdu.sof_stations[si];
+                auto* snode = tree_add_item(sof,
+                    QStringLiteral("PB Station %1 (TEI=%2, copy_mode=%3, %4 block(s) × %5B)")
+                        .arg(si).arg(st.tei).arg(st.copy_mode).arg(st.pb_num).arg(st.pb_size),
+                    QString());
+                for (int j = 0; j < st.pb_heads.size(); ++j) {
+                    const int off = st.block_base + j * st.pb_size;
+                    const quint8 h = st.pb_heads[j];
+                    const bool ok = (j < st.pb_crc_oks.size()) && st.pb_crc_oks[j];
+                    tree_add_bit_field(snode, QStringLiteral("PB Header (%1/%2)").arg(j).arg(st.pb_num),
+                        QStringLiteral("0x%1 (seq=%2)").arg(h, 2, 16, QChar('0')).arg(h & 0x3F),
+                        off, 0, 8);
+                    tree_add_item(snode, "PB Body", QStringLiteral("%1 B").arg(st.pb_size - 4),
+                        off + 1, st.pb_size - 4);
+                    tree_add_bit_field(snode, "PB CRC24",
+                        ok ? QStringLiteral("OK") : QStringLiteral("FAIL"),
+                        off + st.pb_size - 3, 0, 24);
+                }
+                if (!st.msdu.isEmpty())
+                    tree_add_item(snode, "MSDU", QStringLiteral("%1 B").arg(st.msdu.size()));
+            }
+        } else if (e.mpdu.sof_data_type == 1) {
+            // ===== 信道探测帧（表9）：无数据物理块 =====
+            tree_add_item(sof, "PB", QStringLiteral("0 B (%1)").arg(trl::L("信道探测帧无数据物理块, 表9 无 PB 字段")));
+        } else {
+            // ===== 单站点数据帧（表7）：现状逻辑保持不变 =====
+            // 逐 PB 块渲染:国网 PB 头 1B + 数据 pb_size-4 B + CRC24 3B
+            {
             const int header_len = 1;
             const int body_len   = e.mpdu.pb_size - 4;
             const int pb_num     = (e.mpdu.pb_num > 0) ? e.mpdu.pb_num : 1;
@@ -479,6 +510,7 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                                  .arg(pb_checked ? (okb ? "OK" : "FAIL") : "N/A")
                          : (pb_checked ? (okb ? "OK" : "FAIL") : "N/A"),
                     blk_off + e.mpdu.pb_size - 3, 3);
+            }
             }
         }
 

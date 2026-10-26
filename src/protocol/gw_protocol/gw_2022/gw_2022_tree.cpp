@@ -9,23 +9,23 @@ namespace {
 // Link ID 中文释义(国网 SOF 链路标识符)
 struct I18nReg {
     I18nReg() {
-        trl::register_en("报文优先级(越小越低)", "message priority (smaller = lower)");
-        trl::register_en("业务分类LID", "service-class LID");
-        trl::register_en("无效值", "invalid value");
-        trl::register_en("广播报文", "broadcast frame");
-        trl::register_en("非广播报文", "non-broadcast frame");
-        trl::register_en("重传报文", "retransmitted frame");
-        trl::register_en("非重传报文", "non-retransmitted frame");
-        trl::register_en("预留信息段", "reserved for future encryption");
+        trl::register_en("报文优先级(越小越低)", "Message Priority (Smaller = Lower)");
+        trl::register_en("业务分类LID", "Service-Class LID");
+        trl::register_en("无效值", "Invalid Value");
+        trl::register_en("广播报文", "Broadcast Frame");
+        trl::register_en("非广播报文", "Non-Broadcast Frame");
+        trl::register_en("重传报文", "Retransmitted Frame");
+        trl::register_en("非重传报文", "Non-Retransmitted Frame");
+        trl::register_en("预留信息段", "Reserved for Future Encryption");
         trl::register_en("保留", "Reserved");
         // 无线 MCS 释义(表28:分集次数/调制方式/码率)
-        trl::register_en("分集4次 BPSK 码率1/2", "diversity 4, BPSK, code rate 1/2");
-        trl::register_en("分集2次 BPSK 码率1/2", "diversity 2, BPSK, code rate 1/2");
-        trl::register_en("分集2次 QPSK 码率1/2", "diversity 2, QPSK, code rate 1/2");
-        trl::register_en("分集1次 QPSK 码率1/2", "diversity 1, QPSK, code rate 1/2");
-        trl::register_en("分集1次 QPSK 码率4/5", "diversity 1, QPSK, code rate 4/5");
-        trl::register_en("分集1次 16QAM 码率1/2", "diversity 1, 16QAM, code rate 1/2");
-        trl::register_en("分集1次 16QAM 码率4/5", "diversity 1, 16QAM, code rate 4/5");
+        trl::register_en("分集4次 BPSK 码率1/2", "Diversity 4, BPSK, Code Rate 1/2");
+        trl::register_en("分集2次 BPSK 码率1/2", "Diversity 2, BPSK, Code Rate 1/2");
+        trl::register_en("分集2次 QPSK 码率1/2", "Diversity 2, QPSK, Code Rate 1/2");
+        trl::register_en("分集1次 QPSK 码率1/2", "Diversity 1, QPSK, Code Rate 1/2");
+        trl::register_en("分集1次 QPSK 码率4/5", "Diversity 1, QPSK, Code Rate 4/5");
+        trl::register_en("分集1次 16QAM 码率1/2", "Diversity 1, 16QAM, Code Rate 1/2");
+        trl::register_en("分集1次 16QAM 码率4/5", "Diversity 1, 16QAM, Code Rate 4/5");
     }
 };
 const I18nReg g_i18n_reg_gw_tree;

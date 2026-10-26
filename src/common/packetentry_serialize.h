@@ -171,6 +171,21 @@ inline void write_mpdu(QDataStream& s, const MpduInfo& m) {
     write_u8(s, m.ack_sat_id_flag);
     write_u8(s, m.ack_remain_sta_num);
     write_bool(s, m.fch_crc_checked);  // v12 补: FCH CRC 三态(未校验/通过/失败)
+    // v13 补: 多站点 PB 分组(OFDMA 表10/11、TDA 表12/13 逐站点) + 待真实帧验证标志
+    write_u32(s, (quint32)m.sof_stations.size());
+    for (const auto& st : m.sof_stations) {
+        write_u16(s, st.tei);
+        write_u8 (s, st.copy_mode);
+        write_u8 (s, st.pb_num);
+        write_u16(s, st.pb_size);
+        write_i32(s, st.block_base);
+        write_u32(s, (quint32)st.pb_heads.size());
+        for (quint8 h : st.pb_heads) write_u8(s, h);
+        write_u32(s, (quint32)st.pb_crc_oks.size());
+        for (bool b : st.pb_crc_oks) write_bool(s, b);
+        write_bytes(s, st.msdu);
+    }
+    write_bool(s, m.sof_multi_site_verified);
 }
 
 inline void read_mpdu(QDataStream& s, MpduInfo& m) {
@@ -250,6 +265,26 @@ inline void read_mpdu(QDataStream& s, MpduInfo& m) {
     read_u8(s, m.ack_sat_id_flag);
     read_u8(s, m.ack_remain_sta_num);
     read_bool(s, m.fch_crc_checked);   // v12 补: FCH CRC 三态(未校验/通过/失败)
+    // v13 补: 多站点 PB 分组 + 待真实帧验证标志
+    quint32 n_st = 0; read_u32(s, n_st);
+    m.sof_stations.clear(); m.sof_stations.reserve(int(n_st));
+    for (quint32 i = 0; i < n_st; ++i) {
+        SofStationPb st;
+        read_u16(s, st.tei);
+        read_u8 (s, st.copy_mode);
+        read_u8 (s, st.pb_num);
+        read_u16(s, st.pb_size);
+        read_i32(s, st.block_base);
+        quint32 nh = 0; read_u32(s, nh);
+        st.pb_heads.reserve(int(nh));
+        for (quint32 j = 0; j < nh; ++j) { quint8 h; read_u8(s, h); st.pb_heads.append(h); }
+        quint32 nc = 0; read_u32(s, nc);
+        st.pb_crc_oks.reserve(int(nc));
+        for (quint32 j = 0; j < nc; ++j) { bool b; read_bool(s, b); st.pb_crc_oks.append(b); }
+        read_bytes(s, st.msdu);
+        m.sof_stations.append(st);
+    }
+    read_bool(s, m.sof_multi_site_verified);
 }
 
 inline void write_field_node(QDataStream& s, const MsduFieldNode& n, StrPool& pool) {
@@ -520,7 +555,7 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
 // ---------------------------------------------------------------------------
 
 inline quint32 block_magic()   { return 0x50424C4Bu; }  // "PBLK"
-inline quint32 block_version() { return 12u; }  // v12: 补 fch_crc_checked(FCH CRC 三态);v11: 补 MsduInfo::cascade + TopoEvent 23 字段 + MpduInfo 13 字段;v10: 删死字段 pb_index/coord_option/ack_search_freq;补写 coord_rsv1/2/3(树渲染依赖,原先漏写导致换页后恒 0);v9 增 mcs;v8 增 pblen;v7 增 beacon_rsv;v6 三线合流并集
+inline quint32 block_version() { return 13u; }  // v13: 补 MpduInfo::sof_stations(多站点 PB 分组 OFDMA/TDA) + sof_multi_site_verified; v12: 补 fch_crc_checked(FCH CRC 三态);v11: 补 MsduInfo::cascade + TopoEvent 23 字段 + MpduInfo 13 字段;v10: 删死字段 pb_index/coord_option/ack_search_freq;补写 coord_rsv1/2/3(树渲染依赖,原先漏写导致换页后恒 0);v9 增 mcs;v8 增 pblen;v7 增 beacon_rsv;v6 三线合流并集
 /// @brief 独立压缩分块的条目数(随机解码粒度:解一条最多解压一个分块)
 inline constexpr int kBlockChunkEntries = 50;
 

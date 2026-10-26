@@ -1345,7 +1345,7 @@ struct I18nRegMainWindow {
         trl::register_en("回放文件 (*.bin)", "Replay files (*.bin)");
         trl::register_en("CSV 表格 (*.csv)", "CSV table (*.csv)");
         trl::register_en("[错误] ", "[Error] ");
-        trl::register_en("  显示过滤器:", "  Display filter:");
+        trl::register_en("  显示过滤器:", "  Display Filter:");
         trl::register_en("字节视图(十六进制,左偏移 + 中间 hex + 右侧 ASCII + RAW DATA):",
                          "Byte view (hex, left offset + middle hex + right ASCII + RAW DATA):");
         trl::register_en("复制(含 0x 前缀)", "Copy (with 0x prefix)");
@@ -1365,7 +1365,7 @@ struct I18nRegMainWindow {
         trl::register_en("拓扑", "Topology");
         trl::register_en("自动列宽", "Auto fit");
         trl::register_en("按内容自动调整列表各列宽度", "Auto-resize all columns to fit their content");
-        trl::register_en("  跳转帧:", "  Goto frame:");
+        trl::register_en("  跳转帧:", "  Goto Frame:");
         trl::register_en("跳转", "Goto");
         trl::register_en("跳转帧序号无效", "Invalid frame index");
         trl::register_en("帧序号", "Frame index");

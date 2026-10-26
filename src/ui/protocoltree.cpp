@@ -3,8 +3,19 @@
 #include "protocoltree.h"
 #include "protocol_tree_builder.h"
 #include "protocolfactory.h"
+#include "i18n.h"
 #include <QHeaderView>
 #include <QDebug>
+
+namespace {
+struct I18nRegProtocolTree {
+    I18nRegProtocolTree() {
+        trl::register_en("(插件字段树需重新解剖：该帧已换页，点击本行重新获取)",
+                         "(Plugin Field Tree Needs Re-Dissection: Frame Paged Out, Click This Row to Re-Fetch)");
+    }
+};
+const I18nRegProtocolTree g_i18n_reg_protocoltree;
+}  // namespace
 
 ProtocolTree::ProtocolTree(QWidget* parent) : QTreeWidget(parent) {
     setColumnCount(2);
@@ -159,7 +170,7 @@ void ProtocolTree::show_packet(const PacketEntry& e) {
         render_dissect_fields(root, e.dissect_fields, e.raw_bytes.size());
     } else if (e.protocol & kProtocolPluginBit) {
         tree_add_item(root, "Protocol",
-            QStringLiteral("(插件字段树需重新解剖：该帧已换页，点击本行重新获取)"));
+            trl::L("(插件字段树需重新解剖：该帧已换页，点击本行重新获取)"));
     } else if (IProtocolTreeBuilder* b = builder_for(e)) {
         b->build(root, e);
     }

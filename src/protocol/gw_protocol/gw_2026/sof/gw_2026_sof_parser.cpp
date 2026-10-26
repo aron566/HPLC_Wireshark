@@ -76,6 +76,104 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
         // 载波 SOF(表7 数据帧):帧子类型/TF描述/帧长后为 FCH 符号数(跨字节)/
         // 调制方式与参数/2b 编码 PB 个数/广播·加密·重传/频段标识/增益/加载表ID
         info.sof_data_type     = (quint8) get_bits(p, 7, 0, 3);
+        // 载波 SOF 按帧子类型分派(表7 (7,0,3)):
+        //   0=数据帧(表7) 1=信道探测帧(表9) 2=OFDMA下行(表10/11) 3=TDA下行(表12/13)
+        const quint8 sof_dt = info.sof_data_type;
+        if (sof_dt == 1) {
+            // 表9(信道探测帧)无 PB/调制/PB个数字段:载荷为训练序列,不带数据物理块。
+            // 表9 专属字段(子载波分组/训练序列频段/训练序列符号数/扩展目的TEI)由树层从 raw 直读,
+            // 不进 MpduInfo。⇒ 跳过 PB 组装,避免按表7 坐标读出垃圾并误报 CRC FAIL。
+            info.pb_num = 0; info.pb_size = 0; info.pb_num_field = 0;
+            info.sof_stations.clear();
+            return QString();
+        }
+        if (sof_dt == 2 || sof_dt == 3) {
+            const bool is_ofdma = (sof_dt == 2);
+            // 站点数(表10 (7,3,2) / 表12 (7,3,2)):0=保留 1=2站 2=3站 3=4站
+            const quint8 sn_code = (quint8)get_bits(p, 7, 3, 2);
+            const int n_sites = (sn_code >= 1 && sn_code <= 3) ? (sn_code + 1) : 0;
+            if (n_sites == 0) {
+                info.pb_num = 0; info.pb_size = 0; info.sof_stations.clear();
+                return trl::L("OFDMA/TDA 站点数为保留值 0(表10/表12 仅定义 1-3)");
+            }
+            info.sof_stations.clear();
+            int blk = 32;   // PB 起点:FCH 16B + eFC 16B(表11/13 固定 16 字节)
+            for (int si = 0; si < n_sites; ++si) {
+                SofStationPb st;
+                quint8 copy_mode = 0;
+                quint8 st_pb_num = 1;
+                if (si == 0) {
+                    st.tei = info.dst_tei;                 // 表10 (5,4,12) 站点0 TEI = 目的 TEI
+                    copy_mode = (quint8)get_bits(p, 11, 3, 5);           // 表10 (11,3,5)
+                    if (is_ofdma) st_pb_num = (quint8)(get_bits(p, 11, 2, 1) + 1);  // 表10 (11,2,1):0→1块 1→2块
+                } else {
+                    const int b = is_ofdma ? (16 + (si - 1) * 3) : (16 + (si - 1) * 4);
+                    st.tei = (quint16)get_bits(p, b, 0, 12);             // 表11/13 各站 TEI (b,0,12)
+                    copy_mode = is_ofdma
+                                ? (quint8)get_bits(p, b + 2, 0, 5)       // 表11 (b+2,0,5)
+                                : (quint8)get_bits(p, b + 3, 0, 5);      // 表13 (b+3,0,5)
+                    if (is_ofdma) st_pb_num = (quint8)(get_bits(p, b + 2, 5, 1) + 1);  // 表11 (b+2,5,1)
+                }
+                st.copy_mode = copy_mode;
+                st.pb_num    = st_pb_num;
+
+                // PB 大小:分集拷贝模式即 TMI 编号(协议「应符合 Q/GDW XXX.41 5.1.7.6 分集拷贝模式」)
+                int sz = sof_pb_size(copy_mode, 0);
+                if (is_ofdma && sz != 72 && sz != 136) {
+                    return trl::L("OFDMA PB 大小越界(copy_mode=%1 → %2B，协议限 72/136)")
+                               .arg(copy_mode).arg(sz);
+                }
+                if (sz <= 0)
+                    return trl::L("OFDMA/TDA PB 大小非法(copy_mode=%1)").arg(copy_mode);
+                st.pb_size    = (quint16)sz;
+                st.block_base = blk;
+
+                // 逐块 CRC24(国网布局:PB 头 1B + 块体 + CRC24 3B,无聚合标志)
+                for (int j = 0; j < st_pb_num; ++j) {
+                    const int off = blk + j * sz;
+                    if (off + sz > body.size()) {
+                        info.sof_stations.append(st);
+                        return trl::L("多站点 PB 块超出帧长");
+                    }
+                    const quint8* bp = reinterpret_cast<const quint8*>(body.constData()) + off;
+                    st.pb_heads.append(bp[0]);
+                    const quint32 calc = crc24_lsb(bp, sz);
+                    const quint32 rx = (quint32)bp[sz-3] | ((quint32)bp[sz-2] << 8) | ((quint32)bp[sz-1] << 16);
+                    st.pb_crc_oks.append(calc == rx);
+                    st.msdu += body.mid(off + 1, sz - 4);   // 块体 = 头 1B 之后、CRC 3B 之前
+                }
+                blk += st_pb_num * sz;
+                info.sof_stations.append(st);
+            }
+            // 汇总字段(供 Info 列/树顶层显示)
+            info.pb_num   = 0;
+            info.pb_size  = 0;
+            info.pb_num_field = sn_code;
+            // 多站点 PB 布局已通过协议仿真帧验证，尚未经实包确认。
+            // 已验证(strong)：
+            //   · 块边界 —— 帧长恰好等于 16(FCH) + 16(eFC) + Σ(站点块数 × 块长)：
+            //     OFDMA 440B = 32 + 2×136 + 1×136；TDA 304B = 32 + 136 + 136
+            //   · 每块 CRC24 校验通过（切错 1 字节必挂）⇒ 块起点 32、块长 136、
+            //     站点间步进 136 全部自洽
+            //   · PB 头 START/END/seq 时序合法（首块 0x40=START / 末块 0x81=END / 单块 0xC0）
+            //   · 源码与 Python 独立复算、Lua tshark 三方 CRC 值一致
+            // 未验证(weak) —— 只有实包能证伪：
+            //   · eFC 是否恒为 16 字节（表11/13 内部字节号 0-15 是推断依据，
+            //     「扩展帧控制符号数」是时序属性，不影响字节布局的判断尚待实包确认）
+            //   · 分集拷贝模式(5bit) → PB 大小 的映射：协议原文指向外部
+            //     Q/GDW XXX.41 5.1.7.6，本地无该表，暂复用 sof_pb_size()(TMI 表)
+            //     并用 5.2.5.7「只允许 PB72/PB136」做约束
+            //   · 真实设备是否在 eFC 后插厂商私有字段
+            // ⚠ 循环论证风险：仿真帧是按同一份协议文档构造的，两者一致只能排除
+            //   「实现偏离文档」，不能排除「文档理解偏差」。真帧到位后应复核上述 weak 项。
+            info.sof_multi_site_verified = true;
+            return QString();
+        }
+        if (sof_dt >= 4) {
+            info.pb_num = 0; info.pb_size = 0;
+            return trl::L("帧子类型为保留值(表7 仅定义 0-3)");
+        }
+
         info.sof_tf_symbol_pos = (quint8) get_bits(p, 7, 3, 2);
         info.sof_tf_symbol_num = (quint8) get_bits(p, 7, 5, 3);
         // FCH符号数(9,7,2) 跨字节:byte9 bit7 + byte10 bit0(表7)
@@ -123,7 +221,7 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
     // 块数合法性只约束载波;RF 生效块数恒 1(见上);PB 大小非法(-1)对载波/无线均拒收
     if (pb_size <= 0
         || (!is_rf && (info.pb_num == 0 || info.pb_num > max_pb_num))) {
-        return QString("PB 大小/数量非法(band=%1 mod=%2 param=%3 num=%4 max=%5)")
+        return trl::L("PB 大小/数量非法(band=%1 mod=%2 param=%3 num=%4 max=%5)")
                    .arg(band).arg(info.sof_mod_mode).arg(info.sof_mod_param)
                    .arg(info.pb_num_field).arg(max_pb_num);
     }
@@ -196,6 +294,17 @@ namespace {
 struct I18nRegSof {
     I18nRegSof() {
         trl::register_en("PB 块超出帧长", "PB block exceeds frame length");
+        trl::register_en("OFDMA/TDA 站点数为保留值 0(表10/表12 仅定义 1-3)",
+                         "OFDMA/TDA Station Count Is Reserved Value 0 (Tables 10/12 Define 1-3 Only)");
+        trl::register_en("多站点 PB 块超出帧长", "Multi-Station PB Block Exceeds Frame Length");
+        trl::register_en("帧子类型为保留值(表7 仅定义 0-3)",
+                         "Frame Subtype Is Reserved Value (Table 7 Defines 0-3 Only)");
+        trl::register_en("OFDMA PB 大小越界(copy_mode=%1 → %2B，协议限 72/136)",
+                         "OFDMA PB Size Out of Range (copy_mode=%1 → %2B, Spec Allows 72/136 Only)");
+        trl::register_en("OFDMA/TDA PB 大小非法(copy_mode=%1)",
+                         "Invalid OFDMA/TDA PB Size (copy_mode=%1)");
+        trl::register_en("PB 大小/数量非法(band=%1 mod=%2 param=%3 num=%4 max=%5)",
+                         "Invalid PB Size/Count (band=%1 mod=%2 param=%3 num=%4 max=%5)");
     }
 };
 const I18nRegSof g_i18n_reg_sof;

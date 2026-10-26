@@ -2130,10 +2130,10 @@ namespace {
 struct I18nReg {
     I18nReg() {
         trl::register_en("网络诊断", "MMeDiagnose");
-        trl::register_en("在位图(第%1字节)", "in bitmap (byte %1)");
+        trl::register_en("在位图(第%1字节)", "In Bitmap (Byte %1)");
         trl::register_en("Segment[%1]", "Segment[%1]");
         trl::register_en("Group[%1]", "Group[%1]");
-        trl::register_en("不使用", "unused");
+        trl::register_en("不使用", "Unused");
         trl::register_en("BPSK", "BPSK");
         trl::register_en("QPSK", "QPSK");
         trl::register_en("16QAM", "16QAM");

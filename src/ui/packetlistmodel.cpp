@@ -19,6 +19,7 @@ struct I18nReg {
     I18nReg() {
         trl::register_en("训练帧(MIMO)", "Training Frame (MIMO)");
         trl::register_en("训练帧(Bitloading)", "Training Frame (Bitloading)");
+        trl::register_en("DL-OFDMA(截断)", "DL-OFDMA (Truncated)");
     }
 };
 const I18nReg g_i18n_reg_pktlist;
@@ -206,9 +207,24 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                            .arg(nid).arg(e.meta.timestamp);
                 }
                 if (e.mpdu.frame_type == 1) {
-                    // 训练帧(表24/25,SPLC 载波 SOF:训练帧标识 FCH byte4 bit1=1):
-                    // Info 列显示帧性质,替代 TMI/PBNum/MSDU 段(用户需求)
-                    if (e.mpdu.version == 2 && !e.meta.is_rf
+                    // 训练帧只在【单站点帧】里成立(表23 byte4 bit1);多站点帧的 bit1 是 OFDMA帧类型的 bit0(表26)
+                    const bool is_multi = (e.mpdu.version == 2) && !e.meta.is_rf
+                                          && e.raw_bytes.size() > 4 && (quint8(e.raw_bytes.at(4)) & 0x01);
+                    if (is_multi) {
+                        const quint8 ofdma_type = (quint8(e.raw_bytes.at(4)) >> 1) & 0x03;
+                        QString kind;
+                        switch (ofdma_type) {
+                          case 0: kind = (e.mpdu.pb_num > 0) ? trl::L("DL-OFDMA")
+                                                             : trl::L("DL-OFDMA(截断)"); break;
+                          case 1: kind = trl::L("DL-OFDMA SACK/UL-OFDMA"); break;
+                          case 2: kind = trl::L("UL-OFDMA trigger"); break;
+                          default: kind = trl::L("UL-OFDMA SACK"); break;
+                        }
+                        return QStringLiteral("NetID=0x%1 src=%2 dst=%3 %4")
+                               .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
+                               .arg(kind);
+                    }
+                    if (e.mpdu.version == 2 && !e.meta.is_rf && !is_multi
                         && e.raw_bytes.size() > 5 && (quint8(e.raw_bytes.at(4)) & 0x02)) {
                         const bool bitload = (quint8(e.raw_bytes.at(5)) & 0x01) != 0;
                         return QStringLiteral("NetID=0x%1 src=%2 dst=%3 %4")

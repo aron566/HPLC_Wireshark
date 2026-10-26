@@ -6,6 +6,34 @@ BPLC/HRF(HPLC) 协议 STA 报文监控上位机(Windows,Qt 6 / C++17)。
 输出的 `0x3C … 0x3E` 封装帧,并以字段树 + 十六进制字节联动高亮展示各层协议
 结构。
 
+## 📋 编码风格规范（必读）
+
+**任何改动前请先读 [docs/CODING_STYLE.md](docs/CODING_STYLE.md)** —— 其中规定了：
+
+**命名**
+- **函数 `snake_case`**（`get_bits` / `tree_add_bit_field`；Qt 虚函数除外）
+- **常量 `k` + PascalCase**（`kAppVersion` / `kLiteStaSlotSpecN`）
+- **结构体字段 `snake_case`，无 `m_` 前缀**；**QObject 成员 `m_` + `snake_case`**
+- **宏全大写 + 下划线**，能用 `constexpr` 就不用宏
+- **禁匈牙利前缀 / 拼音 / 单字母**（`i`/`j`/`k` 循环变量除外）
+- **协议字段名沿用协议原文**（`PBNum`→`pb_num`、`TMI`→`tmi`、`TEI`→`tei`）
+
+**文案**
+- **英文文案必须 Title Case**（`Empty Frame` 不是 `empty frame`；64 条单位后缀例外）
+- **每个用户可见字符串必须 `register_en` 中英配对**
+
+**协议**
+- **协议相关注释必须写表号**
+- **协议字段含义必须硬编码**（禁止只写「见表N」）
+- **位域坐标以原始 PDF 为准**（MinerU 转的 md 会摊平 rowspan，不可直接下结论）
+- **位域布局禁类推**（同一 bit 在不同帧类型下含义可不同）
+
+**数据/显示**
+- **CRC 显示三态**（`N/A` 未校验 / `OK` 通过 / `FAIL` 失败）
+- **新增字段必须进 block_version 序列化**
+
+自查脚本：`python tools/check_title_case.py`（扫全项目英文文案合规性）
+
 ## 使用说明书 / User Manual
 
 - [中文使用说明书](docs/USER_MANUAL_zh-CN.md)

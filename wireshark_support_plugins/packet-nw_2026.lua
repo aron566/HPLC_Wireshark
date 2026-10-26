@@ -1191,15 +1191,9 @@ local function dissect_sof_vf(tvb, tree, is_rf)
         -- SPLC 载波 SOF(表23-26): 多站点帧标识(4,0,1)/训练帧标识(4,1,1)/OFDMA类型(4,1,2)/
         -- 帧长(8,0,12,×10µs); byte5/7 保留 (带掩码字段直接挂整字节, Wireshark 按掩码取值)
         local multi = read_bits(tvb, 4 * 8, 1)
-        local train = read_bits(tvb, 4 * 8 + 1, 1)
         tree:add(f.sof_multi, tvb(4, 1))
-        tree:add(f.sof_train, tvb(4, 1))
         add_val(tree, f.sof_frame_len, tvb, 8, 2, read_bits(tvb, 8 * 8, 12))
-        if train == 1 then
-            -- 训练帧(表24/25): 无数据物理块, 不重组 MSDU
-            r.pb_num = 0
-            r.pbsize = 0
-        elseif multi == 1 then
+        if multi == 1 then
             local otype = read_bits(tvb, 4 * 8 + 1, 2)
             tree:add(f.sof_ofdma_type, tvb(4, 1))
             if (otype == 0 or otype == 1 or otype == 2) and tvb:len() >= 32 then
@@ -1256,11 +1250,22 @@ local function dissect_sof_vf(tvb, tree, is_rf)
                 r.pb_num = 0
                 r.pbsize = 0
             else
-                -- 类型未知: 本站不重组 MSDU
+                -- 类型未知 / 截断帧: 本站不重组 MSDU
+                if otype == 0 then
+                    -- DL-OFDMA 本应有 eFC(表27)+PB，长度不足说明帧被截断
+                    tree:append_text(" · " .. T("DL-OFDMA 帧被截断", "DL-OFDMA Frame Truncated"))
+                end
                 r.pb_num = 0
                 r.pbsize = 0
             end
         else
+            local train = read_bits(tvb, 4 * 8 + 1, 1)
+            tree:add(f.sof_train, tvb(4, 1))
+            if train == 1 then
+            -- 训练帧(表24/25): 无数据物理块, 不重组 MSDU
+            r.pb_num = 0
+            r.pbsize = 0
+            else
             -- SPLC 单站点数据帧(表23): 物理块个数(4,2-5)/Bitloading(6,0)/TMI编号(6,1-5)
             local pbn = read_bits(tvb, 4 * 8 + 2, 4)
             local bitload = read_bits(tvb, 6 * 8, 1)
@@ -1270,6 +1275,7 @@ local function dissect_sof_vf(tvb, tree, is_rf)
             tree:add(f.sof_tmi, tvb(6, 1))
             r.pb_num = pbn
             r.pbsize = (bitload == 1) and splc_bitload_pb_size(tmi_idx) or splc_pb_size(tmi_idx)
+            end
         end
     end
     return r

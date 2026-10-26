@@ -2140,7 +2140,7 @@ namespace {
 struct I18nReg {
     I18nReg() {
         trl::register_en("网络诊断", "MMeDiagnose");
-        trl::register_en("在位图(第%1字节)", "in bitmap (byte %1)");
+        trl::register_en("在位图(第%1字节)", "In Bitmap (Byte %1)");
         trl::register_en("Neighbor[%1] (位图 byte %2 bit %3)", "Neighbor[%1] (bitmap byte %2 bit %3)");
         trl::register_en("关联确认", "MMeAssocCnf");
         trl::register_en("关联汇总指示", "MMeAssocGatherInd");

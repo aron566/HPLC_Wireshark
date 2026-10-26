@@ -24,7 +24,9 @@ struct TopoNode {
     quint16 parent_tei = 0xFFFF; ///< 代理 TEI;1=CCO 直属;0=根(CCO 自身);0xFFFF=未知
     NodeStatus status = NodeStatus::OnlineGoing;
     qint64  last_seen_ms = 0;
-    bool    is_rf = false;            ///< 接入方式:false=PLC 载波;true=HRF 无线
+    bool    is_rf = false;            ///< 首次观察到该 TEI 时帧的物理介质(false=载波 true=RF);
+                                      ///  仅首次写入并锁定,不表示入网链路 —— 入网链路看 link_type;
+                                      ///  双模标记看 rf_capable
     bool    is_rf_known = false;      ///< is_rf 是否已判定(方案②:仅首次/未知时写入,防事件帧外高频重写)
     int     rssi_dbm = 0;             ///< 无线信号强度(dBm 估计,档位下限;RF 发现列表信道信息)
     bool    rssi_known = false;       ///< rssi_dbm 是否有效(RF 帧携带过信号强度)

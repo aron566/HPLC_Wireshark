@@ -71,7 +71,7 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
     // 块数合法性只约束载波;RF 生效块数恒 1(见上);PB 大小非法(-1)对载波/无线均拒收
     if (pb_size <= 0
         || (!is_rf && (info.pb_num == 0 || info.pb_num > max_pb_num))) {
-        return QString("PB 大小/数量非法(band=%1 tmi=%2 ext=%3 num=%4 max=%5)")
+        return trl::L("PB 大小/数量非法(band=%1 tmi=%2 ext=%3 num=%4 max=%5)")
                    .arg(band).arg(info.tmi).arg(info.tmi_ext)
                    .arg(info.pb_num_field).arg(max_pb_num);
     }
@@ -149,6 +149,8 @@ namespace {
 struct I18nRegSof {
     I18nRegSof() {
         trl::register_en("PB 块超出帧长", "PB block exceeds frame length");
+        trl::register_en("PB 大小/数量非法(band=%1 tmi=%2 ext=%3 num=%4 max=%5)",
+                         "Invalid PB Size/Count (band=%1 tmi=%2 ext=%3 num=%4 max=%5)");
     }
 };
 const I18nRegSof g_i18n_reg_sof;

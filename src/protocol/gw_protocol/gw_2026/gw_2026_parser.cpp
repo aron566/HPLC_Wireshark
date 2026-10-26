@@ -139,7 +139,7 @@ bool GW_2026_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QSt
     info.fch_crc_ok = (calc_crc == fch_crc);
     info.fch_crc_checked = true;
     if (!info.fch_crc_ok) {
-        err = QString("FCH CRC24 错(calc=%1 rx=%2)")
+        err = trl::L("FCH CRC24 错(calc=%1 rx=%2)")
               .arg(calc_crc, 6, 16, QChar('0')).arg(fch_crc, 6, 16, QChar('0'));
         return false;
     }
@@ -219,7 +219,7 @@ GW_2026_Parser::Result GW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
     const qint64 us_mpdu = pt.nsecsElapsed() / 1000 - us_env;
 
     if (f.nid_filter && !f.nid_list.contains(r.mpdu.net_id)) {
-        r.reject_reason = QString("NetID 不在白名单: 0x%1")
+        r.reject_reason = trl::L("NetID 不在白名单: 0x%1")
                          .arg(r.mpdu.net_id, 6, 16, QChar('0'));
         r.accept = false;
         return r;
@@ -326,13 +326,15 @@ namespace {
 // 解析拒绝/错误文案的中→英词典(显示于 Info 列/错误提示)
 struct I18nRegParser {
     I18nRegParser() {
-        trl::register_en("空帧", "empty frame");
-        trl::register_en("帧长过短", "frame too short");
-        trl::register_en("剥头后载荷过短(<4B)", "payload too short after header (<4B)");
-        trl::register_en("剥头后空载荷", "empty payload after header");
+        trl::register_en("空帧", "Empty Frame");
+        trl::register_en("帧长过短", "Frame Too Short");
+        trl::register_en("剥头后载荷过短(<4B)", "Payload Too Short After Header (<4B)");
+        trl::register_en("剥头后空载荷", "Empty Payload After Header");
         trl::register_en("MPDU_BASE 长度不足 16B", "MPDU_BASE shorter than 16B");
         trl::register_en("HPLC 链路被过滤", "HPLC link filtered");
         trl::register_en("HRF 链路被过滤", "HRF link filtered");
+        trl::register_en("FCH CRC24 错(calc=%1 rx=%2)", "FCH CRC24 Error (calc=%1 rx=%2)");
+        trl::register_en("NetID 不在白名单: 0x%1", "NetID Not in Whitelist: 0x%1");
         trl::register_en("BEACON 被过滤", "BEACON filtered");
         trl::register_en("SOF 被过滤", "SOF filtered");
         trl::register_en("ACK 被过滤", "ACK filtered");

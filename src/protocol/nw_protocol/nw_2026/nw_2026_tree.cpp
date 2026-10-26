@@ -10,16 +10,19 @@ namespace {
 // 南网字段值中文释义(与国网 gw_2022_tree 同风格:中文原文 + trl 英文翻译)
 struct I18nReg {
     I18nReg() {
-        trl::register_en("保留", "reserved");
+        trl::register_en("保留", "Reserved");
         trl::register_en("级联体流 %1 B · %2", "Cascade body stream %1 B · %2");
         trl::register_en("PB 块不完整", "PB blocks incomplete");
-        trl::register_en("声明 %1 块 / 实收 %2 块", "declared %1 / received %2");
+        trl::register_en("声明 %1 块 / 实收 %2 块", "Declared %1 / Received %2");
         trl::register_en(" (超出级联流范围, 已停止解析)", " (beyond cascade stream, parsing stopped)");
-        trl::register_en("不完整(无法校验)", "incomplete (cannot verify)");
+        trl::register_en("不完整(无法校验)", "Incomplete (Cannot Verify)");
         trl::register_en("级联体流长度", "Cascade Body Length");
-        trl::register_en("PB 大小无效(查表未命中)", "Invalid PB size (table lookup miss)");
-        trl::register_en("训练帧无数据物理块", "no data PB for training frame");
-        trl::register_en("本帧无数据物理块(SACK/trigger/UL-SACK)", "no data PB in this frame (SACK/trigger/UL-SACK)");
+        trl::register_en("PB 大小无效(查表未命中)", "Invalid PB Size (Table Lookup Miss)");
+        trl::register_en("OFDMA SACK 帧无数据物理块", "No Data PB in OFDMA SACK Frame");
+        trl::register_en("OFDMA trigger 帧无数据物理块", "No Data PB in OFDMA Trigger Frame");
+        trl::register_en("DL-OFDMA 帧被截断(长度不足以容纳 eFC+PB)", "DL-OFDMA Frame Truncated (Too Short for eFC + PB)");
+        trl::register_en("训练帧无数据物理块", "No Data PB for Training Frame");
+        trl::register_en("单站点数据帧 PBNum=0(保留值,表23 仅定义 1-4)", "Single-Station PBNum=0 (Reserved, Table 23 Defines 1-4 Only)");
         trl::register_en("保留(按选择确认帧解析)", "Reserved (parsed as selective ACK)");
         trl::register_en("应用报文 LID(优先级)", "App LID (priority)");
         trl::register_en("网络管理 LID(自定义 0-255)", "Network-mgmt LID (custom 0-255)");
@@ -46,32 +49,32 @@ struct I18nReg {
         trl::register_en(" (子载波分组大小)", " (subcarrier group size)");
         trl::register_en("BPLC版本", "BPLC version");
         trl::register_en("SPLC版本", "SPLC version");
-        trl::register_en("未知相线", "unknown phase");
-        trl::register_en("A相线", "phase A");
-        trl::register_en("B相线", "phase B");
-        trl::register_en("C相线", "phase C");
-        trl::register_en("选择确认帧", "selective ACK frame");
-        trl::register_en("网络搜索帧(抄控器)", "network search frame (meter reader)");
-        trl::register_en("同步帧(抄控器)", "sync frame (meter reader)");
-        trl::register_en("不携带SNR信息", "no SNR info");
-        trl::register_en("接收当前帧SNR信息", "current frame SNR info");
+        trl::register_en("未知相线", "Unknown Phase");
+        trl::register_en("A相线", "Phase A");
+        trl::register_en("B相线", "Phase B");
+        trl::register_en("C相线", "Phase C");
+        trl::register_en("选择确认帧", "Selective ACK Frame");
+        trl::register_en("网络搜索帧(抄控器)", "Network Search Frame (Meter Reader)");
+        trl::register_en("同步帧(抄控器)", "Sync Frame (Meter Reader)");
+        trl::register_en("不携带SNR信息", "No SNR Info");
+        trl::register_en("接收当前帧SNR信息", "Current Frame SNR Info");
         trl::register_en("反馈TF评估基础RU信息", "TF basic RU SNR info");
         trl::register_en("SOF帧全部接收成功", "SOF frame fully received OK");
-        trl::register_en("物理块存在CRC校验失败", "some PB CRC failed");
+        trl::register_en("物理块存在CRC校验失败", "Some PB CRC Failed");
         trl::register_en("校验成功", "CRC ok");
-        trl::register_en("全部校验失败", "all CRC failed");
-        trl::register_en("含解析错误", "incl. parse errors");
-        trl::register_en("物理层不检查报文 TEI", "physical layer does not check TEI");
-        trl::register_en("物理层检查报文 TEI", "physical layer checks TEI");
-        trl::register_en("重传报文", "retransmitted frame");
-        trl::register_en("非重传报文", "non-retransmitted frame");
-        trl::register_en("上个带宽时隙已结束", "previous band slot ended");
-        trl::register_en("上个带宽时隙未结束", "previous band slot not ended");
+        trl::register_en("全部校验失败", "All CRC Failed");
+        trl::register_en("含解析错误", "Incl. Parse Errors");
+        trl::register_en("物理层不检查报文 TEI", "Physical Layer Does Not Check TEI");
+        trl::register_en("物理层检查报文 TEI", "Physical Layer Checks TEI");
+        trl::register_en("重传报文", "Retransmitted Frame");
+        trl::register_en("非重传报文", "Non-Retransmitted Frame");
+        trl::register_en("上个带宽时隙已结束", "Previous Band Slot Ended");
+        trl::register_en("上个带宽时隙未结束", "Previous Band Slot Not Ended");
         // SPLC 版 SOF(表23-26)新字段释义
-        trl::register_en("多站点帧(OFDMA)", "multi-station frame (OFDMA)");
-        trl::register_en("单站点帧", "single-station frame");
-        trl::register_en("训练帧", "training frame");
-        trl::register_en("数据帧", "data frame");
+        trl::register_en("多站点帧(OFDMA)", "Multi-Station Frame (OFDMA)");
+        trl::register_en("单站点帧", "Single-Station Frame");
+        trl::register_en("训练帧", "Training Frame");
+        trl::register_en("数据帧", "Data Frame");
         trl::register_en("Bitloading训练帧", "Bitloading training frame");
         trl::register_en("MIMO训练帧", "MIMO training frame");
         trl::register_en("DL-OFDMA", "DL-OFDMA");
@@ -80,38 +83,38 @@ struct I18nReg {
         trl::register_en("UL-OFDMA SACK", "UL-OFDMA SACK");
         trl::register_en("个站点", " stations");
         trl::register_en("符号", " symbols");
-        trl::register_en("使用Bitloading", "use Bitloading");
-        trl::register_en("使用TMI", "use TMI");
+        trl::register_en("使用Bitloading", "Use Bitloading");
+        trl::register_en("使用TMI", "Use TMI");
         trl::register_en("PB大小", "PB size");
-        trl::register_en("聚合帧(含级联头)", "aggregated frame (with cascade header)");
-        trl::register_en("单MAC帧", "single MAC frame");
-        trl::register_en("聚合首块", "first cascade block");
-        trl::register_en("聚合末块", "last cascade block");
-        trl::register_en("DL-OFDMA 数据帧的 SACK 帧", "SACK frame of DL-OFDMA data frame");
+        trl::register_en("聚合帧(含级联头)", "Aggregated Frame (with Cascade Header)");
+        trl::register_en("单MAC帧", "Single MAC Frame");
+        trl::register_en("聚合首块", "First Cascade Block");
+        trl::register_en("聚合末块", "Last Cascade Block");
+        trl::register_en("DL-OFDMA 数据帧的 SACK 帧", "SACK Frame of DL-OFDMA Data Frame");
         trl::register_en("Bitloading 扩展帧", "Bitloading extended frame");
-        trl::register_en("训练指示", "training indication");
-        trl::register_en("训练指示拒绝", "training indication reject");
-        trl::register_en("训练请求", "training request");
-        trl::register_en("训练请求拒绝", "training request reject");
-        trl::register_en("训练取消请求", "training cancel request");
-        trl::register_en("训练取消确认", "training cancel confirm");
-        trl::register_en("站点正在训练", "station under training");
-        trl::register_en("训练站点已满", "training stations full");
-        trl::register_en("单流", "single stream");
-        trl::register_en("双流", "dual stream");
+        trl::register_en("训练指示", "Training Indication");
+        trl::register_en("训练指示拒绝", "Training Indication Reject");
+        trl::register_en("训练请求", "Training Request");
+        trl::register_en("训练请求拒绝", "Training Request Reject");
+        trl::register_en("训练取消请求", "Training Cancel Request");
+        trl::register_en("训练取消确认", "Training Cancel Confirm");
+        trl::register_en("站点正在训练", "Station Under Training");
+        trl::register_en("训练站点已满", "Training Stations Full");
+        trl::register_en("单流", "Single Stream");
+        trl::register_en("双流", "Dual Stream");
         trl::register_en("1 个子载波一组", "1 subcarrier per group");
         trl::register_en("2 个子载波一组", "2 subcarriers per group");
         trl::register_en("4 个子载波一组", "4 subcarriers per group");
         trl::register_en("8 个子载波一组", "8 subcarriers per group");
-        trl::register_en("全部校验失败", "all CRC failed");
+        trl::register_en("全部校验失败", "All CRC Failed");
         // 无线 MCS 释义(第2部分表129:分集次数/调制方式/码率)
-        trl::register_en("分集4次 BPSK 码率1/2", "diversity 4, BPSK, code rate 1/2");
-        trl::register_en("分集2次 BPSK 码率1/2", "diversity 2, BPSK, code rate 1/2");
-        trl::register_en("分集2次 QPSK 码率1/2", "diversity 2, QPSK, code rate 1/2");
-        trl::register_en("分集1次 QPSK 码率1/2", "diversity 1, QPSK, code rate 1/2");
-        trl::register_en("分集1次 QPSK 码率4/5", "diversity 1, QPSK, code rate 4/5");
-        trl::register_en("分集1次 16QAM 码率1/2", "diversity 1, 16QAM, code rate 1/2");
-        trl::register_en("分集1次 16QAM 码率4/5", "diversity 1, 16QAM, code rate 4/5");
+        trl::register_en("分集4次 BPSK 码率1/2", "Diversity 4, BPSK, Code Rate 1/2");
+        trl::register_en("分集2次 BPSK 码率1/2", "Diversity 2, BPSK, Code Rate 1/2");
+        trl::register_en("分集2次 QPSK 码率1/2", "Diversity 2, QPSK, Code Rate 1/2");
+        trl::register_en("分集1次 QPSK 码率1/2", "Diversity 1, QPSK, Code Rate 1/2");
+        trl::register_en("分集1次 QPSK 码率4/5", "Diversity 1, QPSK, Code Rate 4/5");
+        trl::register_en("分集1次 16QAM 码率1/2", "Diversity 1, 16QAM, Code Rate 1/2");
+        trl::register_en("分集1次 16QAM 码率4/5", "Diversity 1, 16QAM, Code Rate 4/5");
         trl::register_en("%1 (实际=%2)", "%1 (actual=%2)");
         trl::register_en("%1 (回退 %2dB)", "%1 (backoff %2dB)");
     }
@@ -312,49 +315,15 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             tree_add_bit_field(sof, "TMI_EXT",
             QString::number(e.mpdu.tmi_ext) + trl::L(" (TMI 扩展编号)"), 12, 0, 4);
         } else {
-            // SPLC 版载波 SOF(表23-26):按 多站点帧标识(4,0,1)/训练帧标识(4,1,1) 渲染
+            // SPLC 版载波 SOF(表23-26):先判多站点帧标识(4,0,1),再在单站点分支内判训练帧标识(4,1,1)
+            // (byte4 bit1 在多站点帧里是 OFDMA 帧类型 bit0,不是训练帧标识!)
             // (非聚合 BPLC version=1 仍整帧委托 NW_2021_Parser→NW_2021_TreeBuilder,不经此处)
             const bool multi = (raw_sz > 4) ? ((d[4] & 0x01) != 0) : false;
-            const bool train = (raw_sz > 4) ? ((d[4] & 0x02) != 0) : false;
             tree_add_bit_field(sof, "MultiStationFlag",
                 multi ? QStringLiteral("1 - %1").arg(trl::L("多站点帧(OFDMA)"))
                       : QStringLiteral("0 - %1").arg(trl::L("单站点帧")),
                 4, 0, 1);
-            tree_add_bit_field(sof, "TrainFrameFlag",
-                train ? QStringLiteral("1 - %1").arg(trl::L("训练帧"))
-                       : QStringLiteral("0 - %1").arg(trl::L("数据帧")),
-                4, 1, 1);
-            if (train) {
-                // 训练帧(表24/25):PL符号数(4,2,6)/训练帧类型(5,0,1)/TF符号数(5,1,3)/
-                // 子载波分组大小(5,4,2)/流数(5,6,2)/频段标识(6,0,3)/RU信噪比估计(6,3,1)
-                const quint8 pl_sym = (raw_sz > 4) ? ((d[4] >> 2) & 0x3F) : 0;
-                tree_add_bit_field(sof, "PL SymbolNum",
-                    trl::L("%1 (实际=%2)").arg(pl_sym).arg(pl_sym * 2 + 1), 4, 2, 6);
-                const quint8 tt = (raw_sz > 5) ? (d[5] & 0x01) : 0;
-                tree_add_bit_field(sof, "TrainFrameType",
-                    tt ? QStringLiteral("1 - %1").arg(trl::L("Bitloading训练帧"))
-                       : QStringLiteral("0 - %1").arg(trl::L("MIMO训练帧")),
-                    5, 0, 1);
-                const quint8 tf_sym = (raw_sz > 5) ? ((d[5] >> 1) & 0x07) : 0;
-                tree_add_bit_field(sof, "TF SymbolNum",
-                    trl::L("%1 (实际=%2)").arg(tf_sym).arg((tf_sym + 1) * 2), 5, 1, 3);
-                tree_add_bit_field(sof, "SubcarrierGroupSize",
-                    QString::number((raw_sz > 5) ? ((d[5] >> 4) & 0x03) : 0)
-                        + trl::L(" (子载波分组大小)"), 5, 4, 2);
-                tree_add_bit_field(sof, "StreamNum",
-                    QString::number((raw_sz > 5) ? ((d[5] >> 6) & 0x03) : 0)
-                        + trl::L(" (流数)"), 5, 6, 2);
-                tree_add_bit_field(sof, "BandFlag",
-                    QString::number((raw_sz > 6) ? (d[6] & 0x07) : 0)
-                        + trl::L(" (训练频段标识)"), 6, 0, 3);
-                tree_add_bit_field(sof, "RUSNREstimateFlag",
-                    QString::number((raw_sz > 6) ? ((d[6] >> 3) & 0x01) : 0)
-                        + trl::L(" (RU 信噪比估计标志)"), 6, 3, 1);
-                const quint8 rsv64 = (raw_sz > 6) ? ((d[6] >> 4) & 0x0F) : 0;
-                tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv64, 1, 16, QChar('0')), 6, 4, 4);
-                const quint8 rsv7 = (raw_sz > 7) ? d[7] : 0;
-                tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv7, 2, 16, QChar('0')), 7, 0, 8);
-            } else if (multi) {
+            if (multi) {
                 // OFDMA 帧(表26):OFDMA帧类型(4,1,2)/频段标识(4,3,3)/站点数(4,6,2)/
                 // eFC符号个数(5,0,2)/PL符号数(6,0,9)
                 const quint8 oft = (raw_sz > 4) ? ((d[4] >> 1) & 0x03) : 0;
@@ -452,7 +421,45 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                             16 + b + 2, 0, 8);
                     }
                 }
+
             } else {
+                const bool train = (raw_sz > 4) ? ((d[4] & 0x02) != 0) : false;
+                tree_add_bit_field(sof, "TrainFrameFlag",
+                    train ? QStringLiteral("1 - %1").arg(trl::L("训练帧"))
+                           : QStringLiteral("0 - %1").arg(trl::L("数据帧")),
+                    4, 1, 1);
+                if (train) {
+                // 训练帧(表24/25):PL符号数(4,2,6)/训练帧类型(5,0,1)/TF符号数(5,1,3)/
+                // 子载波分组大小(5,4,2)/流数(5,6,2)/频段标识(6,0,3)/RU信噪比估计(6,3,1)
+                const quint8 pl_sym = (raw_sz > 4) ? ((d[4] >> 2) & 0x3F) : 0;
+                tree_add_bit_field(sof, "PL SymbolNum",
+                    trl::L("%1 (实际=%2)").arg(pl_sym).arg(pl_sym * 2 + 1), 4, 2, 6);
+                const quint8 tt = (raw_sz > 5) ? (d[5] & 0x01) : 0;
+                tree_add_bit_field(sof, "TrainFrameType",
+                    tt ? QStringLiteral("1 - %1").arg(trl::L("Bitloading训练帧"))
+                       : QStringLiteral("0 - %1").arg(trl::L("MIMO训练帧")),
+                    5, 0, 1);
+                const quint8 tf_sym = (raw_sz > 5) ? ((d[5] >> 1) & 0x07) : 0;
+                tree_add_bit_field(sof, "TF SymbolNum",
+                    trl::L("%1 (实际=%2)").arg(tf_sym).arg((tf_sym + 1) * 2), 5, 1, 3);
+                tree_add_bit_field(sof, "SubcarrierGroupSize",
+                    QString::number((raw_sz > 5) ? ((d[5] >> 4) & 0x03) : 0)
+                        + trl::L(" (子载波分组大小)"), 5, 4, 2);
+                tree_add_bit_field(sof, "StreamNum",
+                    QString::number((raw_sz > 5) ? ((d[5] >> 6) & 0x03) : 0)
+                        + trl::L(" (流数)"), 5, 6, 2);
+                tree_add_bit_field(sof, "BandFlag",
+                    QString::number((raw_sz > 6) ? (d[6] & 0x07) : 0)
+                        + trl::L(" (训练频段标识)"), 6, 0, 3);
+                tree_add_bit_field(sof, "RUSNREstimateFlag",
+                    QString::number((raw_sz > 6) ? ((d[6] >> 3) & 0x01) : 0)
+                        + trl::L(" (RU 信噪比估计标志)"), 6, 3, 1);
+                const quint8 rsv64 = (raw_sz > 6) ? ((d[6] >> 4) & 0x0F) : 0;
+                tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv64, 1, 16, QChar('0')), 6, 4, 4);
+                const quint8 rsv7 = (raw_sz > 7) ? d[7] : 0;
+                tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv7, 2, 16, QChar('0')), 7, 0, 8);
+
+                } else {
                 // SPLC 数据帧(表23):物理块个数(4,2-5)/流数(4,6,2)/TF符号数(5,0,3)/
                 // PL频段标识(5,3,3)/TF扩展频段(5,6,1)/Bitloading(6,0,1)/TMI编号(6,1,5)
                 tree_add_bit_field(sof, "PB Num", QString::number(e.mpdu.pb_num), 4, 2, 4);
@@ -496,6 +503,7 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 QString::number(snid_high) + trl::L(" (SNID 高位)"), 12, 0, 1);
             const quint8 rsv12 = (raw_sz > 12) ? ((d[12] >> 1) & 0x07) : 0;
             tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv12, 1, 16, QChar('0')), 12, 1, 3);
+            }
         }
         tree_add_item(sof, "PB Size", QString::number(e.mpdu.pb_size));
 
@@ -509,16 +517,30 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             // 无数据物理块(表26):pb_num 保持 0,不渲染 PB 头/CRC——此前强制按 1 渲染,
             // FCH 后字节被误当 PB 头报 CRC FAIL 并触发列表标红
             if (e.mpdu.pb_num <= 0 || e.mpdu.pb_size <= 0) {
-                // 无数据物理块的合法情形:训练帧 / OFDMA 的 SACK·trigger·UL-SACK / pb_size 查表无效
-                // 统一按 pb_num==0 || pb_size<=0 判断,不再从 raw 反推训练帧标志
+                // 无数据物理块情形，先按 pb_num 区分「合法无块」与「查表失败」，再按 multi/train 区分帧型
+                // (byte4 bit1 在多站点帧里是 OFDMA 帧类型 bit0,不是训练帧标识!)
+                const bool multi = (e.mpdu.version == 2) && !e.meta.is_rf
+                                   && (raw_sz > 4) && ((d[4] & 0x01) != 0);
+                const bool train = (!multi) && (e.mpdu.version == 2) && !e.meta.is_rf
+                                   && (raw_sz > 4) && ((d[4] & 0x02) != 0);
                 QString why;
-                if (e.mpdu.pb_size <= 0)
-                    why = trl::L("PB 大小无效(查表未命中)");
-                else if ((e.mpdu.version == 2) && !e.meta.is_rf
-                         && (raw_sz > 4) && ((d[4] & 0x02) != 0))
+                if (e.mpdu.pb_size <= 0 && e.mpdu.pb_num > 0) {
+                    why = trl::L("PB 大小无效(查表未命中)");          // C1:声明了块但 size 查不到
+                } else if (multi) {
+                    const quint8 ofdma_type = (raw_sz > 4) ? ((d[4] >> 1) & 0x03) : 0;
+                    if (ofdma_type == 0) {
+                        // 类型0(DL-OFDMA)本应有 eFC(表27)16B + 站点0 PB,截断时 parser 未能解析出块
+                        why = trl::L("DL-OFDMA 帧被截断(长度不足以容纳 eFC+PB)");
+                    } else if (ofdma_type == 1 || ofdma_type == 3) {
+                        why = trl::L("OFDMA SACK 帧无数据物理块");
+                    } else {
+                        why = trl::L("OFDMA trigger 帧无数据物理块");
+                    }
+                } else if (train) {
                     why = trl::L("训练帧无数据物理块");
-                else
-                    why = trl::L("本帧无数据物理块(SACK/trigger/UL-SACK)");
+                } else {
+                    why = trl::L("单站点数据帧 PBNum=0(保留值,表23 仅定义 1-4)");
+                }
                 tree_add_item(sof, "PB", QStringLiteral("0 B (%1)").arg(why));
             } else {
             const int pb_num     = e.mpdu.pb_num;

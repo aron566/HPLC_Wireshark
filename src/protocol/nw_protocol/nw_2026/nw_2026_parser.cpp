@@ -113,7 +113,7 @@ bool NW_2026_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QSt
     info.fch_crc_ok = (calc_crc == fch_crc);
     info.fch_crc_checked = true;
     if (!info.fch_crc_ok) {
-        err = QString("FCH CRC24 错(calc=%1 rx=%2)")
+        err = trl::L("FCH CRC24 错(calc=%1 rx=%2)")
               .arg(calc_crc, 6, 16, QChar('0')).arg(fch_crc, 6, 16, QChar('0'));
         return false;
     }
@@ -130,6 +130,7 @@ namespace {
 struct I18nReg {
     I18nReg() {
         trl::register_en("训练帧（MIMO训练帧）", "Training Frame (MIMO)");
+        trl::register_en("SNID 不在白名单: 0x%1", "SNID Not in Whitelist: 0x%1");
         trl::register_en(" (截断: PB 块不完整, 声明 %1 块仅收到 %2 块)", " (truncated: %1 PB declared, %2 received)");
         trl::register_en("训练帧（Bitloading训练帧）", "Training Frame (Bitloading)");
         trl::register_en("聚合帧(%1 个级联 MAC 帧)", "Aggregated Frame (%1 cascade MAC frames)");
@@ -137,7 +138,7 @@ struct I18nReg {
         trl::register_en("聚合帧(%1 帧: %2 ×%3)", "Aggregated Frame (%1 frames: %2 x%3)");
         trl::register_en(", ", ", ");
         trl::register_en(" 等", " etc.");
-        trl::register_en("未识别", "unrecognized");
+        trl::register_en("未识别", "Unrecognized");
     }
 };
 const I18nReg g_i18n_reg_nw2026_parser;
@@ -248,7 +249,7 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
     }
 
     if (f.nid_filter && !f.nid_list.contains(r.mpdu.net_id)) {
-        r.reject_reason = QString("SNID 不在白名单: 0x%1").arg(r.mpdu.net_id, 1, 16);
+        r.reject_reason = trl::L("SNID 不在白名单: 0x%1").arg(r.mpdu.net_id, 1, 16);
         r.accept = false;
         return r;
     }
@@ -285,22 +286,13 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.symbol_num   = 0;                              // 无线无符号数字段
             r.mpdu.tmi_ext      = (quint8) get_bits(p, 12, 0, 4); // 整段原样存:(12,0,1)=SNID 高位(表45),(12,1,3)=保留;高位由下方合并块并入 net_id
         } else if (r.mpdu.version == 2) {
-            // SPLC 版载波 SOF(表23-26):按 多站点帧标识(4,0,1)/训练帧标识(4,1,1) 分发
+            // SPLC 版载波 SOF(表23-26):先判多站点帧标识(4,0,1),再在单站点分支内判训练帧标识(4,1,1)
+            // (byte4 bit1 在多站点帧里是 OFDMA 帧类型 bit0,不是训练帧标识!)
             const bool multi = (get_bits(p, 4, 0, 1) != 0);
-            const bool train = (get_bits(p, 4, 1, 1) != 0);
             r.mpdu.frame_len = (quint16)get_bits(p, 8, 0, 12);   // 帧长(×10µs,表23-26)
-            if (train) {
-                // 训练帧(表24/25):无数据物理块,不重组 MSDU;
-                // MSDU Type 列显示帧性质(用户需求):训练帧类型(5,0,1) 0=MIMO 1=Bitloading
-                r.mpdu.pb_num = 0;
-                r.mpdu.pb_size = 0;
-                const quint8 train_type = (quint8)get_bits(p, 5, 0, 1);
-                r.msdu.present = true;
-                r.msdu.summary = (train_type == 1)
-                    ? trl::L("训练帧（Bitloading训练帧）")
-                    : trl::L("训练帧（MIMO训练帧）");
-            } else if (multi) {
+            if (multi) {
                 // OFDMA 多站点帧(表26):基字段 + eFC(DL-OFDMA 表27,16B 独立结构) + 站点0 PB
+                // byte4 bit1-2 = OFDMA 帧类型:0=DL-OFDMA 1=DL-OFDMA的SACK/UL-OFDMA 2=trigger 3=UL-SACK
                 const quint8 ofdma_type  = (quint8)get_bits(p, 4, 1, 2);
                 if (ofdma_type == 0 && r.payload_for_log.size() >= 32) {
                     // DL-OFDMA(表27):eFC 自 p[16] 起 16 字节,站点0 字段位于 eFC[0..3];
@@ -312,17 +304,32 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                     r.mpdu.pb_num  = st0_pbn_field + 1;   // 表27/28:字段 0→1 块,1→2 块
                     { const int sz = nw_2026_splc_pb_size(st0_tmi); r.mpdu.pb_size = (quint16)(sz > 0 ? sz : 0); }
                 } else {
-                    // SACK(类型1)/trigger(类型2)/UL-SACK(类型3):本站不重组 MSDU
-                    r.mpdu.pb_num = 0;
+                    // 类型1(DL-OFDMA的SACK/UL-OFDMA数据帧)/2(trigger)/3(UL-SACK):本站不重组 MSDU
+                    r.mpdu.pb_num  = 0;
+                    r.mpdu.pb_size = 0;
                 }
             } else {
-                // SPLC 单站点数据帧(表23):物理块个数(4,2-5)/Bitloading(6,0)/TMI编号(6,1-5)
-                r.mpdu.pb_num  = (quint8) get_bits(p, 4, 2, 4);
-                const bool bitload = (get_bits(p, 6, 0, 1) != 0);
-                const quint8 tmi_idx = (quint8)get_bits(p, 6, 1, 5);
-                { const int sz = bitload ? nw_2026_splc_bitload_pb_size(tmi_idx)
-                                         : nw_2026_splc_pb_size(tmi_idx);
-                  r.mpdu.pb_size = (quint16)(sz > 0 ? sz : 0); }
+                // 单站点帧(表23/24/25):byte4 bit1 = 训练帧标识
+                const bool train = (get_bits(p, 4, 1, 1) != 0);
+                if (train) {
+                    // 训练帧(表24/25):无数据物理块,不重组 MSDU;
+                    // MSDU Type 列显示帧性质(用户需求):训练帧类型(5,0,1) 0=MIMO 1=Bitloading
+                    r.mpdu.pb_num = 0;
+                    r.mpdu.pb_size = 0;
+                    const quint8 train_type = (quint8)get_bits(p, 5, 0, 1);
+                    r.msdu.present = true;
+                    r.msdu.summary = (train_type == 1)
+                        ? trl::L("训练帧（Bitloading训练帧）")
+                        : trl::L("训练帧（MIMO训练帧）");
+                } else {
+                    // SPLC 单站点数据帧(表23):物理块个数(4,2-5)/Bitloading(6,0)/TMI编号(6,1-5)
+                    r.mpdu.pb_num  = (quint8) get_bits(p, 4, 2, 4);
+                    const bool bitload = (get_bits(p, 6, 0, 1) != 0);
+                    const quint8 tmi_idx = (quint8)get_bits(p, 6, 1, 5);
+                    { const int sz = bitload ? nw_2026_splc_bitload_pb_size(tmi_idx)
+                                             : nw_2026_splc_pb_size(tmi_idx);
+                      r.mpdu.pb_size = (quint16)(sz > 0 ? sz : 0); }
+                }
             }
         } else {
             // 防御性兜底(策略下不可达:SOF 且 version!=2 已在 parse() 顶部委托 NW_2021_Parser,

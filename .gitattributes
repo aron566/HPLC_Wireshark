@@ -5,3 +5,7 @@ samples/roundtrip/roundtrip_test.bin -text
 # NSIS 安装脚本必须保持 LF: 脚本含 UTF-8 BOM + 中文注释,
 # NSIS 3.09 读到 CRLF 会把脚本判成 ACP 并报 'Bad text encoding ... on line 1' 而中止打包
 *.nsi text eol=lf
+# Wireshark Lua 插件必须保持 LF：core.autocrlf=true 会在检出时翻成 CRLF，
+# 导致"包内插件 vs 仓库 blob"比对必须先归一化才能比（一致性卫生，非加载问题——
+# 实测 CRLF 版在 release/ 与安装目录均能正常加载）。同类规则见上方 *.nsi。
+*.lua text eol=lf

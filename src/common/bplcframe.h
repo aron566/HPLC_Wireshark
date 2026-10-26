@@ -55,6 +55,19 @@ struct PhysicalMeta {
 /// @brief 一帧完整载荷(经哨兵切分 + 0x3D 反转义后),完整定义见 TopoEvent 之后
 struct BplcFrame;
 
+/// @brief 多站点 PB 分组（GW_2026 OFDMA 表10/11、TDA 表12/13）
+/// @details 单站点数据帧(表7)不走此结构，仍用 MpduInfo 的 pb_num/pb_size/平铺 pb_heads。
+struct SofStationPb {
+    quint16 tei        = 0;   ///< 该目的站点 TEI（表10 (5,4,12) / 表11/13 各站 TEI）
+    quint8  copy_mode  = 0;   ///< 分集拷贝模式原始值（5bit；表10 (11,3,5) / 表11 (2,0,5) / 表13 (3,0,5)）
+    quint8  pb_num     = 0;   ///< 该站点 PB 个数（OFDMA 1-2，表10 (11,2,1)/表11 (2,5,1)；TDA 恒 1）
+    quint16 pb_size    = 0;   ///< 每块字节数（OFDMA 72/136，5.2.5.7；TDA 按 TMI 表）
+    int     block_base = 0;   ///< 该站点首块在 raw 中的偏移
+    QVector<quint8> pb_heads;   ///< 各块头字节（国网 PB 头 1B：bit7=END bit6=START 低6位=seq）
+    QVector<bool>   pb_crc_oks; ///< 各块 CRC24 结果
+    QByteArray      msdu;       ///< 该站点重组 MSDU（首块 START 到末块 END）
+};
+
 /// @brief MPDU 控制头解析结果(展示层使用)
 struct MpduInfo {
     quint8  frame_type;    ///< 定界符类型:0=BEACON 1=SOF 2=ACK 3=COORD 5=SEARCH 6=SWITCH
@@ -117,6 +130,10 @@ struct MpduInfo {
     quint8  ack_bru_snr_flag; ///< BRU SNR 反馈标志 1-bit(表14 (4,0)):0=不反馈 1=反馈
     quint8  ack_sat_id_flag;  ///< SAT ID 正确标志 1-bit(表14 (4,1)):0=SAT ID正确/无需 1=SAT ID不正确
     quint8  ack_remain_sta_num; ///< 剩余站点数 2-bit(表14 (8,0,2)):0-3=0-3 个站点
+
+    // ---- GW_2026 多站点 PB 分组(OFDMA 表10/11、TDA 表12/13) ----
+    QVector<SofStationPb> sof_stations;   ///< 多站点帧的逐站点 PB 分组(空=单站点/数据帧/探测帧)
+    bool sof_multi_site_verified = false; ///< 多站点 PB 布局是否已通过协议仿真帧验证(v13 新增;实包确认前仅表仿真帧级验证)
 
     // ---- COORD(网间协调帧)----
     quint16 coord_duration;   ///< 协调时隙占用时长 16-bit(ms)

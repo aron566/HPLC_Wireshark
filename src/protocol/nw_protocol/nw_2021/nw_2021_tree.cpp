@@ -9,38 +9,38 @@ namespace {
 // 南网字段值中文释义(与国网 gw_2022_tree 同风格:中文原文 + trl 英文翻译)
 struct I18nReg {
     I18nReg() {
-        trl::register_en("保留", "reserved");
+        trl::register_en("保留", "Reserved");
         trl::register_en("保留(按选择确认帧解析)", "Reserved (parsed as selective ACK)");
         trl::register_en("应用报文 LID(优先级)", "App LID (priority)");
         trl::register_en("网络管理 LID(自定义 0-255)", "Network-mgmt LID (custom 0-255)");
         trl::register_en("载波接入网络传输", "HPLC access network");
-        trl::register_en("本标准版本号", "this standard version");
-        trl::register_en("未知相线", "unknown phase");
-        trl::register_en("A相线", "phase A");
-        trl::register_en("B相线", "phase B");
-        trl::register_en("C相线", "phase C");
-        trl::register_en("选择确认帧", "selective ACK frame");
-        trl::register_en("网络搜索帧(抄控器)", "network search frame (meter reader)");
-        trl::register_en("同步帧(抄控器)", "sync frame (meter reader)");
+        trl::register_en("本标准版本号", "This Standard Version");
+        trl::register_en("未知相线", "Unknown Phase");
+        trl::register_en("A相线", "Phase A");
+        trl::register_en("B相线", "Phase B");
+        trl::register_en("C相线", "Phase C");
+        trl::register_en("选择确认帧", "Selective ACK Frame");
+        trl::register_en("网络搜索帧(抄控器)", "Network Search Frame (Meter Reader)");
+        trl::register_en("同步帧(抄控器)", "Sync Frame (Meter Reader)");
         trl::register_en("SOF帧全部接收成功", "SOF frame fully received OK");
-        trl::register_en("物理块存在CRC校验失败", "some PB CRC failed");
+        trl::register_en("物理块存在CRC校验失败", "Some PB CRC Failed");
         trl::register_en("校验成功", "CRC ok");
-        trl::register_en("全部校验失败", "all CRC failed");
-        trl::register_en("含解析错误", "incl. parse errors");
-        trl::register_en("物理层不检查报文 TEI", "physical layer does not check TEI");
-        trl::register_en("物理层检查报文 TEI", "physical layer checks TEI");
-        trl::register_en("重传报文", "retransmitted frame");
-        trl::register_en("非重传报文", "non-retransmitted frame");
-        trl::register_en("上个带宽时隙已结束", "previous band slot ended");
-        trl::register_en("上个带宽时隙未结束", "previous band slot not ended");
+        trl::register_en("全部校验失败", "All CRC Failed");
+        trl::register_en("含解析错误", "Incl. Parse Errors");
+        trl::register_en("物理层不检查报文 TEI", "Physical Layer Does Not Check TEI");
+        trl::register_en("物理层检查报文 TEI", "Physical Layer Checks TEI");
+        trl::register_en("重传报文", "Retransmitted Frame");
+        trl::register_en("非重传报文", "Non-Retransmitted Frame");
+        trl::register_en("上个带宽时隙已结束", "Previous Band Slot Ended");
+        trl::register_en("上个带宽时隙未结束", "Previous Band Slot Not Ended");
         // 无线 MCS 释义(第2部分表129:分集次数/调制方式/码率)
-        trl::register_en("分集4次 BPSK 码率1/2", "diversity 4, BPSK, code rate 1/2");
-        trl::register_en("分集2次 BPSK 码率1/2", "diversity 2, BPSK, code rate 1/2");
-        trl::register_en("分集2次 QPSK 码率1/2", "diversity 2, QPSK, code rate 1/2");
-        trl::register_en("分集1次 QPSK 码率1/2", "diversity 1, QPSK, code rate 1/2");
-        trl::register_en("分集1次 QPSK 码率4/5", "diversity 1, QPSK, code rate 4/5");
-        trl::register_en("分集1次 16QAM 码率1/2", "diversity 1, 16QAM, code rate 1/2");
-        trl::register_en("分集1次 16QAM 码率4/5", "diversity 1, 16QAM, code rate 4/5");
+        trl::register_en("分集4次 BPSK 码率1/2", "Diversity 4, BPSK, Code Rate 1/2");
+        trl::register_en("分集2次 BPSK 码率1/2", "Diversity 2, BPSK, Code Rate 1/2");
+        trl::register_en("分集2次 QPSK 码率1/2", "Diversity 2, QPSK, Code Rate 1/2");
+        trl::register_en("分集1次 QPSK 码率1/2", "Diversity 1, QPSK, Code Rate 1/2");
+        trl::register_en("分集1次 QPSK 码率4/5", "Diversity 1, QPSK, Code Rate 4/5");
+        trl::register_en("分集1次 16QAM 码率1/2", "Diversity 1, 16QAM, Code Rate 1/2");
+        trl::register_en("分集1次 16QAM 码率4/5", "Diversity 1, 16QAM, Code Rate 4/5");
     }
 };
 const I18nReg g_i18n_reg_nw_tree;

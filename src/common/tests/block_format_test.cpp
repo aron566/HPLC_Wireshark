@@ -6,8 +6,8 @@
 // Build & run: qmake src/common/tests/block_format_test.pro && make,
 // or manually (Qt 6):
 //   QT=~/qt/6.5.3/gcc_64
-//   g++ -std=c++17 -fPIC -O1 -I$QT/include -I$QT/include/QtCore -Isrc/common \
-//       src/common/tests/block_format_test.cpp -o /tmp/block_format_test \
+//   g++ -std=c++17 -fPIC -O1 -I$QT/include -I$QT/include/QtCore -Isrc/common
+//       src/common/tests/block_format_test.cpp -o /tmp/block_format_test
 //       -L$QT/lib -lQt6Core -Wl,-rpath,$QT/lib && /tmp/block_format_test
 #include "packetentry_serialize.h"
 #include <QCoreApplication>
@@ -84,6 +84,21 @@ static PacketEntry make_entry(int i) {
     e.mpdu.ack_sat_id_flag    = quint8(12 + i % 244);
     e.mpdu.ack_remain_sta_num = quint8(13 + i % 243);
     e.mpdu.fch_crc_checked = (i % 2 == 0);   // v12: FCH CRC 三态 round-trip(覆盖 checked=true/false)
+    // v13: 多站点 PB 分组(OFDMA/TDA 逐站点) round-trip(2 站点×2块 + 1站点×1块, 非默认值)
+    {
+        SofStationPb s0; s0.tei = 0x111; s0.copy_mode = 3; s0.pb_num = 2; s0.pb_size = 72;
+        s0.block_base = 32;
+        s0.pb_heads.append(0xC1); s0.pb_heads.append(0x82);
+        s0.pb_crc_oks.append(true); s0.pb_crc_oks.append(false);
+        s0.msdu = QByteArray::fromHex("aabbccdd");
+        SofStationPb s1; s1.tei = 0x222; s1.copy_mode = 13; s1.pb_num = 1; s1.pb_size = 136;
+        s1.block_base = 176;
+        s1.pb_heads.append(0x43);
+        s1.pb_crc_oks.append(true);
+        s1.msdu = QByteArray::fromHex("eeff");
+        e.mpdu.sof_stations.append(s0); e.mpdu.sof_stations.append(s1);
+    }
+    e.mpdu.sof_multi_site_verified = (i % 2 == 0);   // v13: 待真实帧验证标志 round-trip
     e.protocol = quint8(i % 2);   // 覆盖协议标识序列化 round-trip(0=国网/1=南网)
     e.msdu.present = true; e.msdu.msdu_seq = quint16(i);
     e.msdu.summary = QStringLiteral("summary-%1").arg(i);
@@ -104,6 +119,20 @@ static PacketEntry make_entry(int i) {
     return e;
 }
 
+static bool sof_stations_equal(const QVector<SofStationPb>& x, const QVector<SofStationPb>& y, QString& why) {
+    if (x.size() != y.size()) { why = QStringLiteral("sof_stations size mismatch"); return false; }
+    for (int i = 0; i < x.size(); ++i) {
+        const auto& a = x[i]; const auto& b = y[i];
+        if (a.tei != b.tei || a.copy_mode != b.copy_mode || a.pb_num != b.pb_num
+            || a.pb_size != b.pb_size || a.block_base != b.block_base
+            || a.pb_heads != b.pb_heads || a.pb_crc_oks != b.pb_crc_oks
+            || a.msdu != b.msdu) {
+            why = QStringLiteral("sof_stations[%1] mismatch").arg(i); return false;
+        }
+    }
+    return true;
+}
+
 static bool mpdu_soffields_equal(const MpduInfo& x, const MpduInfo& y, QString& why) {
     if (x.sof_data_type != y.sof_data_type
         || x.sof_tf_symbol_pos != y.sof_tf_symbol_pos
@@ -118,9 +147,11 @@ static bool mpdu_soffields_equal(const MpduInfo& x, const MpduInfo& y, QString& 
         || x.ack_bru_snr_flag != y.ack_bru_snr_flag
         || x.ack_sat_id_flag != y.ack_sat_id_flag
         || x.ack_remain_sta_num != y.ack_remain_sta_num
-        || x.fch_crc_checked != y.fch_crc_checked) {
+        || x.fch_crc_checked != y.fch_crc_checked
+        || x.sof_multi_site_verified != y.sof_multi_site_verified) {
         why = QStringLiteral("mpdu SOF/beacon/ack field mismatch"); return false;
     }
+    if (!sof_stations_equal(x.sof_stations, y.sof_stations, why)) return false;
     return true;
 }
 
@@ -258,6 +289,11 @@ int main(int argc, char** argv) {
         m2.sof_band = quint8(m1.sof_band ^ 0xFF);
         if (mpdu_soffields_equal(m1, m2, why)) { qWarning() << "reverse check FAIL: mpdu_soffields_equal missed sof_band"; ++fails; }
         else qInfo() << "reverse check OK: mpdu_soffields_equal caught sof_band (" << why << ")";
+
+        MpduInfo m3 = make_entry(7).mpdu;
+        MpduInfo m4 = m3; m4.sof_stations[0].pb_size = 0xFFFF;
+        if (mpdu_soffields_equal(m3, m4, why)) { qWarning() << "reverse check FAIL: mpdu_soffields_equal missed sof_stations"; ++fails; }
+        else qInfo() << "reverse check OK: mpdu_soffields_equal caught sof_stations (" << why << ")";
     }
 
     // 3) corrupt / truncated inputs must fail cleanly (no crash)

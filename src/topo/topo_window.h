@@ -120,6 +120,8 @@ public:
     void set_state_map(const QHash<quint32, TopoState>* map);
     /// @brief 切到指定 NID(存在则切换并刷新)
     void set_current_nid(quint32 nid);
+    /// @brief 仅强制下拉框显示并更新 m_current_nid(不重建内容;由 refresh_nids 每 200ms 幂等调用)
+    void force_display_nid(quint32 nid);
     /// @brief 当前 NID(0=无)
     quint32 current_nid() const { return m_current_nid; }
     /// @brief 实时刷新:重新收集 NID 并刷新当前 NID 的图与表(新帧到达时由 MainWindow 调用)

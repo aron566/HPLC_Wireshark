@@ -197,10 +197,12 @@ struct I18nRegTopoWindow {
         trl::register_en("载波上行成功率（我→父 %1）: %2%", "PLC uplink rate (me→parent %1): %2%");
         trl::register_en("载波下行成功率（父→我）: %1%", "PLC downlink rate (parent→me): %1%");
         trl::register_en("通讯成功率: 暂无上报", "Comm success rate: no report");
-        trl::register_en("接入方式", "Link");
         trl::register_en("入网链路", "Link Type");
         trl::register_en("双模", "Dual-mode");
-        trl::register_en("未定", "Undetermined");
+        // Unk = Undetermined 的缩写。用缩写是因为节点标签第三行宽仅 140px，
+        // 全称 "Undetermined|Carrier" 约 120px 接近上限，高 DPI 下可能贴边被裁。
+        // 语义:link_type==0xFF(表79/表160 未定义该值) ⇒ 按载波兜底显示。
+        trl::register_en("未定|载波", "Unk|Carrier");
         trl::register_en("无线", "RF");
         trl::register_en("是", "Yes");
         trl::register_en("否", "No");
@@ -409,7 +411,7 @@ void TopoGraphWidget::paintEvent(QPaintEvent*) {
                          QRectF(0, 0, icon_h, icon_h));
         }
 
-        // 标签区:第一行标题,第二行 MAC,第三行接入方式(RF/载波)
+        // 标签区:第一行标题,第二行 MAC,第三行入网链路(载波/无线/未定)
         const QRectF label_rect(np.pos.x(), np.pos.y() + icon_h, node_w, label_h);
         const QColor tc = node->online()
             ? (is_cco ? QColor(86, 156, 214) : palette().text().color())
@@ -427,9 +429,11 @@ void TopoGraphWidget::paintEvent(QPaintEvent*) {
         p.setFont(f);
         p.drawText(label_rect.adjusted(0, row_h, 0, -row_h), Qt::AlignCenter,
                    node->mac ? format_mac(node->mac) : QStringLiteral("MAC ?"));
-        // 接入方式(载波/RF)
-        p.drawText(label_rect.adjusted(0, 2 * row_h, 0, 0), Qt::AlignCenter,
-                   node->is_rf ? QStringLiteral("RF") : trl::L("载波"));
+        // 入网链路(表79/表160):读 link_type 而非 is_rf —— is_rf 是首次帧介质,不是入网链路
+        const QString link_txt = (node->link_type == 0xFF)
+                                   ? trl::L("未定|载波")
+                                   : (node->link_type == 1 ? trl::L("无线") : trl::L("载波"));
+        p.drawText(label_rect.adjusted(0, 2 * row_h, 0, 0), Qt::AlignCenter, link_txt);
     }
 }
 
@@ -470,8 +474,9 @@ void TopoGraphWidget::show_node_tip(const QPoint& global_pos, quint16 tei, quint
         title = (tei == 1) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(tei);
     }
     lines << (node->mac ? format_mac(node->mac) : QStringLiteral("MAC ?"));
-    lines << QStringLiteral("%1: %2").arg(trl::L("接入方式"),
-        node->is_rf ? QStringLiteral("RF") : trl::L("载波"));
+    lines << QStringLiteral("%1: %2").arg(trl::L("入网链路"),
+        node->link_type == 0xFF ? trl::L("未定|载波")
+        : (node->link_type == 1 ? trl::L("无线") : trl::L("载波")));
     // 无线信号强度(仅 RF 帧携带过信号强度时显示;dBm 为档位下限估计)
     if (node->rssi_known)
         lines << QStringLiteral("%1: %2 dBm").arg(trl::L("信号强度")).arg(node->rssi_dbm);
@@ -735,14 +740,33 @@ void TopoWindow::set_state_map(const QHash<quint32, TopoState>* map) {
     refresh_nids();
 }
 
+// 仅强制「显示 + 更新 m_current_nid」，不重建内容。
+// refresh_nids() 每 200ms 调它做幂等收敛，若在此重建会造成性能灾难。
+void TopoWindow::force_display_nid(quint32 nid) {
+    m_current_nid = nid;
+    setWindowTitle(QStringLiteral("NID:0x%1 TOPO").arg(nid, 0, 16));
+    for (int i = 0; i < m_nid_combo->count(); ++i) {
+        if (m_nid_combo->itemData(i).toUInt() == nid) {
+            if (m_nid_combo->currentIndex() != i) {
+                m_nid_combo->blockSignals(true);
+                m_nid_combo->setCurrentIndex(i);
+                m_nid_combo->blockSignals(false);
+            }
+            break;
+        }
+    }
+}
+
 void TopoWindow::refresh_nids() {
-    // 下拉展开状态下跳过重建:否则实时刷新会清空重建下拉项,用户无法点选
     if (m_nid_combo->popup_open())
         return;
+
     const quint32 prev = m_current_nid;
     const auto* states = view_states();
-    m_nid_combo->blockSignals(true);
-    m_nid_combo->clear();
+
+    // 1) 算目标列表(含 label)
+    struct Item { QString label; quint32 nid; };
+    QVector<Item> want;
     if (states) {
         // 按 NID 升序;下拉项附带 CCO MAC 与首次识别时间(区分同 MAC 新旧网络)
         QList<quint32> nids = states->keys();
@@ -754,34 +778,70 @@ void TopoWindow::refresh_nids() {
                 label += QStringLiteral(" CCO:") + format_mac(st.cco_mac);
             if (st.first_seen_frame >= 0) {
                 label += QStringLiteral(" %1:#%2 %3")
-                    .arg(trl::L("首次"))
-                    .arg(st.first_seen_frame)
+                    .arg(trl::L("首次")).arg(st.first_seen_frame)
                     .arg(format_time(st.first_seen_ms));
             }
-            m_nid_combo->addItem(label, nid);
+            want.append({label, nid});
         }
     }
-    m_nid_combo->blockSignals(false);
-    if (prev && states && states->contains(prev))
-        set_current_nid(prev);
-    else if (m_nid_combo->count() > 0)
-        set_current_nid(m_nid_combo->itemData(0).toUInt());
-    else
-        rebuild_all();
+
+    // 2) 列表未变 ⇒ 不重建（每 200ms 无条件 clear()+addItem() 会吞掉
+    //    currentIndexChanged 信号，保住点击信号）
+    bool same_list = (want.size() == m_nid_combo->count());
+    if (same_list) {
+        for (int i = 0; i < want.size(); ++i) {
+            if (m_nid_combo->itemText(i) != want[i].label
+                || m_nid_combo->itemData(i).toUInt() != want[i].nid) {
+                same_list = false;
+                break;
+            }
+        }
+    }
+    if (!same_list) {
+        m_nid_combo->blockSignals(true);
+        m_nid_combo->clear();
+        for (const auto& it : want)
+            m_nid_combo->addItem(it.label, it.nid);
+        m_nid_combo->blockSignals(false);
+    }
+
+    // 3) 无条件强制显示当前 NID（唯一真相 = m_current_nid）
+    //    列表里没有它 ⇒ 落到第一个并重置 m_current_nid
+    //    注意：判 contains 而非 prev 非零 —— NID 0 是合法值(24bit 无符号)
+    if (states && states->contains(prev)) {
+        force_display_nid(prev);
+    } else if (m_nid_combo->count() > 0) {
+        const quint32 first = m_nid_combo->itemData(0).toUInt();
+        const bool changed = (first != m_current_nid);
+        force_display_nid(first);
+        if (changed) rebuild_all();     // 目标 NID 真的变了才重建内容
+    } else {
+        rebuild_all();                  // 列表空了(如主界面 clear)
+    }
 }
 
 void TopoWindow::set_current_nid(quint32 nid) {
-    if (nid == m_current_nid && m_nid_combo->count() > 0) return;
-    m_current_nid = nid;
-    // 同步下拉框选中
+    // 早退条件不能只看逻辑值：refresh_nids() 会 clear()+重建下拉项，
+    // 重建后 currentIndex 落回 0，此时 m_current_nid 未变但 UI 已错位，
+    // 若在此早退则下拉框永远显示第一项（用户报的「选第二个跳回第一个」）。
+    const bool same_nid = (nid == m_current_nid);
+
+    // UI 同步无条件执行（幂等：index 已正确则跳过 setCurrentIndex）
     for (int i = 0; i < m_nid_combo->count(); ++i) {
         if (m_nid_combo->itemData(i).toUInt() == nid) {
-            m_nid_combo->blockSignals(true);
-            m_nid_combo->setCurrentIndex(i);
-            m_nid_combo->blockSignals(false);
+            if (m_nid_combo->currentIndex() != i) {
+                m_nid_combo->blockSignals(true);
+                m_nid_combo->setCurrentIndex(i);
+                m_nid_combo->blockSignals(false);
+            }
             break;
         }
     }
+
+    if (same_nid)
+        return;                     // 逻辑值未变 ⇒ 不重建内容（保持原有性能特性）
+
+    m_current_nid = nid;
     setWindowTitle(QStringLiteral("NID:0x%1 TOPO").arg(nid, 0, 16));
     rebuild_all();
 }
@@ -1012,7 +1072,7 @@ void TopoWindow::on_teimac_double_clicked(const QModelIndex& idx) {
     auto* lay = new QVBoxLayout(dlg);
     auto* model = new QStandardItemModel(dlg);
     model->setHorizontalHeaderLabels(
-        {trl::L("TEI"), trl::L("MAC"), trl::L("入网链路"), trl::L("双模"), QStringLiteral("SNR (dB)"),
+        {QStringLiteral("TEI"), QStringLiteral("MAC"), trl::L("入网链路"), trl::L("双模"), QStringLiteral("SNR (dB)"),
          trl::L("信号强度 (dBm)"), trl::L("上行成功率%（对方→我）"), trl::L("下行成功率%（我→对方）"),
          trl::L("我报它次数"), trl::L("它报我次数"), trl::L("双向"), trl::L("可靠度")});
     for (const NeighborRow& row : rows) {
@@ -1020,7 +1080,7 @@ void TopoWindow::on_teimac_double_clicked(const QModelIndex& idx) {
         const TopoNode& node = st->nodes.value(nb);
         const QString s_mac = node.mac ? format_mac(node.mac) : QStringLiteral("-");
         const QString s_link = node.link_type == 0xFF
-            ? trl::L("未定")
+            ? trl::L("未定|载波")
             : (node.link_type == 1 ? trl::L("无线") : trl::L("载波"));
         const QString s_dual = node.rf_capable ? trl::L("是") : trl::L("否");
         const QString s_snr = snrs_me.contains(nb) ? QString::number(snrs_me.value(nb)) : QStringLiteral("—");
@@ -1110,7 +1170,7 @@ void TopoWindow::rebuild_routes_table() {
     if (view_changed) {
         m_routes_model->clear();
         m_routes_model->setHorizontalHeaderLabels(
-            {trl::L("序号"), trl::L("时间点"), trl::L("类型"), trl::L("NID"), trl::L("变更说明")});
+            {trl::L("序号"), trl::L("时间点"), trl::L("类型"), QStringLiteral("NID"), trl::L("变更说明")});
         if (st) append_routes_rows(st, filter, 0, ev_count);
         m_routes_view = states;
         m_routes_nid = m_current_nid;
@@ -1135,7 +1195,7 @@ void TopoWindow::rebuild_teimac_table() {
     const int saved_hscroll = m_teimac_table->horizontalScrollBar()->value();
     m_teimac_model->clear();
     m_teimac_model->setHorizontalHeaderLabels(
-        {trl::L("TEI"), trl::L("MAC"), trl::L("入网链路"), trl::L("双模"),
+        {QStringLiteral("TEI"), QStringLiteral("MAC"), trl::L("入网链路"), trl::L("双模"),
          trl::L("状态"), trl::L("层级"), trl::L("代理 TEI"), trl::L("邻居表")});
 
     const TopoState* st = nullptr;
@@ -1209,7 +1269,7 @@ void TopoWindow::rebuild_teimac_table() {
             ? QStringLiteral("-") : QString::number(node.parent_tei);
         // 入网链路(读 link_type,不读 is_rf):0=载波 1=无线 0xFF=未定
         const QString s_link = node.link_type == 0xFF
-            ? trl::L("未定")
+            ? trl::L("未定|载波")
             : (node.link_type == 1 ? trl::L("无线") : trl::L("载波"));
         const QString s_dual = node.rf_capable ? trl::L("是") : trl::L("否");
 
@@ -1241,7 +1301,7 @@ void TopoWindow::rebuild_teimac_table() {
         const QString s_level = QStringLiteral("1");
         const QString s_neighbors = QStringLiteral("-");  // 未分配 TEI,无发现列表
         const QString s_parent = QStringLiteral("1");
-        const QString s_link = trl::L("未定");   // 入网中节点链路未定
+        const QString s_link = trl::L("未定|载波");   // 入网中节点链路未定
         const QString s_dual = trl::L("否");
         if (!search.isEmpty()) {
             if (!s_tei.contains(search, Qt::CaseInsensitive) &&

@@ -1269,7 +1269,7 @@ local function dissect_sof_vf(tvb, tree, is_rf)
             tree:add(f.sof_rsv_b12, tvb(12, 1))
             -- eFC(自 byte16): 表11 OFDMA 每站 3B×[TEI/RU/分集/PB个数/RSV] /
             -- 表13 TDA 每站 4B×[TEI/符号数9b/频段/分集/RSV], 站点数决定条数
-            -- (PB 实际起点随 eFC 尺寸变化, 待真实帧核对)
+            -- eFC 固定 16 字节(表11/13 内部字节号 0-15) ⇒ PB 自 byte32 起
             local sn = read_bits(tvb, 7*8+3, 2)
             if ftype == 2 then
                 for s = 1, sn do
@@ -2598,6 +2598,75 @@ function gw.dissector(tvb, pinfo, tree)
             pb_count = 1
             pbsz = rf_pb_size(read_bits(tvb, 9*8+4, 4))
         else
+            -- 载波 SOF 按帧子类型分派(表7 (7,0,3)):
+            --   0=数据帧(表7) 1=信道探测帧(表9) 2=OFDMA下行(表10/11) 3=TDA下行(表12/13)
+            local sof_dt = read_bits(tvb, 7*8, 3)
+            if sof_dt == 1 then
+                -- 表9(信道探测帧)无 PB/调制/PB个数字段: 载荷为训练序列, 不带数据物理块
+                root:add(gw, tvb(16), T("信道探测帧无数据物理块(表9 无 PB 字段)",
+                                        "No Data PB in Channel Sounding Frame (Table 9 Has No PB Field)"))
+                return tvb:len()
+            elseif sof_dt == 2 or sof_dt == 3 then
+                -- 多站点(OFDMA 表10/11, TDA 表12/13): 逐站点 PB 分组
+                -- eFC 固定 16 字节(表11/13 内部字节号 0-15) ⇒ PB 起点 = 16+16 = 32
+                local is_ofdma = (sof_dt == 2)
+                local sn = read_bits(tvb, 7*8+3, 2)   -- 站点数(7,3,2): 0保留 1:2站 2:3站 3:4站
+                local n_sites = (sn >= 1 and sn <= 3) and (sn + 1) or 0
+                if n_sites == 0 then
+                    root:add_expert_info(PI_MALFORMED, PI_WARN,
+                        T("OFDMA/TDA 站点数为保留值 0(表10/表12 仅定义 1-3)",
+                          "OFDMA/TDA Station Count Is Reserved Value 0 (Tables 10/12 Define 1-3 Only)"))
+                else
+                    local blk = 32
+                    for s = 0, n_sites - 1 do
+                        local tei, cmode, spin
+                        if s == 0 then
+                            tei = read_bits(tvb, 5*8+4, 12)                -- 表10 (5,4,12) 站点0 TEI
+                            cmode = read_bits(tvb, 11*8+3, 5)              -- 表10 (11,3,5)
+                            spin = is_ofdma and (read_bits(tvb, 11*8+2, 1) + 1) or 1
+                        else
+                            local b = 16 + (s - 1) * (is_ofdma and 3 or 4)
+                            tei = read_bits(tvb, b*8, 12)                  -- 表11/13 (b,0,12)
+                            cmode = is_ofdma and read_bits(tvb, (b+2)*8, 5)  -- 表11 (b+2,0,5)
+                                              or  read_bits(tvb, (b+3)*8, 5)  -- 表13 (b+3,0,5)
+                            spin = is_ofdma and (read_bits(tvb, (b+2)*8+5, 1) + 1) or 1
+                        end
+                        local ssz = sof_pb_size(cmode, 0)
+                        local st_tree = root:add(gw, tvb(blk, 1),
+                            string.format(T("站点 %d PB 分组 (TEI=%d, 分集拷贝=%d, %d 块 × %d B)",
+                                            "Station %d PB Group (TEI=%d, DivCopy=%d, %d Block(s) x %d B)"),
+                                          s, tei, cmode, spin, ssz))
+                        for j = 0, spin - 1 do
+                            local bstart = blk + j * ssz
+                            if bstart + ssz > tvb:len() then
+                                st_tree:add_expert_info(PI_MALFORMED, PI_WARN,
+                                    T("PB 块超出帧长", "PB Block Exceeds Frame Length"))
+                                break
+                            end
+                            local bt = st_tree:add(gw, tvb(bstart, ssz), string.format(T("物理块 %d", "PB %d"), j))
+                            bt:add(f.pb_size, tvb(bstart, ssz), ssz)
+                            bt:add(f.pb_seq, tvb(bstart, 1))
+                            bt:add(f.pb_sof, tvb(bstart, 1))
+                            bt:add(f.pb_eof, tvb(bstart, 1))
+                            bt:add(f.pb_body, tvb(bstart + 1, ssz - 4))
+                            local crc_rx = tvb(bstart + ssz - 3, 3):le_uint()
+                            local crc_calc = crc24_lsb(tvb, bstart, ssz)
+                            bt:add(f.pb_pbcs, tvb(bstart + ssz - 3, 3), crc_rx)
+                            bt:add(f.pb_crc_calc, tvb(bstart + ssz - 3, 3), crc_calc)
+                            bt:add(f.pb_crc_ok, tvb(bstart + ssz - 3, 1), crc_calc == crc_rx)
+                        end
+                        blk = blk + spin * ssz
+                    end
+                end
+                return tvb:len()
+            elseif sof_dt >= 4 then
+                root:add_expert_info(PI_MALFORMED, PI_WARN,
+                    T("帧子类型为保留值(表7 仅定义 0-3)",
+                      "Frame Subtype Is Reserved Value (Table 7 Defines 0-3 Only)"))
+                return tvb:len()
+            end
+
+            -- sof_dt == 0 数据帧(表7): 现状逻辑保持不变
             -- HDC 2.0 表7: 调制方式(10,1)/参数(10,2-6)/PB个数 2b 编码(10,7)+(11,0)
             -- 分集拷贝:参数=TMI 编号查表;动态加载:参数=物理块类型编号(表8)
             local mod_mode = read_bits(tvb, 10*8+1, 1)
