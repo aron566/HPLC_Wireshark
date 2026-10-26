@@ -125,6 +125,16 @@ int main(int argc, char* argv[]) {
         check(r.mpdu.pb_num == 0, "badefc DL-OFDMA pb_num=0");
     }
 
+    {   // A 正向:好的 DL-OFDMA 必须通过 eFC CRC 校验
+        // 目的:若 CRC 口径改错(crc24_lsb 覆盖长度 / e[13..15] 字节序 / poly),好帧会被误拒,
+        //      而「只断言坏帧被拒」的测试仍全绿 ⇒ 必须有正向用例守门
+        NW_2026_Parser pGood;
+        auto r = pGood.parse(load("wireshark_support_plugins/nw2026_dl_ofdma.bin"), msdu, flt);
+        check(r.accept, "dl_ofdma accept (good eFC CRC)");
+        check(r.mpdu.pb_num == 1, "dl_ofdma pb_num=1 (PB 码 0 -> 1 块)");
+        check(r.mpdu.pb_size == 136, "dl_ofdma pb_size=136 (TMI 18)");
+    }
+
     printf(fails ? "RESULT: FAIL (%d)\n" : "RESULT: PASS\n", fails);
     return fails ? 1 : 0;
 }

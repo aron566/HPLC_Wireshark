@@ -329,14 +329,27 @@ def build_dl_ofdma_badefc():
 
 
 def verify(frame, name):
-    """Independent re-check: FCH FCS + per-block PBCS + table-26 field reads."""
+    """Independent re-check: FCH FCS + eFC CRC24 + per-block PBCS + table-26 field reads."""
     fch_ok = crc24_lsb(frame, 16) == (frame[13] | (frame[14] << 8) | (frame[15] << 16))
+    multi = get_bits(frame, 4, 0, 1)
+    oft = get_bits(frame, 4, 1, 2)
     print(f"{name}: len={len(frame)} FCH FCS {'OK' if fch_ok else 'FAIL'} "
-          f"ver={get_bits(frame, 12, 4, 4)} multi={get_bits(frame, 4, 0, 1)} "
-          f"type={get_bits(frame, 4, 1, 2)} stations={get_bits(frame, 4, 6, 2) + 1} "
+          f"ver={get_bits(frame, 12, 4, 4)} multi={multi} "
+          f"type={oft} stations={get_bits(frame, 4, 6, 2) + 1} "
           f"src=0x{get_bits(frame, 1, 0, 12):03x} "
           f"dst=0x{get_bits(frame, 2, 4, 12):03x} "
           f"snid=0x{(get_bits(frame, 12, 0, 1) << 4) | get_bits(frame, 0, 4, 4):02x}")
+    # eFC 自带 CRC24(表27 DL-OFDMA / 表28 trigger):FCH CRC 只覆盖前 16B,
+    # 必须单独打印 —— 否则「eFC 坏但 FCH 正常」的帧在输出上与好帧毫无区别
+    # (类型1 无 eFC,类型3 走表29 布局,本函数不覆盖)
+    if multi and oft in (0, 2) and len(frame) >= 32:
+        e = frame[16:32]
+        ec = crc24_lsb(e, 16)
+        er = e[13] | (e[14] << 8) | (e[15] << 16)
+        efc_ok = (ec == er)
+        print(f"  eFC CRC24 {'OK' if efc_ok else 'FAIL'} "
+              f"(calc=0x{ec:06x} rx=0x{er:06x})"
+              + ("" if efc_ok else "   <-- 故意损坏的样本,parser 应 reject"))
     return fch_ok
 
 
