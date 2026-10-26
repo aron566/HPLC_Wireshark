@@ -216,7 +216,15 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                         switch (ofdma_type) {
                           case 0: kind = (e.mpdu.pb_num > 0) ? trl::L("DL-OFDMA")
                                                              : trl::L("DL-OFDMA(截断)"); break;
-                          case 1: kind = trl::L("DL-OFDMA SACK/UL-OFDMA"); break;
+                          case 1:
+                            // 类型1 双义:按 sof_stations 区分 DL-SACK(单16B PB) / UL数据(逐站PB) / 无上下文
+                            if (!e.mpdu.sof_stations.isEmpty() && e.mpdu.sof_stations[0].pb_size == 16)
+                                kind = trl::L("DL-OFDMA SACK");
+                            else if (!e.mpdu.sof_stations.isEmpty())
+                                kind = trl::L("UL-OFDMA 数据帧");
+                            else
+                                kind = trl::L("UL-OFDMA 数据帧(需 trigger)");
+                            break;
                           case 2: kind = trl::L("UL-OFDMA trigger"); break;
                           default: kind = trl::L("UL-OFDMA SACK"); break;
                         }

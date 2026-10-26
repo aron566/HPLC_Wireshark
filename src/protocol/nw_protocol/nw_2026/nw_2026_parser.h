@@ -33,6 +33,26 @@ private:
     /// @details NW_2021_Parser 无状态,实例缓存免逐帧栈上构造;
     ///          解析器由 DispatcherWorker 单线程持有,成员缓存无并发问题。
     NW_2021_Parser m_legacy;
+
+    // ---- UL-OFDMA trigger 上下文(A2 方案:按 SNID 分桶记录最近 trigger eFC) ----
+    // 表26 类型 1 双义:DL-OFDMA 的 SACK 帧 / UL-OFDMA 数据帧。UL-OFDMA 数据帧的
+    // 每站 TMI 不在本帧内(协议原文),必须取最近 trigger 帧(类型2) eFC 的每站 TMI。
+    // 失效策略:①新 trigger 覆盖旧(最近一次语义)+ ②超过 kTriggerCtxMaxAge 帧未更新
+    // 则丢弃(防脏数据)。解析器单线程持有(DispatcherWorker 成员缓存先例),无并发问题。
+    struct TriggerSt { quint16 tei = 0; quint8 pb_num = 0; quint16 pb_size = 0; };
+    struct TriggerCtx {
+        quint8   station_count = 0;   ///< 站点数(1-4)
+        TriggerSt st[4];
+        quint64  frame_index = 0;     ///< 记录时的帧计数(失效基准)
+    };
+    static constexpr quint64 kTriggerCtxMaxAge = 1024;  ///< 超过 1024 帧未更新则失效
+    QHash<quint32, TriggerCtx> m_trigger_ctx;   ///< SNID(net_id) → 最近 trigger 上下文
+    quint64 m_frame_count = 0;                  ///< 递增帧计数(trigger 上下文失效基准)
+
+    /// @brief 类型2(trigger)记录 eFC 上下文(表28:每站 PB数/TEI/TMI/RU/Tx回退)
+    void record_trigger_ctx(quint32 snid, const quint8* p, int raw_sz);
+    /// @brief 类型1 分派:DL-SACK(单16B PB) / UL-OFDMA 数据(需 trigger 上下文)
+    void parse_ofdma_type1(Result& r, const quint8* p, int raw_sz);
 };
 
 #endif // NW_2026_PARSER_H

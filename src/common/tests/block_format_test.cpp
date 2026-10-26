@@ -98,7 +98,6 @@ static PacketEntry make_entry(int i) {
         s1.msdu = QByteArray::fromHex("eeff");
         e.mpdu.sof_stations.append(s0); e.mpdu.sof_stations.append(s1);
     }
-    e.mpdu.sof_multi_site_verified = (i % 2 == 0);   // v13: 待真实帧验证标志 round-trip
     e.protocol = quint8(i % 2);   // 覆盖协议标识序列化 round-trip(0=国网/1=南网)
     e.msdu.present = true; e.msdu.msdu_seq = quint16(i);
     e.msdu.summary = QStringLiteral("summary-%1").arg(i);
@@ -147,8 +146,7 @@ static bool mpdu_soffields_equal(const MpduInfo& x, const MpduInfo& y, QString& 
         || x.ack_bru_snr_flag != y.ack_bru_snr_flag
         || x.ack_sat_id_flag != y.ack_sat_id_flag
         || x.ack_remain_sta_num != y.ack_remain_sta_num
-        || x.fch_crc_checked != y.fch_crc_checked
-        || x.sof_multi_site_verified != y.sof_multi_site_verified) {
+        || x.fch_crc_checked != y.fch_crc_checked) {
         why = QStringLiteral("mpdu SOF/beacon/ack field mismatch"); return false;
     }
     if (!sof_stations_equal(x.sof_stations, y.sof_stations, why)) return false;

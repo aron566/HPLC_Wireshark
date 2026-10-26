@@ -187,7 +187,7 @@ end
 -- value_string 表
 -- =========================================================================
 local dt_vals = {
-    [0] = T("信标帧", "Beacon"), [1] = T("SOF 数据帧", "SOF"),
+    [0] = T("信标帧", "Beacon"), [1] = T("SOF", "SOF"),
     [2] = T("ACK 确认帧", "ACK"), [3] = T("网间协调帧", "Coordination"),
 }
 local ack_ext_type_vals = {
@@ -451,7 +451,7 @@ f.sof_lid = ProtoField.uint8 ("nw_2026.sof.lid", T("链路标识符(LID,无线)"
 -- SPLC 载波 SOF(表23-26): 多站点帧标识/训练帧标识/OFDMA类型 同在字节4
 f.sof_multi = ProtoField.uint8 ("nw_2026.sof.multi", T("多站点帧标识", "Multi-Station Frame Flag"), base.DEC, {[0]=T("单站点帧", "Single-station"), [1]=T("多站点帧", "Multi-station")}, 0x01)
 f.sof_train = ProtoField.uint8 ("nw_2026.sof.train", T("训练帧标识", "Training Frame Flag"), base.DEC, {[0]=T("数据帧", "Data frame"), [1]=T("训练帧(无数据物理块)", "Training frame (no data PB)")}, 0x02)
-f.sof_ofdma_type = ProtoField.uint8 ("nw_2026.sof.ofdma_type", T("OFDMA 帧类型(表26)", "OFDMA Frame Type (Table 26)"), base.DEC, {[0]=T("DL-OFDMA", "DL-OFDMA"), [1]=T("SACK", "SACK"), [2]=T("Trigger", "Trigger"), [3]=T("UL-SACK", "UL-SACK")}, 0x06)
+f.sof_ofdma_type = ProtoField.uint8 ("nw_2026.sof.ofdma_type", T("OFDMA 帧类型(表26)", "OFDMA Frame Type (Table 26)"), base.DEC, {[0]=T("DL-OFDMA", "DL-OFDMA"),     [1]=T("DL-SACK/UL-OFDMA", "DL-SACK/UL-OFDMA"), [2]=T("Trigger", "Trigger"), [3]=T("UL-SACK", "UL-SACK")}, 0x06)
 f.sof_bitload = ProtoField.uint8 ("nw_2026.sof.bitloading", T("Bitloading 标识(表23)", "Bitloading Flag (Table 23)"), base.DEC, {[0]=T("普通 TMI 编号", "Normal TMI index"), [1]=T("Bitloading TMI 编号", "Bitloading TMI index")}, 0x01)
 f.sof_pb_num = ProtoField.uint8 ("nw_2026.sof.pb_num", T("物理块个数(表23)", "PB Count (Table 23)"), base.DEC, nil, 0x3C)
 f.sof_tmi = ProtoField.uint8 ("nw_2026.sof.tmi", T("TMI 编号(表23)", "TMI Index (Table 23)"), base.DEC, nil, 0x3E)
@@ -1149,7 +1149,7 @@ end
 --     字节16 → PB 基址 32; 训练帧(表24/25)无数据物理块
 --   无线(表131): LID(4,0,8)/帧长(5,0,12)/载荷PB大小(6,4,4)/MCS(7,0,4)/重传(7,5,1), 单块
 local function dissect_sof_vf(tvb, tree, is_rf)
-    local r = { pb_base = 16, pb_num = 0, pbsize = -1 }
+    local r = { pb_base = 16, pb_num = 0, pbsize = -1, otype1 = 0 }
     add_tei12(tree, f.sof_src_tei, tvb, 1)
     add_tei12h(tree, f.sof_dst_tei, tvb, 2)
     if is_rf then
@@ -1196,7 +1196,7 @@ local function dissect_sof_vf(tvb, tree, is_rf)
         if multi == 1 then
             local otype = read_bits(tvb, 4 * 8 + 1, 2)
             tree:add(f.sof_ofdma_type, tvb(4, 1))
-            if (otype == 0 or otype == 1 or otype == 2) and tvb:len() >= 32 then
+            if (otype == 0 or otype == 2) and tvb:len() >= 32 then
                 -- 表27(DL-OFDMA/DL-SACK 共用,otype 0/1)/表28(trigger,otype 2):
                 -- eFC 16B 自字节16, 站点循环位推进(与 Qt 解析器同坐标), 仅展示不重组;
                 -- 站点数-1 取 FCH byte4 bit6-7, 站点0 专属尾字段: 表27=SACK RU / 表28=TxPowerBackoff
@@ -1250,10 +1250,36 @@ local function dissect_sof_vf(tvb, tree, is_rf)
                 r.pb_num = 0
                 r.pbsize = 0
             else
-                -- 类型未知 / 截断帧: 本站不重组 MSDU
+                -- 类型未知 / 截断帧 / 类型1(无 eFC): 本站不重组 MSDU
                 if otype == 0 then
                     -- DL-OFDMA 本应有 eFC(表27)+PB，长度不足说明帧被截断
                     tree:append_text(" · " .. T("DL-OFDMA 帧被截断", "DL-OFDMA Frame Truncated"))
+                elseif otype == 1 then
+                    -- 类型1 双义(无 eFC): DL-SACK(单16B PB) / UL-OFDMA 数据(需 trigger 上下文)
+                    -- 先试 DL-SACK: 总长 32B + PB@16 CRC24 通过 + 体首 nibble MsgID==0
+                    local dl_sack = false
+                    if tvb:len() == 32 then
+                        local calc = crc24_lsb(tvb, 16, 16)
+                        local rx = tvb(16 + 13, 3):le_uint()
+                        if calc == rx and band(tvb(20, 1):uint(), 0x0F) == 0 then
+                            dl_sack = true
+                        end
+                    end
+                    if dl_sack then
+                        -- DL-SACK: 单16B PB @16, 体按表49/50 展示 MsgID/SrcTEI/RxStatus
+                        tree:add(f.sack16_msgid, tvb(20, 1))
+                        tree:add(f.sack16_src, tvb(20, 2),
+                            math.floor(band(tvb(20, 1):uint(), 0xF0) / 16) + tvb(21, 1):uint() * 16)
+                        tree:add(f.sack16_rx, tvb(22, 1))
+                        tree:add(f.sack16_rsv, tvb(22, 1))
+                        tree:append_text(" · " .. T("DL-OFDMA SACK", "DL-OFDMA SACK"))
+                        r.otype1 = 1
+                    else
+                        -- UL-OFDMA 数据: Lua 无 trigger 上下文(跨帧状态难做), 明确标「需 trigger」
+                        tree:append_text(" · " .. T("UL-OFDMA 数据帧，需 trigger 上下文",
+                            "UL-OFDMA Data Frame, Requires Trigger Context"))
+                        r.otype1 = 2
+                    end
                 end
                 r.pb_num = 0
                 r.pbsize = 0
@@ -2842,14 +2868,28 @@ function nw.dissector(tvb, pinfo, tree)
 
     local dt_txt = dt_vals[dt] or T("保留", "Reserved").."("..dt..")"
     if dt == 1 and not is_rf then
-        -- 训练帧(表24/25,仅 SPLC 载波 SOF 定义训练帧标识 byte4 bit1=1;BPLC 的
-        -- byte4 为 LinkID 勿套用):info 显示帧性质,替代"数据帧"文案
-        local std_ver = math.floor(band(tvb(12, 1):uint(), 0xF0) / 16)
-        if std_ver == 2 and band(tvb(4, 1):uint(), 0x02) ~= 0 then
-            local tt = band(tvb(5, 1):uint(), 0x01)
-            dt_txt = T("SOF", "SOF") .. " " .. (tt == 1
-                and T("训练帧(Bitloading)", "Training Frame (Bitloading)")
-                or T("训练帧(MIMO)", "Training Frame (MIMO)"))
+        local is_multi = band(tvb(4, 1):uint(), 0x01) ~= 0
+        if is_multi then
+            -- 多站点帧(表26): byte4 bit1-2 = OFDMA 帧类型(同一位,多站点不能判训练帧!)
+            local oft = math.floor(band(tvb(4, 1):uint(), 0x06) / 2)
+            if oft == 0 then
+                dt_txt = T("SOF", "SOF") .. " " .. T("DL-OFDMA", "DL-OFDMA")
+            elseif oft == 1 then
+                dt_txt = T("SOF", "SOF") .. " " .. T("DL-OFDMA SACK/UL-OFDMA", "DL-OFDMA SACK / UL-OFDMA")
+            elseif oft == 2 then
+                dt_txt = T("SOF", "SOF") .. " " .. T("UL-OFDMA trigger", "UL-OFDMA trigger")
+            else
+                dt_txt = T("SOF", "SOF") .. " " .. T("UL-OFDMA SACK", "UL-OFDMA SACK")
+            end
+        else
+            -- 单站点帧(表23): byte4 bit1 = 训练帧标识(仅 SPLC 载波 SOF 定义)
+            local std_ver = math.floor(band(tvb(12, 1):uint(), 0xF0) / 16)
+            if std_ver == 2 and band(tvb(4, 1):uint(), 0x02) ~= 0 then
+                local tt = band(tvb(5, 1):uint(), 0x01)
+                dt_txt = T("SOF", "SOF") .. " " .. (tt == 1
+                    and T("训练帧(Bitloading)", "Training Frame (Bitloading)")
+                    or T("训练帧(MIMO)", "Training Frame (MIMO)"))
+            end
         end
     end
     pinfo.cols.info = string.format("DT=%s SNID=0x%x", dt_txt, snid)
@@ -2868,6 +2908,14 @@ function nw.dissector(tvb, pinfo, tree)
         dissect_beacon_vf(tvb, vf_tree, is_rf)
     elseif dt == 1 then
         sof_res = dissect_sof_vf(tvb, vf_tree, is_rf)
+        if sof_res and sof_res.otype1 == 1 then
+            pinfo.cols.info = string.format("DT=%s SNID=0x%x",
+                T("SOF", "SOF") .. " " .. T("DL-OFDMA SACK", "DL-OFDMA SACK"), snid)
+        elseif sof_res and sof_res.otype1 == 2 then
+            pinfo.cols.info = string.format("DT=%s SNID=0x%x",
+                T("SOF", "SOF") .. " " .. T("UL-OFDMA 数据帧，需 trigger 上下文",
+                    "UL-OFDMA Data Frame, Requires Trigger Context"), snid)
+        end
     elseif dt == 2 then
         dissect_ack_vf(tvb, vf_tree)
     elseif dt == 3 then
@@ -2904,9 +2952,21 @@ function nw.dissector(tvb, pinfo, tree)
         local pb_num = sof_res.pb_num
         local pbsize = sof_res.pbsize
         if pb_num == 0 then
-            root:add(nw, tvb(16, math.min(16, tvb:len() - 16))):
-                append_text(T(" (训练帧/SACK/Trigger/UL-SACK: 无数据物理块, 不重组 MSDU)",
-                              " (Training/SACK/Trigger/UL-SACK: no data PB, no MSDU reassembly)"))
+            local note
+            if sof_res.otype1 == 2 then
+                -- UL-OFDMA 数据帧：帧本身有数据，缺 trigger 上下文
+                note = T(" (UL-OFDMA 数据帧: 需 trigger 上下文才能定位 PB)",
+                         " (UL-OFDMA Data Frame: Requires Trigger Context to Locate PBs)")
+            elseif sof_res.otype1 == 1 then
+                -- DL-SACK：单 16B PB，已在上面渲染
+                note = T(" (DL-OFDMA SACK: 单 16B 物理块)",
+                         " (DL-OFDMA SACK: Single 16 B PB)")
+            else
+                -- 训练帧 / trigger / UL-SACK：真的没有数据 PB
+                note = T(" (训练帧/Trigger/UL-SACK: 无数据物理块, 不重组 MSDU)",
+                         " (Training/Trigger/UL-SACK: No Data PB, No MSDU Reassembly)")
+            end
+            root:add(nw, tvb(16, math.min(16, tvb:len() - 16))):append_text(note)
         elseif pbsize > 8 and pb_num >= 1 and pb_num <= 16 then
             -- 逐 PB 块解析: 南网块 = PB头(4B) + 块体(pbsize-8) + 保留(1B) + CRC24(3B)
             -- MAC 帧统一用"块体逻辑视图"(单块/多块): 不生成新数据源, hex 始终完整显示原始帧

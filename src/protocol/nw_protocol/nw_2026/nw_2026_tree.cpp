@@ -11,6 +11,11 @@ namespace {
 struct I18nReg {
     I18nReg() {
         trl::register_en("保留", "Reserved");
+        trl::register_en("通过", "Pass");
+        trl::register_en("失败", "Fail");
+        trl::register_en("DL-OFDMA SACK 物理块", "DL-OFDMA SACK PB");
+        trl::register_en("站点 %1 PB 分组 (TEI=%2, %3 块 × %4 B)",
+                         "Station %1 PB Group (TEI=%2, %3 Block(s) x %4 B)");
         trl::register_en("级联体流 %1 B · %2", "Cascade body stream %1 B · %2");
         trl::register_en("PB 块不完整", "PB blocks incomplete");
         trl::register_en("声明 %1 块 / 实收 %2 块", "Declared %1 / Received %2");
@@ -78,6 +83,9 @@ struct I18nReg {
         trl::register_en("Bitloading训练帧", "Bitloading training frame");
         trl::register_en("MIMO训练帧", "MIMO training frame");
         trl::register_en("DL-OFDMA", "DL-OFDMA");
+        trl::register_en("DL-OFDMA SACK", "DL-OFDMA SACK");
+        trl::register_en("UL-OFDMA 数据帧", "UL-OFDMA Data Frame");
+        trl::register_en("UL-OFDMA 数据帧(需 trigger)", "UL-OFDMA Data Frame (Trigger Required)");
         trl::register_en("DL-OFDMA SACK/UL-OFDMA", "DL-OFDMA SACK / UL-OFDMA");
         trl::register_en("UL-OFDMA trigger", "UL-OFDMA trigger");
         trl::register_en("UL-OFDMA SACK", "UL-OFDMA SACK");
@@ -354,7 +362,7 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv71, 2, 16, QChar('0')), 7, 1, 7);
                 // eFC(自 p[16] 起 16B):DL-OFDMA/DL-SACK 共用表27 布局(站点0 含 SACK RU);
                 // UL-OFDMA trigger=表28(SACK RU 处改 TxPowerBackoff);UL-SACK=表29(4×[TEI+状态+保留])
-                if ((oft == 0 || oft == 1 || oft == 2) && raw_sz >= 32) {
+                if ((oft == 0 || oft == 2) && raw_sz >= 32) {
                     const quint8* e = d + 16;
                     const int sn = (raw_sz > 4) ? ((d[4] >> 6) & 0x03) : 0;  // 站点数-1
                     int bp = 0;   // eFC 内位偏移(站点 0 前置 TF 个数 2b)
@@ -383,23 +391,18 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                         tree_add_bit_field(sof, QString("eFC Sta%1 RU").arg(s),
                             QString::number(ru), 16 + bp / 8, bp % 8, 4);
                         bp += 4;
-                        if (oft == 0 || oft == 1) {
-                            // 表27 站点0 专属 SACK RU(3b),仅首站
-                            if (s == 0) {
-                                const int sr = get_bits(e, bp / 8, bp % 8, 3);
-                                tree_add_bit_field(sof, "eFC Sta0 SACK RU",
-                                    QString::number(sr), 16 + bp / 8, bp % 8, 3);
-                                bp += 3;
-                            }
-                        } else {  // 表28 trigger:TxPowerBackoff(3b),仅首站
-                            if (s == 0) {
-                                const int bk = get_bits(e, bp / 8, bp % 8, 3);
-                                tree_add_bit_field(sof, "eFC Sta0 TxPowerBackoff",
-                                    trl::L("%1 (回退 %2dB)").arg(bk).arg(bk * 4),
-                                    16 + bp / 8, bp % 8, 3);
-                                bp += 3;
-                            }
+                        // 表27 SACK RU / 表28 TxPowerBackoff(3b):每站都有,不是仅站0
+                        // (原实现仅站0推进 3b,3站以上帧的站2/站3 eFC 字段整体错位 3b)
+                        const int sr = get_bits(e, bp / 8, bp % 8, 3);
+                        if (oft == 2) {
+                            tree_add_bit_field(sof, QString("eFC Sta%1 TxPowerBackoff").arg(s),
+                                trl::L("%1 (回退 %2dB)").arg(sr).arg(sr * 4),
+                                16 + bp / 8, bp % 8, 3);
+                        } else {
+                            tree_add_bit_field(sof, QString("eFC Sta%1 SACK RU").arg(s),
+                                QString::number(sr), 16 + bp / 8, bp % 8, 3);
                         }
+                        bp += 3;
                     }
                 } else if (oft == 3 && raw_sz >= 32) {
                     // UL-OFDMA SACK eFC(表29):4×[TEI 12b + 接收状态 4b + 保留 8b],每站点 3B
@@ -516,7 +519,37 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             // 训练帧(表24/25,训练帧标识 d[4] bit1=1,仅 SPLC 载波;RF 的 d[4] 为 LID 勿套用)
             // 无数据物理块(表26):pb_num 保持 0,不渲染 PB 头/CRC——此前强制按 1 渲染,
             // FCH 后字节被误当 PB 头报 CRC FAIL 并触发列表标红
-            if (e.mpdu.pb_num <= 0 || e.mpdu.pb_size <= 0) {
+            if (!e.mpdu.sof_stations.isEmpty()) {
+                // 类型1 多站点(UL-OFDMA 数据 / DL-SACK):逐站 PB 分组(sof_stations)
+                const bool dl_sack = (e.mpdu.sof_stations.size() == 1
+                                      && e.mpdu.sof_stations[0].pb_size == 16);
+                for (int si = 0; si < e.mpdu.sof_stations.size(); ++si) {
+                    const auto& st = e.mpdu.sof_stations[si];
+                    auto* snode = tree_add_item(sof,
+                        dl_sack ? trl::L("DL-OFDMA SACK 物理块")
+                                : trl::L("站点 %1 PB 分组 (TEI=%2, %3 块 × %4 B)")
+                                      .arg(si).arg(st.tei).arg(st.pb_num).arg(st.pb_size),
+                        QString(), st.block_base, st.pb_size);
+                    for (int bi = 0; bi < st.pb_crc_oks.size(); ++bi) {
+                        tree_add_item(snode, QStringLiteral("Block %1 CRC24").arg(bi),
+                            st.pb_crc_oks[bi] ? trl::L("通过") : trl::L("失败"),
+                            st.block_base + bi * st.pb_size, st.pb_size);
+                    }
+                    if (dl_sack && st.msdu.size() >= 3) {
+                        const quint8 msgid = st.msdu[0] & 0x0F;
+                        tree_add_bit_field(snode, "MsgID",
+                            (msgid == 0) ? QStringLiteral("0 - %1").arg(trl::L("DL-OFDMA 数据帧的 SACK 帧"))
+                                         : QStringLiteral("%1 - %2").arg(msgid).arg(trl::L("保留")),
+                            st.block_base + 4, 0, 4);
+                        tree_add_bit_field(snode, "SrcTEI", QString::number(st.tei),
+                            st.block_base + 4, 4, 12);
+                        const quint8 rx = st.msdu[2] & 0x03;
+                        tree_add_bit_field(snode, "RxStatus",
+                            QStringLiteral("0b%1%2").arg((rx >> 1) & 1).arg(rx & 1),
+                            st.block_base + 6, 0, 2);
+                    }
+                }
+            } else if (e.mpdu.pb_num <= 0 || e.mpdu.pb_size <= 0) {
                 // 无数据物理块情形，先按 pb_num 区分「合法无块」与「查表失败」，再按 multi/train 区分帧型
                 // (byte4 bit1 在多站点帧里是 OFDMA 帧类型 bit0,不是训练帧标识!)
                 const bool multi = (e.mpdu.version == 2) && !e.meta.is_rf
@@ -531,7 +564,11 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     if (ofdma_type == 0) {
                         // 类型0(DL-OFDMA)本应有 eFC(表27)16B + 站点0 PB,截断时 parser 未能解析出块
                         why = trl::L("DL-OFDMA 帧被截断(长度不足以容纳 eFC+PB)");
-                    } else if (ofdma_type == 1 || ofdma_type == 3) {
+                    } else if (ofdma_type == 1) {
+                        // 类型1 双义:DL-SACK 成功时走 sof_stations 渲染(不在此);
+                        // 此处为 UL-OFDMA 数据无 trigger 上下文(parser 已标 msdu.summary)
+                        why = trl::L("UL-OFDMA 数据帧，需 trigger 上下文（未捕获到对应 trigger）");
+                    } else if (ofdma_type == 3) {
                         why = trl::L("OFDMA SACK 帧无数据物理块");
                     } else {
                         why = trl::L("OFDMA trigger 帧无数据物理块");

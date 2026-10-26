@@ -166,7 +166,6 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
             //   · 真实设备是否在 eFC 后插厂商私有字段
             // ⚠ 循环论证风险：仿真帧是按同一份协议文档构造的，两者一致只能排除
             //   「实现偏离文档」，不能排除「文档理解偏差」。真帧到位后应复核上述 weak 项。
-            info.sof_multi_site_verified = true;
             return QString();
         }
         if (sof_dt >= 4) {

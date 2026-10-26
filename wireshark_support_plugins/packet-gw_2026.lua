@@ -2632,6 +2632,17 @@ function gw.dissector(tvb, pinfo, tree)
                             spin = is_ofdma and (read_bits(tvb, (b+2)*8+5, 1) + 1) or 1
                         end
                         local ssz = sof_pb_size(cmode, 0)
+                        if ssz <= 0 then
+                            root:add_expert_info(PI_MALFORMED, PI_WARN,
+                                string.format(T("PB 大小非法(分集拷贝=%1)", "Invalid PB Size (DivCopy=%1)"), cmode))
+                            return tvb:len()
+                        end
+                        if is_ofdma and ssz ~= 72 and ssz ~= 136 then
+                            root:add_expert_info(PI_MALFORMED, PI_WARN,
+                                string.format(T("OFDMA PB 大小越界(分集拷贝=%1 → %2B，协议限 72/136)",
+                                    "OFDMA PB Size Out of Range (DivCopy=%1 -> %2B, Protocol Allows 72/136 Only)"), cmode, ssz))
+                            return tvb:len()
+                        end
                         local st_tree = root:add(gw, tvb(blk, 1),
                             string.format(T("站点 %d PB 分组 (TEI=%d, 分集拷贝=%d, %d 块 × %d B)",
                                             "Station %d PB Group (TEI=%d, DivCopy=%d, %d Block(s) x %d B)"),

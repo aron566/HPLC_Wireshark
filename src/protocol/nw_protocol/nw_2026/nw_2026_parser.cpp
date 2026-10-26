@@ -139,6 +139,8 @@ struct I18nReg {
         trl::register_en(", ", ", ");
         trl::register_en(" 等", " etc.");
         trl::register_en("未识别", "Unrecognized");
+        trl::register_en("UL-OFDMA 数据帧，需 trigger 上下文（未捕获到对应 trigger）",
+                         "UL-OFDMA Data Frame, Requires Trigger Context (No Matching Trigger Captured)");
     }
 };
 const I18nReg g_i18n_reg_nw2026_parser;
@@ -152,6 +154,7 @@ void shift_msdu_rel(MsduFieldNode& n, int base) {
 
 NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msdu, const Filter& f) {
     Result r;
+    ++m_frame_count;                        // 帧计数(trigger 上下文失效基准)
     r.protocol = ProtocolVariant::NW_2026;   // 协议身份由解析器标记
     if (!decode_envelope(in, r)) {
         r.accept = false;
@@ -303,8 +306,17 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                     const quint8 st0_tmi       = (quint8)get_bits(e, 1, 7, 5);
                     r.mpdu.pb_num  = st0_pbn_field + 1;   // 表27/28:字段 0→1 块,1→2 块
                     { const int sz = nw_2026_splc_pb_size(st0_tmi); r.mpdu.pb_size = (quint16)(sz > 0 ? sz : 0); }
+                } else if (ofdma_type == 2 && r.payload_for_log.size() >= 32) {
+                    // 类型2(trigger 表28):记录 eFC 上下文供类型1 UL-OFDMA 数据帧取 TMI;
+                    // trigger 本帧无数据物理块
+                    record_trigger_ctx(r.mpdu.net_id, p, r.payload_for_log.size());
+                    r.mpdu.pb_num  = 0;
+                    r.mpdu.pb_size = 0;
+                } else if (ofdma_type == 1) {
+                    // 类型1 双义:DL-OFDMA 的 SACK 帧 / UL-OFDMA 数据帧,分派见 parse_ofdma_type1
+                    parse_ofdma_type1(r, p, r.payload_for_log.size());
                 } else {
-                    // 类型1(DL-OFDMA的SACK/UL-OFDMA数据帧)/2(trigger)/3(UL-SACK):本站不重组 MSDU
+                    // 类型3(UL-SACK):本站不重组 MSDU
                     r.mpdu.pb_num  = 0;
                     r.mpdu.pb_size = 0;
                 }
@@ -508,4 +520,95 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
 
     r.accept = true;
     return r;
+}
+
+// ---- 类型2(trigger)记录 eFC 上下文(表28) ----
+void NW_2026_Parser::record_trigger_ctx(quint32 snid, const quint8* p, int raw_sz) {
+    if (raw_sz < 32) return;
+    const quint8* e = p + 16;                       // eFC @16, 16B(表28)
+    const int sn = (p[4] >> 6) & 0x03;              // 站点数-1(0=1站..3=4站)
+    TriggerCtx ctx;
+    ctx.station_count = sn + 1;
+    ctx.frame_index   = m_frame_count;
+    int bp = 2;                                     // TF 个数 2b(表28 (0,0,2))
+    for (int s = 0; s <= sn; ++s) {
+        const quint8  pbn = (quint8)get_bits(e, bp / 8, bp % 8, 1);   // 0→1块,1→2块
+        bp += 1;
+        const quint16 tei = (quint16)get_bits(e, bp / 8, bp % 8, 12);
+        bp += 12;
+        const quint8  tmi = (quint8)get_bits(e, bp / 8, bp % 8, 5);
+        bp += 5;
+        bp += 4;                                    // RU 4b(记录用,当前无输出)
+        bp += 3;                                    // Tx回退 3b(记录用,当前无输出)
+        ctx.st[s].tei = tei;
+        ctx.st[s].pb_num = pbn + 1;
+        { const int sz = nw_2026_splc_pb_size(tmi); ctx.st[s].pb_size = (quint16)(sz > 0 ? sz : 0); }
+    }
+    m_trigger_ctx[snid] = ctx;                      // ①新 trigger 覆盖旧(最近一次语义)
+}
+
+// ---- 类型1 分派:DL-SACK / UL-OFDMA 数据 ----
+void NW_2026_Parser::parse_ofdma_type1(Result& r, const quint8* p, int raw_sz) {
+    // DL-SACK 判别(notes.md:81-84):总长 32B(FCH16+单16B PB) 且 PB@16 CRC24 通过
+    // 且 体首 nibble MsgID==0。先试 DL-SACK,失败再走 UL-OFDMA 数据子项。
+    bool dl_sack = false;
+    if (raw_sz == 32) {
+        const quint8* blk = p + 16;                  // PB @16, 16B(固定 TMI 26)
+        const quint32 calc = crc24_lsb(blk, 16);
+        const quint32 rx   = (quint32)blk[13] | ((quint32)blk[14] << 8) | ((quint32)blk[15] << 16);
+        if (calc == rx && (p[20] & 0x0F) == 0)       // 体首低 nibble=MsgID(0=DL-OFDMA SACK)
+            dl_sack = true;
+    }
+
+    if (dl_sack) {
+        // DL-SACK:单 16B PB,体(表49/50)首 nibble=MsgID、源TEI 12b、接收状态 2b
+        SofStationPb st;
+        st.tei        = (quint16)(((p[20] >> 4) & 0x0F) | (p[21] << 4));  // 源 TEI 12b
+        st.pb_num     = 1;
+        st.pb_size    = 16;
+        st.block_base = 16;
+        st.pb_heads.append(p[16]);                    // PB 头首字节(seq 低 8b)
+        st.pb_crc_oks.append(true);                   // 判别时已验 CRC 通过
+        st.msdu       = QByteArray(reinterpret_cast<const char*>(p + 20), 8);  // 体 8B(MsgID/SrcTEI/RxStatus)
+        r.mpdu.sof_stations.append(st);
+        r.mpdu.pb_num  = 0;    // 不参与均一 pb_num/pb_size 组装,树侧按 sof_stations 渲染
+        r.mpdu.pb_size = 0;
+    } else {
+        // UL-OFDMA 数据:查 trigger 上下文(按 SNID 分桶)
+        auto it = m_trigger_ctx.constFind(r.mpdu.net_id);
+        const bool ctx_valid = (it != m_trigger_ctx.constEnd())
+                               && (m_frame_count - it->frame_index <= kTriggerCtxMaxAge);
+        if (ctx_valid && it->station_count >= 1) {
+            int base = 16;                           // 类型1 无 eFC,站载荷自 byte16 起
+            for (int s = 0; s < it->station_count; ++s) {
+                const auto& ts = it->st[s];
+                SofStationPb st;
+                st.tei        = ts.tei;
+                st.pb_num     = ts.pb_num;
+                st.pb_size    = ts.pb_size;
+                st.block_base = base;
+                if (ts.pb_size > 8 && ts.pb_num > 0) {
+                    const pb_asm::PbLayout layout{/*head*/4, /*rsv*/1, /*crc*/3,
+                                                  /*agg*/2, /*agg_bit*/0, base};
+                    const pb_asm::AssembleResult res =
+                        pb_asm::assemble_pb_blocks(r.payload_for_log, ts.pb_num, ts.pb_size, layout);
+                    for (const auto& b : res.blocks) {
+                        st.pb_heads.append(b.head_byte);
+                        st.pb_crc_oks.append(b.crc_ok);
+                    }
+                    st.msdu = res.msdu_body;
+                }
+                r.mpdu.sof_stations.append(st);
+                base += (int)ts.pb_num * (int)ts.pb_size;
+            }
+            r.mpdu.pb_num  = 0;    // 每站尺寸不同,不走均一组装,树侧按 sof_stations 渲染
+            r.mpdu.pb_size = 0;
+        } else {
+            // 无 trigger 上下文:明确标记(不要静默当 SACK)
+            r.mpdu.pb_num  = 0;
+            r.mpdu.pb_size = 0;
+            r.msdu.present = true;
+            r.msdu.summary = trl::L("UL-OFDMA 数据帧，需 trigger 上下文（未捕获到对应 trigger）");
+        }
+    }
 }

@@ -185,7 +185,7 @@ end
 -- value_string 表
 -- =========================================================================
 local dt_vals = {
-    [0] = T("信标帧", "Beacon"), [1] = T("SOF 数据帧", "SOF"),
+    [0] = T("信标帧", "Beacon"), [1] = T("SOF", "SOF"),
     [2] = T("ACK 确认帧", "ACK"), [3] = T("网间协调帧", "Coordination"),
 }
 local ack_ext_type_vals = {

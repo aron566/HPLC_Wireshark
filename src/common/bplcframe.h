@@ -133,7 +133,6 @@ struct MpduInfo {
 
     // ---- GW_2026 多站点 PB 分组(OFDMA 表10/11、TDA 表12/13) ----
     QVector<SofStationPb> sof_stations;   ///< 多站点帧的逐站点 PB 分组(空=单站点/数据帧/探测帧)
-    bool sof_multi_site_verified = false; ///< 多站点 PB 布局是否已通过协议仿真帧验证(v13 新增;实包确认前仅表仿真帧级验证)
 
     // ---- COORD(网间协调帧)----
     quint16 coord_duration;   ///< 协调时隙占用时长 16-bit(ms)
