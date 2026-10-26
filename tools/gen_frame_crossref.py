@@ -5,7 +5,7 @@ import os
 import re
 import sys
 
-sys.path.insert(0, r"D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/tools")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gen_frame_catalog as G
 
 R = G.R
@@ -92,10 +92,7 @@ for cat, _ in CAT:
         out.append(f"| **{k}** | " + " | ".join(cells) + " |")
     out.append("")
 
-dest = r"D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/docs/TEST_FRAME_CROSSREF.md"
+dest = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "docs", "TEST_FRAME_CROSSREF.md")
 open(dest, "w", encoding="utf-8", newline="\n").write("\n".join(out))
 print(f"\n已生成 {dest}  {os.path.getsize(dest):,} B")
-
-
-if __name__ == "__main__":
-    main()

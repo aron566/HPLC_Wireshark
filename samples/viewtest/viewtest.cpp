@@ -11,11 +11,30 @@
 #include "packetlistmodel.h"
 #include <QApplication>
 #include <QFile>
+#include <QDir>
+#include <QFileInfo>
 #include <cstdio>
 #include <functional>
 
+// 仓库根:从可执行文件位置向上找含 .git 的目录(最多 5 级),避免硬编码本机绝对路径。
+// viewtest.exe 通常位于 <repo>/samples/viewtest/release/ 或 build 输出目录下。
+static QString repoRoot()
+{
+    QDir d(QCoreApplication::applicationDirPath());
+    for (int i = 0; i < 5; ++i) {
+        if (QFileInfo::exists(d.filePath(".git")))
+            return d.path();
+        if (!d.cdUp())
+            break;
+    }
+    return QDir::currentPath();   // 兜底:当前工作目录
+}
+
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
+
+    // kSamples 必须在 QApplication 构造后才能用 applicationDirPath() 推导
+    const QString kSamples = repoRoot() + QStringLiteral("/samples");
 
     PacketEntry e;
     e.index    = 1;
@@ -181,7 +200,7 @@ int main(int argc, char* argv[]) {
     // 读 replay_test.bin,逐帧 GW_2022_Parser::parse,SOF 帧经 make_entry 同款
     // 拷贝(PacketEntry.msdu = r.msdu)后渲染,断言协议树出现 MSDU 字段。
     std::printf("\n--- 真实链路:replay_test.bin -> parse -> PacketEntry -> ProtocolTree ---\n");
-    QFile f(QStringLiteral("D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/samples/replay_test.bin"));
+    QFile f(kSamples + QStringLiteral("/replay_test.bin"));
     bool real_ok = false;
     int msdu_hl_ok = -1;   // -1=未测 0=无高亮 1=高亮区间有效
     if (f.open(QIODevice::ReadOnly)) {
@@ -378,7 +397,7 @@ int main(int argc, char* argv[]) {
     std::printf("\n--- 显示过滤器验证 ---\n");
     bool filter_ok = true;
     {
-        QFile ff(QStringLiteral("D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/samples/replay_test.bin"));
+        QFile ff(kSamples + QStringLiteral("/replay_test.bin"));
         if (ff.open(QIODevice::ReadOnly)) {
             QByteArray buf = ff.readAll();
             GW_2022_Parser parser;
@@ -601,10 +620,10 @@ int main(int argc, char* argv[]) {
             for (const auto& n : rr.msdu.tree) scan_crc(n);
         }
         multi_ok = ok1 && body_ok && crc_ok;
-        std::printf("  合成 2 块 SOF: accept=%d present=%d total_len=%d "
-                    "msdu_body=%d raw_base=%d\n",
-                    rr.accept, rr.msdu.present, rr.msdu.total_len,
-                    rr.msdu_body.size(), rr.msdu_raw_base);
+        std::printf("  合成 2 块 SOF: accept=%d present=%d total_len=%lld "
+                    "msdu_body=%lld raw_base=%d\n",
+                    rr.accept, rr.msdu.present, (long long)rr.msdu.total_len,
+                    (long long)rr.msdu_body.size(), rr.msdu_raw_base);
         std::printf("  重组字节一致=%s, MSDU CRC32 OK=%s, PB CRC24=%s\n",
                     body_ok ? "yes" : "NO",
                     crc_ok ? "yes" : "NO",
@@ -654,7 +673,7 @@ int main(int argc, char* argv[]) {
     // 改造为两块 72B(TMI=13),MSDU 帧 73B 跨块;验证字段可完整解析。
     std::printf("\n--- 改造报文(两块72B)解析验证 ---\n");
     {
-        QFile ff(QStringLiteral("D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/samples/multi72_2pb.bin"));
+        QFile ff(kSamples + QStringLiteral("/multi72_2pb.bin"));
         bool f72_ok = false;
         if (ff.open(QIODevice::ReadOnly)) {
             QByteArray buf = ff.readAll();
@@ -761,11 +780,11 @@ int main(int argc, char* argv[]) {
             std::printf("  accept=%d PBNum=%d pbsize=%d pb_crc_ok=%s\n",
                         r.accept, r.mpdu.pb_num, r.mpdu.pb_size,
                         r.mpdu.pb_crc_ok ? "yes" : "NO");
-            std::printf("  MSDU: present=%d summary=%s total_len=%d "
-                        "msdu_body=%d raw_base=%d MSDU CRC=%s\n",
+            std::printf("  MSDU: present=%d summary=%s total_len=%lld "
+                        "msdu_body=%lld raw_base=%d MSDU CRC=%s\n",
                         r.msdu.present,
                         qPrintable(r.msdu.summary),
-                        r.msdu.total_len, r.msdu_body.size(),
+                        (long long)r.msdu.total_len, (long long)r.msdu_body.size(),
                         r.msdu_raw_base, crc_ok ? "OK" : "FAIL");
         } else {
             std::printf("  无法打开 multi72_2pb.bin(跳过)\n");
@@ -777,7 +796,7 @@ int main(int argc, char* argv[]) {
     // 复现"点击 PB 字段后,再点其它字段不高亮"的场景
     std::printf("\n--- PB 点击后连续高亮验证 ---\n");
     {
-        QFile ff(QStringLiteral("D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/samples/replay_test.bin"));
+        QFile ff(kSamples + QStringLiteral("/replay_test.bin"));
         bool seq_ok = false;
         if (ff.open(QIODevice::ReadOnly)) {
             QByteArray buf = ff.readAll();
@@ -891,7 +910,7 @@ int main(int argc, char* argv[]) {
             }
             // 双块帧:PB(1/2) 行与后续 MMe 字段点击
             {
-                QFile f2(QStringLiteral("D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/samples/multi72_2pb.bin"));
+                QFile f2(kSamples + QStringLiteral("/multi72_2pb.bin"));
                 if (f2.open(QIODevice::ReadOnly)) {
                     QByteArray b2 = f2.readAll();
                     int i0 = b2.indexOf(char(0x3C));
@@ -987,7 +1006,7 @@ int main(int argc, char* argv[]) {
     std::printf("\n--- 导出回放 bin 往返验证 ---\n");
     bool export_ok = true;
     {
-        QFile ff(QStringLiteral("D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/samples/replay_test.bin"));
+        QFile ff(kSamples + QStringLiteral("/replay_test.bin"));
         if (ff.open(QIODevice::ReadOnly)) {
             QByteArray src = ff.readAll();
             GW_2022_Parser parser;
@@ -1030,7 +1049,7 @@ int main(int argc, char* argv[]) {
             }
             const int n_src = entries.size();
             QByteArray outbin = playback::build_playback_bin(entries);
-            std::printf("  源帧 %d,导出字节 %d\n", n_src, outbin.size());
+            std::printf("  源帧 %d,导出字节 %lld\n", n_src, (long long)outbin.size());
 
             // 以与 SerialReader 相同方式重读导出文件
             GW_2022_Parser parser2;
@@ -1083,7 +1102,7 @@ int main(int argc, char* argv[]) {
     std::printf("\n--- 信标帧 PB Padding 验证 ---\n");
     bool bea_ok = false;
     {
-        QFile fb(QStringLiteral("D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/samples/replay_test.bin"));
+        QFile fb(kSamples + QStringLiteral("/replay_test.bin"));
         if (fb.open(QIODevice::ReadOnly)) {
             QByteArray buf = fb.readAll();
             GW_2022_Parser bp;

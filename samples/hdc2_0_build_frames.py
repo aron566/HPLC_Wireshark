@@ -7,7 +7,8 @@
 import os
 import re
 
-R = r"D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor"
+# 仓库根 = samples/ 的上一级; 脚本自身位置推导, 避免硬编码本机绝对路径
+R = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GD = R + "/docs/protocol_doc/gw/HDC1.0"
 NEW = os.path.join(GD, "双模通信互联互通技术规范_第4_2部分数据链路层通信协议_261023_152656.md")
 BASE = os.path.join(GD, "双模通信互联互通技术规范_第4_2部分数据链路层通信协议_260823_193255.md")

@@ -7,7 +7,7 @@ import os
 import re
 import sys
 
-sys.path.insert(0, r"D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/tools")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gen_frame_catalog as G
 
 R = G.R
@@ -247,6 +247,7 @@ out.append("> **铁律**：载波发现列表与无线发现列表的**站点属
            "生成时不可混用；HDC2.0 的发现列表**没有 MMe 版**（表43 的 0x0008=保留），"
            "只走单跳帧 msg_type 0/2。")
 
-dest = r"D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/docs/TEST_TIER3_FRAME_MATRIX.md"
+dest = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "docs", "TEST_TIER3_FRAME_MATRIX.md")
 open(dest, "w", encoding="utf-8", newline="\n").write("\n".join(out))
 print(f"\n已生成 {dest}  {os.path.getsize(dest):,} B  语义并集 {len(union)}")

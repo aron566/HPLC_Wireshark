@@ -10,7 +10,9 @@ TEST_FRAME_CATALOG 生成器 v2 —— 修 4 条:
 import os
 import re
 
-R = r"D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/docs/protocol_doc"
+# 仓库根 = tools/ 的上一级; 用脚本自身位置推导, 避免硬编码本机绝对路径
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+R = os.path.join(REPO, "docs", "protocol_doc")
 CAP = re.compile(r"^\s*(?:#{1,5}\s*)?(表|图)\s*(\d+)\s*(.*)$")
 ROW = re.compile(r"<tr[^>]*>(.*?)</tr>", re.S)
 CELLF = re.compile(r"<(t[dh])([^>]*)>(.*?)</\1>", re.S)
@@ -254,7 +256,7 @@ def main():
                     cells = [c + mark for c in cells]
                     out.append("| " + " | ".join(c.replace("|", "\\|")[:64] for c in cells) + " |")
                 out.append("")
-    dest = r"D:/code/gitlab/HPLC_HRF_GW/monitor/BPLC_STA_QtMonitor/docs/TEST_FRAME_CATALOG.md"
+    dest = os.path.join(REPO, "docs", "TEST_FRAME_CATALOG.md")
     open(dest, "w", encoding="utf-8", newline="\n").write("\n".join(out))
     print(f"已生成 {dest}  {os.path.getsize(dest):,} B  {len(chr(10).join(out).split(chr(10)))} 行")
 
