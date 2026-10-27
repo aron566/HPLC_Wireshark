@@ -244,14 +244,18 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             QString::number(e.mpdu.src_tei) + trl::L(" (源 TEI)"), 1, 0, 12);
         tree_add_bit_field(sof, "Destination TEI",
             QString::number(e.mpdu.dst_tei) + trl::L(" (目的 TEI)"), 2, 4, 12);
-        // 链路标识符(LID)= 优先级/业务分类(表98/8.2.13):应用报文 LID 0-3,网络管理 LID 0-255 自定义
-        tree_add_bit_field(sof, "Link ID",
-            QStringLiteral("%1 - %2").arg(e.mpdu.link_id)
-                .arg(e.mpdu.link_id <= 3 ? trl::L("应用报文 LID(优先级)")
-                                         : trl::L("网络管理 LID(自定义 0-255)")),
-            4, 0, 8);
-        // SOF 可变域按介质分表独立渲染:载波走第5部分表16、无线走第2部分表131
-        // (源/目的 TEI 与链路标识符两介质同坐标,已在上方共用渲染)
+        // 链路标识符(LID)仅在无线(表131 byte4)与 BPLC 载波(表20 byte4)存在;
+        // SPLC 载波(表23-26)byte4 是 multi/train/OFDMA-type,无 LID(见下方 else 分支)
+        if (e.meta.is_rf || e.mpdu.version != 2) {
+            // 链路标识符(LID)= 优先级/业务分类(表98/8.2.13):应用报文 LID 0-3,网络管理 LID 0-255 自定义
+            tree_add_bit_field(sof, "Link ID",
+                QStringLiteral("%1 - %2").arg(e.mpdu.link_id)
+                    .arg(e.mpdu.link_id <= 3 ? trl::L("应用报文 LID(优先级)")
+                                             : trl::L("网络管理 LID(自定义 0-255)")),
+                4, 0, 8);
+        }
+        // SOF 可变域按介质/版本分表独立渲染:无线走表131、BPLC 载波走表20、SPLC 载波走表23-26
+        // (源/目的 TEI 两介质同坐标,已在上方共用渲染;链路标识符仅无线/BPLC 载波存在)
         const quint8* d = reinterpret_cast<const quint8*>(e.raw_bytes.constData());
         const int raw_sz = e.raw_bytes.size();
         if (e.meta.is_rf) {
