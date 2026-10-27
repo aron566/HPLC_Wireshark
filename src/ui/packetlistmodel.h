@@ -121,6 +121,8 @@ private:
     void touch_lru(int idx) const;
     /// @brief 更新 TEI→MAC 映射表(按 NID 分表;取自 MSDU 头 MACAddrFlag 扩展字段)
     void update_tei_mac(const PacketEntry& e);
+    /// @brief 学习一对 TEI↔MAC(正反两表同步;TEI 易主时清旧 MAC 的反向条目)
+    void learn_tei_mac(quint32 nid, quint16 tei, quint64 mac);
     /// @brief 查 TEI 对应 MAC(48-bit;无记录返回 0)
     quint64 lookup_mac(quint32 nid, quint16 tei) const;
     /// @brief 反查 MAC 对应 TEI(48-bit;无记录返回 0)
@@ -136,6 +138,7 @@ private:
     int                    m_filter_gen = 0; ///< 过滤代计数,丢弃过期异步结果
     QVector<PacketEntry>   m_deferred;    ///< 过滤期间暂存的 append 条目
     QHash<quint32, QHash<quint16, quint64>> m_tei_mac; ///< TEI→MAC 映射表(NID → TEI → MAC48)
+    QHash<quint32, QHash<quint64, quint16>> m_mac_tei; ///< MAC→TEI 反向索引(NID → MAC48 → TEI;与 m_tei_mac 同步维护,供 lookup_tei_by_mac O(1) 反查)
     QTemporaryDir          m_paging_dir;  ///< 盘块临时目录(进程结束自动清理)
 
     mutable QHash<int, pser::BlockReader> m_block_cache; ///< 已打开盘块 LRU

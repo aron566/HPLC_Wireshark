@@ -288,12 +288,16 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 ? (quint32)d[8] | ((quint32)d[9] << 8) | ((quint32)d[10] << 16) | ((quint32)d[11] << 24) : 0;
             tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv32, 8, 16, QChar('0')), 8, 0, 32);
             // SPLC 表45(§5.1.3.1.11.2 无线 SOF 帧可变域):短网络标识高位(12,0,1) + 保留(12,1,3)。
-            // 注意与 BPLC 表131 不同(那里 byte12 整段保留),不能沿用载波分支的"整段当 RSV"。
+            // 注意与 BPLC 表131 不同(那里 byte12 低半字节整段保留、无 SNID 高位语义),
+            // 不能沿用载波分支的"整段当 TMI_EXT"。高半字节(12,4,4):表45 与表131 的
+            // 可变域表均止于 byte12 bit3,两表皆无定义,按保留位渲染,不参与 SNID/net_id 合并。
             const quint8 snid_hi_rf = (raw_sz > 12) ? (quint8)(d[12] & 0x01) : 0;
             tree_add_bit_field(sof, "SNID High",
                 QString::number(snid_hi_rf) + trl::L(" (SNID 高位)"), 12, 0, 1);
             const quint8 rsv_12 = (raw_sz > 12) ? (quint8)((d[12] >> 1) & 0x07) : 0;
             tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv_12, 1, 16, QChar('0')), 12, 1, 3);
+            const quint8 rsv_12_hi = (raw_sz > 12) ? (quint8)((d[12] >> 4) & 0x0F) : 0;
+            tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv_12_hi, 1, 16, QChar('0')), 12, 4, 4);
         } else if (e.mpdu.version != 2) {
             // BPLC 版载波 SOF(表20):聚合 BPLC 帧(用户需求)由 NW_2026_Parser 本地解析
             // (非聚合 version=1 仍整帧委托 NW_2021_Parser,不会走到本分支)——

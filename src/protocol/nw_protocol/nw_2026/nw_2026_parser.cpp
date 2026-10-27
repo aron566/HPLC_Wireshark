@@ -282,7 +282,9 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
         if (r.meta.is_rf) {
             // 无线 SOF 可变域(SPLC 第4部分表45):帧长(5,0,12,单位100µs)/载荷PB大小(6,4,4)/
             // MCS(7,0,4)/TEI过滤(7,4,1)/重传(7,5,1);保留(7,6,2)+(8-11,32b)+
-            // 短网络标识高位(12,0,1)+保留(12,1,3)(表45,非表131 整段保留),无 PB 个数与符号数字段
+            // 短网络标识高位(12,0,1)+保留(12,1,3)(表45;表131 byte12 低半字节保留、无 SNID 高位语义),
+            // 无 PB 个数与符号数字段。高半字节(12,4,4):表45/表131 均无定义,树与 Lua 按保留位
+            // 渲染,不存入 tmi_ext(不参与 SNID/net_id 合并)
             r.mpdu.link_id = (quint8) get_bits(p, 4, 0, 8);
             r.mpdu.frame_len = (quint16)get_bits(p, 5, 0, 12);
             quint8 pblen = (quint8)get_bits(p, 6, 4, 4);

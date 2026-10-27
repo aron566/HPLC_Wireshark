@@ -458,9 +458,11 @@ f.sof_tmi = ProtoField.uint8 ("nw_2026.sof.tmi", T("TMI 编号(表23)", "TMI Ind
 f.sof_frame_len = ProtoField.uint16 ("nw_2026.sof.frame_len", T("帧长", "Frame Length"), base.DEC)
 f.sof_tmi_ext = ProtoField.uint8 ("nw_2026.sof.tmi_ext", T("扩展TMI(TMI_EXT)", "Extended TMI"), base.DEC, nil, 0x0F)
 f.sof_pblen = ProtoField.uint8 ("nw_2026.sof.pblen", T("载荷PB大小(无线)", "Payload PB Size (RF)"), base.DEC, nil, 0xF0)
--- 无线 SOF 表45 byte12 = SNID 高位(1b) + 保留(3b);表131 的 byte12 整段保留,不用 TMI_EXT
+-- 无线 SOF 表45 byte12 = SNID 高位(1b) + 保留(3b);表131 byte12 低半字节保留、无 SNID 高位语义,
+-- 两表均未定义高半字节(12,4,4),按保留位渲染(不参与 SNID 合并);RF byte12 不用载波 TMI_EXT 语义
 f.sof_rf_snid_hi = ProtoField.uint8 ("nw_2026.sof.rf_snid_hi", T("短网络标识高位(无线,表45)", "SNID High (RF, Table 45)"), base.DEC, nil, 0x01)
 f.sof_rf_rsv12 = ProtoField.uint8 ("nw_2026.sof.rf_rsv12", T("保留(无线,表45)", "Reserved (RF, Table 45)"), base.DEC, nil, 0x0E)
+f.sof_rf_rsv12_hi = ProtoField.uint8 ("nw_2026.sof.rf_rsv12_hi", T("保留(无线,表45/表131未定义)", "Reserved (RF, undefined in Table 45/131)"), base.DEC, nil, 0xF0)
 f.sof_mcs = ProtoField.uint8 ("nw_2026.sof.mcs", T("调制编码方式(MCS,无线)", "MCS (RF)"), base.DEC, mcs_vals, 0x0F)
 f.sof_symbol_cnt = ProtoField.uint16 ("nw_2026.sof.symbol_cnt", T("符号数(载波)", "Symbol Count (PLC)"), base.DEC)
 f.sof_tei_filter = ProtoField.uint8 ("nw_2026.sof.tei_filter", T("目的TEI过滤标志", "Destination TEI Filter Flag"), base.DEC)
@@ -1159,7 +1161,8 @@ local function dissect_sof_vf(tvb, tree, is_rf)
     add_tei12h(tree, f.sof_dst_tei, tvb, 2)
     if is_rf then
         -- 无线 SOF(SPLC 第4部分 表45): 帧长(5,0,12) + 载荷PB大小(6,4,4) + MCS(7,0,4) +
-        --   TEI过滤(7,4,1) + 重传(7,5,1) + 保留(7,6,2)/(8,0,32) + SNID高位(12,0,1)+保留(12,1,3)
+        --   TEI过滤(7,4,1) + 重传(7,5,1) + 保留(7,6,2)/(8,0,32) + SNID高位(12,0,1)+保留(12,1,3)/
+        --   保留(12,4,4;表45/表131均只定义至bit3,高半字节无定义,按保留位渲染)
         tree:add(f.sof_lid, tvb(4, 1))
         add_val(tree, f.sof_frame_len, tvb, 5, 2, read_bits(tvb, 5 * 8, 12))
         tree:add(f.sof_pblen, tvb(6, 1))
@@ -1170,6 +1173,7 @@ local function dissect_sof_vf(tvb, tree, is_rf)
         add_le(tree, f.sof_rsv, tvb, 8, 4)
         tree:add(f.sof_rf_snid_hi, tvb(12, 1))   -- SNID 高位(12,0,1,表45)
         tree:add(f.sof_rf_rsv12, tvb(12, 1))     -- 保留(12,1,3,表45)
+        tree:add(f.sof_rf_rsv12_hi, tvb(12, 1))  -- 保留(12,4,4;两表均无定义,按保留位渲染)
         r.pb_num = 1                                  -- 无线信道仅 1 个物理块
         r.pbsize = rf_pb_size(read_bits(tvb, 6 * 8 + 4, 4))
     else
@@ -2707,7 +2711,7 @@ nw.fields = {
     f.beacon_mcs, f.beacon_rsv1, f.beacon_rsv2, f.beacon_rsv3,
     f.sof_src_tei, f.sof_dst_tei, f.sof_lid, f.sof_pb_num, f.sof_tmi,
     f.sof_frame_len, f.sof_tmi_ext, f.sof_pblen,
-    f.sof_rf_snid_hi, f.sof_rf_rsv12,
+    f.sof_rf_snid_hi, f.sof_rf_rsv12, f.sof_rf_rsv12_hi,
     f.mme_bl_rsv0, f.mme_bl_rsv1, f.mme_iot_rsv,
     f.sof_mcs, f.sof_symbol_cnt, f.sof_tei_filter, f.sof_resend, f.sof_rsv,
     f.sof_bplc_lid, f.sof_bplc_snid_hi, f.sof_bplc_rsv, f.sof_bplc_pbnum, f.sof_bplc_tmi,

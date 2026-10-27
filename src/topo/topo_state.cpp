@@ -157,17 +157,26 @@ void TopoState::apply(const TopoEvent& e) {
     // STA 重启检测:关联请求由 STA 本人发出,MSDU 头重启次数即该 STA 的;
     // 但帧可能经代理/中继转发 ⇒ 按【本跳发送方 MAC】(sender_mac) 建基线,
     // 避免把发送方的重启次数记到 MMe 主体名下(实测:主体 08:78:29:07,
-    // 发送方 08:66:78:08,重启次数属于发送方)
-    if (e.kind == TopoEventKind::AssocReq && e.restart_count >= 0 && e.sender_mac) {
-        const auto it = m_sta_restart_count.constFind(e.sender_mac);
+    // 发送方 08:66:78:08,重启次数属于发送方)。
+    // sender_mac==0(MSDU 头无源 MAC)时不再整段跳过:回落到 MMe 主体 MAC
+    // (关联请求 nodes 首条即主体 STA,tei=0 承载 MAC);直接关联时主体即发送方,
+    // 回落正确;中继帧缺发送方 MAC 时无法区分,宁可按主体建基线也不静默丢检测。
+    quint64 restart_key = e.sender_mac;
+    if (!restart_key) {
+        for (const TeiMacPair& p : e.nodes) {
+            if (p.mac) { restart_key = p.mac; break; }
+        }
+    }
+    if (e.kind == TopoEventKind::AssocReq && e.restart_count >= 0 && restart_key) {
+        const auto it = m_sta_restart_count.constFind(restart_key);
         if (it != m_sta_restart_count.constEnd() && it.value() != e.restart_count) {
             TopoEvent re = e;
             re.kind = TopoEventKind::StaRestart;
             re.desc = trl::L("警告STA重启过！STA %1 重启次数 %2→%3")
-                          .arg(topo_mac_str(e.sender_mac)).arg(it.value()).arg(e.restart_count);
+                          .arg(topo_mac_str(restart_key)).arg(it.value()).arg(e.restart_count);
             events.append(re);
         }
-        m_sta_restart_count[e.sender_mac] = e.restart_count;
+        m_sta_restart_count[restart_key] = e.restart_count;
     }
     // CCO(TEI=1):根节点,父=0,始终已入网
     if (e.cco_mac) {

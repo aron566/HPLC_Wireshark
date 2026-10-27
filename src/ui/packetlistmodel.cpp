@@ -206,8 +206,19 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                     //   主体 MAC 自 TEI→MAC 映射表补,查不到只显示 STA-N
                     const quint64 body_mac = e.msdu.sta_mac;
                     quint16 body_tei = 0;
-                    for (const auto& p : e.msdu.topo_event.nodes)
-                        if (p.tei) { body_tei = p.tei; break; }
+                    // 主体 TEI 优先按主体 MAC 反查映射表(多节点事件里首个非零 TEI
+                    // 未必是主体);查不到再按本帧 nodes 匹配主体 MAC,最后才回落首个非零
+                    if (body_mac) {
+                        body_tei = lookup_tei_by_mac(e.mpdu.net_id, body_mac);
+                        if (!body_tei) {
+                            for (const auto& p : e.msdu.topo_event.nodes)
+                                if (p.mac == body_mac && p.tei) { body_tei = p.tei; break; }
+                        }
+                    }
+                    if (!body_tei) {
+                        for (const auto& p : e.msdu.topo_event.nodes)
+                            if (p.tei) { body_tei = p.tei; break; }
+                    }
                     const bool mac_relay = (body_mac != 0) && (body_mac != e.msdu.msdu_src_mac);
                     const bool tei_relay = (body_mac == 0) && (body_tei != 0)
                                            && (body_tei != e.mpdu.src_tei);
@@ -562,6 +573,7 @@ void PacketListModel::clear_all() {
     m_block_count = 0;
     m_total = 0;
     m_tei_mac.clear();
+    m_mac_tei.clear();
     endResetModel();
     // 删除旧盘块文件:异步写盘的后台任务可能还在写,删掉后其 open 失败即安全;
     // 已被后台打开的文件(Windows 文件锁)删不掉,写盘完成后残留,由下次 clear 清理。
@@ -571,23 +583,38 @@ void PacketListModel::clear_all() {
         QFile::remove(dir.filePath(f));
 }
 
+void PacketListModel::learn_tei_mac(quint32 nid, quint16 tei, quint64 mac) {
+    if (!tei || !mac) return;
+    auto& fwd = m_tei_mac[nid];
+    auto& rev = m_mac_tei[nid];
+    // TEI 易主:旧 MAC 的反向条目若仍指向本 TEI 则清除,避免 stale 反查
+    // (正表行为保持原样:MAC 易 TEI 时旧 TEI→MAC 条目不主动清除)
+    const quint64 old_mac = fwd.value(tei, 0);
+    if (old_mac && old_mac != mac) {
+        auto rit = rev.find(old_mac);
+        if (rit != rev.end() && rit.value() == tei) rev.erase(rit);
+    }
+    fwd[tei] = mac;
+    rev[mac] = tei;
+}
+
 void PacketListModel::update_tei_mac(const PacketEntry& e) {
     if (!e.accepted) return;
     const quint32 nid = e.mpdu.net_id;
     // BEACON 帧:CCO 的 MAC(TEI=1),供 COORD 等 CCO 发出帧查表
     if (e.mpdu.frame_type == 0 && e.mpdu.beacon_cco_mac)
-        m_tei_mac[nid][1] = e.mpdu.beacon_cco_mac;
+        learn_tei_mac(nid, 1, e.mpdu.beacon_cco_mac);
     // 信标管理信息条目(站点能力/精简站点)携带的 TEI→SourceMAC 学习对
     for (const TeiMacPair& p : e.beacon.tei_mac_pairs)
-        if (p.tei != 0 && p.mac) m_tei_mac[nid][p.tei] = p.mac;
+        if (p.tei != 0 && p.mac) learn_tei_mac(nid, p.tei, p.mac);
     // 管理帧(发现列表等)携带的 TEI→MAC 学习对
     for (const TeiMacPair& p : e.msdu.tei_mac_pairs)
-        if (p.tei != 0 && p.mac) m_tei_mac[nid][p.tei] = p.mac;
+        if (p.tei != 0 && p.mac) learn_tei_mac(nid, p.tei, p.mac);
     if (!e.msdu.present || e.msdu.simple_head) return;
     if (e.msdu.msdu_src_tei > 0 && e.msdu.msdu_src_mac)
-        m_tei_mac[nid][quint16(e.msdu.msdu_src_tei)] = e.msdu.msdu_src_mac;
+        learn_tei_mac(nid, quint16(e.msdu.msdu_src_tei), e.msdu.msdu_src_mac);
     if (e.msdu.msdu_dst_tei > 0 && e.msdu.msdu_dst_mac)
-        m_tei_mac[nid][quint16(e.msdu.msdu_dst_tei)] = e.msdu.msdu_dst_mac;
+        learn_tei_mac(nid, quint16(e.msdu.msdu_dst_tei), e.msdu.msdu_dst_mac);
 }
 
 quint64 PacketListModel::lookup_mac(quint32 nid, quint16 tei) const {
@@ -599,11 +626,9 @@ quint64 PacketListModel::lookup_mac(quint32 nid, quint16 tei) const {
 
 quint16 PacketListModel::lookup_tei_by_mac(quint32 nid, quint64 mac) const {
     if (!mac) return 0;
-    auto it = m_tei_mac.constFind(nid);
-    if (it == m_tei_mac.constEnd()) return 0;
-    for (auto mit = it->constBegin(); mit != it->constEnd(); ++mit)
-        if (mit.value() == mac) return mit.key();
-    return 0;
+    auto it = m_mac_tei.constFind(nid);
+    if (it == m_mac_tei.constEnd()) return 0;
+    return it->value(mac, 0);
 }
 
 void PacketListModel::activate_row(int visible_row) {
