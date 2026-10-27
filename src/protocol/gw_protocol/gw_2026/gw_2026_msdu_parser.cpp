@@ -1548,6 +1548,7 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                         // 链路类型(位图确认 kChangeProxyBitMapCnfSpec):0=HPLC载波/1=HRF无线
                         out.topo_event.is_rf = (get_bits(b, 5, 4, 1) != 0);
                         out.topo_event.is_rf_known = true;
+                        out.topo_event.link_type = (int)get_bits(b, 5, 4, 1);
                     }
                     QString teis;
                     for (int i = 0; i < bm.size(); ++i) {
@@ -1676,6 +1677,7 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                     // 链路类型(代理变更确认 kChangeProxyCnfSpec):0=HPLC载波/1=HRF无线
                     out.topo_event.is_rf = (get_bits(b, 5, 4, 1) != 0);
                     out.topo_event.is_rf_known = true;
+                    out.topo_event.link_type = (int)get_bits(b, 5, 4, 1);
                     if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
                     out.topo_event.desc = trl::L("代理变更: STA TEI=%1 代理→%2")
                         .arg(sta_tei)

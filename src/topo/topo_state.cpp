@@ -42,9 +42,12 @@ NodeStatus status_for(TopoEventKind k) {
 ///        3) 都没有保持 0xFF(未定)
 static void assign_link_type(TopoNode& n, const TopoEvent& e) {
     if (n.link_type_known) return;
+    // 权威帧:入网三帧 + 成功的代理变更确认(解析器层仅成功才填 link_type,
+    // 失败事件不带 link_type,故此处无需再验 Result)
     const bool authoritative = (e.kind == TopoEventKind::AssocCnf
                                 || e.kind == TopoEventKind::AssocInd
-                                || e.kind == TopoEventKind::AssocGatherInd);
+                                || e.kind == TopoEventKind::AssocGatherInd
+                                || e.kind == TopoEventKind::ChangeProxyCnf);
     if (e.link_type >= 0) {
         if (authoritative) {
             n.link_type = (quint8)e.link_type;
@@ -233,8 +236,8 @@ void TopoState::apply(const TopoEvent& e) {
         if (e.is_rf_known) { n.is_rf = e.is_rf; n.is_rf_known = true; }
         assign_link_type(n, e);
     }
-    // 路由表(表55/56)每节点入网链路类型:仅关联确认/指示帧权威(与 assign_link_type 同源),
-    // 非权威 kind 不写,防以后有别的填充源进来翻转已锁定值;逐个赋值+锁定
+    // 路由表(表55/56)每节点入网链路类型:仅 AssocCnf/AssocInd/AssocGatherInd 跑(只有它们填 node_link_types 字段);
+    // 代理变更确认的权威性走 assign_link_type 一路,不经此循环;逐个赋值+锁定
     if (e.kind == TopoEventKind::AssocCnf || e.kind == TopoEventKind::AssocInd
         || e.kind == TopoEventKind::AssocGatherInd) {
         for (const auto& pr : e.node_link_types) {

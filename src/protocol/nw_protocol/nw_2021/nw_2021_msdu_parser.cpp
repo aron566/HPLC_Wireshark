@@ -1898,7 +1898,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                     for (int j = 0; j < 8; ++j) {
                         if (!(byte & (1u << j))) continue;
                         const quint16 ctei = (quint16)(8 * i + j);
-                        out.topo_event.child_teis.append(ctei);   // 绝对 TEI 位图 bit0=TEI 0 合法,不跳过   // 子站点表(TopoState 按链路类型更新接入方式)
+                        if (bm_ok) out.topo_event.child_teis.append(ctei);   // 绝对 TEI 位图 bit0=TEI 0 合法,不跳过;仅成功才进子站点表   // 子站点表(TopoState 按链路类型更新接入方式)
                         if (bm_ok && ctei && bmproxy_tei) {
                             out.topo_event.routes.append({ctei, bmproxy_tei});
                             ++bm_cnt;
@@ -1915,11 +1915,12 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                         .arg(bm_cnt)
                         .arg(bmproxy_tei ? QString::number(bmproxy_tei) : QStringLiteral("-"));
                 }
+                // 帧内链路类型(BPLC 表160:byte139):仅 Result=0(成功)时用;尾段需存在才可读(get_bits 无越界检查)
+                if (bm_ok && mme.size() > 145)
+                    out.topo_event.link_type = (int)get_bits(mme, 145, 0, 1);   // spec byte139 为相对 MMe 体,含 6B 头 → mme[145]
             }
             // 尾段(保留 byte 139 + 端到端/路径序列号)排在位图块之后,与字节序一致
             add_fields(out.tree, mme, 6, kMMeChangeProxyBitMapCnfTailSpec, kMMeChangeProxyBitMapCnfTailSpecN, mme_rel_base);
-            // 拓扑:帧内链路类型(BPLC 表160:byte139)
-            out.topo_event.link_type = (int)get_bits(mme, 145, 0, 1);   // spec byte139 为相对 MMe 体,含 6B 头 → mme[145]
             translate_enum_i18n(out.tree, "LinkType", kLinkTypeZh, 2);
             break;
         }
