@@ -40,6 +40,7 @@ NodeStatus status_for(TopoEventKind k) {
 ///        1) 关联确认/关联指示/关联汇总指示 的 LinkType 字段权威,赋值即锁定
 ///        2) 无权威帧时取首个带 link_type 的事件(不锁);link_type==-1 回退物理媒介 e.is_rf
 ///        3) 都没有保持 0xFF(未定)
+///        双模认定(用户 2026-10-28 定):入网链路为无线即双模节点,权威/弱路径全算,只认结果
 static void assign_link_type(TopoNode& n, const TopoEvent& e) {
     if (n.link_type_known) return;
     // 权威帧:入网三帧 + 成功的代理变更确认(解析器层仅成功才填 link_type,
@@ -58,6 +59,7 @@ static void assign_link_type(TopoNode& n, const TopoEvent& e) {
     } else if (e.is_rf_known && n.link_type == 0xFF) {
         n.link_type = e.is_rf ? 1 : 0;   // 回退物理媒介,不锁
     }
+    if (n.link_type == 1) n.rf_capable = true;   // 无线链路即双模,权威/弱路径全算
 }
 
 } // namespace
@@ -194,6 +196,11 @@ void TopoState::apply(const TopoEvent& e) {
         // 方案②:仅首次已知介质写入并锁定(RF STA 事件不得翻转 CCO 介质;
         // 事件侧 is_rf_known 守卫仍保留,未知介质事件不覆盖)
         if (e.is_rf_known && !cco.is_rf_known) { cco.is_rf = e.is_rf; cco.is_rf_known = true; }
+        // 双模认定(用户 2026-10-28 定):CCO 自己发过 RF 帧即双模;逐帧路径
+        // (mainwindow note_rf_capable,src_tei==1)已覆盖 CCO 发 RF 数据/信标,
+        // 这里补事件帧路径(发送方 MAC==CCO MAC 的 RF 事件帧)
+        if (e.is_rf_known && e.is_rf && e.sender_mac && e.sender_mac == e.cco_mac)
+            cco.rf_capable = true;
     }
     // TEI→MAC 学习对(节点出现,按事件类型定入网状态)
     for (const TeiMacPair& p : e.nodes) {
@@ -248,6 +255,7 @@ void TopoState::apply(const TopoEvent& e) {
             if (n.link_type_known) continue;   // 已锁定不覆盖
             n.link_type = pr.second;
             n.link_type_known = true;
+            if (n.link_type == 1) n.rf_capable = true;   // 双模认定:无线链路即双模
         }
     }
     // 载波发现列表(0x0055 表77)与代理站点通信成功率:独立于 RFDL proxy_* 与 0x005E comm_rates;

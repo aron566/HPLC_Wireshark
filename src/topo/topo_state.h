@@ -38,7 +38,8 @@ struct TopoNode {
     bool    proxy_rate_known = false; ///< 站点属性速率是否有效
     quint8  link_type = 0xFF;         ///< 入网链路类型(表79/表160:0=载波链路 1=无线链路 0xFF=未定)
     bool    link_type_known = false;  ///< 入网链路是否已确定(权威帧赋值后锁定,不被后续帧翻转)
-    bool    rf_capable = false;       ///< 双模标记:该 TEI 作为发送方发过 RF 帧(置位后不清除)
+    bool    rf_capable = false;       ///< 双模标记:发送方发过 RF 帧,或入网链路为无线(权威/弱路径全算);
+                                      ///  CCO 自己发过 RF 帧即双模(置位后不清除)
     qint32  proxy_comm_rate = -1;      ///< 与代理站点通信成功率(表77 byte16-19,32bit;0-100%;-1=无)
     qint32  proxy_down_comm_rate = -1; ///< 与代理站点下行通信成功率(表77 byte20-23,32bit)
     qint16  min_comm_rate = -1;        ///< 最小通信成功率(表77 byte36,8bit)
