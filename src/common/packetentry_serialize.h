@@ -352,6 +352,7 @@ inline void write_topo_event(QDataStream& s, const TopoEvent& t, StrPool& pool) 
     for (quint16 tei : t.child_teis) write_u16(s, tei);
     write_i32(s, t.restart_count);
     write_i64(s, t.frame_index);
+    s << t.sender_mac;   // v15: 本跳发送方 MAC(STA 重启按发送方建基线)
 }
 
 inline void read_topo_event(QDataStream& s, TopoEvent& t,
@@ -414,6 +415,7 @@ inline void read_topo_event(QDataStream& s, TopoEvent& t,
     for (quint32 i = 0; i < ctc; ++i) { quint16 tei = 0; read_u16(s, tei); t.child_teis.append(tei); }
     read_i32(s, t.restart_count);
     read_i64(s, t.frame_index);
+    s >> t.sender_mac;   // v15: 本跳发送方 MAC(STA 重启按发送方建基线)
 }
 
 inline void write_msdu_info(QDataStream& s, const MsduInfo& m, StrPool& pool) {
@@ -553,7 +555,7 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
 // ---------------------------------------------------------------------------
 
 inline quint32 block_magic()   { return 0x50424C4Bu; }  // "PBLK"
-inline quint32 block_version() { return 14u; }  // v14: 删 MpduInfo::sof_multi_site_verified(死字段,UI 零读取); v13: 补 MpduInfo::sof_stations(多站点 PB 分组 OFDMA/TDA) + sof_multi_site_verified; v12: 补 fch_crc_checked(FCH CRC 三态);v11: 补 MsduInfo::cascade + TopoEvent 23 字段 + MpduInfo 13 字段;v10: 删死字段 pb_index/coord_option/ack_search_freq;补写 coord_rsv1/2/3(树渲染依赖,原先漏写导致换页后恒 0);v9 增 mcs;v8 增 pblen;v7 增 beacon_rsv;v6 三线合流并集
+inline quint32 block_version() { return 15u; }  // v15: TopoEvent 补 sender_mac(STA 重启按发送方建基线); v14: 删 MpduInfo::sof_multi_site_verified(死字段,UI 零读取); v13: 补 MpduInfo::sof_stations(多站点 PB 分组 OFDMA/TDA) + sof_multi_site_verified; v12: 补 fch_crc_checked(FCH CRC 三态);v11: 补 MsduInfo::cascade + TopoEvent 23 字段 + MpduInfo 13 字段;v10: 删死字段 pb_index/coord_option/ack_search_freq;补写 coord_rsv1/2/3(树渲染依赖,原先漏写导致换页后恒 0);v9 增 mcs;v8 增 pblen;v7 增 beacon_rsv;v6 三线合流并集
 /// @brief 独立压缩分块的条目数(随机解码粒度:解一条最多解压一个分块)
 inline constexpr int kBlockChunkEntries = 50;
 

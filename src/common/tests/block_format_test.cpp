@@ -48,6 +48,7 @@ static void fill_topo(TopoEvent& t, int i) {
     t.min_comm_rate = qint16((i + 3) % 101);
     t.child_teis.append(quint16(i + 5));
     t.restart_count = (i % 16);
+    t.sender_mac = 0xAABBCCDDEE00ULL + quint64(i);   // v15: 发送方 MAC round-trip
     t.desc = QStringLiteral("topo-%1").arg(i);
     t.epoch_ms = 1700000000000LL + i * 1000;
     t.frame_index = qint64(i);
@@ -169,8 +170,8 @@ static bool topo_equal(const TopoEvent& x, const TopoEvent& y, QString& why) {
         || x.node_link_types != y.node_link_types || x.proxy_comm_rate != y.proxy_comm_rate
         || x.proxy_down_comm_rate != y.proxy_down_comm_rate
         || x.min_comm_rate != y.min_comm_rate || x.child_teis != y.child_teis
-        || x.restart_count != y.restart_count || x.desc != y.desc
-        || x.epoch_ms != y.epoch_ms || x.frame_index != y.frame_index
+        || x.restart_count != y.restart_count || x.sender_mac != y.sender_mac
+        || x.desc != y.desc || x.epoch_ms != y.epoch_ms || x.frame_index != y.frame_index
         || x.nodes.size() != y.nodes.size()
         || x.comm_rates.size() != y.comm_rates.size()) {
         why = QStringLiteral("topo_event mismatch"); return false;

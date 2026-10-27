@@ -186,7 +186,33 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                 return e.mpdu.frame_type_name();
             }
             case COL_MSDU_TYPE: {
-                if (e.accepted && e.msdu.present) return e.msdu.summary;
+                if (e.accepted && e.msdu.present) {
+                    QString s = e.msdu.summary;
+                    // 展示源 MMe 主体(便于与路由变更表核对):
+                    // 有主体 MAC → MAC≠本跳发送方 MAC(msdu_src_mac)判代理转发;
+                    // 仅主体 TEI(无 MAC)→ TEI≠本跳发送方 TEI(src_tei)判代理转发,
+                    //   主体 MAC 自 TEI→MAC 映射表补,查不到只显示 STA-N
+                    const quint64 body_mac = e.msdu.sta_mac;
+                    quint16 body_tei = 0;
+                    for (const auto& p : e.msdu.topo_event.nodes)
+                        if (p.tei) { body_tei = p.tei; break; }
+                    const bool mac_relay = (body_mac != 0) && (body_mac != e.msdu.msdu_src_mac);
+                    const bool tei_relay = (body_mac == 0) && (body_tei != 0)
+                                           && (body_tei != e.mpdu.src_tei);
+                    if (mac_relay || tei_relay) {
+                        quint64 mac = body_mac;
+                        if (!mac && body_tei)
+                            mac = lookup_mac(e.mpdu.net_id, body_tei);   // 自映射表补 MAC
+                        const QString body = body_tei
+                            ? QStringLiteral("STA-%1").arg(body_tei)
+                            : QStringLiteral("STA-X");
+                        if (mac)
+                            s += QStringLiteral(" %1 [MAC:%2]").arg(body).arg(format_mac(mac));
+                        else
+                            s += QStringLiteral(" %1").arg(body);
+                    }
+                    return s;
+                }
                 return QString();
             }
             case COL_MSDU_SEQ: {

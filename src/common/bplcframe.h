@@ -294,6 +294,7 @@ struct TopoEvent {
     qint16 min_comm_rate = -1;        ///< 最小通信成功率(表77 byte36,8bit;-1=无)
     QVector<quint16> child_teis;                ///< 子站点 TEI 列表(代理变更确认 0x003B 位图置位)
     int restart_count = -1;                     ///< 发送方重启次数(南网 MAC 帧头 4-bit;-1=未知/无)
+    quint64 sender_mac = 0;                     ///< 本跳发送方 MAC(MSDU 头源 MAC;0=无;STA 重启按发送方建基线)
     QString desc;                               ///< 变更说明(路由变更了什么)
     qint64 epoch_ms = 0;                        ///< 时间点(epoch ms)
     qint64 frame_index = -1;                    ///< 来源帧序号(PacketEntry::index;路由表显示与双击追溯用)
@@ -454,12 +455,17 @@ inline QString make_search_text(const PacketEntry& e) {
 /// @brief Dir 列显示(界面列表 COL_DIR 与 CSV 导出共用):
 ///        广播报文(目的 TEI=0xFFF 且发送类型非单播)按 广播方向+剩余跳数 指示
 ///        ↓[R]N→ / ↑[R]N→ / [R]N→,方向未知/保留→*;单播按 TEI 判定 ↑/↓(中继 ↑R/↓R)
+///        中继判定 = MSDU 头源 TEI≠本跳 TEI,或 MMe 主体≠本跳发送方(代理转发管理帧)
 inline QString dir_display(const PacketEntry& e) {
     if (!e.accepted || !e.msdu.present || e.msdu.simple_head)
         return QStringLiteral("*");
-    const bool relay = (e.mpdu.src_tei != 0)
+    const bool relay_orig = (e.mpdu.src_tei != 0)
                     && (e.msdu.msdu_src_tei > 0)
                     && (quint16(e.msdu.msdu_src_tei) != e.mpdu.src_tei);
+    // 中继扩展:MMe 主体(sta_mac)≠ 本跳发送方(msdu_src_mac)的管理帧(如代理转发的关联请求)
+    const bool relay = relay_orig
+                    || (e.msdu.sta_mac != 0 && e.msdu.msdu_src_mac != 0
+                        && e.msdu.sta_mac != e.msdu.msdu_src_mac);
     const quint8 bdir  = e.msdu.broadcast_direction;
     const quint8 hops  = e.msdu.route_hops_left;
     const bool   bcast = (e.msdu.msdu_dst_tei == 0xFFF)

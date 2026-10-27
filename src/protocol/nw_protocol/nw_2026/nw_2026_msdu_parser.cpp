@@ -1808,6 +1808,7 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
             // 拓扑事件:关联请求(STA 正在入网;TEI 未分配,用 tei=0 承载 MAC)
             {
                 const quint64 sta_mac = get_bits(mme, 6, 0, 48);
+                out.sta_mac = sta_mac;   // 报文体主体 STA MAC(STAMACAddr;MSDU Type 列展示)
                 out.topo_event.kind = TopoEventKind::AssocReq;
                 out.topo_event.nodes.append({0, sta_mac});
                 // 关联请求由 STA 本人发出:MSDU 头重启次数即该 STA 的,
@@ -1879,6 +1880,7 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
             {
                 const quint8 assoc_res = (quint8)get_bits(mme, 12, 0, 8);
                 const quint64 sta_mac = get_bits(mme, 6, 0, 48);
+                out.sta_mac = sta_mac;   // 报文体主体 STA MAC(STAMACAddr)
                 const quint16 sta_tei = (quint16)get_bits(mme, 14, 0, 12);
                 const quint16 proxy_tei = (quint16)get_bits(mme, 16, 0, 16);
                 if (assoc_res == 0 || assoc_res == 0x0A) {
@@ -1941,6 +1943,9 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
                 const quint16 old_proxy = (quint16)get_bits(mme, 18, 0, 16);
                 if (sta_tei) {
                     out.topo_event.kind = TopoEventKind::ChangeProxyReq;
+                    // 报文体仅携带主体 TEI(STATEI)无 MAC:填 nodes{TEI,0},
+                    // 渲染层按 TEI≠本跳源 TEI 判代理转发,并自 TEI→MAC 映射表补 MAC
+                    out.topo_event.nodes.append({sta_tei, 0});
                     out.topo_event.desc = trl::L("代理变更请求: STA TEI=%1 %2→%3")
                         .arg(sta_tei)
                         .arg(old_proxy ? QString::number(old_proxy) : QStringLiteral("-"))
@@ -1962,8 +1967,9 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
             // 拓扑事件:关联指示(语义等同关联确认);仅成功(0=成功,0x0A=再次入网)时更新拓扑
             {
                 const quint8 assoc_res = (quint8)get_bits(mme, 6, 0, 8);
+                const quint64 sta_mac = get_bits(mme, 8, 0, 48);
+                out.sta_mac = sta_mac;   // 报文体主体 STA MAC(STAMACAddr;不分成败)
                 if (assoc_res == 0 || assoc_res == 0x0A) {
-                    const quint64 sta_mac = get_bits(mme, 8, 0, 48);
                     const quint64 cco_mac = get_bits(mme, 14, 0, 48);
                     const quint16 sta_tei = (quint16)get_bits(mme, 20, 0, 12);
                     const quint16 proxy_tei = (quint16)get_bits(mme, 22, 0, 16);
@@ -2026,6 +2032,7 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
                 const quint16 proxy_tei = (quint16)get_bits(mme, 14, 0, 16);
                 if (pres == 0) {
                 out.topo_event.kind = TopoEventKind::ChangeProxyCnf;
+                if (sta_tei) out.topo_event.nodes.append({sta_tei, 0});   // 主体 TEI(STATEI)无 MAC
                 if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
                 out.topo_event.desc = trl::L("代理变更: STA TEI=%1 代理→%2")
                     .arg(sta_tei)
@@ -2133,6 +2140,7 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
             {
                 const quint16 leave_tei = (quint16)get_bits(mme, 6, 0, 16);
                 const quint64 leave_mac = get_bits(mme, 10, 0, 48);
+                out.sta_mac = leave_mac;   // 报文体主体 STA MAC(离网单 STA)
                 out.topo_event.kind = TopoEventKind::LeaveInd;
                 if (leave_tei && leave_mac) out.topo_event.nodes.append({leave_tei, leave_mac});
                 if (leave_mac) out.topo_event.leaves.append(leave_mac);
@@ -2177,6 +2185,7 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
             {
                 const quint16 sta_tei = (quint16)get_bits(mme, 6, 0, 16);
                 const quint64 sta_mac = get_bits(mme, 10, 0, 48);
+                out.sta_mac = sta_mac;   // 报文体节点主体 MAC(MACAddr)
                 const quint16 proxy_tei = (quint16)get_bits(mme, 16, 0, 16);
                 if (sta_tei && sta_mac) {
                     out.tei_mac_pairs.append({sta_tei, sta_mac});

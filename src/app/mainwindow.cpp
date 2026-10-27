@@ -945,6 +945,7 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
             te.is_rf_known = true;
         }
         te.frame_index = e.index;  // 来源帧序号(路由表序号列/双击追溯)
+        te.sender_mac = e.msdu.msdu_src_mac;  // 本跳发送方 MAC(STA 重启按发送方建基线)
         m_topo_states[e.mpdu.net_id].apply(te);
         m_topo_log.append({e.index, te});
         // 增量回放依赖日志严格按帧序追加;若乱序到达则重置回放水位,下次回放全量重建
