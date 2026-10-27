@@ -38,7 +38,7 @@ std::string CrashHandler::install(const Options& opts) {
     if (want == "crashpad") {
         g_active_backend = backend_crashpad_install(opts);
         if (!g_active_backend.empty())
-            backend_crashpad_install_abort_hook();  // SIGABRT 兜底(qFatal/abort → dump)
+            backend_crashpad_install_abort_hook();  // SIGABRT 兜底(Windows:abort 钩子落 dump;Linux:crashpad 自带捕获,钩子为空操作)
     }
     return g_active_backend;
 }

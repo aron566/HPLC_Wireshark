@@ -50,7 +50,9 @@ public:
     static void shutdown();
 
     // 手动落一份非崩溃 minidump(后端已激活且为 crashpad 时;否则空操作)。
-    // Qt qFatal 钩子等"崩溃前"路径用,先落 dump 再走 abort。
+    // 工具接口:仅 Windows 有效;Linux 为空操作(abort 路径改由 crashpad
+    // 自带 SIGABRT 捕获兜底,不再经此接口)。不要在 qFatal/信号路径调它,
+    // 否则与 abort 路径重复落 dump。
     static void dump_without_crash();
 
     // 编译期是否包含某后端("sentry"/"crashpad")。

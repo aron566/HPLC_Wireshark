@@ -127,6 +127,8 @@ void backend_crashpad_shutdown() {
 namespace {
 
 // 抓当前线程上下文 + 落一份非崩溃 minidump(SEH 未接管时的手动路径)。
+// 非 Windows:空操作——Linux 的 abort dump 由 crashpad 自带 SIGABRT 捕获负责,
+// 不要在这里补抓,也不要为此安装应用层钩子(会顶掉 crashpad 的处理器)。
 void capture_and_dump_without_crash() {
 #ifdef _WIN32
     CONTEXT ctx;
@@ -135,9 +137,10 @@ void capture_and_dump_without_crash() {
 #endif
 }
 
-// SIGABRT 兜底:abort()/std::abort()/Qt qFatal(Q_ASSERT 失败)最终触发 SIGABRT,
-// 这里抓上下文落 dump 后恢复默认并重新 raise,让进程以正常 abort 语义终止。
-// handler 内只做最小动作(抓上下文 + dump + raise),保持 async-signal-safe 尽量小。
+// SIGABRT 兜底(仅 Windows 安装):abort()/std::abort()/Qt qFatal(Q_ASSERT 失败)
+// 最终触发 SIGABRT,这里抓上下文落一份 dump 后恢复默认并重新 raise,
+// 让进程以正常 abort 语义终止。消息钩子不再重复落 dump,故这里是唯一一份。
+// handler 内只做最小动作(抓上下文 + dump + raise)。
 void abort_signal_handler(int) {
     capture_and_dump_without_crash();
     std::signal(SIGABRT, SIG_DFL);
@@ -147,9 +150,17 @@ void abort_signal_handler(int) {
 } // namespace
 
 void backend_crashpad_install_abort_hook() {
-    // release 下 QT_FORCE_ASSERTS 让 Q_ASSERT 活着,失败走 qFatal→abort→SIGABRT;
-    // 这里接管 SIGABRT 使 abort 路径也能落 minidump(SEH 只拦访问违例等异常)
+#ifdef _WIN32
+    // Windows:SEH 只拦访问违例等异常,abort() 不走 SEH,必须由应用层钩子
+    // 抓上下文落 dump;release 下 QT_FORCE_ASSERTS 让 Q_ASSERT 活着,
+    // 失败走 qFatal→abort→SIGABRT,最终落到这里。
     std::signal(SIGABRT, abort_signal_handler);
+#else
+    // Linux:不要接管 SIGABRT。crashpad StartHandler 已安装自带的 SIGABRT
+    // 捕获;应用层钩子会把它顶掉,反而使 abort 路径丢 dump(钩子内
+    // capture_and_dump_without_crash 在非 Windows 上是空操作,随后复位重 raise
+    // 直接按默认动作终止,无 minidump)。Linux 的 abort dump 全靠 crashpad。
+#endif
 }
 
 void backend_crashpad_dump_without_crash() {

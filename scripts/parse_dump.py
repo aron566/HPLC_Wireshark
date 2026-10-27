@@ -8,7 +8,7 @@ MinGW/DWARF 构建无 PDB,cdb 只能显示 "模块+偏移";本脚本直接读 mi
 
 用法:
   python parse_dump.py <dump.dmp> [exe路径]        # 异常上下文 + 崩溃线程调用链
-  python parse_dump.py <dump.dmp> <exe> all        # 附加所有线程调用链(实验性)
+  python parse_dump.py <dump.dmp> <exe> all        # 附加所有线程调用链
 
 依赖:
   pip install minidump        (minidump 解析库)
@@ -20,7 +20,9 @@ MinGW/DWARF 构建无 PDB,cdb 只能显示 "模块+偏移";本脚本直接读 mi
   - "模块+偏移" 的帧(RVA 不在栈内或非 exe 模块)原样显示
 """
 import argparse
+import glob
 import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -33,14 +35,13 @@ def find_addr2line():
         if cand and os.path.isfile(cand):
             return cand
     for name in ("addr2line", "addr2line.exe"):
-        r = subprocess.run(["which", name], capture_output=True, text=True)
-        if r.returncode == 0:
-            p = r.stdout.strip()
-            if p:
-                return p
+        # 不要调外部 which:原生 Windows Python 没有 which,subprocess 会直接
+        # 抛 FileNotFoundError;shutil.which 跨平台且能解析 .exe 后缀。
+        p = shutil.which(name)
+        if p:
+            return p
         # Windows PATH 常见位置
         for base in ("C:/Qt/Tools/mingw1310_64/bin", "C:/Qt/Tools/mingw*/bin"):
-            import glob
             for g in glob.glob(base):
                 f = os.path.join(g, name)
                 if os.path.isfile(f):
@@ -56,6 +57,32 @@ def parse_x64_context(ctx: bytes):
     return rip, rsp, rbp
 
 
+def read_thread_stack(dump_path, th):
+    """读一线程的上下文与栈内存,返回 (ctx, stack)。"""
+    with open(dump_path, "rb") as f:
+        f.seek(th.ThreadContext.Rva)
+        ctx = f.read(th.ThreadContext.DataSize)
+        f.seek(th.Stack.Rva)
+        stack = f.read(th.Stack.DataSize)
+    return ctx, stack
+
+
+def scan_exe_addrs(stack, exe_base, exe_size):
+    """栈扫描:全部 exe 模块地址(去重,按栈 offset 降序=调用链由深到浅)。
+    0 RVA(保留值)直接排除,使后续“更多”计数精确;扫描含栈尾最后一个 qword。"""
+    seen = set()
+    cands = []
+    for off in range(0, len(stack) - 7, 8):
+        v = struct.unpack_from("<Q", stack, off)[0]
+        if exe_base <= v < exe_base + exe_size:
+            rva = v - exe_base
+            if rva != 0 and rva not in seen:
+                seen.add(rva)
+                cands.append((off, v))
+    cands.sort(reverse=True)
+    return cands
+
+
 def read_dump(dmp: str):
     try:
         import minidump.minidumpfile as mdf
@@ -65,7 +92,8 @@ def read_dump(dmp: str):
     md = mdf.MinidumpFile.parse(dmp)
     if md.exception is None or not md.exception.exception_records:
         print("[!] dump 无异常流(可能不是崩溃 dump)")
-        return None, None, None, None
+        # 与成功路径同为 5 元组,调用方解包不再 ValueError。
+        return None, None, None, None, None
     stream = md.exception.exception_records[0]
     tid = stream.ThreadId
     er = stream.ExceptionRecord
@@ -83,11 +111,14 @@ def main():
     ap = argparse.ArgumentParser(description="crashpad minidump → addr2line 符号化调用栈")
     ap.add_argument("dump", help=".dmp 文件")
     ap.add_argument("exe", nargs="?", help="exe 路径(缺省自动找 dump 同目录 BPLC_STA_Monitor.exe)")
-    ap.add_argument("mode", nargs="?", default="", help="all = 附加所有线程(实验性)")
+    ap.add_argument("mode", nargs="?", default="", help="all = 附加所有线程")
     ap.add_argument("-imagebase", type=lambda x: int(x, 16), default=IMAGEBASE_DEFAULT,
                     help=f"exe ImageBase(默认 0x{IMAGEBASE_DEFAULT:x})")
     ap.add_argument("-addr2line", help="addr2line 路径(缺省 PATH/常见位置)")
     args = ap.parse_args()
+
+    if args.mode not in ("", "all"):
+        sys.exit(f"未知 mode: {args.mode} (可用: all)")
 
     if not os.path.isfile(args.dump):
         sys.exit(f"dump 不存在: {args.dump}")
@@ -134,11 +165,7 @@ def main():
     if th is None:
         sys.exit("[!] 崩溃线程不在线程列表")
 
-    with open(args.dump, "rb") as f:
-        f.seek(th.ThreadContext.Rva)
-        ctx = f.read(th.ThreadContext.DataSize)
-        f.seek(th.Stack.Rva)
-        stack = f.read(th.Stack.DataSize)
+    ctx, stack = read_thread_stack(args.dump, th)
     rip, rsp, rbp = parse_x64_context(ctx)
     print("崩溃线程 RIP=0x%x RSP=0x%x 栈=%d 字节" % (rip, rsp, len(stack)))
     print()
@@ -147,18 +174,6 @@ def main():
         print("[!] dump 中无 exe 模块(BPLC_STA_Monitor),无法符号化偏移")
         return
     exe_base, exe_size = exe_mod[1], exe_mod[2]
-
-    # 栈扫描:全部 exe 模块地址(去重,按栈 offset 降序=调用链由深到浅)
-    seen = set()
-    cands = []
-    for off in range(0, len(stack) - 8, 8):
-        v = struct.unpack_from("<Q", stack, off)[0]
-        if exe_base <= v < exe_base + exe_size:
-            rva = v - exe_base
-            if rva not in seen:
-                seen.add(rva)
-                cands.append((off, v))
-    cands.sort(reverse=True)
 
     def symbol(rva):
         if not exe or not a2l:
@@ -178,20 +193,30 @@ def main():
         print("异常地址 → %s" % symbol(ex_addr - exe_base))
         print()
 
+    def print_chain(cands):
+        shown = 0
+        for off, v in cands:
+            rva = v - exe_base
+            print("  [0x%06x] %s" % (rva, symbol(rva)))
+            shown += 1
+            if shown >= 24:
+                print("  ... (%d 更多)" % (len(cands) - shown))
+                break
+        if shown == 0:
+            print("  (栈内未扫到 exe 模块返回地址;dump 可能为 DumpWithoutCrash 浅栈)")
+
     print("--- 崩溃线程调用链(栈深处 → 浅处,均 exe 模块) ---")
-    shown = 0
-    for off, v in cands:
-        # 跳过无意义的重复(相邻同 RVA 只显一次;000000 保留值跳过)
-        rva = v - exe_base
-        if rva == 0:
-            continue
-        print("  [0x%06x] %s" % (rva, symbol(rva)))
-        shown += 1
-        if shown >= 24:
-            print("  ... (%d 更多)" % (len(cands) - shown))
-            break
-    if shown == 0:
-        print("  (栈内未扫到 exe 模块返回地址;dump 可能为 DumpWithoutCrash 浅栈)")
+    print_chain(scan_exe_addrs(stack, exe_base, exe_size))
+
+    if args.mode == "all":
+        for t in md.threads.threads:
+            if t.ThreadId == tid:
+                continue
+            ctx_t, stack_t = read_thread_stack(args.dump, t)
+            rip_t, rsp_t, rbp_t = parse_x64_context(ctx_t)
+            print()
+            print("--- 线程 %d 调用链(RIP=0x%x,栈=%d 字节) ---" % (t.ThreadId, rip_t, len(stack_t)))
+            print_chain(scan_exe_addrs(stack_t, exe_base, exe_size))
 
 
 if __name__ == "__main__":

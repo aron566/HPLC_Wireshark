@@ -21,6 +21,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#ifdef _WIN32
+#include <windows.h>  // OutputDebugStringW(消息钩子复刻 Qt 默认调试器输出)
+#endif
 
 #include "QsLog.h"
 #include "QsLogDest.h"
@@ -51,21 +54,27 @@ static bool has_self_crash_flag(int argc, char* argv[]) {
     return false;
 }
 
-// Qt 断言/致命错误钩子:Q_ASSERT(配合 QT_FORCE_ASSERTS)失败走 qFatal →
-// 这里先落 minidump 再转交(abort → SIGABRT 兜底)。仅 QtFatalMsg 落 dump,
-// 其他级别原样转交原 handler(无原 handler 时用默认输出),不改变现有日志行为。
+// Qt 断言/致命错误钩子:Q_ASSERT(配合 QT_FORCE_ASSERTS)失败走 qFatal → abort →
+// SIGABRT,由崩溃后端落一份 minidump(Windows:abort 钩子;Linux:crashpad 自带
+// SIGABRT 捕获)。这里不再先落 dump,否则与 abort 路径重复(双份 dump)。
+// 非致命级别:有原 handler 则转交;无原 handler 时复刻 Qt 默认输出
+// (stderr + Windows 调试器输出),不改变现有日志行为。
 static QtMessageHandler g_prev_qt_handler = nullptr;
 
 static void qt_message_handler(QtMsgType type, const QMessageLogContext& ctx,
                                const QString& msg) {
-    if (type == QtFatalMsg)
-        CrashHandler::dump_without_crash();   // 先落 dump(含完整调用栈)
     if (g_prev_qt_handler) {
         g_prev_qt_handler(type, ctx, msg);    // 转交原 handler
     } else if (type == QtFatalMsg) {
         std::abort();                          // 无原 handler:默认 fatal = abort
     } else {
-        std::fprintf(stderr, "%s\n", qPrintable(qFormatLogMessage(type, ctx, msg)));
+        const QString formatted = qFormatLogMessage(type, ctx, msg);
+        std::fprintf(stderr, "%s\n", qPrintable(formatted));
+#ifdef _WIN32
+        // 复刻 Qt 默认 handler 的调试器输出(DebugView 可见)
+        OutputDebugStringW(reinterpret_cast<const wchar_t*>(formatted.utf16()));
+        OutputDebugStringW(L"\n");
+#endif
     }
 }
 
@@ -125,7 +134,7 @@ int main(int argc, char* argv[]) {
         co.release = QCoreApplication::applicationVersion().toStdString();
         CrashHandler::install(co);
     }
-    // Qt 消息钩子:断言(qFatal)先落 dump 再 abort(需在 crash 后端激活后安装)
+    // Qt 消息钩子:断言(qFatal)走 abort → SIGABRT,由后端落单份 dump(需在 crash 后端激活后安装)
     g_prev_qt_handler = qInstallMessageHandler(qt_message_handler);
 
     // CI 崩溃可用性验证:确定性崩溃,便于符号化定位到 crash_selftest_trigger
