@@ -1153,6 +1153,7 @@ static void parse_app(MsduInfo& out, const QByteArray& app, int rel_base, quint1
     translate_enum_i18n(bh.children, "RespondFlag", kRespondFlagZh, 2);
     translate_enum_i18n(bh.children, "StartFlag", kStartFlagZh, 2);
     translate_enum_i18n(bh.children, "TransDirectionFlag", kTransDirectionFlagZh, 2);
+    out.trans_direction_flag = (quint8)get_bits(app, 5, 7, 1);  // 表8 byte1 bit7(业务报文头自 app[4],P2P Dir 列)
     annotate_unit(bh.children, "PacketLen", QStringLiteral(" B"));
     const QString bid_name = business_id_name(port_num, packet_type, business_id);
     if (!bid_name.isEmpty()) {

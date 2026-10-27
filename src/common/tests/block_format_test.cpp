@@ -112,6 +112,7 @@ static PacketEntry make_entry(int i) {
     e.msdu.tree.append(root);
     e.msdu.tei_mac_pairs.append({quint16(i & 0xFFF), 0xAABBCCDDEE00ULL + quint64(i)});
     e.msdu.cascade = (i % 3 == 0);   // v11: 聚合帧级联标记 round-trip
+    e.msdu.trans_direction_flag = quint8(i % 2);  // v16: APP 传输方向 round-trip(P2P Dir 列)
     fill_topo(e.msdu.topo_event, i);              // msdu 拓扑事件 32 字段(换页后不丢)
     fill_topo(e.beacon.topo_event, i + 1000);     // beacon 拓扑事件(同为 MsduInfo,序列化路径相同)
     e.raw_bytes = QByteArray(64, char(i & 0xFF));
@@ -208,6 +209,7 @@ static bool entry_equal(const PacketEntry& a, const PacketEntry& b, QString& why
         || a.msdu.summary != b.msdu.summary
         || a.msdu.broadcast_direction != b.msdu.broadcast_direction
         || a.msdu.route_hops_left != b.msdu.route_hops_left
+        || a.msdu.trans_direction_flag != b.msdu.trans_direction_flag
         || a.msdu.tree.size() != b.msdu.tree.size()
         || a.msdu.tei_mac_pairs.size() != b.msdu.tei_mac_pairs.size()
         || a.raw_bytes != b.raw_bytes || a.msdu_raw_base != b.msdu_raw_base) {

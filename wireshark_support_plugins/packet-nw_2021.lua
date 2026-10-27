@@ -2161,10 +2161,32 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
     if osmac then oss = oss .. " [" .. osmac .. "]" end
     tree:add(f.col_orig_src, tvb(5, 2), oss)
     local dir_mark = ""
-    if src_tei == 1 and dst_tei ~= 0xFFF then
-        dir_mark = T(" ↓下行", " ↓Downlink")
+    if dst_tei == 1 then
+        dir_mark = T(" ↑上行", " ↑Uplink")            -- 发给 CCO → 上行(优先)
+    elseif src_tei == 1 and dst_tei ~= 0xFFF then
+        dir_mark = T(" ↓下行", " ↓Downlink")          -- CCO 发出(非广播) → 下行
+    elseif src_tei ~= 1 and dst_tei ~= 0xFFF then
+        -- P2P(非 CCO,非广播): APP 报文用 TransDirectionFlag(表8 0=下行 1=上行);
+        -- 业务报文头 byte1 bit7 = MSDU 载荷起点 + 通道控制信息(4B) + 1;MMe/无 flag 保持现有 ↑
+        local msdu_hdr = (head_flag == 0) and 18 or 2
+        local is_app = (head_flag == 1)   -- 短帧头只携带应用层报文
+        if head_flag == 0 then
+            is_app = (read_bits(tvb, (hdr_len + 12) * 8, 32) ~= 0x8100)  -- 长帧头 VLAN≠0x8100 → APP
+        end
+        local tdf = nil
+        if is_app then
+            local tdf_off = hdr_len + msdu_hdr + 5
+            if tdf_off + 1 <= tvb:len() then
+                tdf = band(tvb(tdf_off, 1):uint(), 0x80)
+            end
+        end
+        if tdf == 0x00 then
+            dir_mark = T(" ↓下行", " ↓Downlink")
+        else
+            dir_mark = T(" ↑上行", " ↑Uplink")        -- flag=1 或 无 flag(MMe/截断) → 保持现有 ↑
+        end
     elseif src_tei ~= 1 then
-        dir_mark = T(" ↑上行", " ↑Uplink")
+        dir_mark = T(" ↑上行", " ↑Uplink")            -- 广播(dst==0xFFF) src!=1 → 保持现有 ↑
     end
     if sof_src_tei and src_tei and sof_src_tei ~= src_tei then
         dir_mark = dir_mark .. " Relay"

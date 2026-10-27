@@ -347,6 +347,7 @@ struct MsduInfo {
     quint8  business_id;         ///< 应用层 BID(业务标识;非应用层报文=0xFF,供整行着色)
     quint8  app_packet_type;     ///< 应用层帧类型域 4-bit(南网表4;非 NW 应用层=0xFF)
     quint16 mme_type;            ///< 管理消息 MMe 类型(16bit;非管理消息=0xFFFF,供整行着色)
+    quint8  trans_direction_flag; ///< APP 业务报文头 TransDirectionFlag(byte1 bit7,表8:0下行/1上行;非 APP=0xFF,P2P Dir 列)
     int     total_len;       ///< MSDU 帧总长(头+数据+CRC,不含 PB 填充;-1=未知)
     bool    cascade;         ///< 聚合帧级联拆分(SPLC 表47/48;msdu_body=级联体流,
                               ///< tree=Cascade MAC Frame 组,rel 相对级联体流)
@@ -361,7 +362,8 @@ struct MsduInfo {
                  vlan_tag(0), msdu_type(0), restart_count(0xFF),
                  broadcast_direction(0xFF), route_hops_left(0xFF),
                  business_id(0xFF), app_packet_type(0xFF),
-                 mme_type(0xFFFF), total_len(-1), cascade(false) {}
+                 mme_type(0xFFFF), trans_direction_flag(0xFF),
+                 total_len(-1), cascade(false) {}
 };
 
 /// @brief 追加摘要片段(顶层 summary 拼接统一入口)
@@ -452,22 +454,37 @@ inline QString make_search_text(const PacketEntry& e) {
     return parts.join(QLatin1Char(' '));
 }
 
+/// 南网 CCO 作为发起者/回应者的管理消息类型(值取自 nw_2026_msdu_parser.h:76/78/79;
+/// 供 dir_display 排除 CCO 直发帧用——CCO 直发这些消息不算中继;表号=SPLC 第4部分报文格式)
+enum NwCcoInitiatedMme : quint16 {
+    NwCcoInitMmeAssocCnf       = 0x0031,  ///< 关联确认(表92)
+    NwCcoInitMmeAssocInd       = 0x0034,  ///< 关联指示(表99)
+    NwCcoInitMmeChangeProxyCnf = 0x0037,  ///< 代理变更确认(表108)
+};
+
 /// @brief Dir 列显示(界面列表 COL_DIR 与 CSV 导出共用):
 ///        广播报文(目的 TEI=0xFFF 且发送类型非单播)按 广播方向+剩余跳数 指示
 ///        ↓[R]N→ / ↑[R]N→ / [R]N→,方向未知/保留→*;单播按 TEI 判定 ↑/↓(中继 ↑R/↓R)
-///        中继判定 = MSDU 头源 TEI≠本跳 TEI,或 MMe 主体≠本跳发送方且发送方非 CCO(排除 CCO 直接回应的管理帧)
+///        中继判定 = MSDU 头源 TEI≠本跳 TEI,或 MMe 主体≠本跳发送方且非 CCO 发起类消息
+///        (CCO 作为发起者/回应者直发不算中继;CCO 当转发者仍标 R)
 inline QString dir_display(const PacketEntry& e) {
     if (!e.accepted || !e.msdu.present || e.msdu.simple_head)
         return QStringLiteral("*");
     const bool relay_orig = (e.mpdu.src_tei != 0)
                     && (e.msdu.msdu_src_tei > 0)
                     && (quint16(e.msdu.msdu_src_tei) != e.mpdu.src_tei);
-    // 中继扩展:MMe 主体(sta_mac)≠ 本跳发送方(msdu_src_mac)的管理帧(代理转发);
-    // 排除 CCO 直接发送(如 CCO 发关联确认,CCO 是原始回应者非中继;src_tei==1)
+    // 中继扩展:MMe 主体(sta_mac)≠ 本跳发送方(msdu_src_mac)的管理帧(代理转发)。
+    // 排除 CCO 作为发起者/回应者直发的消息(不算中继):关联确认(表92)、关联指示(表99)、
+    // 代理变更确认(表108);其余消息(站点间数据帧 mme_type=0xFFFF、CCO 转发的关联请求
+    // 0x0030 等)CCO 当转发者仍标 R。枚举见 NwCcoInitiatedMme(dir_display 跨协议通用)。
+    const bool cco_initiated = (e.mpdu.src_tei == 1)
+                    && (e.msdu.mme_type == NwCcoInitMmeAssocCnf
+                        || e.msdu.mme_type == NwCcoInitMmeAssocInd
+                        || e.msdu.mme_type == NwCcoInitMmeChangeProxyCnf);
     const bool relay = relay_orig
                     || (e.msdu.sta_mac != 0 && e.msdu.msdu_src_mac != 0
                         && e.msdu.sta_mac != e.msdu.msdu_src_mac
-                        && e.mpdu.src_tei != 1);
+                        && !cco_initiated);
     const quint8 bdir  = e.msdu.broadcast_direction;
     const quint8 hops  = e.msdu.route_hops_left;
     const bool   bcast = (e.msdu.msdu_dst_tei == 0xFFF)
@@ -490,6 +507,9 @@ inline QString dir_display(const PacketEntry& e) {
         return QStringLiteral("*");
     if (e.msdu.msdu_dst_tei == 1) return relay ? QStringLiteral("\u2191R") : QStringLiteral("\u2191");
     if (e.msdu.msdu_src_tei == 1) return relay ? QStringLiteral("\u2193R") : QStringLiteral("\u2193");
+    // 站点间通讯 P2P(非 CCO):用应用层报文 TransDirectionFlag(表8 0=下行 1=上行)
+    if (e.msdu.trans_direction_flag == 1) return relay ? QStringLiteral("\u2191R") : QStringLiteral("\u2191");
+    if (e.msdu.trans_direction_flag == 0) return relay ? QStringLiteral("\u2193R") : QStringLiteral("\u2193");
     return QStringLiteral("*");
 }
 Q_DECLARE_METATYPE(PacketEntry)
