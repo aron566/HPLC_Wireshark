@@ -282,7 +282,7 @@ GW_2026_Parser::Result GW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.beacon_line = (quint8) get_bits(p, 11, 1, 2);
             r.mpdu.beacon_rsv = (quint16)get_bits(p, 11, 5, 7);     // 保留原始值(供字段树呈现)
         }
-        r.beacon = GW_2026_BeaconParser::parse_beacon(r.payload_for_log);
+        r.beacon = GW_2026_BeaconParser::parse_beacon(r.payload_for_log, r.meta.is_rf);
         if (r.beacon.present) {
             const QByteArray& gb = r.payload_for_log;
             const quint8* gp = reinterpret_cast<const quint8*>(gb.constData());

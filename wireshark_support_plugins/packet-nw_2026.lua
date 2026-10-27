@@ -3029,6 +3029,23 @@ function nw.dissector(tvb, pinfo, tree)
             -- 逐 PB 块解析: 南网块 = PB头(4B) + 块体(pbsize-8) + 保留(1B) + CRC24(3B)
             -- MAC 帧统一用"块体逻辑视图"(单块/多块): 不生成新数据源, hex 始终完整显示原始帧
             local blocks_done = 0
+            -- 级联记录边界预走(与后级联拆分循环同条件、同断开):沿拼接体流按
+            -- [2B 级联头 + clen] 步进,收真记录头体流偏移集合;PB 循环里 cas 字段
+            -- 只贴在真记录头上,体首为记录中段的 PB 不贴(记录可跨 PB 体边界)。
+            -- 仅块齐全时预走(与拆分循环 blocks_done==pb_num 同义);截断帧边界集为空,
+            -- cas 字段全不贴(与拆分循环不渲染一致),PB 级字段不受影响。
+            local cas_bounds = {}
+            if pbsize > 16 and pb_base + pb_num * pbsize <= tvb:len() then
+                local pre_body = make_block_view(tvb, pb_base + 4, pbsize, pb_num)
+                local o = 0
+                while o + 2 <= pre_body:len() do
+                    local clen = pre_body(o, 1):uint()
+                               + band(pre_body(o + 1, 1):uint(), 0x0F) * 256
+                    if clen <= 0 or o + 2 + clen > pre_body:len() then break end
+                    cas_bounds[o] = true
+                    o = o + 2 + clen
+                end
+            end
             for i = 0, pb_num - 1 do
                 local bstart = pb_base + i * pbsize
                 if bstart + pbsize > tvb:len() then break end
@@ -3036,13 +3053,15 @@ function nw.dissector(tvb, pinfo, tree)
                     string.format(T("物理块 %d", "PB %d"), i))
                 blk_tree:add(f.pb_size, tvb(bstart, pbsize), pbsize)
                 blk_tree:add(f.pb_hdr, tvb(bstart, 4))
-                -- 聚合标志(表47 PB头 byte2 bit0)=1 时 PB 体首为级联头(表48, 2B)
+                -- 聚合标志(表47 PB头 byte2 bit0)=1 时 PB 体含级联记录流;
+                -- 级联头只在真记录头处(见 cas_bounds 预走),体首未必是记录头
                 local agg = band(tvb(bstart + 2, 1):uint(), 0x01)
                 blk_tree:add(f.pb_agg, tvb(bstart + 2, 1))
                 blk_tree:add(f.pb_body, tvb(bstart + 4, pbsize - 8))
-                if agg == 1 then
+                if agg == 1 and pbsize > 16 and cas_bounds[i * (pbsize - 8)] then
                     -- 级联头(表48):级联数据块长度 12b(体0 全+体1 低 nib,LSB 在前)
-                    -- +起始/结束标识+保留(体1 bit4/5/6-7), 其后为级联的 MAC 帧
+                    -- +起始/结束标识+保留(体1 bit4/5/6-7), 其后为级联的 MAC 帧;
+                    -- 16B PB 为 SACK 载体(表49/50),体首不是级联头,不贴
                     blk_tree:add(f.cas_len, tvb(bstart + 4, 2),
                         tvb(bstart + 4, 1):uint() + band(tvb(bstart + 5, 1):uint(), 0x0F) * 256)
                     blk_tree:add(f.cas_start, tvb(bstart + 5, 1))

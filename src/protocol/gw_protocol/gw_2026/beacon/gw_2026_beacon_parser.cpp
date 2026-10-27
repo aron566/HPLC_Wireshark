@@ -258,13 +258,22 @@ static const FieldSpec kTsaHeadSpec[] = {
 };
 static const int kTsaHeadSpecN = int(sizeof(kTsaHeadSpec) / sizeof(kTsaHeadSpec[0]));
 
-MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload) {
+MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_rf) {
     MsduInfo out;
     out.present = false;
-    if (payload.size() < 40) return out;  // 16 FCH + 载荷头
+    if (payload.size() < 40) return out;  // 16 FCH + 载荷头(预检;真正门在 16+pbsize 与 gb>=24)
     const quint8* p = reinterpret_cast<const quint8*>(payload.constData());
-    quint8 tmi = (quint8)get_bits(p, 9, 4, 4);   // BEACON TMI 在 FCH b9 高 4bit
-    int pbsize = gw_2026_pb_size(tmi);
+    int pbsize;
+    if (is_rf) {
+        // 无线信标:(10,0,4) 为载荷 PB 大小码(表29),0-5=16/40/72/136/264/520;
+        // 信标载荷仅支持 40/72/136/264/520(码 1-5),码 0(16B)装不下精简头+CRC32,
+        // 由后 gb<24 门拒收;(9,4,4) 为 MCS,不是 TMI,不可查载波表
+        const quint8 code = (quint8)get_bits(p, 10, 0, 4);
+        pbsize = gw_2026_rf_pb_size(code);
+    } else {
+        const quint8 tmi = (quint8)get_bits(p, 9, 4, 4);   // BEACON TMI 在 FCH b9 高 4bit
+        pbsize = gw_2026_pb_size(tmi);
+    }
     if (pbsize <= 0 || payload.size() < 16 + pbsize) return out;
 
     // gbBeaconMPDU = payload[16 : 16+PBSize-3](含载荷头 + 管理区 + 4B CRC32)

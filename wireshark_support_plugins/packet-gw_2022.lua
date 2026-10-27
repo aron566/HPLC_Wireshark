@@ -2049,13 +2049,14 @@ function gw.dissector(tvb, pinfo, tree)
     local is_rf = (evs == "46")
     -- 版本自适应委托(与上位机 GW_2026_Parser 互为镜像)—— 在媒介剥离前分派:
     -- FCH 标准版本号(byte12 bit4-7): 0=HDC 1.0 就地按本文件旧布局解析;
-    -- 1=HDC 2.0 → 整帧委托 packet-gw_2026.lua(新布局:NID 16b/表7/表14/表2/MMe 表43)。
+    -- 1=HDC 2.0 → 整帧委托 packet-gw_2026.lua(新布局:NID 16b/表7/表14/表2/MMe 表43);
+    -- 2-15=保留值 → 同样委托,不静默落 1.0 布局(未来版本也不错位)。
     -- 传原始 tvb(含 USER4 媒介头), 媒介剥离由 gw_2026 自行完成;
     -- FCCS 未校验先分派是刻意的, 坏帧也按其声明版本解析得到更具体的错误信息。
     local fch_off = (evs == "49") and 4 or 0
     if tvb:len() >= fch_off + 16 then
         local std_ver = math.floor(band(tvb(fch_off + 12, 1):uint(), 0xF0) / 16)
-        if std_ver == 1 then
+        if std_ver ~= 0 then
             pinfo.cols.protocol = is_rf and "RF" or "HPLC"
             local ok, d = pcall(Dissector.get, "gw_2026")
             if ok and d then
@@ -2064,8 +2065,8 @@ function gw.dissector(tvb, pinfo, tree)
             end
             -- gw_2026.lua 未加载: 继续按 1.0 布局尽力解析, 并提示
             tree:add_expert_info(PI_PROTOCOL, PI_WARN,
-                T("检测到 HDC 2.0 帧,但 packet-gw_2026.lua 未加载,按 1.0 布局尽力解析",
-                  "HDC 2.0 frame detected but packet-gw_2026.lua not loaded; best-effort 1.0 parse"))
+                T(string.format("检测到非 HDC 1.0 帧(标准版本 %d),但 packet-gw_2026.lua 未加载,按 1.0 布局尽力解析", std_ver),
+                  string.format("Non-HDC 1.0 frame detected (standard version %d) but packet-gw_2026.lua not loaded; best-effort 1.0 parse", std_ver)))
         end
     end
     if evs == "49" then

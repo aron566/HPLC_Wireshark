@@ -188,7 +188,9 @@ void TopoState::apply(const TopoEvent& e) {
         cco.parent_tei = 0;
         cco.status = NodeStatus::Online;
         cco.last_seen_ms = e.epoch_ms;
-        if (e.is_rf_known) cco.is_rf = e.is_rf;
+        // 方案②:仅首次已知介质写入并锁定(RF STA 事件不得翻转 CCO 介质;
+        // 事件侧 is_rf_known 守卫仍保留,未知介质事件不覆盖)
+        if (e.is_rf_known && !cco.is_rf_known) { cco.is_rf = e.is_rf; cco.is_rf_known = true; }
     }
     // TEI→MAC 学习对(节点出现,按事件类型定入网状态)
     for (const TeiMacPair& p : e.nodes) {
@@ -231,15 +233,19 @@ void TopoState::apply(const TopoEvent& e) {
         if (e.is_rf_known) { n.is_rf = e.is_rf; n.is_rf_known = true; }
         assign_link_type(n, e);
     }
-    // 路由表(表55/56)每节点入网链路类型:关联确认/指示帧权威,逐个赋值+锁定(与 assign_link_type 同语义)
-    for (const auto& pr : e.node_link_types) {
-        const quint16 tei = pr.first;
-        if (!tei || tei == 0xFFFF) continue;
-        TopoNode& n = nodes[tei];
-        n.tei = tei;
-        if (n.link_type_known) continue;   // 已锁定不覆盖
-        n.link_type = pr.second;
-        n.link_type_known = true;
+    // 路由表(表55/56)每节点入网链路类型:仅关联确认/指示帧权威(与 assign_link_type 同源),
+    // 非权威 kind 不写,防以后有别的填充源进来翻转已锁定值;逐个赋值+锁定
+    if (e.kind == TopoEventKind::AssocCnf || e.kind == TopoEventKind::AssocInd
+        || e.kind == TopoEventKind::AssocGatherInd) {
+        for (const auto& pr : e.node_link_types) {
+            const quint16 tei = pr.first;
+            if (!tei || tei == 0xFFFF) continue;
+            TopoNode& n = nodes[tei];
+            n.tei = tei;
+            if (n.link_type_known) continue;   // 已锁定不覆盖
+            n.link_type = pr.second;
+            n.link_type_known = true;
+        }
     }
     // 载波发现列表(0x0055 表77)与代理站点通信成功率:独立于 RFDL proxy_* 与 0x005E comm_rates;
     // 值 0-100(超出无效=-1),任一有效即置 comm_rate_known;按发送方(sta_tei,即 e.nodes 单条目)落节点
@@ -268,8 +274,8 @@ void TopoState::apply(const TopoEvent& e) {
             TopoNode& n = nodes[ctei];
             n.tei = ctei;
             if (n.last_seen_ms == 0) n.last_seen_ms = e.epoch_ms;
-            n.is_rf = (e.link_type == 1);
-            n.is_rf_known = true;   // 帧内链路类型明确判定
+            // 帧内链路类型:仅首次写入并锁定(方案②,后续事件不翻转);last_seen 为 0 时的补写不受影响
+            if (!n.is_rf_known) { n.is_rf = (e.link_type == 1); n.is_rf_known = true; }
         }
     }
     // 离网节点(按 MAC 匹配,标记离线):先走 MAC→TEI 索引 O(1),索引不一致时回退线性扫描
