@@ -961,16 +961,6 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
             || !e.msdu.topo_event.neighbor_snrs.isEmpty()
             || !e.msdu.topo_event.rssi_entries.isEmpty()
             || e.msdu.topo_event.proxy_tei != 0xFFFF)) {
-        // [诊断 A1/A2] RFDL 单跳帧落地入口
-        QLOG_DEBUG() << "[RFDL落地] simple_head=" << e.msdu.simple_head
-                     << "present=" << e.msdu.present
-                     << "neighbor_rates=" << e.msdu.topo_event.neighbor_rates.size()
-                     << "neighbor_snrs=" << e.msdu.topo_event.neighbor_snrs.size()
-                     << "rssi=" << e.msdu.topo_event.rssi_entries.size()
-                     << "proxy_tei=" << e.msdu.topo_event.proxy_tei
-                     << "src_tei=" << e.mpdu.src_tei
-                     << "net_id=" << e.mpdu.net_id
-                     << "has_state=" << m_topo_states.contains(e.mpdu.net_id);
         auto ts_it = m_topo_states.find(e.mpdu.net_id);
         if (ts_it != m_topo_states.end()) {
             ts_it.value().apply_channel_info(e.mpdu.src_tei, e.msdu.topo_event);

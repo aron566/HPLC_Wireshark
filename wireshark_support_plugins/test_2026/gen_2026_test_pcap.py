@@ -72,6 +72,9 @@ def add_pb_crc24(frame, bstart, pbsize):
     frame[bstart + pbsize - 3:bstart + pbsize] = struct.pack('<I', crc24(frame[bstart:bstart + pbsize]))[:3]
 
 
+# 注意:本文件两种 CRC32 共用 crc32() 算法,但覆盖区与存放位不同,不可互换:
+#   ① MAC 帧尾 ICV(mac_icv):覆盖 MAC 帧头之后的 MSDU 载荷,存帧尾 4B;
+#   ② 信标 BPCS:覆盖 gb[0:gb_len-5],存 gb[gb_len-5:gb_len-1],gb[gb_len-1] 为保留字节。
 def mac_icv(msdu):
     """MAC 帧尾 ICV CRC32: 校验 MSDU 载荷(MAC 帧头之后)."""
     return struct.pack('<I', crc32(msdu + b'\x00\x00\x00\x00'))
@@ -248,5 +251,5 @@ with open(os.path.join(out_dir, 'test_2026_rf.pcap'), 'wb') as fp:
 for name, fr in [('BEACON-SPLC', beacon), ('SOF-APP', sof_app),
                  ('SOF-IOT', sof_iot), ('SOF-RF-SH', sof_rf)]:
     print(f"{name:12s} ({len(fr)}B): {fr.hex()}")
-print(f"test_2026_splc.pcap: {len(pcap1)} bytes, 3 frames, linktype=149 (USER2)")
+print(f"test_2026_splc.pcap: {len(pcap1)} bytes, 4 frames, linktype=149 (USER2)")
 print(f"test_2026_rf.pcap:   {len(pcap2)} bytes, 1 frame,  linktype=150 (USER3)")

@@ -1,6 +1,6 @@
 /// @file protocol_tree_builder.h
 /// @brief 协议树字段构建器抽象接口 + 协议无关的树渲染工具
-/// @details 与协议解析器(IProtocolParser)同构:国网 GW_2022 / 南网 NW_2021
+/// @details 与协议解析器(IProtocolParser)同构:国网 GW_2022/GW_2026 / 南网 NW_2021/NW_2026
 ///          各实现一个 IProtocolTreeBuilder 子类(独立源文件,放各自协议目录),
 ///          工厂按 variant 实例化。公共渲染工具(加节点/位域节点/MSDU 字段树
 ///          渲染)协议无关,两实现共用。

@@ -539,7 +539,7 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
     case GW_2026_FrameType::ACK: {
         auto* ack = tree_add_item(root, "ACK", "");
         // 选择确认帧:BRU SNR 反馈标志=1 → 表15(反馈SNR版);=0 → 表14(不反馈SNR版)
-        // 未知扩展帧类型(表25/表36"其他")默认按选择确认帧解析并警告
+        // 未知扩展帧类型(表14/表15"其他")默认按选择确认帧解析并警告
         const quint8 et = e.mpdu.ack_ext_type;
         const bool known = (et == static_cast<quint8>(GW_2026_AckExtType::Normal));
         {

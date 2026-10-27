@@ -1,7 +1,7 @@
 /// @file ackparser.cpp
 /// @brief ACK 帧解析实现(独立帧解析模块,ackparser.pri)
 /// @details 移植自 BPLCMonitor/MPDU_Class.py 的 MPDU_ACK 逻辑:
-///          FCH ExtFrameType(bit 12,0,4) 按表25/表36:0=选择确认,其他=保留。
+///          FCH ExtFrameType(bit 12,0,4) 按表14/表15:0=选择确认,其他=保留。
 ///          公共位域工具见 fieldspec.h。
 #include "gw_2026_ack_parser.h"
 #include "gw_2026_tree.h"
@@ -11,8 +11,8 @@
 namespace gw_2026_ackp {
 
 void parse_fch(const quint8* p, MpduInfo& m) {
-    m.ack_ext_type = (quint8)get_bits(p, 12, 1, 4);
-    // 表25/表36:0=选择确认帧,其他=保留;未知扩展帧类型默认按选择确认帧解析。
+    m.ack_ext_type = (quint8)get_bits(p, 12, 0, 4);
+    // 表14/表15:0=选择确认帧,其他=保留;未知扩展帧类型默认按选择确认帧解析。
     m.ack_bru_snr_flag   = (quint8)get_bits(p, 4, 0, 1);
     m.ack_sat_id_flag    = (quint8)get_bits(p, 4, 1, 1);
     if (m.ack_bru_snr_flag) {
@@ -35,7 +35,7 @@ void parse_fch(const quint8* p, MpduInfo& m) {
     //   BRU(4,0,1) SATID(4,1,1) RxRes(4,2,1) RxPBNum(4,3,2)
     //   RxStatus=(4,5,3)|(5,0,1)<<3 跨字节
     //   SrcTEI(5,1,12) DstTEI(6,5,12) RemainSTANum(8,1,2) RSV0(8,3,5)
-    //   ChQ(9,1,8) Load(10,1,8) RSV1(11,1,8) ExtType(12,1,4)
+    //   ChQ(9,1,8) Load(10,1,8) RSV1(11,1,8) ExtType(12,0,4)
     m.ack_rx_res         = (quint8)get_bits(p, 4, 2, 1);
     m.ack_rx_pb_num      = (quint8)get_bits(p, 4, 3, 2);
     m.ack_rx_status      = (quint8)((get_bits(p, 4, 5, 3))

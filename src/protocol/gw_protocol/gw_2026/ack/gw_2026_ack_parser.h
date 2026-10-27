@@ -1,6 +1,6 @@
 /// @file ackparser.h
 /// @brief ACK 帧解析模块声明(选择确认帧:FCH ExtFrameType 0=选择确认,其他=保留)
-/// @details 按表25/表36,扩展帧类型仅 0=选择确认帧,其余为保留;无网络搜索/同步/切频分支。
+/// @details 按表14/表15,扩展帧类型仅 0=选择确认帧,其余为保留;无网络搜索/同步/切频分支。
 #ifndef ACKPARSER_H
 #define ACKPARSER_H
 

@@ -710,8 +710,8 @@ static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
         const quint64 pct = (cb.rcv == 6) ? v * 2 : v;
         rfdl_bit_field(parent, "RcvRate", c, bp, cb.rcv, cbase_abs,
                        QStringLiteral("%1 (%2%)").arg(v).arg(pct));
-        // 拓扑采集:该邻居上行成功率%(方向=邻居→我;6b=量化/2,8b=实际)
-        if (rates_out && tei)
+        // 拓扑采集:该邻居上行成功率%(方向=邻居→我;6b=量化/2,8b=实际);>100 为非法值,跳过追加
+        if (rates_out && tei && pct <= 100)
             rates_out->append({tei, (quint8)pct});
         bp += cb.rcv;
     }

@@ -64,6 +64,9 @@ void UpdateMirrorResolver::resolve(const QString& updateUrl) {
         qInfo("[update-mirror] mode=proxy, probing mirrors");
         probeMirror(0);
     } else {
+        if (mode != QStringLiteral("auto"))
+            qWarning("[update-mirror] unknown mirror_mode \"%s\", falling back to auto",
+                     qPrintable(mode));
         detectRegion();
     }
 }

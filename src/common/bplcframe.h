@@ -11,6 +11,7 @@
 #ifndef BPLCFRAME_H
 #define BPLCFRAME_H
 
+#include <climits>
 #include <QByteArray>
 #include <QDateTime>
 #include <QPair>
@@ -245,8 +246,6 @@ struct CommRateInfo {
     quint8  up = 0;   ///< 上行成功率 %(STA → CCO/代理)
 };
 
-/// @brief 从一帧管理消息提取的拓扑事件(协议无关;协议解析器在关键帧填充,
-///        拓扑窗口消费。kind==Other 表示非拓扑相关帧)
 /// @brief 信号强度量化值 → dBm 估计(取所在档位下限;RSSI 标注函数的数值版)
 /// @details 8bit 表148:RSSI = v-111;4bit 表149:档位下限查表(0 档取 -105,15 档取 0);
 ///          6bit 表225:档位下限 -110+2(v-1)(0 档取 -110,63 档取 14)
@@ -259,11 +258,14 @@ inline int rssi_bits_to_dbm(int width, quint64 v) {
         if (v >= 15) return 0;
         return kLo[v - 1];
     }
+    if (width != 6) return INT_MIN;  // 未知 width(非 4/6/8):无有效 dBm,调用方跳过追加
     if (v == 0)  return -110;
     if (v >= 63) return 14;
     return -110 + 2 * int(v) - 2;
 }
 
+/// @brief 从一帧管理消息提取的拓扑事件(协议无关;协议解析器在关键帧填充,
+///        拓扑窗口消费。kind==Other 表示非拓扑相关帧)
 struct TopoEvent {
     TopoEventKind kind = TopoEventKind::Other;
     quint32 nid = 0;
@@ -328,7 +330,7 @@ Q_DECLARE_METATYPE(BplcFrame)
 
 /// @brief MSDU 解析结果(由 GW_2022_MsduParser 填充)
 struct MsduInfo {
-    int cascade_break_len = 0;  ///< 聚合:级联流中声明长度越界的级联数据块长度(0=无;树层标注用)
+    int cascade_break_len = -1;  ///< 聚合:级联流中声明长度越界的级联数据块长度(-1=无;树层标注用)
     bool    present;         ///< 本帧携带完整 MSDU(重组完成)
     bool    simple_head;     ///< 是否为 MSDU_BASE_S 简头(单跳)
     quint16 msdu_seq;        ///< MSDU 序号(MSDU_BASE 的 MSDUIndex,16-bit)

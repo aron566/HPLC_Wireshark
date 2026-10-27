@@ -222,7 +222,7 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
         || (!is_rf && (info.pb_num == 0 || info.pb_num > max_pb_num))) {
         return trl::L("PB 大小/数量非法(band=%1 mod=%2 param=%3 num=%4 max=%5)")
                    .arg(band).arg(info.sof_mod_mode).arg(info.sof_mod_param)
-                   .arg(info.pb_num_field).arg(max_pb_num);
+                   .arg(info.pb_num).arg(max_pb_num);
     }
     info.pb_size = (quint16)pb_size;
 

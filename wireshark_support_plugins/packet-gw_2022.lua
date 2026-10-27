@@ -2060,13 +2060,20 @@ function gw.dissector(tvb, pinfo, tree)
             pinfo.cols.protocol = is_rf and "RF" or "HPLC"
             local ok, d = pcall(Dissector.get, "gw_2026")
             if ok and d then
-                d:call(tvb, pinfo, tree)
-                return tvb:len()
+                local ok2, err2 = pcall(d.call, d, tvb, pinfo, tree)
+                if ok2 then
+                    return tvb:len()
+                end
+                -- gw_2026 已加载但调用失败:提示后落入下方 1.0 尽力解析(不再报"未加载")
+                tree:add_expert_info(PI_PROTOCOL, PI_WARN,
+                    T(string.format("packet-gw_2026.lua 调用失败(%s),按 1.0 布局尽力解析", tostring(err2)),
+                      string.format("packet-gw_2026.lua call failed (%s); best-effort 1.0 parse", tostring(err2))))
+            else
+                -- gw_2026.lua 未加载: 继续按 1.0 布局尽力解析, 并提示
+                tree:add_expert_info(PI_PROTOCOL, PI_WARN,
+                    T(string.format("检测到非 HDC 1.0 帧(标准版本 %d),但 packet-gw_2026.lua 未加载,按 1.0 布局尽力解析", std_ver),
+                      string.format("Non-HDC 1.0 frame detected (standard version %d) but packet-gw_2026.lua not loaded; best-effort 1.0 parse", std_ver)))
             end
-            -- gw_2026.lua 未加载: 继续按 1.0 布局尽力解析, 并提示
-            tree:add_expert_info(PI_PROTOCOL, PI_WARN,
-                T(string.format("检测到非 HDC 1.0 帧(标准版本 %d),但 packet-gw_2026.lua 未加载,按 1.0 布局尽力解析", std_ver),
-                  string.format("Non-HDC 1.0 frame detected (standard version %d) but packet-gw_2026.lua not loaded; best-effort 1.0 parse", std_ver)))
         end
     end
     if evs == "49" then

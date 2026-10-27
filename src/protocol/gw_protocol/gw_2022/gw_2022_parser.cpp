@@ -15,19 +15,14 @@
 #include "gw_2022_ack_parser.h"
 #include "gw_2022_coord_parser.h"
 #include "common/fieldtools.h"
+#include "common/bcd.h"
 #include "crc.h"
 #include "QsLog.h"
 #include <QDateTime>
 #include <QElapsedTimer>
 #include <QtEndian>
 
-namespace {
 
-int bcd2dec(quint8 b) {
-    return ((b >> 4) & 0x0F) * 10 + (b & 0x0F);
-}
-
-}  // namespace
 
 GW_2022_Parser::GW_2022_Parser() {}
 
@@ -54,22 +49,24 @@ bool GW_2022_Parser::decode_envelope(const BplcFrame& in, Result& r) {
     }
 
     if (in.meta.has_time_tag) {
-        try {
-            int y  = bcd2dec((quint8)d[0]);
-            int mo = bcd2dec((quint8)d[1]);
-            int da = bcd2dec((quint8)d[2]);
-            int hh = bcd2dec((quint8)d[3]);
-            int mm = bcd2dec((quint8)d[4]);
-            int ss = bcd2dec((quint8)d[5]);
-            int ms = bcd2dec((quint8)d[6]) * 100 + bcd2dec((quint8)d[7]);
-            r.meta.frame_time = QDateTime(QDate(2000 + y, mo, da),
-                                          QTime(hh, mm, ss, ms));
+        int y = bcd2dec((quint8)d[0]);
+        int mo = bcd2dec((quint8)d[1]);
+        int da = bcd2dec((quint8)d[2]);
+        int hh = bcd2dec((quint8)d[3]);
+        int mm = bcd2dec((quint8)d[4]);
+        int ss = bcd2dec((quint8)d[5]);
+        int ms_hi = bcd2dec((quint8)d[6]);
+        int ms_lo = bcd2dec((quint8)d[7]);
+        // bcd2dec 对非法半字节返回 -1(原 try/catch 从不触发,因它不抛异常);非法日期/时间亦回落当前时间
+        QDateTime t(QDate(2000 + y, mo, da), QTime(hh, mm, ss, ms_hi * 100 + ms_lo));
+        if (y < 0 || mo < 0 || da < 0 || hh < 0 || mm < 0 || ss < 0
+            || ms_hi < 0 || ms_lo < 0 || !t.isValid()) {
+            t = QDateTime::currentDateTime();
+        } else {
             r.meta.has_time_tag = true;
-            r.meta.epoch_ms = r.meta.frame_time.toMSecsSinceEpoch();
-        } catch (...) {
-            r.meta.frame_time = QDateTime::currentDateTime();
-            r.meta.epoch_ms = r.meta.frame_time.toMSecsSinceEpoch();
         }
+        r.meta.frame_time = t;
+        r.meta.epoch_ms = t.toMSecsSinceEpoch();
     } else {
         // 无时间标签:frame_time 已由 SerialReader 填充(回放时间轴/本地接收时刻)
         r.meta.epoch_ms = r.meta.frame_time.toMSecsSinceEpoch();  // 补 epoch_ms 缓存

@@ -1539,7 +1539,7 @@ local function dissect_beacon_payload(tvb, tree, off)
     local tmi = read_bits(tvb, 9*8+4, 4)   -- FCH 字节9 高4bit
     local pbsize = beacon_pb_size(tmi)
     if pbsize <= 0 then
-        tree:add_expert_info(PI_MALFORMED, PI_WARN, "TMI 无效")
+        tree:add_expert_info(PI_MALFORMED, PI_WARN, T("TMI 无效", "Invalid TMI"))
         return off
     end
     local gb_end = off + pbsize - 3   -- 帧载荷区末尾(不含 PB CRC24)
@@ -1588,7 +1588,7 @@ local function dissect_simple_beacon_payload(tvb, tree, off)
     local tmi = read_bits(tvb, 9*8+4, 4)
     local pbsize = beacon_pb_size(tmi)
     if pbsize <= 0 then
-        tree:add_expert_info(PI_MALFORMED, PI_WARN, "TMI 无效")
+        tree:add_expert_info(PI_MALFORMED, PI_WARN, T("TMI 无效", "Invalid TMI"))
         return off
     end
     local gb_end = off + pbsize - 3
@@ -2483,7 +2483,7 @@ function gw.dissector(tvb, pinfo, tree)
     end
 
     if tvb:len() < 16 then
-        tree:add_expert_info(PI_MALFORMED, PI_WARN, "帧长不足 16 字节(最小 MPDU 帧控制)")
+        tree:add_expert_info(PI_MALFORMED, PI_WARN, T("帧长不足 16 字节(最小 MPDU 帧控制)", "Frame shorter than 16 bytes (minimum MPDU frame control)"))
         return 0
     end
 
@@ -2845,7 +2845,7 @@ function gw.dissector(tvb, pinfo, tree)
                         local ok, err = pcall(dissect_mgmt_body, body_tvb, mgmt_tree, 0, mmtype)
                         if not ok then
                             mgmt_tree:add_expert_info(PI_MALFORMED, PI_WARN,
-                                "管理消息体解析失败(可能截断): " .. tostring(err))
+                                T("管理消息体解析失败(可能截断): ", "Management message body parse failed (possibly truncated): ") .. tostring(err))
                         end
                     end
                 end

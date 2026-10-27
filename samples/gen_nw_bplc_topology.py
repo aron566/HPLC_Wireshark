@@ -74,7 +74,8 @@ def build_assoc_req(sta_tei, proxy_tei, link_type):
         b = bytearray(2)
         if i == 0:
             put_tei12(b, 0, proxy_tei)
-        b[1] |= (link_type & 1) << 4      # 链路类型 bit4
+            if proxy_tei:
+                b[1] |= (link_type & 1) << 4  # 链路类型 bit4(仅占位有效时置位)
         body += bytes(b)
     body += b'\x00' * 3                   # byte22-24 相线
     body += bytes([0x01])                 # byte25 设备类型

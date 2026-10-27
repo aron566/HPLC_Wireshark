@@ -1,6 +1,7 @@
 /// @file topo_window.cpp
 /// @brief 拓扑独立窗口实现(层次拓扑图 + 路由变更表 + TEI→MAC 表)
 #include "topo_window.h"
+#include <climits>
 #include "i18n.h"
 
 #include <QApplication>
@@ -350,11 +351,11 @@ void TopoGraphWidget::paintEvent(QPaintEvent*) {
             if (cit == m_pos.constEnd()) continue;
             parent_center = cit.value();
             auto pit = m_state->pending.constFind(np.mac);
-            if (pit != m_state->pending.constEnd()) child_is_rf = (pit.value().link_type == 1);
+            if (pit != m_state->pending.constEnd()) child_is_rf = (pit.value().link_type == 1 || (pit.value().link_type == 0xFF && pit.value().is_rf));
         } else {
             auto it = m_state->nodes.constFind(np.tei);
             if (it == m_state->nodes.constEnd()) continue;
-            child_is_rf = (it.value().link_type == 1);   // 入网链路类型(表79/160),非 is_rf
+            child_is_rf = (it.value().link_type == 1 || (it.value().link_type == 0xFF && it.value().is_rf));   // 入网链路类型(表79/160),未定时回退 is_rf
             const quint16 parent = it.value().parent_tei;
             if (parent == 0xFFFF || parent == np.tei) continue;
             auto pit = m_pos.constFind(parent);
@@ -484,32 +485,20 @@ void TopoGraphWidget::show_node_tip(const QPoint& global_pos, quint16 tei, quint
     if (tei != 1) {
         const quint16 parent = node->parent_tei;
         const QString pname = (parent == 1) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(parent);
-        auto cit = m_state->comm_rates.constFind(tei);   // 载波成功率(提前取,供诊断 + 渲染)
-        // [诊断 C1] tooltip 两类成功率独立状态(无线 + 载波)
-        QLOG_DEBUG() << "[TOPO tooltip] tei=" << tei
-                     << "is_rf=" << node->is_rf
-                     << "link_type=" << node->link_type
-                     << "rf_capable=" << node->rf_capable
-                     << "proxy_known=" << node->proxy_rate_known
-                     << "proxy_up=" << node->proxy_up_rate
-                     << "parent_tei=" << node->parent_tei
-                     << "mme_known=" << (cit != m_state->comm_rates.constEnd())
-                     << "mme_up=" << (cit != m_state->comm_rates.constEnd() ? cit.value().up : -1)
-                     << "mme_down=" << (cit != m_state->comm_rates.constEnd() ? cit.value().down : -1);
         // 上级(代理)
         if (parent != 0xFFFF && parent != tei)
             lines << QStringLiteral("%1: %2").arg(trl::L("上级"), pname);
         // ── ① 成功率区:只显示与父节点(代理)的 4 项(无线 2 + 载波 2);两组都空才显示"暂无上报" ──
         const bool has_wireless = node->proxy_up_rate >= 0 || node->proxy_down_rate >= 0;
         const bool has_carrier = node->proxy_comm_rate >= 0 || node->proxy_down_comm_rate >= 0;
-        if (has_wireless) {
+        if (parent != 0xFFFF && parent != tei && has_wireless) {
             // 无线:RFDL 站点属性(表217)代理上/下行接收率
             if (node->proxy_up_rate >= 0)
                 lines << trl::L("无线上行成功率（我→父 %1）: %2%").arg(pname).arg(node->proxy_up_rate);
             if (node->proxy_down_rate >= 0)
                 lines << trl::L("无线下行成功率（父→我）: %1%").arg(node->proxy_down_rate);
         }
-        if (has_carrier) {
+        if (parent != 0xFFFF && parent != tei && has_carrier) {
             // 载波:0x0055 发现列表(表77)与代理站点通信成功率
             if (node->proxy_comm_rate >= 0)
                 lines << trl::L("载波上行成功率（我→父 %1）: %2%").arg(pname).arg(node->proxy_comm_rate);
@@ -1029,11 +1018,11 @@ void TopoWindow::on_teimac_double_clicked(const QModelIndex& idx) {
     rows.reserve(nb_set.size());
     for (quint16 nb : nb_set) {
         const TopoNode& node = st->nodes.value(nb);
-        const bool is_rf = node.is_rf;
+        const bool is_rf = node.link_type == 1 || (node.link_type == 0xFF && node.is_rf);  // 评分按入网链路,未定时回退 is_rf(与"入网链路"列口径一致)
         const int cnt_me_nb = counts_me.value(nb, 0);
         const int cnt_nb_me = st->neighbor_counts.value(nb).value(sta_tei, 0);
         const int cnt_sum = cnt_me_nb + cnt_nb_me;
-        const int rssi = node.rssi_known ? node.rssi_dbm : 0;
+        const int rssi = node.rssi_known ? node.rssi_dbm : INT_MIN;  // 未知信号强度沉底,避免按 0 dBm 压过真实 -100 dBm
         int r = 0;
         QString tip;
         if (is_rf) {

@@ -22,6 +22,8 @@ struct I18nReg {
         trl::register_en(" (超出级联流范围, 已停止解析)", " (beyond cascade stream, parsing stopped)");
         trl::register_en("不完整(无法校验)", "Incomplete (Cannot Verify)");
         trl::register_en("级联体流长度", "Cascade Body Length");
+        trl::register_en("级联断开", "Cascade Break");
+        trl::register_en("声明长度 %1 越界/非法,级联流提前终止", "Declared length %1 out of range/illegal, cascade stream terminated early");
         trl::register_en("PB 大小无效(查表未命中)", "Invalid PB Size (Table Lookup Miss)");
         trl::register_en("OFDMA SACK 帧无数据物理块", "No Data PB in OFDMA SACK Frame");
         trl::register_en("OFDMA trigger 帧无数据物理块", "No Data PB in OFDMA Trigger Frame");
@@ -748,6 +750,9 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 auto* len_item = tree_add_item(msdu, trl::L("级联体流长度"),
                     QStringLiteral("%1 B").arg(e.msdu.total_len));
                 tree_apply_msdu_range(len_item, rm, 0, e.msdu.total_len, e.msdu_body);
+                if (e.msdu.cascade_break_len >= 0)
+                    tree_add_item(msdu, trl::L("级联断开"),
+                        trl::L("声明长度 %1 越界/非法,级联流提前终止").arg(e.msdu.cascade_break_len));
             } else {
                 auto* len_item = tree_add_item(msdu, "Length",
                     QStringLiteral("%1 B").arg(e.msdu_body.size()));

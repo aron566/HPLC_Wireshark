@@ -349,9 +349,6 @@ void TopoState::apply(const TopoEvent& e) {
 
 void TopoState::apply_channel_info(quint16 reporter_tei, const TopoEvent& e) {
     if (!reporter_tei || reporter_tei == 0xFFFF) return;
-    // [诊断 B1] 站点属性落地入口
-    QLOG_DEBUG() << "[TOPO] apply_channel_info 入口 reporter_tei=" << reporter_tei
-                 << "proxy_tei=" << e.proxy_tei;
     // 站点属性(表217/表126):代理上行/下行接收率、最小接收率、RF 跳数、角色 + parent_tei 校正
     // 站点属性直报的代理 TEI 比路由推导权威;节点不存在时据此建占位(站点属性自带 proxy/role 身份)
     if (e.proxy_tei != 0xFFFF) {
@@ -369,13 +366,6 @@ void TopoState::apply_channel_info(quint16 reporter_tei, const TopoEvent& e) {
         // 站点属性直报的代理 TEI 比路由推导权威,用于校正 parent_tei
         if (e.proxy_tei != reporter_tei)
             node.parent_tei = e.proxy_tei;
-        // [诊断 B2] 写入后核验
-        QLOG_DEBUG() << "[TOPO] 站点属性写入后 tei=" << reporter_tei
-                     << "proxy_up_rate=" << node.proxy_up_rate
-                     << "proxy_down_rate=" << node.proxy_down_rate
-                     << "min_link_rate=" << node.min_link_rate
-                     << "proxy_rate_known=" << node.proxy_rate_known
-                     << "parent_tei=" << node.parent_tei;
     }
     // 表39 站点属性(7B,无代理TEI,仅成功率+BRU SNR):按 reporter_tei 落地(代理TEI 由 parent_tei 已知)
     if (e.proxy_up_rate >= 0 || e.proxy_down_rate >= 0

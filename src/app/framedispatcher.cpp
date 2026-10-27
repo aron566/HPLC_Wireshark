@@ -70,6 +70,10 @@ FrameDispatcher::FrameDispatcher(QObject* parent)
     auto parser = make_parser_by_id(appcfg::protocol().toUpper());
     if (!parser)  // 未知协议回退国网 2026
         parser = make_parser_by_id(QStringLiteral("GW_2026"));
+    if (!parser) {  // 国网 2026 亦缺失(注册表损坏):不建 worker/线程,防 on_frame 空指针解引用
+        QLOG_FATAL() << "FrameDispatcher: no parser available (registry broken), worker not started";
+        return;  // m_thread/m_worker 保持 nullptr,析构/shutdown/disconnect 均已判空
+    }
     m_thread = new QThread(this);
     m_worker = new DispatcherWorker(std::move(parser));
     m_worker->moveToThread(m_thread);
@@ -100,6 +104,7 @@ void FrameDispatcher::set_filter(const ParseFilter& f) {
 }
 
 void FrameDispatcher::connect_source(QObject* source) {
+    if (!m_worker) return;  // 构造时无可用解析器(见构造):不接信号,帧自然不流入
     connect(source, SIGNAL(frame_ready(BplcFrame)),
             m_worker, SLOT(on_frame(BplcFrame)),
             Qt::QueuedConnection);

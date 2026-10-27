@@ -528,7 +528,8 @@ static const FieldSpec kMMeChangeProxyCnfSpec[] = {
     { "ChildSum", 10, 0, 16, Fmt::DEC },
     { "RSV", 12, 0, 8, Fmt::HEX4 },
     { "NetSN", 13, 0, 8, Fmt::DEC },
-    { "RSV0", 14, 0, 16, Fmt::HEX4 },
+    { "LinkType", 14, 0, 8, Fmt::DEC },
+    { "RSV1", 15, 0, 8, Fmt::HEX4 },
     { "EndSequence", 16, 0, 32, Fmt::DEC },
     { "PathSequence", 20, 0, 32, Fmt::DEC },
     { "RSV2", 24, 0, 64, Fmt::HEX4 },
@@ -555,7 +556,7 @@ static const FieldSpec kMMeChangeProxyBitMapCnfSpec[] = {
 };
 static const int kMMeChangeProxyBitMapCnfSpecN = int(sizeof(kMMeChangeProxyBitMapCnfSpec)/sizeof(kMMeChangeProxyBitMapCnfSpec[0]));
 static const FieldSpec kMMeChangeProxyBitMapCnfTailSpec[] = {
-    // 链路类型(BPLC 表160:byte139 1bit)+保留 7bit
+    // 链路类型(SPLC 表111:byte139 bit0)+保留 7bit
     { "LinkType", 139, 0, 1, Fmt::DEC },
     { "RSV0", 139, 1, 7, Fmt::HEX4 },
     { "EndSequence", 140, 0, 32, Fmt::DEC },
@@ -789,9 +790,12 @@ static void parse_sta_attr_info(QVector<MsduFieldNode>& nodes, const QByteArray&
         ev->proxy_tei = (quint16)get_bits(c, 6, 0, 12);
         ev->rf_role = (quint8)get_bits(c, 7, 4, 4);
         ev->rf_hop = (quint8)get_bits(c, 8, 4, 4);
-        ev->proxy_up_rate = (qint16)get_bits(c, 9, 0, 8);
-        ev->proxy_down_rate = (qint16)get_bits(c, 10, 0, 8);
-        ev->min_link_rate = (qint16)get_bits(c, 11, 0, 8);
+        { const qint16 up_r = (qint16)get_bits(c, 9, 0, 8);
+          const qint16 down_r = (qint16)get_bits(c, 10, 0, 8);
+          const qint16 min_r = (qint16)get_bits(c, 11, 0, 8);
+          ev->proxy_up_rate = (up_r <= 100) ? up_r : -1;
+          ev->proxy_down_rate = (down_r <= 100) ? down_r : -1;
+          ev->min_link_rate = (min_r <= 100) ? min_r : -1; }
     }
     translate_enum_i18n(nodes, "Role", kRoleZh, 5);
     annotate_unit(nodes, "ProxyUpRate", QStringLiteral("%"));
@@ -893,9 +897,11 @@ static int render_ch_entry(QVector<MsduFieldNode>& nodes, const QByteArray& c, i
                              : QStringLiteral("%1 %2").arg(v).arg(rssi_meaning(rssi_bits, v)));
         o += rssi_bits;
         s.rel_start = rel_base + b0; s.rel_len = (bi + o + 7) / 8;
-        // 拓扑采集:该邻居信号强度(dBm 档位下限估计;RF 发现列表上下文由调用方传入)
-        if (rssi_out && tei)
-            rssi_out->append({tei, rssi_bits_to_dbm(rssi_bits, v)});
+        // 拓扑采集:该邻居信号强度(dBm 档位下限估计;RF 发现列表上下文由调用方传入);未知 width 不追加
+        if (rssi_out && tei) {
+            const int dbm = rssi_bits_to_dbm(rssi_bits, v);
+            if (dbm != INT_MIN) rssi_out->append({tei, dbm});
+        }
     }
     return total;
 }
@@ -1824,6 +1830,8 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 const quint16 proxy_tei = (quint16)get_bits(mme, 14, 0, 16);
                 if (pres == 0) {
                 out.topo_event.kind = TopoEventKind::ChangeProxyCnf;
+                if (mme.size() > 20)
+                    out.topo_event.link_type = (int)get_bits(mme, 20, 0, 1);  // SPLC 表108 byte14 bit0(0-based)
                 if (sta_tei) out.topo_event.nodes.append({sta_tei, 0});   // 主体 TEI(STATEI)无 MAC
                 if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
                 out.topo_event.desc = trl::L("代理变更: STA TEI=%1 代理→%2")
@@ -1831,6 +1839,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                     .arg(proxy_tei ? QString::number(proxy_tei) : QStringLiteral("-"));
                 }
             }
+            translate_enum_i18n(out.tree, "LinkType", kLinkTypeZh, 2);
             translate_enum_i18n(out.tree, "Result", kProxyChangeResultZh, 1);
             const quint16 child_sum = (quint16)get_bits(mme, 16, 0, 16);
             int off = 38;
@@ -1915,7 +1924,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                         .arg(bm_cnt)
                         .arg(bmproxy_tei ? QString::number(bmproxy_tei) : QStringLiteral("-"));
                 }
-                // 帧内链路类型(BPLC 表160:byte139):仅 Result=0(成功)时用;尾段需存在才可读(get_bits 无越界检查)
+                // 帧内链路类型(SPLC 表111:byte139 bit0):仅 Result=0(成功)时用;尾段需存在才可读(get_bits 无越界检查)
                 if (bm_ok && mme.size() > 145)
                     out.topo_event.link_type = (int)get_bits(mme, 145, 0, 1);   // spec byte139 为相对 MMe 体,含 6B 头 → mme[145]
             }

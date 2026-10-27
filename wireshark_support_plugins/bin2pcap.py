@@ -92,6 +92,10 @@ def convert(bin_path, pcap_path=None, proto=None, mode=None):
     data = open(bin_path, 'rb').read()
     if len(data) < 8:
         print("文件过短"); return 1
+    if mode is None:
+        mode = 'mixed'
+    if mode not in ('mixed', 'plc', 'rf'):
+        print(f"非法 mode: {mode}，可选 mixed/plc/rf"); return 1
 
     # 文件头 BCD 时间作为基准
     hdr = data[:8]

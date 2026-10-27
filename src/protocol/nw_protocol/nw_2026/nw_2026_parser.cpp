@@ -20,13 +20,6 @@
 #include "i18n.h"
 #include <QDateTime>
 
-namespace {
-
-int bcd2dec_here(quint8 b) {
-    return ((b >> 4) & 0x0F) * 10 + (b & 0x0F);
-}
-
-}  // namespace
 
 NW_2026_Parser::NW_2026_Parser() {}
 
@@ -53,22 +46,24 @@ bool NW_2026_Parser::decode_envelope(const BplcFrame& in, Result& r) {
     }
 
     if (in.meta.has_time_tag) {
-        try {
-            int y  = bcd2dec_here((quint8)d[0]);
-            int mo = bcd2dec_here((quint8)d[1]);
-            int da = bcd2dec_here((quint8)d[2]);
-            int hh = bcd2dec_here((quint8)d[3]);
-            int mm = bcd2dec_here((quint8)d[4]);
-            int ss = bcd2dec_here((quint8)d[5]);
-            int ms = bcd2dec_here((quint8)d[6]) * 100 + bcd2dec_here((quint8)d[7]);
-            r.meta.frame_time = QDateTime(QDate(2000 + y, mo, da),
-                                          QTime(hh, mm, ss, ms));
+        int y = bcd2dec((quint8)d[0]);
+        int mo = bcd2dec((quint8)d[1]);
+        int da = bcd2dec((quint8)d[2]);
+        int hh = bcd2dec((quint8)d[3]);
+        int mm = bcd2dec((quint8)d[4]);
+        int ss = bcd2dec((quint8)d[5]);
+        int ms_hi = bcd2dec((quint8)d[6]);
+        int ms_lo = bcd2dec((quint8)d[7]);
+        // bcd2dec 对非法半字节返回 -1(原 try/catch 从不触发,因它不抛异常);非法日期/时间亦回落当前时间
+        QDateTime t(QDate(2000 + y, mo, da), QTime(hh, mm, ss, ms_hi * 100 + ms_lo));
+        if (y < 0 || mo < 0 || da < 0 || hh < 0 || mm < 0 || ss < 0
+            || ms_hi < 0 || ms_lo < 0 || !t.isValid()) {
+            t = QDateTime::currentDateTime();
+        } else {
             r.meta.has_time_tag = true;
-            r.meta.epoch_ms = r.meta.frame_time.toMSecsSinceEpoch();
-        } catch (...) {
-            r.meta.frame_time = QDateTime::currentDateTime();
-            r.meta.epoch_ms = r.meta.frame_time.toMSecsSinceEpoch();
         }
+        r.meta.frame_time = t;
+        r.meta.epoch_ms = t.toMSecsSinceEpoch();
     } else {
         // 无时间标签:frame_time 已由 SerialReader 填充
         r.meta.epoch_ms = r.meta.frame_time.toMSecsSinceEpoch();
@@ -366,8 +361,8 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                 }
             }
         } else {
-            // 防御性兜底(策略下不可达:SOF 且 version!=2 已在 parse() 顶部委托 NW_2021_Parser,
-            // 走到此处的 SOF 必为 version==2):BPLC 版载波 SOF(表20):链路标识符(4,0,8)/SNID高位(5,0,1 由树渲染)/
+            // BPLC 兜底分支:聚合 BPLC 例外帧(agg_bplc)落入此处;其余 SOF 且 version!=2 已在 parse() 顶部委托 NW_2021_Parser,
+            // 走到此处的 SOF 为 version==2 或 agg_bplc:BPLC 版载波 SOF(表20):链路标识符(4,0,8)/SNID高位(5,0,1 由树渲染)/
             // PBNum(7,0,4)/TMI(7,4,4)/FrameLen(8,0,12)/TEI过滤/重传/符号数/TMI_EXT
             r.mpdu.link_id = (quint8) get_bits(p, 4, 0, 8);
             r.mpdu.pb_num    = (quint8) get_bits(p, 7, 0, 4);

@@ -144,11 +144,11 @@ mingw32-make -j4
 3. 点帧列表行 → 上方协议字段树 → 点字段行 → 下方十六进制区对应字节高亮;
    多 PB 报文每块 Header/Body/CRC24 均逐块可点
 4. **检查更新**:菜单 `帮助 → 检查更新`,更新清单地址见
-   `config.ini` 的 `general/update_url`(默认指向 GitHub
-   `aron566/HPLC_Wireshark` 仓库 `main` 分支的 `update.json`,当前版本 1.3.0)。
-   检查前会按出口 IP 区域自动选路:中国 IP 时从 `general/mirror_list`
+   `config.ini` 的 `app/update_url`(默认指向 GitHub
+   `aron566/HPLC_Wireshark` 仓库 `main` 分支的 `update.json`,当前版本 2.0.0)。
+   检查前会按出口 IP 区域自动选路:中国 IP 时从 `app/mirror_list`
    镜像前缀中探活选第一个可用者,清单与安装包下载同走该代理,探活
-   失败自动回退直连;`general/mirror_mode` 可设 `auto`(默认)/
+   失败自动回退直连;`app/mirror_mode` 可设 `auto`(默认)/
    `native`/`proxy`,详见用户手册 §9.1
 5. **配置文件 `config.ini`**(exe 同目录,首次启动自动生成带注释模板):
    更新检查地址、语言、串口参数、过滤条件等均可在其中修改(也可在

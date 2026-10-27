@@ -3106,10 +3106,27 @@ function nw.dissector(tvb, pinfo, tree)
                     local idx = 0
                     local cas_sums = {}
                     local cas_dir = nil
+                    local end_idx = nil  -- 带 End 标识的记录序号(用于事后校验末条)
                     while o + 2 <= body:len() do
                         local clen = body(o, 1):uint()
                                    + band(body(o + 1, 1):uint(), 0x0F) * 256
-                        if clen <= 0 or o + 2 + clen > body:len() then break end
+                        if clen <= 0 or o + 2 + clen > body:len() then
+                            root:add_expert_info(PI_MALFORMED, PI_WARN,
+                                T(string.format("级联记录长度非法(clen=%d,偏移 %d),停止拆分", clen, o),
+                                  string.format("Illegal cascade record length (clen=%d, offset %d); splitting stopped", clen, o)))
+                            break
+                        end
+                        -- 表48 级联头字节1:bit4=Start/bit5=End;首条须 Start、中间条须无 Start
+                        local cas_flags = band(body(o + 1, 1):uint(), 0x30)
+                        if idx == 0 and band(cas_flags, 0x10) == 0 then
+                            root:add_expert_info(PI_MALFORMED, PI_WARN,
+                                T("级联首条缺 Start 标识", "First cascade record missing Start flag"))
+                        elseif idx > 0 and band(cas_flags, 0x10) ~= 0 then
+                            root:add_expert_info(PI_MALFORMED, PI_WARN,
+                                T(string.format("级联中间条带 Start 标识(第 %d 条)", idx),
+                                  string.format("Middle cascade record carries Start flag (record %d)", idx)))
+                        end
+                        if band(cas_flags, 0x20) ~= 0 then end_idx = idx end
                         local ct = root:add(nw, body(o + 2, clen),
                             string.format(T("级联 MAC 帧[%d]", "Cascade MAC Frame [%d]"), idx))
                         -- 有界子视图(坐标平移 + 长度截到 clen),MAC 帧内相对坐标映射回原始 tvb
@@ -3125,6 +3142,17 @@ function nw.dissector(tvb, pinfo, tree)
                         cas_sums[#cas_sums + 1] = (sum and sum ~= "") and sum or T("未识别", "unrecognized")
                         o = base + clen
                         idx = idx + 1
+                    end
+                    -- 事后 End 校验:无 End→末条缺 End;End 不在末条→提前结束
+                    if idx > 0 then
+                        if end_idx == nil then
+                            root:add_expert_info(PI_MALFORMED, PI_WARN,
+                                T("级联末条缺 End 标识", "Last cascade record missing End flag"))
+                        elseif end_idx ~= idx - 1 then
+                            root:add_expert_info(PI_MALFORMED, PI_WARN,
+                                T(string.format("级联第 %d 条带 End 标识但后仍有记录", end_idx),
+                                  string.format("Cascade record %d carries End flag but more records follow", end_idx)))
+                        end
                     end
                     -- 聚合帧摘要(与 C++ nw_2026_parser.cpp r.msdu.summary 对齐):
                     -- 全同型压缩 "类型 ×N";混合型列前4项(>4 加" 等");空流计数式

@@ -85,6 +85,7 @@ static void render_dissect_fields(QTreeWidgetItem* parent,
         it->setText(0, f.name);
         it->setText(1, f.value);
         int s = f.start, l = f.len;
+        if (s < 0) { s = -1; l = 0; }  // 负坐标统一归一化,避免原样写入后高亮/取字节越界
         // 越界降级为"无字节映射",避免 setData 出界后高亮越界读取。
         // 用 qint64 求和:插件可能传 INT_MAX,`s + l` 会溢出变负绕过守卫。
         if (s >= 0 && (l <= 0

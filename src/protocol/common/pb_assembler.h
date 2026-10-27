@@ -63,8 +63,8 @@ struct AssembleResult {
     QVector<CascadeMac> cascade;   ///< 聚合级联拆分结果(any_aggregated 时有效)
     int cascade_used = 0;          ///< 聚合:级联记录流有效长度(逐条 2+级联数据块长度
                                    ///< 累加,不含块体尾填充;非聚合=0)
-    int cascade_break_declared_len = 0; ///< 聚合:级联 while 因"声明长度越界/非法"终止时,
-                                        ///< 记录该条声明的级联数据块长度(截断/损坏线索;0=正常结束)
+    int cascade_break_declared_len = -1; ///< 聚合:级联 while 因"声明长度越界/非法"终止时,
+                                        ///< 记录该条声明的级联数据块长度(截断/损坏线索;-1=正常结束,0 亦为非法声明值故不用 0 作哨兵)
 };
 
 /// @brief 逐块 CRC24 + 块体提取 + 聚合级联拆分

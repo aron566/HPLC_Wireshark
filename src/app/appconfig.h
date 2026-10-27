@@ -48,8 +48,8 @@ inline void migrate_ini_groups(const QString& path) {
         int start = 0;
         while (start <= data.size()) {
             int nl = data.indexOf(kLf, start);
-            if (nl < 0) { if (start < data.size()) lines.append(data.mid(start)); break; }
-            lines.append(data.mid(start, nl - start));
+            if (nl < 0) { if (start < data.size()) { QByteArray tail = data.mid(start); if (tail.endsWith('\r')) tail.chop(1); lines.append(tail); } break; }
+            { QByteArray line = data.mid(start, nl - start); if (line.endsWith('\r')) line.chop(1); lines.append(line); }
             start = nl + 1;
         }
     }
