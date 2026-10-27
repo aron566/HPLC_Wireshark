@@ -1833,6 +1833,18 @@ local function dissect_mme_body(tvb, tree, mmtype)
     -- 0x0083/0x0084/0x00A0: 站点TEI列表请求/响应、汇聚数据上报, 暂不解析(与 Qt 监控器一致)
 end
 
+-- 管理消息体里「单一 MMe 主体」的 STA MAC 字符串 + TEI(代理转发判定 + STA-N 显示);
+-- 无单一主体(批量/网关/无主体)返回 nil,nil。偏移与各 dissect_mme_* 字段一致。
+local function mme_body_sta_mac_tei(mmtype, tvb)
+    if mmtype == 0x0030 then return mac_to_str(tvb, 6), 0                          -- 关联请求 STAMACAddr@6(无 TEI)
+    elseif mmtype == 0x0031 then return mac_to_str(tvb, 6), read_bits(tvb, 14 * 8, 12)   -- 关联确认 STAMACAddr@6,STATEI@14
+    elseif mmtype == 0x0034 then return mac_to_str(tvb, 8), read_bits(tvb, 20 * 8, 12)   -- 关联指示 STAMACAddr@8,STATEI@20
+    elseif mmtype == 0x0049 then return mac_to_str(tvb, 10), read_bits(tvb, 6 * 8, 16)   -- 离网指示 MAC@10,TEI@6
+    elseif mmtype == 0x0055 then return mac_to_str(tvb, 10), read_bits(tvb, 6 * 8, 16)   -- 发现列表 MACAddr@10,STATEI@6
+    end
+    return nil, nil
+end
+
 -- =========================================================================
 -- APP 应用层报文 (通道控制信息 4B + 业务报文头 8B + APP Data)
 -- =========================================================================
@@ -2164,11 +2176,13 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
     -- MSDU 帧头
     local msdu_off = hdr_len
     local vlan, msdu_type
+    local src_mac_str = nil   -- 本跳发送方 MAC(长帧头;代理转发判定用)
     if head_flag == 0 then
         -- 长帧头 MSDU_LONGHEAD (18B): 目的/源 MAC + VLAN(32b) + MSDU 类型(16b)
         if msdu_off + 18 > tvb:len() then return end
         mac_tree:add(f.msdu_dst_mac, tvb(msdu_off, 6))
         mac_tree:add(f.msdu_src_mac, tvb(msdu_off + 6, 6))
+        src_mac_str = mac_to_str(tvb, msdu_off + 6)
         vlan = read_bits(tvb, (msdu_off + 12) * 8, 32)
         add_val(mac_tree, f.msdu_vlan, tvb, msdu_off + 12, 4, vlan)
         msdu_type = read_bits(tvb, (msdu_off + 16) * 8, 16)
@@ -2211,6 +2225,15 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
                         mmt:add_expert_info(PI_MALFORMED, PI_WARN,
                             T("管理消息体解析失败(可能截断): ", "MMe body parse failed (possibly truncated): ") .. tostring(err))
                     end
+                end
+                -- 代理转发主体标记(与 C++ packetlistmodel COL_MSDU_TYPE 同口径):
+                -- 单一 MMe 主体 MAC ≠ 本跳发送方 MAC → Info 追加 " STA-N [MAC:...]"
+                local body_mac_str, body_tei = mme_body_sta_mac_tei(mmtype, body_tvb)
+                if body_mac_str and src_mac_str and body_mac_str ~= src_mac_str then
+                    local body = (body_tei and body_tei ~= 0)
+                        and string.format("STA-%d", body_tei) or "STA-X"
+                    pinfo.cols.info = tostring(pinfo.cols.info)
+                        .. string.format(" %s [MAC:%s]", body, body_mac_str)
                 end
             end
         else
@@ -2258,16 +2281,16 @@ function nw.dissector(tvb, pinfo, tree)
         -- 异常(pcall 失败)时回退下方 BPLC 布局内联解析
         local ftype = band(tvb(fch_off, 1):uint(), 0x07)
         local want_2026 = (ftype ~= 1) or (std_ver == 2)
-        -- 聚合 BPLC 帧例外(用户需求,与 C++ NW_2026_Parser 同构):载波 SOF version!=2
-        -- 但 PB 头(表47,FCH 16B 后第 1 个 PB 头 byte2 bit0)聚合标志=1 → nw_2021 无
-        -- 聚合拆分能力,委托 nw_2026 本地解析(BPLC 表20 布局 + 级联拆分)。纯分派,
-        -- 不涉 nw_2021→nw_2026 委托;无线恒单块不检测(与 C++ 同口径)
-        if (not want_2026) and ftype == 1 and (not is_rf)
+        -- 聚合帧例外(用户需求,与 C++ NW_2026_Parser 同构):SOF version!=2 但 PB 头
+        -- (表47,FCH 16B 后第 1 个 PB 头 byte2 bit0)聚合标志=1 → nw_2021 无聚合拆分
+        -- 能力,委托 nw_2026 本地解析(BPLC 表20 布局 + 级联拆分)。纯分派,不涉
+        -- nw_2021→nw_2026 委托;无线聚合 SOF(2026-10-27)同样留在本地做级联拆分
+        if (not want_2026) and ftype == 1
            and tvb:len() >= fch_off + 19 then
             local agg = (band(tvb(fch_off + 16 + 2, 1):uint(), 0x01) == 1)
             if agg then
                 want_2026 = true
-            elseif tvb:len() >= fch_off + 20 + 32 + 16 + 5 then
+            elseif (not is_rf) and tvb:len() >= fch_off + 20 + 32 + 16 + 5 then
                 -- SPLC 扩展 MMe 例外(用户需求,与 C++ 同构):载波 SOF version!=2 非聚合帧
                 -- 承载 SPLC 表77 扩展 MMe(0x0080-0x0085,BPLC 无定义)→ 委托 nw_2026(表158 等)。
                 -- 预读: PB 体自 fch_off+20;MACHeadFlag=体0 bit0(0=长 32B/1=短 12B,与

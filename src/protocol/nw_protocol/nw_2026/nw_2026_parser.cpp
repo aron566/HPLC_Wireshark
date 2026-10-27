@@ -190,10 +190,11 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
         // (表47 byte2 bit0)→ nw_2021 无聚合拆分能力,留在本解析器本地解析——走下方
         // BPLC 表20 兜底分支 + 公共 pb_assembler 级联拆分(字段树含 AggregationFlag/
         // 级联头/Cascade MAC Frame);非聚合 version=1 仍整帧委托 NW_2021_Parser(现状)。
-        // 无线 SOF 恒单块(表131)无聚合概念,保持委托不检测。纯本解析器内部分派,
+        // 无线聚合 SOF(用户需求 2026-10-27):PB 头聚合标志媒介无关(表47 byte2 bit0),
+        // 聚合帧留在本地做级联拆分;非聚合 version≠2 无线帧仍委托。纯本解析器内部分派,
         // 不涉 nw_2021→nw_2026 委托(用户禁止)。
         bool agg_bplc = false;
-        if (!r.meta.is_rf && r.payload_for_log.size() >= 16 + 3)
+        if (r.payload_for_log.size() >= 16 + 3)          // 去掉 !r.meta.is_rf 门控
             agg_bplc = (quint8(r.payload_for_log.at(16 + 2)) & 0x01) != 0;
         if (!agg_bplc) {
             // SPLC 扩展 MMe 例外(用户需求):version=1 非聚合帧承载 SPLC 表77 扩展 MMe
@@ -279,9 +280,9 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
         r.mpdu.src_tei = (quint16)get_bits(p, 1, 0, 12);
         r.mpdu.dst_tei = (quint16)get_bits(p, 2, 4, 12);
         if (r.meta.is_rf) {
-            // 无线 SOF 可变域(第2部分表131):帧长(5,0,12,单位100µs)/载荷PB大小(6,4,4)/
-            // MCS(7,0,4)/TEI过滤(7,4,1)/重传(7,5,1);其余为保留(字节8-11 整段、
-            // (7,6,2)、(12,0,4)),无 PB 个数与符号数字段
+            // 无线 SOF 可变域(SPLC 第4部分表45):帧长(5,0,12,单位100µs)/载荷PB大小(6,4,4)/
+            // MCS(7,0,4)/TEI过滤(7,4,1)/重传(7,5,1);保留(7,6,2)+(8-11,32b)+
+            // 短网络标识高位(12,0,1)+保留(12,1,3)(表45,非表131 整段保留),无 PB 个数与符号数字段
             r.mpdu.link_id = (quint8) get_bits(p, 4, 0, 8);
             r.mpdu.frame_len = (quint16)get_bits(p, 5, 0, 12);
             quint8 pblen = (quint8)get_bits(p, 6, 4, 4);

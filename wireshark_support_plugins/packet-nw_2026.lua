@@ -458,6 +458,9 @@ f.sof_tmi = ProtoField.uint8 ("nw_2026.sof.tmi", T("TMI 编号(表23)", "TMI Ind
 f.sof_frame_len = ProtoField.uint16 ("nw_2026.sof.frame_len", T("帧长", "Frame Length"), base.DEC)
 f.sof_tmi_ext = ProtoField.uint8 ("nw_2026.sof.tmi_ext", T("扩展TMI(TMI_EXT)", "Extended TMI"), base.DEC, nil, 0x0F)
 f.sof_pblen = ProtoField.uint8 ("nw_2026.sof.pblen", T("载荷PB大小(无线)", "Payload PB Size (RF)"), base.DEC, nil, 0xF0)
+-- 无线 SOF 表45 byte12 = SNID 高位(1b) + 保留(3b);表131 的 byte12 整段保留,不用 TMI_EXT
+f.sof_rf_snid_hi = ProtoField.uint8 ("nw_2026.sof.rf_snid_hi", T("短网络标识高位(无线,表45)", "SNID High (RF, Table 45)"), base.DEC, nil, 0x01)
+f.sof_rf_rsv12 = ProtoField.uint8 ("nw_2026.sof.rf_rsv12", T("保留(无线,表45)", "Reserved (RF, Table 45)"), base.DEC, nil, 0x0E)
 f.sof_mcs = ProtoField.uint8 ("nw_2026.sof.mcs", T("调制编码方式(MCS,无线)", "MCS (RF)"), base.DEC, mcs_vals, 0x0F)
 f.sof_symbol_cnt = ProtoField.uint16 ("nw_2026.sof.symbol_cnt", T("符号数(载波)", "Symbol Count (PLC)"), base.DEC)
 f.sof_tei_filter = ProtoField.uint8 ("nw_2026.sof.tei_filter", T("目的TEI过滤标志", "Destination TEI Filter Flag"), base.DEC)
@@ -1155,8 +1158,8 @@ local function dissect_sof_vf(tvb, tree, is_rf)
     add_tei12(tree, f.sof_src_tei, tvb, 1)
     add_tei12h(tree, f.sof_dst_tei, tvb, 2)
     if is_rf then
-        -- 无线 SOF(第2部分 表131): 帧长(5,0,12) + 载荷PB大小(6,4,4) + MCS(7,0,4) +
-        --   TEI过滤(7,4,1) + 重传(7,5,1) + 保留(7,6,2)/(8,0,32)/(12,0,4)
+        -- 无线 SOF(SPLC 第4部分 表45): 帧长(5,0,12) + 载荷PB大小(6,4,4) + MCS(7,0,4) +
+        --   TEI过滤(7,4,1) + 重传(7,5,1) + 保留(7,6,2)/(8,0,32) + SNID高位(12,0,1)+保留(12,1,3)
         tree:add(f.sof_lid, tvb(4, 1))
         add_val(tree, f.sof_frame_len, tvb, 5, 2, read_bits(tvb, 5 * 8, 12))
         tree:add(f.sof_pblen, tvb(6, 1))
@@ -1165,7 +1168,8 @@ local function dissect_sof_vf(tvb, tree, is_rf)
         add_val(tree, f.sof_resend, tvb, 7, 1, read_bits(tvb, 7 * 8 + 5, 1))
         add_val(tree, f.sof_rsv, tvb, 7, 1, read_bits(tvb, 7 * 8 + 6, 2))
         add_le(tree, f.sof_rsv, tvb, 8, 4)
-        add_val(tree, f.sof_tmi_ext, tvb, 12, 1, read_bits(tvb, 12 * 8, 4))
+        tree:add(f.sof_rf_snid_hi, tvb(12, 1))   -- SNID 高位(12,0,1,表45)
+        tree:add(f.sof_rf_rsv12, tvb(12, 1))     -- 保留(12,1,3,表45)
         r.pb_num = 1                                  -- 无线信道仅 1 个物理块
         r.pbsize = rf_pb_size(read_bits(tvb, 6 * 8 + 4, 4))
     else
@@ -2174,6 +2178,18 @@ local function dissect_mme_body(tvb, tree, mmtype)
     end
 end
 
+-- 管理消息体里「单一 MMe 主体」的 STA MAC 字符串 + TEI(代理转发判定 + STA-N 显示);
+-- 无单一主体(批量/网关/无主体)返回 nil,nil。偏移与各 dissect_mme_* 字段一致。
+local function mme_body_sta_mac_tei(mmtype, tvb)
+    if mmtype == 0x0030 then return mac_to_str(tvb, 6), 0                          -- 关联请求 STAMACAddr@6(无 TEI)
+    elseif mmtype == 0x0031 then return mac_to_str(tvb, 6), read_bits(tvb, 14 * 8, 12)   -- 关联确认 STAMACAddr@6,STATEI@14
+    elseif mmtype == 0x0034 then return mac_to_str(tvb, 8), read_bits(tvb, 20 * 8, 12)   -- 关联指示 STAMACAddr@8,STATEI@20
+    elseif mmtype == 0x0049 then return mac_to_str(tvb, 10), read_bits(tvb, 6 * 8, 16)   -- 离网指示 MAC@10,TEI@6
+    elseif mmtype == 0x0055 then return mac_to_str(tvb, 10), read_bits(tvb, 6 * 8, 16)   -- 发现列表 MACAddr@10,STATEI@6
+    end
+    return nil, nil
+end
+
 -- =========================================================================
 -- APP 应用层报文 (通道控制信息 4B + 业务报文头 8B + APP Data)
 -- =========================================================================
@@ -2562,11 +2578,13 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei, no_info)
     -- MSDU 帧头
     local msdu_off = hdr_len
     local vlan, msdu_type
+    local src_mac_str = nil   -- 本跳发送方 MAC(长帧头;代理转发判定用)
     if head_flag == 0 then
         -- 长帧头 MSDU_LONGHEAD (18B): 目的/源 MAC + VLAN(32b) + MSDU 类型(16b)
         if msdu_off + 18 > tvb:len() then return end
         mac_tree:add(f.msdu_dst_mac, tvb(msdu_off, 6))
         mac_tree:add(f.msdu_src_mac, tvb(msdu_off + 6, 6))
+        src_mac_str = mac_to_str(tvb, msdu_off + 6)
         vlan = read_bits(tvb, (msdu_off + 12) * 8, 32)
         add_val(mac_tree, f.msdu_vlan, tvb, msdu_off + 12, 4, vlan)
         msdu_type = read_bits(tvb, (msdu_off + 16) * 8, 16)
@@ -2617,6 +2635,15 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei, no_info)
                             T("管理消息体解析失败(可能截断): ", "MMe body parse failed (possibly truncated): ") .. tostring(err))
                     end
                 end
+                -- 代理转发主体标记(与 C++ packetlistmodel COL_MSDU_TYPE 同口径):
+                -- 单一 MMe 主体 MAC ≠ 本跳发送方 MAC → Info 追加 " STA-N [MAC:...]"
+                local body_mac_str, body_tei = mme_body_sta_mac_tei(mmtype, body_tvb)
+                if body_mac_str and src_mac_str and body_mac_str ~= src_mac_str and not no_info then
+                    local body = (body_tei and body_tei ~= 0)
+                        and string.format("STA-%d", body_tei) or "STA-X"
+                    pinfo.cols.info = tostring(pinfo.cols.info)
+                        .. string.format(" %s [MAC:%s]", body, body_mac_str)
+                end
             else
                 mme_summary = T("未识别", "unrecognized")
             end
@@ -2658,6 +2685,7 @@ nw.fields = {
     f.beacon_mcs, f.beacon_rsv1, f.beacon_rsv2, f.beacon_rsv3,
     f.sof_src_tei, f.sof_dst_tei, f.sof_lid, f.sof_pb_num, f.sof_tmi,
     f.sof_frame_len, f.sof_tmi_ext, f.sof_pblen,
+    f.sof_rf_snid_hi, f.sof_rf_rsv12,
     f.mme_bl_rsv0, f.mme_bl_rsv1, f.mme_iot_rsv,
     f.sof_mcs, f.sof_symbol_cnt, f.sof_tei_filter, f.sof_resend, f.sof_rsv,
     f.sof_bplc_lid, f.sof_bplc_snid_hi, f.sof_bplc_rsv, f.sof_bplc_pbnum, f.sof_bplc_tmi,
