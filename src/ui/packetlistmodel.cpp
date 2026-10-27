@@ -138,6 +138,18 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                     }
                     return s;
                 }
+                // 原始目的 TEI=0 且下一跳 TEI=0:目的 STA 未分配 TEI,从报文体 STA MAC 填,
+                // TEI 从映射表用 MAC 反查(查不到 STA-X)
+                if (e.accepted && e.msdu.present && !e.msdu.simple_head
+                    && e.msdu.msdu_dst_tei == 0 && e.mpdu.dst_tei == 0
+                    && e.msdu.sta_mac) {
+                    const quint64 mac = e.msdu.sta_mac;
+                    const quint16 mac_tei = lookup_tei_by_mac(e.mpdu.net_id, mac);
+                    const QString s = mac_tei
+                        ? QStringLiteral("STA-%1").arg(mac_tei)
+                        : QStringLiteral("STA-X");
+                    return s + QStringLiteral(" [%1]").arg(format_mac(mac));
+                }
                 return QString();
             }
             case COL_DIR:
@@ -583,6 +595,15 @@ quint64 PacketListModel::lookup_mac(quint32 nid, quint16 tei) const {
     if (it == m_tei_mac.constEnd()) return 0;
     auto mit = it->constFind(tei);
     return (mit == it->constEnd()) ? 0 : mit.value();
+}
+
+quint16 PacketListModel::lookup_tei_by_mac(quint32 nid, quint64 mac) const {
+    if (!mac) return 0;
+    auto it = m_tei_mac.constFind(nid);
+    if (it == m_tei_mac.constEnd()) return 0;
+    for (auto mit = it->constBegin(); mit != it->constEnd(); ++mit)
+        if (mit.value() == mac) return mit.key();
+    return 0;
 }
 
 void PacketListModel::activate_row(int visible_row) {

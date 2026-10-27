@@ -123,6 +123,8 @@ private:
     void update_tei_mac(const PacketEntry& e);
     /// @brief 查 TEI 对应 MAC(48-bit;无记录返回 0)
     quint64 lookup_mac(quint32 nid, quint16 tei) const;
+    /// @brief 反查 MAC 对应 TEI(48-bit;无记录返回 0)
+    quint16 lookup_tei_by_mac(quint32 nid, quint64 mac) const;
 
     QVector<PacketEntry>  m_hot;         ///< 驻留热区(最近未 flush 条目,≤kBlockSize)
     int                    m_block_count; ///< 已落盘满块数量

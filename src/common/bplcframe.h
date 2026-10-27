@@ -455,17 +455,19 @@ inline QString make_search_text(const PacketEntry& e) {
 /// @brief Dir 列显示(界面列表 COL_DIR 与 CSV 导出共用):
 ///        广播报文(目的 TEI=0xFFF 且发送类型非单播)按 广播方向+剩余跳数 指示
 ///        ↓[R]N→ / ↑[R]N→ / [R]N→,方向未知/保留→*;单播按 TEI 判定 ↑/↓(中继 ↑R/↓R)
-///        中继判定 = MSDU 头源 TEI≠本跳 TEI,或 MMe 主体≠本跳发送方(代理转发管理帧)
+///        中继判定 = MSDU 头源 TEI≠本跳 TEI,或 MMe 主体≠本跳发送方且发送方非 CCO(排除 CCO 直接回应的管理帧)
 inline QString dir_display(const PacketEntry& e) {
     if (!e.accepted || !e.msdu.present || e.msdu.simple_head)
         return QStringLiteral("*");
     const bool relay_orig = (e.mpdu.src_tei != 0)
                     && (e.msdu.msdu_src_tei > 0)
                     && (quint16(e.msdu.msdu_src_tei) != e.mpdu.src_tei);
-    // 中继扩展:MMe 主体(sta_mac)≠ 本跳发送方(msdu_src_mac)的管理帧(如代理转发的关联请求)
+    // 中继扩展:MMe 主体(sta_mac)≠ 本跳发送方(msdu_src_mac)的管理帧(代理转发);
+    // 排除 CCO 直接发送(如 CCO 发关联确认,CCO 是原始回应者非中继;src_tei==1)
     const bool relay = relay_orig
                     || (e.msdu.sta_mac != 0 && e.msdu.msdu_src_mac != 0
-                        && e.msdu.sta_mac != e.msdu.msdu_src_mac);
+                        && e.msdu.sta_mac != e.msdu.msdu_src_mac
+                        && e.mpdu.src_tei != 1);
     const quint8 bdir  = e.msdu.broadcast_direction;
     const quint8 hops  = e.msdu.route_hops_left;
     const bool   bcast = (e.msdu.msdu_dst_tei == 0xFFF)
