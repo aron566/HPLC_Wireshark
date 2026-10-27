@@ -742,6 +742,69 @@ info.sof_multi_site_verified = true;
 
 ---
 
+## 十三、通用枚举与常量登记表（禁止裸值）
+
+### 13.1 原则
+
+**业务语义值一律不得裸写。** 任何在代码里出现 ≥2 次的语义值（链路类型、TEI 特殊值、协议号、MMe 类型、哨兵值），
+必须在 `src/common/bplcframe.h` 定义枚举/`constexpr`，**并在本表登记**，然后才可使用。
+
+**判定顺序**：
+1. 先查本表有没有现成的 → 有就直接用
+2. 没有 → 在 `bplcframe.h` 定义（common 层，不依赖协议层）+ 注释写协议文档名与表号 → **同时在本表补一行**
+3. 只在单个函数内用一次的局部魔数（如循环上界）→ 可不定义，但注释要写清含义
+
+### 13.2 登记表（`src/common/bplcframe.h`）
+
+| 枚举 / 常量 | 值 | 含义 | 协议依据 |
+|---|---|---|---|
+| `enum LinkTypeValue : quint8` | | 链路类型 | SPLC-4 表79 / BPLC-2 表160；HDC1.0 表61、表72 / HDC2.0 表56、表58（两家一致） |
+| `LinkTypeHplc` | 0 | 高速载波链路 | 同上 |
+| `LinkTypeRf` | 1 | 无线链路 | 同上 |
+| `LinkTypeUnknown` | 0xFF | 未定（⚠️ **本机约定**，协议该域仅 1bit） | — |
+| `constexpr quint16 kTeiCco` | 1 | CCO 的 TEI | SPLC-4「TEI 固定为 1」/ HDC2.0 5.3.3.1 |
+| `constexpr quint16 kTeiBroadcast` | 0xFFF | 广播报文 TEI | SPLC-4「广播报文 TEI 为 0xFFF」/ HDC2.0 5.3.3.1 |
+| `constexpr quint16 kTeiInvalid` | 0xFFFF | 无效/未分配（⚠️ **本机哨兵**，超出 12bit 域） | — |
+| `enum NwCcoInitiatedMme : quint16` | | CCO 作为发起者/回应者的管理消息（中继判定排除用） | SPLC-4 表92 / 表99 / 表108 |
+| `NwCcoInitMmeAssocCnf` | 0x0031 | 关联确认 | 表92 |
+| `NwCcoInitMmeAssocInd` | 0x0034 | 关联指示 | 表99 |
+| `NwCcoInitMmeChangeProxyCnf` | 0x0037 | 代理变更确认 | 表108 |
+| `enum class TopoEventKind` | — | 拓扑事件类型 | 见 `bplcframe.h` 逐项注释 |
+| `constexpr quint8 kProtocolGw2022` | 0 | 国网 HDC 1.0（2022） | 协议选择 |
+| `constexpr quint8 kProtocolNw2021` | 1 | 南网 BPLC 2021 报批版 | 协议选择 |
+| `constexpr quint8 kProtocolGw2026` | 2 | 国网 HDC 2.0（2026） | 协议选择 |
+| `constexpr quint8 kProtocolNw2026` | 3 | 南网 SPLC 2026 | 协议选择 |
+| `constexpr quint8 kProtocolPluginBit` | 0x80 | 协议号插件位（低 7bit 为协议号） | 本机约定 |
+
+### 13.3 待补登记（已知裸值，尚未定义）
+
+| 裸值 | 含义 | 建议名 | 出处 |
+|---|---|---|---|
+| `0xFF` | 重启次数无效（4bit 域 0-15，0xFF 为哨兵） | `kRestartCountInvalid` | 协议解析器 `restart_count != 0xFF` |
+| `0xFFFF` | 非管理消息的 `mme_type` 哨兵 | `kMMeTypeNone` | `MsduInfo.mme_type` |
+
+> 补齐后请把它们从本节移到 13.2 登记表。
+
+### 13.4 审查判据（代码复核时逐条 grep）
+
+```bash
+# ① 判 CCO 的裸值（应为 0）
+grep -rnE '(tei|parent|src_tei|dst_tei|old_tei|msdu_src_tei|msdu_dst_tei) *[=!]= *1\b' src/ | grep -v kTeiCco
+
+# ② 广播 TEI 裸值（应为 0）
+grep -rnE '(tei|dst_tei) *[=!]= *0xFFF' src/ | grep -v kTeiBroadcast
+
+# ③ 链路类型裸值（应为 0）
+grep -rnE 'link_type *[=!]= *(1|0xFF|0)\b' src/ | grep -vE 'LinkType(Rf|Hplc|Unknown)'
+
+# ④ 新增枚举后是否登记进 13.2
+grep -nE '^enum |^constexpr ' src/common/bplcframe.h   # 逐项与本文档 13.2 表比对
+```
+
+**审查口径**：以上 ①②③ 命中即**不合入**（除注释/字符串字面量）；④ 缺登记项要求补齐文档。
+
+---
+
 ## 附：待清理的历史遗留
 
 截至本规范建立时，代码库中还有 **399 条**「首字母大写但内部实词小写」的历史文案
