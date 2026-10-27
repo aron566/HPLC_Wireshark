@@ -98,6 +98,11 @@ def read_dump(dmp: str):
     tid = stream.ThreadId
     er = stream.ExceptionRecord
     code = getattr(er.ExceptionCode, "value", er.ExceptionCode)
+    if not isinstance(code, int):
+        # ExceptionCode 可能是枚举名/字符串(crashpad 自定义码),退回原始值
+        code = getattr(er, "ExceptionCode_raw", 0)
+        if not isinstance(code, int):
+            code = 0
     addr = er.ExceptionAddress
     # 模块
     mods = []

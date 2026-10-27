@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <csignal>
 #ifdef _WIN32
 #include <windows.h>  // OutputDebugStringW(消息钩子复刻 Qt 默认调试器输出)
 #endif
@@ -54,19 +55,38 @@ static bool has_self_crash_flag(int argc, char* argv[]) {
     return false;
 }
 
-// Qt 断言/致命错误钩子:Q_ASSERT(配合 QT_FORCE_ASSERTS)失败走 qFatal → abort →
-// SIGABRT,由崩溃后端落一份 minidump(Windows:abort 钩子;Linux:crashpad 自带
-// SIGABRT 捕获)。这里不再先落 dump,否则与 abort 路径重复(双份 dump)。
+// Qt 断言/致命错误钩子:Q_ASSERT(配合 QT_FORCE_ASSERTS)失败走 qFatal。
+// Windows 下 qFatal 经 Qt 默认 handler 的 qAbort → RaiseFailFastException(不经 SIGABRT),
+// 故 SIGABRT 钩子对 qFatal 无效 —— QtFatalMsg 分支必须自己落 dump 并 abort 收尾(恰好 1 份)。
 // 非致命级别:有原 handler 则转交;无原 handler 时复刻 Qt 默认输出
 // (stderr + Windows 调试器输出),不改变现有日志行为。
 static QtMessageHandler g_prev_qt_handler = nullptr;
 
 static void qt_message_handler(QtMsgType type, const QMessageLogContext& ctx,
                                const QString& msg) {
+    if (type == QtFatalMsg) {
+#ifdef _WIN32
+        // Windows:落 dump(qFatal 走 qAbort/RaiseFailFastException,不经 SIGABRT;
+        // SIGABRT 钩子对此路径无效,此处是唯一可靠来源)。
+        // 防双份:不转交 Qt 默认 handler(否则再走 qAbort 的 FastFail),复位 SIG_DFL 后 abort;
+        // 若后端 SIGABRT 钩子还会再落一份,先复位 SIG_DFL 保证恰好 1 份。
+        CrashHandler::dump_without_crash();
+        std::signal(SIGABRT, SIG_DFL);
+        std::abort();
+#else
+        // Linux:dump 靠 crashpad 自带 SIGABRT 捕获(backend 不装应用层 SIGABRT 钩子)。
+        // 不要复位 SIG_DFL(会顶掉 crashpad 的 SIGABRT handler 丢 dump);
+        // 转交原 handler(qAbort→abort→SIGABRT) 或直接 abort,均走 crashpad 捕获。
+        if (g_prev_qt_handler)
+            g_prev_qt_handler(type, ctx, msg);
+        else
+            std::abort();
+#endif
+        return;
+    }
+    // 非致命:有原 handler 转交;无原 handler 时复刻 Qt 默认输出(stderr + 调试器输出)
     if (g_prev_qt_handler) {
-        g_prev_qt_handler(type, ctx, msg);    // 转交原 handler
-    } else if (type == QtFatalMsg) {
-        std::abort();                          // 无原 handler:默认 fatal = abort
+        g_prev_qt_handler(type, ctx, msg);
     } else {
         const QString formatted = qFormatLogMessage(type, ctx, msg);
         std::fprintf(stderr, "%s\n", qPrintable(formatted));
@@ -134,7 +154,8 @@ int main(int argc, char* argv[]) {
         co.release = QCoreApplication::applicationVersion().toStdString();
         CrashHandler::install(co);
     }
-    // Qt 消息钩子:断言(qFatal)走 abort → SIGABRT,由后端落单份 dump(需在 crash 后端激活后安装)
+    // Qt 消息钩子:QtFatalMsg 由 handler 直接落 dump 并 abort(不走 SIGABRT 钩子,
+    // 见 qt_message_handler);需在 crash 后端激活后安装。
     g_prev_qt_handler = qInstallMessageHandler(qt_message_handler);
 
     // CI 崩溃可用性验证:确定性崩溃,便于符号化定位到 crash_selftest_trigger
