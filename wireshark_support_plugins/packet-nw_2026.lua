@@ -2573,7 +2573,7 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei, no_info)
         dir_mark = T(" ↓下行", " ↓Downlink")          -- CCO 发出(非广播) → 下行
     elseif src_tei ~= 1 and dst_tei ~= 0xFFF then
         -- P2P(非 CCO,非广播): APP 报文用 TransDirectionFlag(表8 0=下行 1=上行);
-        -- 业务报文头 byte1 bit7 = MSDU 载荷起点 + 通道控制信息(4B) + 1;MMe/无 flag 保持现有 ↑
+        -- 业务报文头 byte1 bit7 = MSDU 载荷起点 + 通道控制信息(4B) + 1;MMe/无 flag → 方向未知 *(与主界面 dir_display 对齐)
         local msdu_hdr = (head_flag == 0) and 18 or 2
         local is_app = (head_flag == 1)   -- 短帧头只携带应用层报文
         if head_flag == 0 then
@@ -2588,8 +2588,10 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei, no_info)
         end
         if tdf == 0x00 then
             dir_mark = T(" ↓下行", " ↓Downlink")
+        elseif tdf == 0x80 then
+            dir_mark = T(" ↑上行", " ↑Uplink")        -- flag=1 → 上行
         else
-            dir_mark = T(" ↑上行", " ↑Uplink")        -- flag=1 或 无 flag(MMe/截断) → 保持现有 ↑
+            dir_mark = T(" *", " *")                  -- 无 flag(MMe/截断) → 方向未知,与主界面 dir_display 的 * 对齐
         end
     elseif src_tei ~= 1 then
         dir_mark = T(" ↑上行", " ↑Uplink")            -- 广播(dst==0xFFF) src!=1 → 保持现有 ↑
