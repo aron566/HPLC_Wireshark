@@ -56,7 +56,7 @@ class GW_2026_BeaconParser {
 public:
     /// @brief 解析 BEACON 帧载荷区
     /// @param payload_for_log 整帧 MPDU(payload_for_log,自 FrameType 起含 16B FCH)
-    /// @param is_rf true=无线信标(载荷 PB 大小码在 FCH (10,0,4),查表29),
+    /// @param is_rf true=无线信标(载荷 PB 大小码在 FCH (10,0,4),查表18),
     ///        false=载波信标(TMI 在 FCH (9,4,4),查载波表);载荷区格式本身与介质无关
     /// @return MsduInfo.tree 为字段树;present=false 表示载荷不可解析
     static MsduInfo parse_beacon(const QByteArray& payload_for_log, bool is_rf);

@@ -265,7 +265,7 @@ MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_r
     const quint8* p = reinterpret_cast<const quint8*>(payload.constData());
     int pbsize;
     if (is_rf) {
-        // 无线信标:(10,0,4) 为载荷 PB 大小码(表29),0-5=16/40/72/136/264/520;
+        // 无线信标:(10,0,4) 为载荷 PB 大小码(表18),0-5=16/40/72/136/264/520;
         // 信标载荷仅支持 40/72/136/264/520(码 1-5),码 0(16B)装不下精简头+CRC32,
         // 由后 gb<24 门拒收;(9,4,4) 为 MCS,不是 TMI,不可查载波表
         const quint8 code = (quint8)get_bits(p, 10, 0, 4);

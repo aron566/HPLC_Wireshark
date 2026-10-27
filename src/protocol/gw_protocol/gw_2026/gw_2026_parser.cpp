@@ -262,7 +262,7 @@ GW_2026_Parser::Result GW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
         r.mpdu.beacon_timestamp = (quint32)get_bits(p, 4, 0, 32);
         r.mpdu.src_tei          = (quint16)get_bits(p, 8, 0, 12);
         if (r.meta.is_rf) {
-            // 无线信标(表27):(9,4,4) 为 MCS、(10,0,4) 为载荷 PB 大小码(表29),
+            // 无线信标(表18):(9,4,4) 为 MCS、(10,0,4) 为载荷 PB 大小码,
             // 其余 (10,4,4)+(11,0,8)+(12,0,4) 为保留,无符号数/相线字段
             r.mpdu.mcs          = (quint8) get_bits(p, 9, 4, 4);
             r.mpdu.pb_num_field = (quint8) get_bits(p, 10, 0, 4);   // 载荷 PB 大小码
