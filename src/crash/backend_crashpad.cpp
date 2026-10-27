@@ -16,10 +16,15 @@
 #include "crashpad/client/crashpad_client.h"
 #include "crashpad/client/settings.h"
 
+#include <csignal>
 #include <cstdlib>
 #include <map>
 #include <string>
 #include <vector>
+
+#ifdef _WIN32
+#include <windows.h>   // CONTEXT / RtlCaptureContext(SIGABRT 兜底抓上下文)
+#endif
 
 namespace {
 
@@ -117,6 +122,38 @@ std::string backend_crashpad_install(const CrashHandler::Options& opts) {
 
 void backend_crashpad_shutdown() {
     // crashpad 为进程外 handler,随进程退出自动清理,无需显式关闭
+}
+
+namespace {
+
+// 抓当前线程上下文 + 落一份非崩溃 minidump(SEH 未接管时的手动路径)。
+void capture_and_dump_without_crash() {
+#ifdef _WIN32
+    CONTEXT ctx;
+    RtlCaptureContext(&ctx);
+    crashpad::CrashpadClient::DumpWithoutCrash(ctx);
+#endif
+}
+
+// SIGABRT 兜底:abort()/std::abort()/Qt qFatal(Q_ASSERT 失败)最终触发 SIGABRT,
+// 这里抓上下文落 dump 后恢复默认并重新 raise,让进程以正常 abort 语义终止。
+// handler 内只做最小动作(抓上下文 + dump + raise),保持 async-signal-safe 尽量小。
+void abort_signal_handler(int) {
+    capture_and_dump_without_crash();
+    std::signal(SIGABRT, SIG_DFL);
+    std::raise(SIGABRT);
+}
+
+} // namespace
+
+void backend_crashpad_install_abort_hook() {
+    // release 下 QT_FORCE_ASSERTS 让 Q_ASSERT 活着,失败走 qFatal→abort→SIGABRT;
+    // 这里接管 SIGABRT 使 abort 路径也能落 minidump(SEH 只拦访问违例等异常)
+    std::signal(SIGABRT, abort_signal_handler);
+}
+
+void backend_crashpad_dump_without_crash() {
+    capture_and_dump_without_crash();
 }
 
 #endif // CRASH_HAVE_CRASHPAD

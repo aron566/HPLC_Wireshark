@@ -8,6 +8,9 @@ TARGET = BPLC_STA_Monitor
 TEMPLATE = app
 
 DEFINES += QT_DEPRECATED_WARNINGS
+# 生产抓断言:release(QT_NO_DEBUG)下 Q_ASSERT 被编译掉,这里强制编译进来,
+# 配合 crash 钩子把断言失败转成 minidump(2026-10-27 用户拍板)
+DEFINES += QT_FORCE_ASSERTS
 
 # 消除第三方库的编译警告(crashpad 头文件 unused-parameter / miniz.c type-limits)
 QMAKE_CXXFLAGS += -Wno-unused-parameter

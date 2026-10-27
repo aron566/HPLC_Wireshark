@@ -12,3 +12,7 @@ std::string backend_sentry_install(const CrashHandler::Options& opts);
 std::string backend_crashpad_install(const CrashHandler::Options& opts);
 void backend_sentry_shutdown();
 void backend_crashpad_shutdown();
+// SIGABRT 兜底(abort()/Qt qFatal 触发 SIGABRT → 抓上下文落 dump);仅 crashpad 后端。
+void backend_crashpad_install_abort_hook();
+// 手动 dump(Qt qFatal 钩子用);仅 crashpad 后端。
+void backend_crashpad_dump_without_crash();

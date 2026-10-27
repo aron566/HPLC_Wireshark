@@ -14,4 +14,6 @@ std::string backend_crashpad_install(const CrashHandler::Options&) {
     return std::string();
 }
 void backend_crashpad_shutdown() {}
+void backend_crashpad_install_abort_hook() {}
+void backend_crashpad_dump_without_crash() {}
 #endif

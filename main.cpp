@@ -17,6 +17,9 @@
 #include <QLocale>
 #include <QStyleHints>
 #include <QGuiApplication>
+#include <QtGlobal>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "QsLog.h"
@@ -46,6 +49,24 @@ static bool has_self_crash_flag(int argc, char* argv[]) {
         if (std::strcmp(argv[i], "--self-crash-test") == 0)
             return true;
     return false;
+}
+
+// Qt 断言/致命错误钩子:Q_ASSERT(配合 QT_FORCE_ASSERTS)失败走 qFatal →
+// 这里先落 minidump 再转交(abort → SIGABRT 兜底)。仅 QtFatalMsg 落 dump,
+// 其他级别原样转交原 handler(无原 handler 时用默认输出),不改变现有日志行为。
+static QtMessageHandler g_prev_qt_handler = nullptr;
+
+static void qt_message_handler(QtMsgType type, const QMessageLogContext& ctx,
+                               const QString& msg) {
+    if (type == QtFatalMsg)
+        CrashHandler::dump_without_crash();   // 先落 dump(含完整调用栈)
+    if (g_prev_qt_handler) {
+        g_prev_qt_handler(type, ctx, msg);    // 转交原 handler
+    } else if (type == QtFatalMsg) {
+        std::abort();                          // 无原 handler:默认 fatal = abort
+    } else {
+        std::fprintf(stderr, "%s\n", qPrintable(qFormatLogMessage(type, ctx, msg)));
+    }
 }
 
 static void decide_language() {
@@ -104,6 +125,8 @@ int main(int argc, char* argv[]) {
         co.release = QCoreApplication::applicationVersion().toStdString();
         CrashHandler::install(co);
     }
+    // Qt 消息钩子:断言(qFatal)先落 dump 再 abort(需在 crash 后端激活后安装)
+    g_prev_qt_handler = qInstallMessageHandler(qt_message_handler);
 
     // CI 崩溃可用性验证:确定性崩溃,便于符号化定位到 crash_selftest_trigger
     if (has_self_crash_flag(argc, argv))

@@ -267,10 +267,11 @@ void ReaderWorker::try_extract_frame() {
         //   帧间 NTB 差超出合理范围(长时间无报文/跨 u32 回绕)→ 用本地时刻,不
         //   沿用上一帧 NTB(本帧为断点,重置链)
         if (m_playback_base_ms >= 0) {
-            const quint32 ntb = ((quint32)(quint8)unesc[2])
-                              | ((quint32)(quint8)unesc[3] << 8)
-                              | ((quint32)(quint8)unesc[4] << 16)
-                              | ((quint32)(quint8)unesc[5] << 24);
+            // 极短帧(<6B,无帧内 NTB):ntb=0,时间轴走断点分支(本地时刻)
+            const quint32 ntb = (unesc.size() >= 6)
+                ? (quint32)(quint8)unesc[2] | ((quint32)(quint8)unesc[3] << 8)
+                  | ((quint32)(quint8)unesc[4] << 16) | ((quint32)(quint8)unesc[5] << 24)
+                : 0;
             if (m_first_frame) {
                 bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(m_playback_base_ms);
                 m_last_ft = m_playback_base_ms;

@@ -9,10 +9,13 @@
 
 #include <string>
 
+namespace {
+std::string g_active_backend;   // 已激活后端("sentry"/"crashpad"),空=未激活
+}
+
 std::string CrashHandler::install(const Options& opts) {
-    static std::string active; // 只能安装一次
-    if (!active.empty())
-        return active;
+    if (!g_active_backend.empty())
+        return g_active_backend;
 
     std::string want = opts.backend;
     if (want == "auto") {
@@ -21,21 +24,28 @@ std::string CrashHandler::install(const Options& opts) {
 #elif defined(CRASH_HAVE_CRASHPAD)
         want = "crashpad";
 #else
-        return active; // 两个后端都没编译
+        return g_active_backend; // 两个后端都没编译
 #endif
     }
 
     if (want == "sentry") {
-        active = backend_sentry_install(opts);
-        if (!active.empty())
-            return active;
+        g_active_backend = backend_sentry_install(opts);
+        if (!g_active_backend.empty())
+            return g_active_backend;
         // sentry 安装失败则回退到 crashpad
         want = "crashpad";
     }
     if (want == "crashpad") {
-        active = backend_crashpad_install(opts);
+        g_active_backend = backend_crashpad_install(opts);
+        if (!g_active_backend.empty())
+            backend_crashpad_install_abort_hook();  // SIGABRT 兜底(qFatal/abort → dump)
     }
-    return active;
+    return g_active_backend;
+}
+
+void CrashHandler::dump_without_crash() {
+    if (g_active_backend == "crashpad")
+        backend_crashpad_dump_without_crash();
 }
 
 void CrashHandler::shutdown() {

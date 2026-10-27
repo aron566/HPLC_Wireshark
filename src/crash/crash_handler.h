@@ -49,6 +49,10 @@ public:
     // 关闭(程序正常退出前调用,刷新上报队列)。
     static void shutdown();
 
+    // 手动落一份非崩溃 minidump(后端已激活且为 crashpad 时;否则空操作)。
+    // Qt qFatal 钩子等"崩溃前"路径用,先落 dump 再走 abort。
+    static void dump_without_crash();
+
     // 编译期是否包含某后端("sentry"/"crashpad")。
     static bool has_backend(const char* name);
 
