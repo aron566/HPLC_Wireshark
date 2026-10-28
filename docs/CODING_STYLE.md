@@ -765,6 +765,8 @@ info.sof_multi_site_verified = true;
 | `constexpr quint16 kTeiCco` | 1 | CCO 的 TEI | SPLC-4「TEI 固定为 1」/ HDC2.0 5.3.3.1 |
 | `constexpr quint16 kTeiBroadcast` | 0xFFF | 广播报文 TEI | SPLC-4「广播报文 TEI 为 0xFFF」/ HDC2.0 5.3.3.1 |
 | `constexpr quint16 kTeiInvalid` | 0xFFFF | 无效/未分配（⚠️ **本机哨兵**，超出 12bit 域） | — |
+| `constexpr quint8 kRestartCountInvalid` | 0xFF | 重启次数无效（⚠️ **本机哨兵**；协议该域仅 4bit 0-15） | 国网 MSDU 头 / 南网 MAC 帧头重启次数字段 |
+| `constexpr quint16 kMMeTypeNone` | 0xFFFF | 非管理消息的 `mme_type` 标记（⚠️ **本机约定**） | — |
 | `enum NwCcoInitiatedMme : quint16` | | CCO 作为发起者/回应者的管理消息（中继判定排除用） | SPLC-4 表92 / 表99 / 表108 |
 | `NwCcoInitMmeAssocCnf` | 0x0031 | 关联确认 | 表92 |
 | `NwCcoInitMmeAssocInd` | 0x0034 | 关联指示 | 表99 |
@@ -778,12 +780,15 @@ info.sof_multi_site_verified = true;
 
 ### 13.3 待补登记（已知裸值，尚未定义）
 
+**当前为空** —— 原登记的两项已于 2026-10 补齐并移入 13.2：
+
 | 裸值 | 含义 | 建议名 | 出处 |
 |---|---|---|---|
-| `0xFF` | 重启次数无效（4bit 域 0-15，0xFF 为哨兵） | `kRestartCountInvalid` | 协议解析器 `restart_count != 0xFF` |
-| `0xFFFF` | 非管理消息的 `mme_type` 哨兵 | `kMMeTypeNone` | `MsduInfo.mme_type` |
+| ~~`0xFF`~~ | ~~重启次数无效~~ | ~~`kRestartCountInvalid`~~ | ✅ 已定义 |
+| ~~`0xFFFF`~~ | ~~非管理消息 `mme_type` 哨兵~~ | ~~`kMMeTypeNone`~~ | ✅ 已定义 |
 
-> 补齐后请把它们从本节移到 13.2 登记表。
+> 新发现通用值为裸值时，先在本节登记（写明值/含义/建议名/出处），
+> 定义落地后移入 13.2 登记表。
 
 ### 13.4 审查判据（代码复核时逐条 grep）
 

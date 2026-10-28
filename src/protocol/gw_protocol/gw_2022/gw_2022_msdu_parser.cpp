@@ -1154,7 +1154,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                 out.topo_event.nodes.append({0, out.sta_mac});
                 // STA 重启检测用:关联请求由 STA 本人发出,MSDU 头 RestartCount 即该 STA 的;
                 // 0xFF=无此字段不检测
-                if (out.restart_count != 0xFF)
+                if (out.restart_count != kRestartCountInvalid)
                     out.topo_event.restart_count = (int)out.restart_count;
                 out.topo_event.desc = trl::L("关联请求: STA %1 正在入网")
                     .arg(mac_str(out.sta_mac));
@@ -1503,7 +1503,7 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                     // 只有 CCO 本人发出(src_tei == kTeiCco)的发现列表才采用,STA 中继转发的
                     // 发现列表其 RestartCount 是中继 STA 的,不能用于 CCO 重启判断;
                     // 0xFF=无此字段不检测
-                    if (out.restart_count != 0xFF && out.msdu_src_tei == kTeiCco)
+                    if (out.restart_count != kRestartCountInvalid && out.msdu_src_tei == kTeiCco)
                         out.topo_event.restart_count = (int)out.restart_count;
                     if (sta_tei && sta_mac) out.topo_event.nodes.append({sta_tei, sta_mac});
                     if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});

@@ -1283,7 +1283,7 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                 out.topo_event.nodes.append({0, out.sta_mac});
                 // STA 重启检测用:关联请求由 STA 本人发出,MSDU 头 RestartCount 即该 STA 的;
                 // 0xFF=无此字段不检测
-                if (out.restart_count != 0xFF)
+                if (out.restart_count != kRestartCountInvalid)
                     out.topo_event.restart_count = (int)out.restart_count;
                 out.topo_event.desc = trl::L("关联请求: STA %1 正在入网")
                     .arg(mac_str(out.sta_mac));

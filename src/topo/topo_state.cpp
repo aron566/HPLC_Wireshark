@@ -277,9 +277,11 @@ void TopoState::apply(const TopoEvent& e) {
         nit.value().rssi_dbm = r.second;
         nit.value().rssi_known = true;
     }
-    // 子站点表(代理变更确认 0x003B 位图):按帧内链路类型更新各子站点接入方式;
-    // 节点不存在时建占位(parent 未知),后续关联/发现事件再补全 MAC/父节点
-    if (e.link_type >= 0) {
+    // 子站点表(代理变更确认位图 0x003B):全库仅该 MMe 填 child_teis(见 nw_2026_msdu_parser
+    // ChangeProxyBitmapCnf 的 bm_ok 分支);kind 门防未来别的帧同时填 child_teis+link_type
+    // 时误建节点/误设接入方式
+    const bool child_authoritative = (e.kind == TopoEventKind::ChangeProxyCnf);
+    if (child_authoritative && e.link_type >= 0) {
         for (quint16 ctei : e.child_teis) {
             if (!ctei || ctei == kTeiInvalid) continue;   // 0=根(CCO 自身);0xFFFF=未知,均不建节点
             TopoNode& n = nodes[ctei];

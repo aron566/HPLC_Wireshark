@@ -31,6 +31,10 @@ enum LinkTypeValue : quint8 {
 constexpr quint16 kTeiCco       = 1;      ///< CCO 的 TEI(南网「TEI固定为1」/ HDC2.0 5.3.3.1 同)
 constexpr quint16 kTeiBroadcast = 0xFFF;  ///< 广播报文 TEI(南网「广播报文TEI为0xFFF」/ HDC2.0 5.3.3.1 同)
 constexpr quint16 kTeiInvalid   = 0xFFFF; ///< 无效/未分配(⚠️ 本机哨兵,超出 12bit 域,协议无此值)
+/// 重启次数无效(协议 4bit 域 0-15;0xFF 为本机哨兵,非协议值)
+constexpr quint8  kRestartCountInvalid = 0xFF;
+/// 非管理消息(non-MMe)的 mme_type 标记(本机约定;MMe 类型域 16bit)
+constexpr quint16 kMMeTypeNone         = 0xFFFF;
 
 /// @brief MSDU 跨帧重组状态(SOF 多 PB 块)
 struct MsduState {
@@ -356,12 +360,12 @@ struct MsduInfo {
     // 南网 NW_2021 MSDU 头字段(国网填 0)
     quint32 vlan_tag;            ///< VLAN 标签 32-bit(南网 MSDU 长头)
     quint16 msdu_type;           ///< MSDU 类型 16-bit(南网 MSDU 长头)
-    quint8  restart_count;       ///< 重启次数 4-bit(国网 MSDU 头/南网 MAC 帧头);0xFF=未知/无此字段
+    quint8  restart_count;       ///< 重启次数 4-bit(国网 MSDU 头/南网 MAC 帧头);0xFF=未知/无此字段(=kRestartCountInvalid 本机哨兵)
     quint8  broadcast_direction; ///< 广播方向(南网 MAC 帧头 4-bit / 国网 MSDU_BASE 2-bit;表7:1下行/2上行,南网 0=保留/国网 0=双向;0xFF=未知/无此字段)
     quint8  route_hops_left;     ///< 路由剩余跳数/跳数(国网 MSDU_BASE RouteHopsLeftNum 4-bit / 南网 MAC 帧头 RouteHop 4-bit;0xFF=未知/无此字段)
     quint8  business_id;         ///< 应用层 BID(业务标识;非应用层报文=0xFF,供整行着色)
     quint8  app_packet_type;     ///< 应用层帧类型域 4-bit(南网表4;非 NW 应用层=0xFF)
-    quint16 mme_type;            ///< 管理消息 MMe 类型(16bit;非管理消息=0xFFFF,供整行着色)
+    quint16 mme_type;            ///< 管理消息 MMe 类型(16bit;非管理消息=0xFFFF=kMMeTypeNone 本机约定,供整行着色)
     quint8  trans_direction_flag; ///< APP 业务报文头 TransDirectionFlag(byte1 bit7,表8:0下行/1上行;非 APP=0xFF,P2P Dir 列)
     int     total_len;       ///< MSDU 帧总长(头+数据+CRC,不含 PB 填充;-1=未知)
     bool    cascade;         ///< 聚合帧级联拆分(SPLC 表47/48;msdu_body=级联体流,
@@ -374,10 +378,10 @@ struct MsduInfo {
     MsduInfo() : present(false), simple_head(false), msdu_seq(0),
                  msdu_src_tei(-1), msdu_dst_tei(-1), msdu_send_type(-1),
                  msdu_src_mac(0), msdu_dst_mac(0), sta_mac(0),
-                 vlan_tag(0), msdu_type(0), restart_count(0xFF),
+                 vlan_tag(0), msdu_type(0), restart_count(kRestartCountInvalid),
                  broadcast_direction(0xFF), route_hops_left(0xFF),
                  business_id(0xFF), app_packet_type(0xFF),
-                 mme_type(0xFFFF), trans_direction_flag(0xFF),
+                 mme_type(kMMeTypeNone), trans_direction_flag(0xFF),
                  total_len(-1), cascade(false) {}
 };
 

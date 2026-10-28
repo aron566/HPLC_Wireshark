@@ -27,7 +27,6 @@ const I18nReg g_i18n_reg_pktlist;
 constexpr quint8 kAppPacketAckNack = 0x0;   ///< 帧类型域=确认/否认
 constexpr quint8 kBidConfirm       = 0x00;  ///< BID=确认(ACK)
 constexpr quint8 kBidDeny          = 0x01;  ///< BID=否认(NACK)
-constexpr quint16 kMmeTypeNone     = 0xFFFF; ///< 非管理消息的 mme_type 标记
 
 /// @brief 48-bit MAC 帧内原始字节序 → "aa:bb:cc:dd:ee:ff"(与 fieldspec::mac_str 一致)
 QString format_mac(quint64 v) {
@@ -313,7 +312,7 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
         if (std::any_of(e.mpdu.pb_crc_oks.cbegin(), e.mpdu.pb_crc_oks.cend(),
                         [](bool ok) { return !ok; }))
             return QColor(224, 64, 64);   // 任一物理块 CRC24 校验失败
-        if (e.msdu.present && e.msdu.mme_type != kMmeTypeNone)
+        if (e.msdu.present && e.msdu.mme_type != kMMeTypeNone)
             return mme_color(e.msdu.mme_type);
         if (e.msdu.present && e.msdu.business_id != 0xFF) {
             if (e.msdu.app_packet_type == kAppPacketAckNack) {

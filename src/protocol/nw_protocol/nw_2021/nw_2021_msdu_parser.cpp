@@ -1624,7 +1624,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 out.topo_event.nodes.append({0, sta_mac});
                 // 关联请求由 STA 本人发出:MSDU 头重启次数即该 STA 的,
                 // TopoState 据此检测 STA 重启(单跳帧无此字段,0xFF 不填)
-                if (out.restart_count != 0xFF)
+                if (out.restart_count != kRestartCountInvalid)
                     out.topo_event.restart_count = (int)out.restart_count;
                 out.topo_event.desc = trl::L("关联请求: STA %1 正在入网")
                     .arg(mac_str(sta_mac));
@@ -1995,7 +1995,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 // 南网 MAC 帧头重启次数(4-bit):TopoState 据此检测 CCO 重启;
                 // 只有 CCO 本人发出(src_tei == kTeiCco)才采用,防 STA 中继转发误报;
                 // 重启次数为哨兵 0xFF(未填)时不采用(保持 -1 未知)
-                if (out.restart_count != 0xFF && out.msdu_src_tei == kTeiCco)
+                if (out.restart_count != kRestartCountInvalid && out.msdu_src_tei == kTeiCco)
                     out.topo_event.restart_count = (int)out.restart_count;
                 // 发现列表由 CCO 广播:发送方即 CCO,填 cco_mac 保证拓扑图根节点
                 // 创建(对齐国网 DiscoverList 填 cco_mac 的行为);中继转发的帧
