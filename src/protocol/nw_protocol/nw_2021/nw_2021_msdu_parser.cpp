@@ -82,6 +82,8 @@ static const char* kDeviceTypeZh[] = {
     "II型采集器", "I型采集器", "三相表通信模块" };
 
 static const char* const kLinkTypeZh[] = { "高速载波链路", "无线链路" };
+// 模块类型(表164:0=HPLC单模模块 1=双模 HPLC和RF模块 2=无线单模模块)
+static const char* kModuleTypeZh[] = { "HPLC单模模块", "双模 HPLC和RF模块", "无线单模模块" };
 /// MAC 地址类型(表46:0 电能表地址 1 模块本身MAC 2 采集器地址)
 static const char* kMACAddrTypeZh[] = { "电能表地址", "模块本身MAC地址", "采集器地址" };
 /// 代理类型(表50/63:0x1 保留 0x2 动态代理)
@@ -326,6 +328,11 @@ struct MMeI18nReg {
         trl::register_en("上行广播", "Uplink broadcast");
         trl::register_en("允许接入网络", "Allow Network Access");
         trl::register_en("认证失败", "Authentication Failed");
+        trl::register_en("高速载波链路", "HPLC Link");
+        trl::register_en("无线链路", "HRF Link");
+        trl::register_en("HPLC单模模块", "HPLC Single Mode Module");
+        trl::register_en("双模 HPLC和RF模块", "Dual-mode HPLC and RF Module");
+        trl::register_en("无线单模模块", "Wireless Single Mode Module");
         trl::register_en("在位图(第%1字节)", "In Bitmap (Byte %1)");
         trl::register_en("SNID[%1]", "SNID[%1]");
         trl::register_en("子站点 TEI=%1", "SubSTA TEI=%1");
@@ -416,27 +423,38 @@ static void append_msdu_crc(MsduInfo& out, const QByteArray& body, int payload_s
     out.tree.append(crc);
 }
 
+/// 关联请求报文体(BPLC-2 表159;体偏移,字节号不含 MMe 头 6B):
+/// MAC@0-5 / 候选代理TEI0-4@6-15 / 相线@16-18 / 设备类型@19(表162) /
+/// 保留@20-21 / MAC地址类型@22(表163) / 模块类型@23 bit0-1(表164) +
+/// 候选代理0-4链路类型@23 bit2-6(表160) + 保留 bit7 / 随机数@24-27
 static const FieldSpec kMMeAssocReqSpec[] = {
-    { "STAMACAddr", 0, 0, 48, Fmt::MAC },
-    { "CandidateTEI0", 6, 0, 16, Fmt::DEC },
-    { "CandidateTEI1", 8, 0, 16, Fmt::DEC },
-    { "CandidateTEI2", 10, 0, 16, Fmt::DEC },
-    { "CandidateTEI3", 12, 0, 16, Fmt::DEC },
-    { "CandidateTEI4", 14, 0, 16, Fmt::DEC },
-    { "LinePhase0", 16, 0, 8, Fmt::DEC },
-    { "CandidateLinePhase1", 17, 0, 8, Fmt::DEC },
-    { "CandidateLinePhase2", 18, 0, 8, Fmt::DEC },
-    { "DeviceType", 19, 0, 8, Fmt::DEC },
-    { "MMeAssocReqRSV5", 20, 0, 8, Fmt::HEX4 },
-    { "MMeAssocReqRSV6", 21, 0, 8, Fmt::HEX4 },
-    { "MACAddrType", 22, 0, 8, Fmt::DEC },
-    { "RSV2", 23, 0, 8, Fmt::HEX4 },
-    { "STAAssocRandomData", 24, 0, 32, Fmt::DEC },
+    { "STAMACAddr", 0, 0, 48, Fmt::MAC },             // 站点 MAC 地址(表159 byte0-5)
+    { "CandidateTEI0", 6, 0, 16, Fmt::DEC },          // 候选代理 TEI(表159 byte6-7)
+    { "CandidateTEI1", 8, 0, 16, Fmt::DEC },          // 候选代理 TEI(表159 byte8-9)
+    { "CandidateTEI2", 10, 0, 16, Fmt::DEC },         // 候选代理 TEI(表159 byte10-11)
+    { "CandidateTEI3", 12, 0, 16, Fmt::DEC },         // 候选代理 TEI(表159 byte12-13)
+    { "CandidateTEI4", 14, 0, 16, Fmt::DEC },         // 候选代理 TEI(表159 byte14-15)
+    { "LinePhase0", 16, 0, 8, Fmt::DEC },             // 相线(表159 byte16; 值定义见表161: 0=未知,1=A相,2=B相,3=C相)
+    { "CandidateLinePhase1", 17, 0, 8, Fmt::DEC },    // 相线(表159 byte17; 值定义见表161)
+    { "CandidateLinePhase2", 18, 0, 8, Fmt::DEC },    // 相线(表159 byte18; 值定义见表161)
+    { "DeviceType", 19, 0, 8, Fmt::DEC },             // 设备类型(表159 byte19; 值定义见表162: 0x03=单相电表通信模块)
+    { "MMeAssocReqRSV5", 20, 0, 8, Fmt::HEX4 },       // 保留(表159 byte20)
+    { "MMeAssocReqRSV6", 21, 0, 8, Fmt::HEX4 },       // 保留(表159 byte21)
+    { "MACAddrType", 22, 0, 8, Fmt::DEC },            // MAC地址类型(表159 byte22; 值定义见表163: 0=电能表地址)
+    { "ModuleType", 23, 0, 2, Fmt::DEC },             // 模块类型(表159 byte23 bit0-1; 值定义见表164: 0=HPLC单模,1=双模,2=无线单模)
+    { "LinkType0", 23, 2, 1, Fmt::DEC },              // 候选代理 0 链路类型(表159 byte23 bit2; 值定义见表160: 0=高速载波链路,1=无线链路)
+    { "LinkType1", 23, 3, 1, Fmt::DEC },              // 候选代理 1 链路类型(表159 byte23 bit3)
+    { "LinkType2", 23, 4, 1, Fmt::DEC },              // 候选代理 2 链路类型(表159 byte23 bit4)
+    { "LinkType3", 23, 5, 1, Fmt::DEC },              // 候选代理 3 链路类型(表159 byte23 bit5)
+    { "LinkType4", 23, 6, 1, Fmt::DEC },              // 候选代理 4 链路类型(表159 byte23 bit6)
+    { "RSV2", 23, 7, 1, Fmt::HEX4 },                  // 保留(表159 byte23 bit7)
+    { "STAAssocRandomData", 24, 0, 32, Fmt::DEC },    // 站点关联随机数(表159 byte24-27)
 };
 static const int kMMeAssocReqSpecN = int(sizeof(kMMeAssocReqSpec)/sizeof(kMMeAssocReqSpec[0]));
 
-// 关联请求尾段(byte 56-67):排在厂家附加数据(28-45)与版本信息(46-55)之后渲染,
-// 使字段树顺序与报文布局一致
+/// 关联请求尾段(BPLC-2 表159 byte56-67):硬/软复位@56-59 / 代理类型@60(表168) /
+/// 组网序列号@61 / 管理消息版本+保留@62 / 频段标识@63 bit0-1(表169) / 端到端序列号@64-67;
+/// 排在厂家附加数据(28-45)与版本信息(46-55)之后渲染,字段树顺序与报文布局一致
 static const FieldSpec kMMeAssocReqTailSpec[] = {
     { "HardRstCount", 56, 0, 16, Fmt::DEC },
     { "SoftRstCount", 58, 0, 16, Fmt::DEC },
@@ -699,7 +717,8 @@ static const int kRFChannelNeighborSpecN = int(sizeof(kRFChannelNeighborSpec)/si
 
 
 // ── 南网 MMe 变长区字段表 ─────────────────────────────
-// MMeAssocReq:STAVersionInfo 10B(相对 MMe 数据起点 byte 52 = MMeHeadSize+46)
+// MMeAssocReq:STAVersionInfo 10B(相对 MMe 数据起点 byte 52 = MMeHeadSize+46);
+// 版本信息(BPLC-2 表165):BOOT/软件版本 BCD,厂商/芯片 ASCII;系统启动原因=表166,版本时间=表167
 static const FieldSpec kAssocReqSTAVerSpec[] = {
     { "BootReason",       0, 0, 8,  Fmt::DEC },
     { "BootVersion",      1, 0, 8,  Fmt::DEC },
@@ -1623,6 +1642,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
                 out.sta_mac = sta_mac;   // 报文体主体 STA MAC(STAMACAddr;MSDU Type 列展示)
                 out.topo_event.kind = TopoEventKind::AssocReq;
                 out.topo_event.nodes.append({0, sta_mac});
+                out.topo_event.module_type = (quint8)get_bits(mme, 29, 0, 2);   // 表164 模块类型(体 byte23 bit0-1→mme 偏移29)
                 // 关联请求由 STA 本人发出:MSDU 头重启次数即该 STA 的,
                 // TopoState 据此检测 STA 重启(单跳帧无此字段,0xFF 不填)
                 if (out.restart_count != kRestartCountInvalid)
@@ -1639,7 +1659,7 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             }
             if (mme.size() >= 62) {
                 add_fields(out.tree, mme, 52, kAssocReqSTAVerSpec, kAssocReqSTAVerSpecN, mme_rel_base);
-                // 版本区表示法(表47):BOOT/软件版本号为 BCD 码,厂商/芯片代码为 ASCII 码;
+                // 版本区(BPLC-2 表165,对应表159 版本信息 46-55):BOOT/软件版本号为 BCD 码,厂商/芯片代码为 ASCII 码;
                 // 仅当数据符合对应编码时才换算呈现,否则保留原始数值
                 if (MsduFieldNode* n = find_field_node(out.tree, "BootVersion")) {
                     const quint8 v = (quint8)mme[53];
@@ -1669,6 +1689,12 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
             translate_enum_i18n(out.tree, "CandidateLinePhase2", kLinePhaseZh, 4);
             translate_enum_i18n(out.tree, "DeviceType", kDeviceTypeZh, 8);
             translate_enum_i18n(out.tree, "MACAddrType", kMACAddrTypeZh, 3);
+            translate_enum_i18n(out.tree, "ModuleType", kModuleTypeZh, 3);
+            translate_enum_i18n(out.tree, "LinkType0", kLinkTypeZh, 2);
+            translate_enum_i18n(out.tree, "LinkType1", kLinkTypeZh, 2);
+            translate_enum_i18n(out.tree, "LinkType2", kLinkTypeZh, 2);
+            translate_enum_i18n(out.tree, "LinkType3", kLinkTypeZh, 2);
+            translate_enum_i18n(out.tree, "LinkType4", kLinkTypeZh, 2);
             translate_enum_i18n(out.tree, "ProxyType", kProxyTypeZh, 3);
             translate_enum_i18n(out.tree, "BandSupport", kBandSupportZh, 2);
             break;

@@ -92,8 +92,8 @@ static const char* kMACAddrTypeZh[] = { "电能表地址", "模块本身MAC地�
 static const char* kLinkTypeZh[] = { "高速载波链路", "无线链路" };
 // PLC 能力指示(0 支持BPLC版本 1 支持BPLC和SPLC版本)
 static const char* kPLCCapZh[] = { "支持BPLC版本", "支持BPLC和SPLC版本" };
-// 模块类型(0 HPLC模块 1 HPLC+HRF模块 2 HRF模块)
-static const char* kModuleTypeZh[] = { "HPLC模块", "HPLC+HRF模块", "HRF模块" };
+// 模块类型(0 HPLC单模模块 1 双模 HPLC和RF模块 2 无线单模模块)
+static const char* kModuleTypeZh[] = { "HPLC单模模块", "双模 HPLC和RF模块", "无线单模模块" };
 // 通道数(0 单通道 1 多通道)
 static const char* kChannelNumZh[] = { "单通道", "多通道" };
 // 载波频段(表95:0-4 频段定义,5-7 保留;ASCII 频段值,无需英译)
@@ -255,9 +255,9 @@ struct MMeI18nReg {
         trl::register_en("无线链路", "HRF Link");
         trl::register_en("支持BPLC版本", "BPLC supported");
         trl::register_en("支持BPLC和SPLC版本", "BPLC & SPLC supported");
-        trl::register_en("HPLC模块", "HPLC Module");
-        trl::register_en("HPLC+HRF模块", "HPLC+HRF Module");
-        trl::register_en("HRF模块", "HRF Module");
+        trl::register_en("HPLC单模模块", "HPLC Single Mode Module");
+        trl::register_en("双模 HPLC和RF模块", "Dual-mode HPLC and RF Module");
+        trl::register_en("无线单模模块", "Wireless Single Mode Module");
         trl::register_en("单通道", "Single Channel");
         trl::register_en("多通道", "Multi Channels");
         trl::register_en("不支持应用层多帧抄读", "No App Multi-Frame Reading");
@@ -468,6 +468,10 @@ static void append_msdu_crc(MsduInfo& out, const QByteArray& body, int payload_s
     out.tree.append(crc);
 }
 
+/// 关联请求报文体(SPLC-4 表78;体偏移,字节号不含 MMe 头 6B):
+/// MAC@0-5 / 候选代理TEI0-4@6-15 / 相线@16-18 / 设备类型@19(表81) /
+/// 保留@20 / 扩展特性标识@21 bit0(表78 段) / MAC地址类型@22(表78 段) /
+/// 模块类型@23 bit0-1(表84) + 候选代理0-4链路类型@23 bit2-6(表79) + 保留 bit7 / 随机数@24-27
 static const FieldSpec kMMeAssocReqSpec[] = {
     { "STAMACAddr", 0, 0, 48, Fmt::MAC },
     { "CandidateTEI0", 6, 0, 16, Fmt::DEC },
@@ -496,8 +500,9 @@ static const FieldSpec kMMeAssocReqSpec[] = {
 };
 static const int kMMeAssocReqSpecN = int(sizeof(kMMeAssocReqSpec)/sizeof(kMMeAssocReqSpec[0]));
 
-// 关联请求尾段(byte 56-67):排在厂家附加数据(28-45)与版本信息(46-55)之后渲染,
-// 使字段树顺序与报文布局一致
+/// 关联请求尾段(SPLC-4 表78 byte56-67):硬/软复位@56-59 / 代理类型@60(表88) /
+/// 组网序列号@61 / PLC能力指示+通道数+保留@62 / 频段标识@63 bit0-1 / 端到端序列号@64-67;
+/// 排在厂家附加数据(28-45)与版本信息(46-55)之后渲染,字段树顺序与报文布局一致
 static const FieldSpec kMMeAssocReqTailSpec[] = {
     { "HardRstCount", 56, 0, 16, Fmt::DEC },
     { "SoftRstCount", 58, 0, 16, Fmt::DEC },
@@ -846,7 +851,8 @@ static const char* kIoTLeaveReasonZh[] = { "未接入网络,需要重新接入�
 
 
 // ── 南网 MMe 变长区字段表 ─────────────────────────────
-// MMeAssocReq:STAVersionInfo 10B(相对 MMe 数据起点 byte 52 = MMeHeadSize+46)
+// MMeAssocReq:STAVersionInfo 10B(相对 MMe 数据起点 byte 52 = MMeHeadSize+46);
+// 版本信息(SPLC-4 表85):BOOT/软件版本 BCD,厂商/芯片 ASCII;系统启动原因=表86,版本时间=表87
 static const FieldSpec kAssocReqSTAVerSpec[] = {
     { "BootReason",       0, 0, 8,  Fmt::DEC },
     { "BootVersion",      1, 0, 8,  Fmt::DEC },
@@ -1817,6 +1823,7 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
                 out.sta_mac = sta_mac;   // 报文体主体 STA MAC(STAMACAddr;MSDU Type 列展示)
                 out.topo_event.kind = TopoEventKind::AssocReq;
                 out.topo_event.nodes.append({0, sta_mac});
+                out.topo_event.module_type = (quint8)get_bits(mme, 29, 0, 2);   // 表84 模块类型(体 byte23 bit0-1→mme 偏移29)
                 // 关联请求由 STA 本人发出:MSDU 头重启次数即该 STA 的,
                 // TopoState 据此检测 STA 重启(单跳帧无此字段,0xFF 不填)
                 if (out.restart_count != kRestartCountInvalid)

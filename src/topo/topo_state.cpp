@@ -60,6 +60,7 @@ static void assign_link_type(TopoNode& n, const TopoEvent& e) {
         n.link_type = e.is_rf ? LinkTypeRf : LinkTypeHplc;   // 回退物理媒介,不锁
     }
     if (n.link_type == LinkTypeRf) n.rf_capable = true;   // 无线链路即双模,权威/弱路径全算
+    if (e.module_type == 1) n.rf_capable = true;   // 双模认定(关联请求模块类型=1,表164/表84),入网请求时刻即可知
 }
 
 } // namespace

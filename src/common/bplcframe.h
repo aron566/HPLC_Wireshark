@@ -307,6 +307,7 @@ struct TopoEvent {
     quint8  rf_hop = 0;            ///< RF 跳数(表217/表126 byte8 高4bit)
     quint8  rf_role = 0;           ///< 角色(表217/表126 byte7 高4bit;0未知/1站点/2代理站点/4中央协调器)
     int link_type = -1;                         ///< 链路类型(SPLC-4 表79 / BPLC-2 表160:0=高速载波链路 1=无线链路;-1=帧内无此字段)
+    quint8 module_type = 0xFF;                  ///< 模块类型(关联请求,BPLC-2 表164/SPLC-4 表84:0=HPLC单模/1=双模HPLC+RF/2=无线单模;0xFF=无)
     QVector<QPair<quint16, quint8>> node_link_types; ///< 路由表(表55/56)每节点入网链路类型:(TEI,0=载波/1=无线),关联确认/指示帧权威
     qint32 proxy_comm_rate = -1;      ///< 与代理站点通信成功率(表77 byte16-19,32bit;取值范围0-100,超出无效;-1=无)
     qint32 proxy_down_comm_rate = -1; ///< 与代理站点下行通信成功率(表77 byte20-23,32bit;同上)
