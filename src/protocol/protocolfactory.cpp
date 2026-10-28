@@ -96,7 +96,7 @@ ProtocolProviderPtr find_protocol(const QString& protocol_id) {
 QStringList registered_protocol_ids() {
     QStringList out;
     for (const ProtocolProviderPtr& p : registered_protocols())
-        out << p->id();
+        out << p->id().toUpper();
     return out;
 }
 
