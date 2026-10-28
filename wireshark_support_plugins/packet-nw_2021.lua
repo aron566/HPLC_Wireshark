@@ -2240,7 +2240,8 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
                 if mt_name ~= "" then
                     pinfo.cols.info = cur_info .. string.format(" %s", mt_name)
                 else
-                    pinfo.cols.info = cur_info .. string.format(" MMType=0x%04x", mmtype)
+                    -- 未分配类型统一带“保留”后缀(与 C++ mme_type_name 回落口径一致)
+                    pinfo.cols.info = cur_info .. string.format(" MMType=0x%04x (%s)", mmtype, T("保留", "Reserved"))
                 end
                 -- 消息体 (MMe 头 6B 之后)
                 if payload_len > 6 then

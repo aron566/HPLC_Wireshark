@@ -297,11 +297,11 @@ local mme_type_vals = {
 }
 
 -- MMe 短名(聚合帧子帧摘要用, 与 C++ nw_2026_msdu_parser mme_type_name 对齐:
--- 中文短名不带英文后缀, 未知类型 "MMe 0x%04x")
+-- 中文短名不带英文后缀, 未分配类型统一带“保留”后缀, 如 "MMe 0x%04x (保留)")
 local function mme_short_name(mmtype)
     local full = mme_type_vals[mmtype]
     if not full then
-        return string.format("MMe 0x%04x", mmtype)
+        return string.format("MMe 0x%04x (%s)", mmtype, T("保留", "Reserved"))
     end
     local short = full:match("^[^%s]+")
     return short or full
@@ -2652,7 +2652,8 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei, no_info)
                         pinfo.cols.info = (cur_info == "" or cur_info == "NW-HPLC" or cur_info == "NW-RF")
                             and mt_name or (cur_info .. string.format(" %s", mt_name))
                     else
-                        pinfo.cols.info = cur_info .. string.format(" MMType=0x%04x", mmtype)
+                        -- 未分配类型统一带“保留”后缀(与 C++ mme_type_name 回落口径一致)
+                        pinfo.cols.info = cur_info .. string.format(" MMType=0x%04x (%s)", mmtype, T("保留", "Reserved"))
                     end
                 end
                 -- 消息体 (MMe 头 6B 之后)

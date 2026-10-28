@@ -14,6 +14,7 @@
 
 namespace {
 
+// 口径：名称表无对应项的未分配类型值统一带“保留”后缀；已分配类型名不动。
 inline QString mme_type_name(quint16 t) {
     switch (static_cast<NW_2021_MMeType>(t)) {
         case NW_2021_MMeType::MME_ASSOCREQ: return trl::L("关联请求");
@@ -36,7 +37,7 @@ inline QString mme_type_name(quint16 t) {
         case NW_2021_MMeType::MME_IOT_ASSOC_REQ: return trl::L("物联终端接入请求");
         case NW_2021_MMeType::MME_IOT_ASSOC_IND: return trl::L("物联终端接入确认");
         case NW_2021_MMeType::MME_IOT_LEAVE_IND: return trl::L("物联终端离线指示");
-        default: return QStringLiteral("MMe 0x%1").arg(t, 4, 16, QChar('0'));
+        default: return QStringLiteral("MMe 0x%1 (%2)").arg(t, 4, 16, QChar('0')).arg(trl::L("保留"));
     }
 }
 
