@@ -627,12 +627,13 @@ f.mme_rsv = ProtoField.bytes ("nw_2021.mme.rsv", T("保留", "Reserved"), base.N
 
 -- 物联终端接入系列(BPLC-2 表39/40/42;体偏移自 MMe 头 6B 之后)
 f.mme_iot_rsv = ProtoField.uint8 ("nw_2021.mme.iot.rsv", T("保留(表39 byte7 高4b)", "Reserved (Table 39 byte7 high)"), base.HEX, nil, 0xF0)
+f.mme_iot_rsv2 = ProtoField.uint8 ("nw_2021.mme.iot.rsv2", T("保留(表39 byte9 高4b)", "Reserved (Table 39 byte9 high)"), base.HEX, nil, 0xF0)
 f.mme_iot_mac = ProtoField.ether ("nw_2021.mme.iot.mac", T("物联终端设备地址", "IoT Device Address"))
 f.mme_iot_gw = ProtoField.uint16 ("nw_2021.mme.iot.gw", T("物联网关设备地址(TEI)", "IoT Gateway TEI"), base.DEC)
 f.mme_iot_dev = ProtoField.uint8 ("nw_2021.mme.iot.dev", T("设备类型", "Device Type"), base.DEC)
 f.mme_iot_pwr = ProtoField.uint8 ("nw_2021.mme.iot.pwr", T("功耗类型", "Power Type"), base.DEC, nil, 0x0F)
 f.mme_iot_result = ProtoField.uint8 ("nw_2021.mme.iot.result", T("接入结果", "Access Result"), base.DEC, {
-    [0] = T("允许接入网络", "Allow network access"), [1] = T("白名单认证失败", "Whitelist Authentication Failed"),
+    [0] = T("允许接入网络", "Allow network access"), [1] = T("认证失败", "Authentication Failed"),
 })
 f.mme_iot_reason = ProtoField.uint8 ("nw_2021.mme.iot.reason", T("离线原因", "Leave Reason"), base.DEC, {
     [0] = T("CCO判定未接入网络需重新接入", "Not Joined, Rejoin Required"),
@@ -917,7 +918,7 @@ nw.fields = {
     f.sh_type, f.sh_len, f.sh_data,
     f.mac_icv, f.mac_icv_calc, f.mac_icv_ok,
     f.mme_version, f.mme_type, f.mme_rsv,
-    f.mme_iot_rsv, f.mme_iot_mac, f.mme_iot_gw, f.mme_iot_dev, f.mme_iot_pwr,
+    f.mme_iot_rsv, f.mme_iot_rsv2, f.mme_iot_mac, f.mme_iot_gw, f.mme_iot_dev, f.mme_iot_pwr,
     f.mme_iot_result, f.mme_iot_reason,
     f.ar_sta_mac, f.ar_proxy_tei, f.ar_link_type, f.ar_link_rsv, f.ar_phase,
     f.ar_dev_type, f.ar_rsv, f.ar_mac_type, f.ar_module, f.ar_link,
@@ -1838,6 +1839,7 @@ local function dissect_mme_iot_assoc_req(tvb, tree)
     tree:add(f.mme_iot_rsv, tvb(13, 1))
     tree:add(f.mme_iot_dev, tvb(14, 1))
     tree:add(f.mme_iot_pwr, tvb(15, 1))
+    tree:add(f.mme_iot_rsv2, tvb(15, 1))   -- 表39 byte9 高4b 保留(与功耗类型同字节)
 end
 -- 物联终端接入确认 (0x00A1, BPLC-2 表40)
 local function dissect_mme_iot_assoc_ind(tvb, tree)

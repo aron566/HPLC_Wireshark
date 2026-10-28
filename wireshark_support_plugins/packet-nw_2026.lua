@@ -2144,6 +2144,7 @@ local function dissect_mme_iot_assoc_req(tvb, tree)
     tree:add(f.mme_iot_rsv, tvb(13, 1))
     tree:add(f.mme_iot_dev, tvb(14, 1))
     tree:add(f.mme_iot_pwr, tvb(15, 1))
+    tree:add(f.mme_iot_rsv2, tvb(15, 1))   -- 表243 byte9 高4b 保留(与功耗类型同字节)
 end
 local function dissect_mme_iot_assoc_ind(tvb, tree)
     -- 表244:固定体 7B 自 MMe 头 6B 之后
@@ -2299,6 +2300,7 @@ f.mme_bl_tablen = ProtoField.uint16 ("nw_2026.mme.bl.tablen", T("比特加载表
 f.mme_bl_rsv0 = ProtoField.uint8 ("nw_2026.mme.bl.rsv0", T("保留(表153 byte4)", "Reserved (Table 153 byte4)"), base.HEX, nil, 0xFC)
 f.mme_bl_rsv1 = ProtoField.uint8 ("nw_2026.mme.bl.rsv1", T("保留(表153 byte5)", "Reserved (Table 153 byte5)"), base.HEX)
 f.mme_iot_rsv = ProtoField.uint8 ("nw_2026.mme.iot.rsv", T("保留(表243 byte7 高4b)", "Reserved (Table 243 byte7 high)"), base.HEX, nil, 0xF0)
+f.mme_iot_rsv2 = ProtoField.uint8 ("nw_2026.mme.iot.rsv2", T("保留(表243 byte9 高4b)", "Reserved (Table 243 byte9 high)"), base.HEX, nil, 0xF0)
 f.mme_bl_result = ProtoField.uint8 ("nw_2026.mme.bl.result", T("更新结果", "Update Result"), base.DEC, {
     [0] = T("更新成功", "Update OK"), [1] = T("更新失败", "Update failed"),
 }, 0x01)
@@ -2723,7 +2725,7 @@ nw.fields = {
     f.sof_src_tei, f.sof_dst_tei, f.sof_lid, f.sof_pb_num, f.sof_tmi,
     f.sof_frame_len, f.sof_tmi_ext, f.sof_pblen,
     f.sof_rf_snid_hi, f.sof_rf_rsv12, f.sof_rf_rsv12_hi,
-    f.mme_bl_rsv0, f.mme_bl_rsv1, f.mme_iot_rsv,
+    f.mme_bl_rsv0, f.mme_bl_rsv1, f.mme_iot_rsv, f.mme_iot_rsv2,
     f.sof_mcs, f.sof_symbol_cnt, f.sof_tei_filter, f.sof_resend, f.sof_rsv,
     f.sof_bplc_lid, f.sof_bplc_snid_hi, f.sof_bplc_rsv, f.sof_bplc_pbnum, f.sof_bplc_tmi,
     f.ack_ext_type, f.ack_rx_res, f.ack_rx_status, f.ack_dst_tei, f.ack_rx_pb_num,
