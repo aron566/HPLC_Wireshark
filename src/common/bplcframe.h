@@ -455,11 +455,11 @@ inline QString make_search_text(const PacketEntry& e) {
     parts << (e.meta.is_rf ? QStringLiteral("hrf") : QStringLiteral("hplc"))
           << QStringLiteral("plc");
     parts << e.mpdu.frame_type_name().toLower();
-    parts << (e.mpdu.src_tei == 0x0001 ? QStringLiteral("cco")
+    parts << (e.mpdu.src_tei == kTeiCco ? QStringLiteral("cco")
             : e.mpdu.src_tei != 0      ? QStringLiteral("sta-%1").arg(e.mpdu.src_tei)
             : e.meta.is_rf ? QStringLiteral("hrf") : QStringLiteral("plc"));
     parts << (e.mpdu.dst_tei == kTeiBroadcast ? QStringLiteral("broadcast")
-            : e.mpdu.dst_tei == 0x0001 ? QStringLiteral("cco")
+            : e.mpdu.dst_tei == kTeiCco ? QStringLiteral("cco")
             : e.mpdu.dst_tei != 0      ? QStringLiteral("sta-%1").arg(e.mpdu.dst_tei)
                                        : QStringLiteral("*"));
     const QString nid = QString::number(e.mpdu.net_id, 16);

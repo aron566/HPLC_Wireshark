@@ -197,7 +197,7 @@ void TopoState::apply(const TopoEvent& e) {
         // 事件侧 is_rf_known 守卫仍保留,未知介质事件不覆盖)
         if (e.is_rf_known && !cco.is_rf_known) { cco.is_rf = e.is_rf; cco.is_rf_known = true; }
         // 双模认定(用户 2026-10-28 定):CCO 自己发过 RF 帧即双模;逐帧路径
-        // (mainwindow note_rf_capable,src_tei==1)已覆盖 CCO 发 RF 数据/信标,
+        // (mainwindow note_rf_capable,src_tei==kTeiCco)已覆盖 CCO 发 RF 数据/信标,
         // 这里补事件帧路径(发送方 MAC==CCO MAC 的 RF 事件帧)
         if (e.is_rf_known && e.is_rf && e.sender_mac && e.sender_mac == e.cco_mac)
             cco.rf_capable = true;

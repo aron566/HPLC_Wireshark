@@ -165,7 +165,7 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                     return s;
                 }
                 if (tei != 0) {
-                    QString s = (tei == 0x0001) ? QStringLiteral("CCO")
+                    QString s = (tei == kTeiCco) ? QStringLiteral("CCO")
                                                 : QStringLiteral("STA-%1").arg(tei);
                     const quint64 mac = lookup_mac(e.mpdu.net_id, tei);
                     if (mac) s += QStringLiteral(" [%1]").arg(format_mac(mac));
@@ -181,7 +181,7 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                 if (e.mpdu.dst_tei == kTeiBroadcast) return QStringLiteral("BROADCAST");
                 const quint16 tei = e.mpdu.dst_tei;
                 if (tei != 0) {
-                    QString s = (tei == 0x0001) ? QStringLiteral("CCO")
+                    QString s = (tei == kTeiCco) ? QStringLiteral("CCO")
                                                 : QStringLiteral("STA-%1").arg(tei);
                     const quint64 mac = lookup_mac(e.mpdu.net_id, tei);
                     if (mac) s += QStringLiteral(" [%1]").arg(format_mac(mac));
