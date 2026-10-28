@@ -2091,7 +2091,10 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
                 if (g_ok) {
                     const quint64 gsta_mac = get_bits(mme, off, 0, 48);
                     const quint16 gsta_tei = (quint16)get_bits(mme, off + 6, 0, 12);
-                    if (gsta_tei && gsta_mac) out.topo_event.nodes.append({gsta_tei, gsta_mac});
+                    if (gsta_tei && gsta_mac) {
+                        out.topo_event.nodes.append({gsta_tei, gsta_mac});
+                        out.tei_mac_pairs.append({gsta_tei, gsta_mac});
+                    }
                     if (gsta_tei && gproxy_tei) out.topo_event.routes.append({gsta_tei, gproxy_tei});
                 }
                 MsduFieldNode& n = group(out.tree, QStringLiteral("NewSTA[%1]").arg(i));
@@ -2580,6 +2583,13 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
                 auto& g = group(out.tree, QStringLiteral("TEIEntry[%1]").arg(i));
                 g.rel_start = mme_rel_base + 14 + i * 8; g.rel_len = 8;
                 add_fields(g.children, mme, 14 + i * 8, kTEIListEntrySpec, kTEIListEntrySpecN, mme_rel_base);
+                // 学习 TEI→MAC(表161/162 条目:StationMAC 6B + StationTEI 12b;仅发对,不动 topo)
+                {
+                    const quint64 mac = get_bits(mme, 14 + i * 8, 0, 48);
+                    const quint16 tei = (quint16)get_bits(mme, 14 + i * 8 + 6, 0, 12);
+                    if (tei != 0 && mac)
+                        out.tei_mac_pairs.append({tei, mac});
+                }
             }
             break;
         }

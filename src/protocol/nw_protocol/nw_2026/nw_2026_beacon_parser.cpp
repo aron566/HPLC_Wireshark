@@ -376,6 +376,13 @@ MsduInfo NW_2026_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
             switch (head_type) {
             case NW_2026_BeaconItemType::STA_CAPABILITY: {  // 站点能力条目(表33)
                 add_fields(grp.children, it, 0, kStaCapSpec, kStaCapSpecN, abs0);
+                // 学习 TEI→SourceMAC(表61/旧表33:TEI byte1 12b + SourceMAC byte4 48b;GW_2026 信标同型已学)
+                {
+                    const quint16 tei = (quint16)get_bits(it, 1, 0, 12);
+                    const quint64 mac = get_bits(it, 4, 0, 48);
+                    if (tei != 0 && mac)
+                        out.tei_mac_pairs.append({tei, mac});
+                }
                 annotate_unit(grp.children, "LinkMinCommSuccessRate", QStringLiteral("%"));
                 for (auto& ch : grp.children) {
                     if (ch.name.startsWith(QStringLiteral("STALine"))) {
@@ -513,6 +520,13 @@ MsduInfo NW_2026_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
             }
             case NW_2026_BeaconItemType::SIMPLE_STA_SLOT: {  // 精简信标站点信息及时隙条目(坐标同第2部分表155)
                 add_fields(grp.children, it, 0, kLiteStaSlotSpec, kLiteStaSlotSpecN, abs0);
+                // 学习 TEI→BeaconSTAMAC(表155:TEI byte0 12b + BeaconSTAMAC byte4 48b;GW_2026 信标同型已学)
+                {
+                    const quint16 tei = (quint16)get_bits(it, 0, 0, 12);
+                    const quint64 mac = get_bits(it, 4, 0, 48);
+                    if (tei != 0 && mac)
+                        out.tei_mac_pairs.append({tei, mac});
+                }
                 annotate_unit(grp.children, "CSMASlotLen", QStringLiteral("ms"));
                 for (auto& ch : grp.children) {
                     if (ch.name.startsWith(QStringLiteral("Role"))) {

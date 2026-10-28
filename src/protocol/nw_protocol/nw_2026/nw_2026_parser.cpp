@@ -151,6 +151,23 @@ void shift_msdu_rel(MsduFieldNode& n, int base) {
 /// @brief OFDMA SOF 完整 5bit SNID 分桶键(定义见 record_trigger_ctx 上方)
 static quint32 ofdma_full_snid(quint32 net_id_low4, const quint8* p);
 
+// 多段帧学习合并(级联/OFDMA 多站点共用):把一段已解析 MSDU 的学习信息并入帧级 MsduInfo。
+// - tei_mac_pairs 全并(守卫同 update_tei_mac 的对循环:tei!=0 && mac);
+// - 头对(src/dst)以对形式并入(单槽位装不下 N 段;守卫同 update_tei_mac 的头对门:tei>0 && mac);
+// - topo 事件单槽位:首个非 Other 段事件为准,后段事件丢弃(完整恢复需 TopoEvent 列表化,另案)。
+static void merge_msdu_learn(MsduInfo& dst, const MsduInfo& cm, bool& topo_taken) {
+    for (const TeiMacPair& p : cm.tei_mac_pairs)
+        if (p.tei != 0 && p.mac) dst.tei_mac_pairs.append(p);
+    if (cm.msdu_src_tei > 0 && cm.msdu_src_mac)
+        dst.tei_mac_pairs.append({(quint16)cm.msdu_src_tei, cm.msdu_src_mac});
+    if (cm.msdu_dst_tei > 0 && cm.msdu_dst_mac)
+        dst.tei_mac_pairs.append({(quint16)cm.msdu_dst_tei, cm.msdu_dst_mac});
+    if (!topo_taken && cm.topo_event.kind != TopoEventKind::Other) {
+        dst.topo_event = cm.topo_event;
+        topo_taken = true;
+    }
+}
+
 NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msdu, const Filter& f) {
     Result r;
     ++m_frame_count;                        // 帧计数(trigger 上下文失效基准)
@@ -272,6 +289,9 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
         // SOF:源/目的 TEI(载波与无线同坐标)+ PB 大小(载波按标准版本号/无线 PBLen)
         // PB 块基址:普通帧 16(FCH 后);DL-OFDMA 帧 32(FCH 16 + eFC 16B,表27)
         int pb_base = 16;
+        // DL-OFDMA 多站点(类型0 时填):站点1+ 的补解析用,见通用组装后的循环
+        bool dl_ofdma = false;
+        int dl_sta_count = 0;
         r.mpdu.src_tei = (quint16)get_bits(p, 1, 0, 12);
         r.mpdu.dst_tei = (quint16)get_bits(p, 2, 4, 12);
         if (r.meta.is_rf) {
@@ -322,6 +342,8 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                     const quint8 st0_tmi       = (quint8)get_bits(e, 1, 7, 5);
                     r.mpdu.pb_num  = st0_pbn_field + 1;   // 表27/28:字段 0→1 块,1→2 块
                     { const int sz = nw_2026_splc_pb_size(st0_tmi); r.mpdu.pb_size = (quint16)(sz > 0 ? sz : 0); }
+                    dl_ofdma = true;
+                    dl_sta_count = ((p[4] >> 6) & 0x03) + 1;   // FCH byte4 bits 6-7:站点数码+1
                 } else if (ofdma_type == 2 && r.payload_for_log.size() >= 32) {
                     // 类型2(trigger 表28):记录 eFC 上下文供类型1 UL-OFDMA 数据帧取 TMI;
                     // trigger 本帧无数据物理块;分桶键用完整 5bit SNID(见 ofdma_full_snid)
@@ -398,8 +420,11 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                 // 级联体流(msdu_body)坐标系,树层 MsduRawMap 按块换算 raw 多段高亮
                 int cas_cnt = 0;
                 QStringList cas_sums;   // 各级联帧 MSDU 类型摘要(MSDU Type 列展示聚合内容)
+                // topo 事件单槽位:首个非 Other 段事件为准(见 merge_msdu_learn)
+                bool topo_taken = false;
                 for (const auto& c : res.cascade) {
                     const MsduInfo cm = NW_2026_MsduParser::parse(c.mac);
+                    merge_msdu_learn(r.msdu, cm, topo_taken);
                     MsduFieldNode grp;
                     grp.name = QStringLiteral("Cascade MAC Frame[%1]").arg(cas_cnt);
                     grp.value = QStringLiteral("%1 B%2%3")
@@ -466,6 +491,42 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                 append_summary(r.msdu, trl::L(" (截断: PB 块不完整, 声明 %1 块仅收到 %2 块)")
                     .arg(r.mpdu.pb_num).arg(res.blocks.size()));
             r.msdu.cascade_break_len = res.cascade_break_declared_len;
+            // DL-OFDMA 站点1+ 补解析:通用循环只跑了站点0 的块,站点1+ 的 PB 依序随后。
+            // 逐站按 eFC 表(每站 25b:PBNum 1b + TEI 12b + TMI 5b + RU 4b + SACK RU 3b)组装解析,
+            // 只合并学习(对 + 首段 topo 事件),不改站点0 的树/摘要/体流;eFC CRC 已在类型0 分支验过。
+            if (dl_ofdma && dl_sta_count > 1) {
+                const quint8* e = p + 16;   // eFC @16,16B(表27)
+                int bp = 2 + 25;            // 跳过站点0 的 25b
+                int base = 32 + (int)r.mpdu.pb_num * (int)r.mpdu.pb_size;   // 站点1 首块基址
+                bool topo_taken = (r.msdu.topo_event.kind != TopoEventKind::Other);
+                for (int s = 1; s < dl_sta_count; ++s) {
+                    if (bp + 25 > 104) break;   // 超出 eFC CRC 保护区(13B),停止
+                    const int pbn = (int)get_bits(e, bp / 8, bp % 8, 1); bp += 1;
+                    bp += 12;   // eFC TEI 无 MAC,不配对
+                    const int tmi = (int)get_bits(e, bp / 8, bp % 8, 5); bp += 5;
+                    bp += 4 + 3;   // RU + SACK RU
+                    const int psz = nw_2026_splc_pb_size(tmi);
+                    const int pnum = pbn + 1;
+                    // 尺寸非法则后续站点基址无法定位,整站停止(继续按错偏移解析会产垃圾对)
+                    if (psz <= 8 || pnum <= 0) break;
+                    if (base >= r.payload_for_log.size()) break;
+                    const pb_asm::PbLayout layout{/*head*/4, /*rsv*/1, /*crc*/3,
+                                                  /*agg_byte*/2, /*agg_bit*/0, base};
+                    const pb_asm::AssembleResult ar =
+                        pb_asm::assemble_pb_blocks(r.payload_for_log, pnum, psz, layout);
+                    base += pnum * psz;
+                    if (ar.msdu_body.isEmpty()) continue;
+                    if (ar.any_aggregated) {
+                        for (const auto& c : ar.cascade) {
+                            const MsduInfo cm = NW_2026_MsduParser::parse(c.mac);
+                            merge_msdu_learn(r.msdu, cm, topo_taken);
+                        }
+                    } else {
+                        const MsduInfo cm = NW_2026_MsduParser::parse(ar.msdu_body);
+                        merge_msdu_learn(r.msdu, cm, topo_taken);
+                    }
+                }
+            }
         }
     } else if (ftype == NW_2026_FrameType::BEACON) {
         // BEACON:信标时间戳/周期计数/源 TEI(载波与无线同坐标)
@@ -613,6 +674,8 @@ void NW_2026_Parser::parse_ofdma_type1(Result& r, const quint8* p, int raw_sz) {
                                && (m_frame_count - it->frame_index <= kTriggerCtxMaxAge);
         if (ctx_valid && it->station_count >= 1) {
             int base = 16;                           // 类型1 无 eFC,站载荷自 byte16 起
+            // topo 事件单槽位:首站非 Other 事件为准(见 merge_msdu_learn)
+            bool topo_taken = false;
             for (int s = 0; s < it->station_count; ++s) {
                 const auto& ts = it->st[s];
                 SofStationPb st;
@@ -630,6 +693,19 @@ void NW_2026_Parser::parse_ofdma_type1(Result& r, const quint8* p, int raw_sz) {
                         st.pb_crc_oks.append(b.crc_ok);
                     }
                     st.msdu = res.msdu_body;
+                    // 学习:逐站 MSDU 解析并合并(头对+管理对进 tei_mac_pairs;topo 首站优先)。
+                    // 注:r.msdu.present 保持 false(显示不变);对循环消费不以 present 为门,学习仍生效。
+                    if (!st.msdu.isEmpty()) {
+                        if (res.any_aggregated) {
+                            for (const auto& c : res.cascade) {
+                                const MsduInfo cm = NW_2026_MsduParser::parse(c.mac);
+                                merge_msdu_learn(r.msdu, cm, topo_taken);
+                            }
+                        } else {
+                            const MsduInfo cm = NW_2026_MsduParser::parse(st.msdu);
+                            merge_msdu_learn(r.msdu, cm, topo_taken);
+                        }
+                    }
                 }
                 r.mpdu.sof_stations.append(st);
                 base += (int)ts.pb_num * (int)ts.pb_size;
