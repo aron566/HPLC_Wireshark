@@ -282,9 +282,11 @@ local mme_type_vals = {
     [0x0055] = T("发现列表 MMeDiscoverNodeList", "MMeDiscoverNodeList"),
     [0x005D] = T("延迟离线指示 MMeDelayLeaveInd", "MMeDelayLeaveInd"),
     [0x005E] = T("通信成功率上报 MMeSuccessRateReport", "MMeSuccessRateReport"),
+    [0x005F] = T("网络冲突上报 MMeNetworkConflictReport", "MMeNetworkConflictReport"),
     [0x0062] = T("过零NTB采集指示 MMeZeroCrossNTBCollectInd", "MMeZeroCrossNTBCollectInd"),
     [0x0063] = T("过零NTB上报 MMeZeroCrossNTBReport", "MMeZeroCrossNTBReport"),
     [0x0064] = T("网络诊断 MMeNetDiagnose", "MMeNetDiagnose"),
+    [0x0070] = T("无线信道冲突上报 MMeRFChannelConflictReport", "MMeRFChannelConflictReport"),
     [0x0083] = T("站点TEI列表请求 MMeStationTEIListRequest", "MMeStationTEIListRequest"),
     [0x0084] = T("站点TEI列表响应 MMeStationTEIListResponse", "MMeStationTEIListResponse"),
     [0x0080] = T("Bitloading训练结果更新请求 MMeBitLoadUpdateReq", "MMeBitLoadUpdateReq"),
@@ -2666,7 +2668,13 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei, no_info)
                 end
                 -- 代理转发主体标记(与 C++ packetlistmodel COL_MSDU_TYPE 同口径):
                 -- 单一 MMe 主体 MAC ≠ 本跳发送方 MAC → Info 追加 " STA-N [MAC:...]"
-                local body_mac_str, body_tei = mme_body_sta_mac_tei(mmtype, body_tvb)
+                -- ⚠️ 本调用在 dissect_mme_body 的 pcall 之外:helper 内部虽有 mac_to_str/read_bits
+                -- 越界守卫,仍加 body_tvb:len() 下限检查兜底(最深分支=关联指示 TEI@bit160-171→byte21),
+                -- 防未来 helper 演化引入裸 tvb() 访问时整个 dissector 报错
+                local body_mac_str, body_tei
+                if body_tvb:len() >= 22 then
+                    body_mac_str, body_tei = mme_body_sta_mac_tei(mmtype, body_tvb)
+                end
                 if body_mac_str and src_mac_str and body_mac_str ~= src_mac_str and not no_info then
                     local body = (body_tei and body_tei ~= 0)
                         and string.format("STA-%d", body_tei) or "STA-X"
