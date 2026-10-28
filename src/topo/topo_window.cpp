@@ -478,6 +478,8 @@ void TopoGraphWidget::show_node_tip(const QPoint& global_pos, quint16 tei, quint
     lines << QStringLiteral("%1: %2").arg(trl::L("入网链路"),
         node->link_type == LinkTypeUnknown ? trl::L("未定|载波")
         : (node->link_type == LinkTypeRf ? trl::L("无线") : trl::L("载波")));
+    lines << QStringLiteral("%1: %2").arg(trl::L("双模"),
+        node->rf_capable ? trl::L("是") : trl::L("否"));
     // 无线信号强度(仅 RF 帧携带过信号强度时显示;dBm 为档位下限估计)
     if (node->rssi_known)
         lines << QStringLiteral("%1: %2 dBm").arg(trl::L("信号强度")).arg(node->rssi_dbm);
