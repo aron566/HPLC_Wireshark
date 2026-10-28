@@ -59,7 +59,7 @@ static void assign_link_type(TopoNode& n, const TopoEvent& e) {
     } else if (e.is_rf_known && n.link_type == LinkTypeUnknown) {
         n.link_type = e.is_rf ? LinkTypeRf : LinkTypeHplc;   // 回退物理媒介,不锁
     }
-    if (n.link_type == 1) n.rf_capable = true;   // 无线链路即双模,权威/弱路径全算
+    if (n.link_type == LinkTypeRf) n.rf_capable = true;   // 无线链路即双模,权威/弱路径全算
 }
 
 } // namespace
@@ -255,7 +255,7 @@ void TopoState::apply(const TopoEvent& e) {
             if (n.link_type_known) continue;   // 已锁定不覆盖
             n.link_type = pr.second;
             n.link_type_known = true;
-            if (n.link_type == 1) n.rf_capable = true;   // 双模认定:无线链路即双模
+            if (n.link_type == LinkTypeRf) n.rf_capable = true;   // 双模认定:无线链路即双模
         }
     }
     // 载波发现列表(0x0055 表77)与代理站点通信成功率:独立于 RFDL proxy_* 与 0x005E comm_rates;
