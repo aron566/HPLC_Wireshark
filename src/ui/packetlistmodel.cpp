@@ -294,9 +294,11 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                     }
                     QString msdu = e.msdu_body.isEmpty() ? QString() :
                                    QStringLiteral(" MSDU[%1B]").arg(e.msdu_body.size());
-                    return QStringLiteral("NetID=0x%1 src=%2 dst=%3 TMI=%4 PBNum=%5%6")
+                    return QStringLiteral("NetID=0x%1 src=%2 dst=%3 %4=%5 PBNum=%6%7")
                            .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
-                           .arg(e.mpdu.tmi).arg(e.mpdu.pb_num).arg(msdu);
+                           .arg(e.meta.is_rf ? QStringLiteral("MCS") : QStringLiteral("TMI"))
+                           .arg(e.meta.is_rf ? e.mpdu.mcs : e.mpdu.tmi)
+                           .arg(e.mpdu.pb_num).arg(msdu);
                 }
                 return QStringLiteral("NetID=0x%1 src=%2 dst=%3")
                        .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei);
