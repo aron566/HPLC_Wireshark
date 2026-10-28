@@ -45,6 +45,18 @@ void stats_account(qint64 us_env, qint64 us_mpdu, qint64 us_body) {
 
 GW_2026_Parser::GW_2026_Parser() {}
 
+// 学习层合并(供 OFDMA/TDA 站点 MSDU 用):对全并、头对以对形式并入、topo 事件首个优先;
+// 不改 present/摘要/树显示(站点 MSDU 仅作学习源,不进包列表 MSDU 列)。
+static void merge_msdu_learn(MsduInfo& dst, const MsduInfo& src) {
+    for (const auto& p : src.tei_mac_pairs) dst.tei_mac_pairs.append(p);
+    if (src.msdu_src_tei > 0 && src.msdu_src_mac != 0)
+        dst.tei_mac_pairs.append({(quint16)src.msdu_src_tei, src.msdu_src_mac});
+    if (src.msdu_dst_tei > 0 && src.msdu_dst_mac != 0)
+        dst.tei_mac_pairs.append({(quint16)src.msdu_dst_tei, src.msdu_dst_mac});
+    if (dst.topo_event.kind == TopoEventKind::Other && src.topo_event.kind != TopoEventKind::Other)
+        dst.topo_event = src.topo_event;
+}
+
 // 剥物理层头
 bool GW_2026_Parser::decode_envelope(const BplcFrame& in, Result& r) {
     r.meta = in.meta;
@@ -255,6 +267,12 @@ GW_2026_Parser::Result GW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
             // 仅当单块(整条 MSDU 连续位于本帧 17..)时才能把字段映射到 raw 高亮;
             // 多块重组时各 pb_body 在 raw 中被 pb_head/CRC 隔断,不连续,置 -1。
             r.msdu_raw_base = (r.mpdu.pb_num == 1) ? 17 : -1;
+        }
+        // 多站点帧(OFDMA/TDA,51242 表10/11/12/13):各站 MSDU 只组装进 sof_stations,
+        // 从未进通用解析;逐站解析仅合并学习(对 + 头对 + 首个 topo 事件),不改显示。
+        for (const auto& st : r.mpdu.sof_stations) {
+            if (st.msdu.isEmpty()) continue;
+            merge_msdu_learn(r.msdu, GW_2026_MsduParser::parse(st.msdu));
         }
     } else if (ft == GW_2026_FrameType::BEACON) {
         // BEACON:FCH 摘要 + 载荷区解析(beacon 模块)

@@ -772,6 +772,8 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
     if (d.size() < 7) { pa::warn("gw_2026:truncated", QStringLiteral("RFDL %1B<7B").arg(d.size())); append_summary(out, trl::L(" (RFDL 截断)")); return; }
 
     // 表91/表62 头:站点MAC 6B + 统计序号 1B
+    // 发送节点 MAC(表62/表91 头 @0-5):载波站点属性 IE 的 TEI 与之配对(见 IE0 载波分支)
+    const quint64 sender_mac = (quint64)get_bits(d, 0, 0, 48);
     {
         MsduFieldNode mac;
         mac.name = QStringLiteral("STA MAC [48b]");
@@ -825,6 +827,10 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
             if (carrier) {
                 // 载波发现列表(msg_type 2)站点属性:表63 23B
                 add_fields(g.children, content, 0, kCarrierRfdlAttrSpec, kCarrierRfdlAttrSpecN, content_abs);
+                // TEI→MAC 学习(51242 表62/表63:头 MAC@0-5 为发送节点 MAC,IE TEI@0 为发送节点 TEI):
+                // 单跳 MSDU 无 MSDU_BASE 头,头对覆盖不到;无线版表92 IE 无发送方 TEI,故仅载波分支学。
+                const quint16 sender_tei = (quint16)get_bits(content, 0, 0, 12);
+                if (sender_tei && sender_mac) out.tei_mac_pairs.append({sender_tei, sender_mac});
                 out.topo_event.proxy_tei = (quint16)get_bits(content, 1, 4, 12);
                 const quint8 up_v  = (quint8)get_bits(content, 12, 0, 8);
                 const quint8 dwn_v = (quint8)get_bits(content, 13, 0, 8);
@@ -1360,6 +1366,9 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                     out.topo_event.is_rf_known = true;
                     if (cco_mac) out.topo_event.cco_mac = cco_mac;
                     if (sta_tei && sta_mac) out.topo_event.nodes.append({sta_tei, sta_mac});
+                    // TEI→MAC 学习(51242 表47:站点 MAC@0-5 为目的终端设备 MAC,站点 TEI@14 为 CCO 分配的 TEI):
+                    // 长头时 MSDU 头目的对已覆盖;短头(MACAddrFlag=0,无 MAC 字段)时仅体对可学,故成功时体对必发。
+                    if (sta_tei && sta_mac) out.tei_mac_pairs.append({sta_tei, sta_mac});
                     if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
                     out.topo_event.desc = trl::L("关联确认: STA TEI=%1 入网 代理=%2")
                         .arg(sta_tei)
@@ -1481,6 +1490,9 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                         const quint16 gsta_tei = (quint16)get_bits(b, off + 6, 0, 12);
                         if (g_ok) {
                             if (gsta_tei && gsta_mac) out.topo_event.nodes.append({gsta_tei, gsta_mac});
+                            // TEI→MAC 学习(51242 表52/表54:条目为站点 MAC 6B + 站点 TEI 12b):
+                            // 所列站点非 MSDU 头地址,头对覆盖不到,仅 g_ok 时学。
+                            if (gsta_tei && gsta_mac) out.tei_mac_pairs.append({gsta_tei, gsta_mac});
                             if (gsta_tei && gproxy_tei) out.topo_event.routes.append({gsta_tei, gproxy_tei});
                         }
                         auto& ns = group(sgi.children,
