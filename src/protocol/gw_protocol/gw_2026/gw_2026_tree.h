@@ -15,7 +15,7 @@ enum class GW_2026_FrameType : quint8 {
     COORD  = 3,  ///< 网间协调帧
 };
 
-/// 国网 GW_2026 SOF 帧子类型(载波表7 (7,0,3);无线表21 无此字段=数据帧)
+/// 国网 GW_2026 SOF 帧子类型(载波表7 (7,0,3);无线 HDC2.0 4-2 表19 无此字段=数据帧)
 enum class GW_2026_SofDataType : quint8 {
     DATA   = 0,  ///< 数据帧
     SOUND  = 1,  ///< 信道探测帧(表9)

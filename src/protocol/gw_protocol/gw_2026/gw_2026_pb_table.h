@@ -10,7 +10,7 @@
 
 #include <QtGlobal>
 
-/// 国网无线载荷 PB 大小码 → PB 块大小(字节)(表29:0-5 = 16/40/72/136/264/520)。-1 = 保留值
+/// 国网无线载荷 PB 大小码 → PB 块大小(字节)(HDC2.0 4-2 表18/表19:0-5 = 16/40/72/136/264/520)。-1 = 保留值
 inline int gw_2026_rf_pb_size(quint8 code) {
     static const quint16 table[] = {16, 40, 72, 136, 264, 520};
     return (code <= 5) ? int(table[code]) : -1;

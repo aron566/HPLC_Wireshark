@@ -1,6 +1,6 @@
 /// @file sofparser.cpp
 /// @brief SOF 帧解析实现(独立帧解析模块,sofparser.pri)
-/// @details HDC 2.0:SOF 按载波表7-表13/无线表21 分介质解析 FCH 可变区域,
+/// @details HDC 2.0:SOF 按载波表7-表13/无线表19 分介质解析 FCH 可变区域,
 ///          载波再按帧子类型(表7 byte7 bit0-2)分派:数据帧/信道探测帧(表9)/
 ///          OFDMA 下行帧(表10/11)/TDA 下行帧(表12/13);链路标识符已移至
 ///          MAC 帧头 byte15(表2)。逐 PB 块 CRC24 校验与 MSDU 重组
@@ -16,7 +16,7 @@
 
 namespace {
 
-// 无线 SOF 载荷PB大小(表29):索引 0-5 对应 16/40/72/136/264/520 字节
+// 无线 SOF 载荷PB大小(HDC2.0 4-2 表19):索引 0-5 对应 16/40/72/136/264/520 字节
 int sof_rf_pb_size(quint8 idx) {
     static const quint16 table[] = {16, 40, 72, 136, 264, 520};
     return (idx <= 5) ? int(table[idx]) : -1;
@@ -48,8 +48,8 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
 
     int pb_size;
     if (is_rf) {
-        // 无线 SOF(表21,布局同 HDC 1.0 表30):固定 1 块;字节9 bit4-7 为
-        // 载荷PB大小(表29),字节11 bit4-7 为 MCS(表28),其余保留(存原始值)
+        // 无线 SOF(HDC2.0 4-2 表19,布局同 HDC 1.0 表30):固定 1 块;字节9 bit4-7 为
+        // 载荷PB大小(表19),字节11 bit4-7 为 MCS(表18),其余保留(存原始值)
         info.pb_num_field = (quint8) get_bits(p, 9, 4, 4);
         info.bc_flag      = (bool)   get_bits(p, 11, 1, 1);
         info.re_send_flag = (bool)   get_bits(p, 11, 2, 1);

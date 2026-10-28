@@ -7,7 +7,7 @@
 
 namespace {
 
-// MCS 释义(表28,与 gw_2026_mcs.h 中文 key 对应)+ 兜底词条
+// MCS 释义(HDC2.0 4-2 表18,与 gw_2026_mcs.h 中文 key 对应)+ 兜底词条
 struct I18nReg {
     I18nReg() {
         trl::register_en("保留", "Reserved");
@@ -18,7 +18,7 @@ struct I18nReg {
         trl::register_en("预留信息段", "Reserved for Future Encryption");
         trl::register_en("信道探测帧无数据物理块, 表9 无 PB 字段",
                          "No Data PB in Channel Sounding Frame (Table 9 Has No PB Field)");
-        // 无线 MCS 释义(表28:分集次数/调制方式/码率)
+        // 无线 MCS 释义(HDC2.0 4-2 表18:分集次数/调制方式/码率)
         trl::register_en("分集4次 BPSK 码率1/2", "Diversity 4, BPSK, Code Rate 1/2");
         trl::register_en("分集2次 BPSK 码率1/2", "Diversity 2, BPSK, Code Rate 1/2");
         trl::register_en("分集2次 QPSK 码率1/2", "Diversity 2, QPSK, Code Rate 1/2");
@@ -75,7 +75,7 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         tree_add_bit_field(bcn, "Source TEI", QString::number(e.mpdu.src_tei), 8, 0, 12);
         {
             if (e.meta.is_rf) {
-                // 无线信标(表27):MCS(9,4,4,释义表28)/载荷PB大小(10,0,4,表29)/保留16b
+                // 无线信标(HDC2.0 4-2 表18):MCS(9,4,4,释义表18)/载荷PB大小(10,0,4,表18)/保留16b
                 const quint8 mcs = e.mpdu.mcs;
                 const char* mcs_zh = gw_2026_mcs_desc(mcs);
                 const QString mcs_desc = mcs_zh ? trl::L(mcs_zh) : trl::L("保留");
@@ -143,15 +143,15 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         const int rsz = e.raw_bytes.size();
         tree_add_bit_field(sof, "Source TEI", QString::number(e.mpdu.src_tei), 4, 0, 12);
         tree_add_bit_field(sof, "Destination TEI", QString::number(e.mpdu.dst_tei), 5, 4, 12);
-        // 帧长单位:载波(表7/表9-13)10 微秒、无线(表21)100 微秒
+        // 帧长单位:载波(表7/表9-13)10 微秒、无线(HDC2.0 4-2 表19)100 微秒
         tree_add_bit_field(sof, "Frame Length",
             QStringLiteral("%1 (%2)").arg(e.mpdu.frame_len)
                                       .arg(e.meta.is_rf ? QStringLiteral("x100us")
                                                         : QStringLiteral("x10us")),
             8, 0, 12);
         if (e.meta.is_rf) {
-            // 无线(表21,布局同 HDC 1.0 表30):字节9 bit4-7 = 载荷PB大小(表29),
-            // 字节10-11 bit0 = 保留,字节11 bit4-7 = MCS(表28),字节12 bit0-3 = 保留
+            // 无线(HDC2.0 4-2 表19,布局同 HDC 1.0 表30):字节9 bit4-7 = 载荷PB大小(表19),
+            // 字节10-11 bit0 = 保留,字节11 bit4-7 = MCS(表18),字节12 bit0-3 = 保留
             static const int kRfPbSize[] = {16, 40, 72, 136, 264, 520};
             const quint8  idx = e.mpdu.pb_num_field;
             const QString desc = (idx <= 5)
@@ -369,7 +369,7 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             }
             }
         }
-        // 广播/重传/加密标志位(表21/表32/表7):仅无线与载波数据帧定义该组字段,
+        // 广播/重传/加密标志位(表19/表32/表7):仅无线与载波数据帧定义该组字段,
         // 信道探测(表9)/OFDMA(表10)/TDA(表12)的 byte11-12 为子类型专属布局,不渲染
         if (e.meta.is_rf || sof_st == GW_2026_SofDataType::DATA) {
         tree_add_bit_field(sof, "Broadcast",
@@ -387,8 +387,8 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             11, 3, 1);
         }
         if (e.meta.is_rf) {
-            // 无线(表21):字节11 bit4-7 = MCS(表28),字节12 bit0-3 = 保留
-            // 表28 MCS 取值:0-6 为分集次数/调制方式/码率组合,7 以上保留
+            // 无线(HDC2.0 4-2 表19):字节11 bit4-7 = MCS(表18),字节12 bit0-3 = 保留
+            // 表18 MCS 取值:0-6 为分集次数/调制方式/码率组合,7 以上保留
             const quint8 mcs = e.mpdu.mcs;
             const char* mcs_zh = gw_2026_mcs_desc(mcs);
             const QString mcs_desc = mcs_zh ? trl::L(mcs_zh) : trl::L("保留");
