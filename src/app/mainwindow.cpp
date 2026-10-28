@@ -661,9 +661,12 @@ static QStringList csv_row(const PacketEntry& e, const TeiMacMap& macs) {
             if (e.mpdu.frame_type == 0)
                 s = QStringLiteral("NetID=0x%1 ts=%2").arg(nid).arg(e.meta.timestamp);
             else if (e.mpdu.frame_type == 1)
-                s = QStringLiteral("NetID=0x%1 src=%2 dst=%3 TMI=%4 PBNum=%5%6")
+                // 无线帧无 TMI(南网无线表131 只有 MCS/PBLen),与 packetlistmodel SOF 摘要同口径
+                s = QStringLiteral("NetID=0x%1 src=%2 dst=%3 %4=%5 PBNum=%6%7")
                         .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
-                        .arg(e.mpdu.tmi).arg(e.mpdu.pb_num)
+                        .arg(e.meta.is_rf ? QStringLiteral("MCS") : QStringLiteral("TMI"))
+                        .arg(e.meta.is_rf ? e.mpdu.mcs : e.mpdu.tmi)
+                        .arg(e.mpdu.pb_num)
                         .arg(e.msdu_body.isEmpty() ? QString()
                                                    : QStringLiteral(" MSDU[%1B]").arg(e.msdu_body.size()));
             else
