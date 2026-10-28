@@ -1,7 +1,8 @@
 /// @file nw_2021_msdu_parser.cpp
 /// @brief 南网 NW_2021 MSDU/MAC 层解析实现(头解析 + MMe 管理消息字段)
 /// @details MSDU 处理流程(帧类型判定 / MAC 帧头 / MSDU 帧头 / MMe 分支):
-///           1. 判帧类型:Version(bit1-2)=1 标准(MSDU_BASE);0/2/3 保留(表6),不解释
+///           1. 判帧类型:Version(bit1-2)=1 标准(MSDU_BASE);2 单跳帧协议(走单跳路径);
+///              0/3 保留(BPLC 表106),本路径不解释
 ///           2. MAC 帧头(MSDU_BASE 32B 长/12B 短):TEI/SNID/重启次数/广播方向
 ///           3. MSDU 帧头(长 18B / 短 2B,由 MACHeadFlag 决定):MAC 48b + VLAN + 类型
 ///           4. VLAN==0x8100 → MMe 管理消息(MMType 16b 分支,字段树)
@@ -1330,7 +1331,8 @@ static bool mme_body_complete(const QByteArray& mme, NW_2021_MMeType type) {
 // ── MAC 帧头字段表(6.2.1 表3 长帧头 32B / 6.2.2 表9 短帧头 12B) ──
 // 帧头类型(表5:0 长帧头 32B / 1 短帧头 12B)
 static const char* kHeaderTypeZh[] = { "长帧头(32B)", "短帧头(12B)" };
-// 版本(表6:0/2/3 保留,1 本标准协议;2=单跳帧协议(第2部分无线 §8.1.2.4,仅无线信道))
+// 版本(BPLC 表106:0/3 保留,1 本标准协议,2 单跳帧协议;BPLC 第2部分
+// 《无线通信接入协议》§8.1.2.4/表107:单跳仅无线信道)
 static const char* kMacVersionZh[] = { nullptr, "本标准协议", "单跳帧协议", nullptr };
 // 发送类型(南网 §6.2.1.10 表8:0 单播需确认 / 1 全网广播不需 / 2 本地广播不需 / 3 全网广播需确认 / 4 本地广播需确认)
 // 注:国网 GW_2022 表5 是 0单播/1全网/2本地/3代理广播,与本表不同,勿混用。
@@ -1513,10 +1515,10 @@ MsduInfo NW_2021_MsduParser::parse(const QByteArray& body) {
     if (body.size() < 4) { pa::warn("nw_2021:content_short", QStringLiteral("body %1B<4B").arg(body.size())); return out; }
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
 
-    // 帧类型:Version 字段(bit1-2)。表6:1=本标准协议,0/3 保留,2=单跳帧协议。
-    // 单跳帧协议(第2部分无线 §8.1.2.4 表113,仅无线信道)使用专用 4B 帧头,
+    // 帧类型:Version 字段(bit1-2)。BPLC 表106:1=本标准协议,0/3 保留,2=单跳帧协议。
+    // 单跳帧协议(BPLC 第2部分 §8.1.2.4 表113,仅无线信道)使用专用 4B 帧头,
     // 无 TEI/SNID/路由字段;此前按"保留版本回退标准头"会错位 8B 误解析,现独立处理。
-    // 版本 0/3(保留)仍回退按标准头解析(表6 未定义其布局,按用户决策保持)。
+    // 版本 0/3(保留)仍回退按标准头解析(表106 未定义其布局,按用户决策保持)。
     if ((quint8)get_bits(p, 0, 1, 2) == 2) {
         parse_single_hop(out, body);
         return out;

@@ -214,13 +214,22 @@ def build_assoc_cnf():
 
 # ============ frame3: 单跳帧 无线发现列表 (MAC version=2, msg_type=2, 表217) ============
 def build_singlehop_rfdl():
+    # 例外测试(有意构造,非错误):载波信道上的单跳帧。
+    # 规约上单跳仅无线:《计量自动化系统双模通信技术规范第2部分:无线通信接入协议》
+    # (BPLC)§8.1.2.4/表107(版本与信道对应关系:单跳载波不支持、无线支持)/表113
+    # (单跳 MAC 帧头格式);SPLC 第4部分 5.1.2.4/表12 同结论。
+    # 本帧用纯载波 SOF 外壳(build_sof:byte7=PBNum1+TMI4、byte12=0x10)且
+    # wrap_frame 默认 is_rf=0,覆盖解析器载波信道收到 version=2 时的 qWarning +
+    # 照常解析路径(nw_2021_parser.cpp)。切勿“修正”为 is_rf=1:RF 分支会按无线
+    # 坐标误读载波头而垮。IE 与 BPLC 表217 站点属性信息(14B)逐字节对上;
+    # 注意不是 SPLC 第4部分表217(SPLC4 表217=帧类型取值,站点属性是表142)。
     dst_tei = 2
     src_tei = 1
-    # MSDU(单跳): 站点MAC(6)+统计序号(1) + IE TLV(type=0站点属性,len=14,表217)
+    # MSDU(单跳): 站点MAC(6)+统计序号(1) + IE TLV(type=0站点属性,len=14,BPLC 表217)
     ie = bytearray()
-    ie += bytes([0x00])                   # IE type = 0 (站点属性, bit0-6)
+    ie += bytes([0x00])                   # IE type = 0 (站点属性, BPLC 表217)
     ie += bytes([0x0E])                   # IE len = 14 (ltype bit7=0 → 1B len)
-    # 表217 站点属性 14B
+    # BPLC 表217 站点属性 14B
     attr = bytearray()
     attr += CCO_MAC                       # 0-5  CCO MAC
     b = bytearray(2)

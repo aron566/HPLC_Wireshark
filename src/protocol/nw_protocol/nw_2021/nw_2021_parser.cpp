@@ -233,7 +233,10 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.pb_crc_ok = all_pb_ok;
             if (!msdu_body.isEmpty()) {
                 r.msdu_body = msdu_body;
-                // 表6:单跳帧协议(版本=2)仅无线信道支持;载波信道收到属异常(排查信道/串口错配)
+                // BPLC 表107:单跳帧协议(版本=2)载波不支持、仅无线信道支持
+                // (BPLC §8.1.2.4/表113;SPLC 第4部分 5.1.2.4/表12 同结论);
+                // 载波信道收到属异常(排查信道/串口错配)。例外测试见
+                // samples/gen_nw_bplc_frames.py build_singlehop_rfdl(载波外壳+is_rf=0)。
                 if (!r.meta.is_rf && (((quint8)msdu_body[0] >> 1) & 0x03) == 2)
                     qWarning("NW_2021: single-hop MAC version=2 on PLC channel (isRF=0)");
                 r.msdu = NW_2021_MsduParser::parse(msdu_body);
