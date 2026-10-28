@@ -57,7 +57,14 @@ struct CascadeMac {
 struct AssembleResult {
     QVector<PbBlock> blocks;       ///< 完整容纳块的逐块结果(依序)
     bool truncated = false;        ///< 帧长不足以容纳全部声明块
-    bool any_aggregated = false;   ///< 任一块聚合标志=1(表47)
+    bool any_aggregated = false;   ///< 任一块聚合标志=1(表47)。
+                                   ///< 现状口径(已文档化,语义未改):任一块 OR —— 只要
+                                   ///< 有一块聚合标志=1,整帧即按聚合处理,msdu_body
+                                   ///< 全体按表48 级联拆分,含混合帧中非聚合块的块体
+                                   ///< (该块体亦被强制按级联记录切分)。与 Lua any_agg
+                                   ///< (packet-nw_2026.lua:3098)同口径;多块聚合示意
+                                   ///< 见 SPLC 第4部分 图11。"全块一致才级联"为另一
+                                   ///< 候选口径,待决策;在此之前保持本语义。
     bool all_crc_ok = true;        ///< 全部完整块 CRC24 通过
     QByteArray msdu_body;          ///< 全部块体依序拼接(分片重组缓冲/级联体流)
     QVector<CascadeMac> cascade;   ///< 聚合级联拆分结果(any_aggregated 时有效)
@@ -109,7 +116,7 @@ inline AssembleResult assemble_pb_blocks(const QByteArray& raw, int pb_num,
                                      >> layout.agg_flag_bit) & 0x01) != 0)
                                 : false;
         res.all_crc_ok    = res.all_crc_ok && b.crc_ok;
-        res.any_aggregated = res.any_aggregated || b.aggregated;
+        res.any_aggregated = res.any_aggregated || b.aggregated;  // 任一块 OR:现状口径,见 any_aggregated 字段注释
         res.blocks.append(b);
         res.msdu_body += raw.mid(b.body_raw_offset, body_len);
     }
