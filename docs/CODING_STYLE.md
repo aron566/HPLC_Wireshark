@@ -788,20 +788,27 @@ info.sof_multi_site_verified = true;
 ### 13.4 审查判据（代码复核时逐条 grep）
 
 ```bash
-# ① 判 CCO 的裸值（应为 0）
-grep -rnE '(tei|parent|src_tei|dst_tei|old_tei|msdu_src_tei|msdu_dst_tei) *[=!]= *1\b' src/ | grep -v kTeiCco
+# ① 判 CCO 的裸值（应为 0）—— 注意同时覆盖十进制 1 与十六进制 0x1/0x01/0x0001/0x00000001
+grep -rnE '(tei|parent|src_tei|dst_tei|old_tei|msdu_src_tei|msdu_dst_tei) *[=!]= *(1|0[xX]0*1)\b' src/ | grep -v kTeiCco
 
-# ② 广播 TEI 裸值（应为 0）
-grep -rnE '(tei|dst_tei) *[=!]= *0xFFF' src/ | grep -v kTeiBroadcast
+# ② 广播 TEI 裸值（应为 0）—— 覆盖 4095 / 0xFFF / 0x0FFF
+grep -rnE '(tei|dst_tei) *[=!]= *(4095|0[xX]0*FFF)\b' src/ | grep -v kTeiBroadcast
 
 # ③ 链路类型裸值（应为 0）
-grep -rnE 'link_type *[=!]= *(1|0xFF|0)\b' src/ | grep -vE 'LinkType(Rf|Hplc|Unknown)'
+grep -rnE 'link_type *[=!]= *(1|0|0[xX]0*[01]|0[xX]0*FF)\b' src/ | grep -vE 'LinkType(Rf|Hplc|Unknown)'
 
-# ④ 新增枚举后是否登记进 13.2
+# ④ 无效 TEI 哨兵裸值（应为 0）—— 覆盖 65535 / 0xFFFF
+grep -rnE '(tei|parent_tei|proxy_tei|reporter_tei|ctei) *[=!]= *(65535|0[xX]0*FFFF)\b' src/ | grep -v kTeiInvalid
+
+# ⑤ 新增枚举后是否登记进 13.2
 grep -nE '^enum |^constexpr ' src/common/bplcframe.h   # 逐项与本文档 13.2 表比对
 ```
 
-**审查口径**：以上 ①②③ 命中即**不合入**（除注释/字符串字面量）；④ 缺登记项要求补齐文档。
+**审查口径**：以上 ①～④ 命中即**不合入**（除注释/字符串字面量）；⑤ 缺登记项要求补齐文档。
+
+> **⚠️ 教训（2026-10 实测）**：初版判据只写 `== 1`，漏掉了 `== 0x0001` 的写法
+> （实测残留于 `bplcframe.h:458/462`、`packetlistmodel.cpp:168/184` 的 CCO 显示判断）。
+> 写正则时**必须同时覆盖十进制与各种十六进制零填充**（`0x1` / `0x01` / `0x0001` / `0x00000001`）。
 
 ---
 
