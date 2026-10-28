@@ -61,6 +61,7 @@ static void assign_link_type(TopoNode& n, const TopoEvent& e) {
     }
     if (n.link_type == LinkTypeRf) n.rf_capable = true;   // 无线链路即双模,权威/弱路径全算
     if (e.module_type == 1) n.rf_capable = true;   // 双模认定(关联请求模块类型=1,表164/表84),入网请求时刻即可知
+    // 注:关联请求事件走 pending 分支,不经此函数;pending 分支内另行认定,晋升时保留。
 }
 
 } // namespace
@@ -218,6 +219,9 @@ void TopoState::apply(const TopoEvent& e) {
             n.status = NodeStatus::OnlineGoing;
             n.last_seen_ms = e.epoch_ms;
             if (e.is_rf_known) { n.is_rf = e.is_rf; n.is_rf_known = true; }
+            // 双模认定(关联请求模块类型=1,表164/表84):入网请求时刻即可知。
+            // 关联请求走 pending 分支,不经 assign_link_type,故此处直接认定。
+            if (e.module_type == 1) n.rf_capable = true;
             pending[p.mac] = n;
             continue;
         }
@@ -229,6 +233,9 @@ void TopoState::apply(const TopoEvent& e) {
         n.last_seen_ms = e.epoch_ms;
         if (e.is_rf_known) { n.is_rf = e.is_rf; n.is_rf_known = true; }
         assign_link_type(n, e);
+        // 关联请求阶段已认定的双模标记随节点晋升保留(pending 节点本身将被移除)。
+        auto pit = pending.constFind(p.mac);
+        if (pit != pending.constEnd() && pit->rf_capable) n.rf_capable = true;
         // 若该 MAC 之前正在入网(关联请求),现已分配到 TEI → 移除 pending。
         // pending 的 key 恒等于 TopoNode.mac(写入处 pending[p.mac]=n),等价于哈希直接删除。
         pending.remove(p.mac);

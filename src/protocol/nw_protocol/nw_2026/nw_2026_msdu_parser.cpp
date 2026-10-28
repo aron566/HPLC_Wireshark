@@ -484,7 +484,7 @@ static const FieldSpec kMMeAssocReqSpec[] = {
     { "CandidateLinePhase2", 18, 0, 8, Fmt::DEC },
     { "DeviceType", 19, 0, 8, Fmt::DEC },
     { "MMeAssocReqRSV5", 20, 0, 8, Fmt::HEX4 },
-    // 扩展特性标识(表81,报文体 byte21):bit0 置1=支持应用层多帧抄读,bit1-7 保留
+    // 扩展特性标识(表78,报文体 byte21):bit0 置1=支持应用层多帧抄读,bit1-7 保留
     { "ExtFeatureFlag", 21, 0, 1, Fmt::DEC },
     { "MMeAssocReqRSV6", 21, 1, 7, Fmt::HEX4 },
     { "MACAddrType", 22, 0, 8, Fmt::DEC },
