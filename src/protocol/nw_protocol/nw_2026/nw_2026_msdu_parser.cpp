@@ -2202,14 +2202,14 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
                 }
                 out.topo_event.kind = TopoEventKind::DiscoverList;
                 // 南网 MAC 帧头重启次数(4-bit):TopoState 据此检测 CCO 重启;
-                // 只有 CCO 本人发出(src_tei==1)才采用,防 STA 中继转发误报;
+                // 只有 CCO 本人发出(src_tei == kTeiCco)才采用,防 STA 中继转发误报;
                 // 重启次数为哨兵 0xFF(未填)时不采用(保持 -1 未知)
-                if (out.restart_count != 0xFF && out.msdu_src_tei == 1)
+                if (out.restart_count != 0xFF && out.msdu_src_tei == kTeiCco)
                     out.topo_event.restart_count = (int)out.restart_count;
                 // 发现列表由 CCO 广播:发送方即 CCO,填 cco_mac 保证拓扑图根节点
                 // 创建(对齐国网 DiscoverList 填 cco_mac 的行为);中继转发的帧
                 // 源 TEI 不是 1,不填,防误认
-                if (out.msdu_src_tei == 1 && out.msdu_src_mac)
+                if (out.msdu_src_tei == kTeiCco && out.msdu_src_mac)
                     out.topo_event.cco_mac = out.msdu_src_mac;
                 if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
                 // 发现列表携带该 STA 经代理的上下行成功率(表77 byte16-19/20-23,32bit,取值0-100,超出无效):

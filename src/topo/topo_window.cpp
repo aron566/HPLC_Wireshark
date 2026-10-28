@@ -202,7 +202,7 @@ struct I18nRegTopoWindow {
         trl::register_en("双模", "Dual-mode");
         // Unk = Undetermined 的缩写。用缩写是因为节点标签第三行宽仅 140px，
         // 全称 "Undetermined|Carrier" 约 120px 接近上限，高 DPI 下可能贴边被裁。
-        // 语义:link_type==0xFF(表79/表160 未定义该值) ⇒ 按载波兜底显示。
+        // 语义:link_type==LinkTypeUnknown(SPLC-4 表79 / BPLC-2 表160 未定义该值) ⇒ 按载波兜底显示。
         trl::register_en("未定|载波", "Unk|Carrier");
         trl::register_en("无线", "RF");
         trl::register_en("是", "Yes");
@@ -351,13 +351,13 @@ void TopoGraphWidget::paintEvent(QPaintEvent*) {
             if (cit == m_pos.constEnd()) continue;
             parent_center = cit.value();
             auto pit = m_state->pending.constFind(np.mac);
-            if (pit != m_state->pending.constEnd()) child_is_rf = (pit.value().link_type == 1 || (pit.value().link_type == 0xFF && pit.value().is_rf));
+            if (pit != m_state->pending.constEnd()) child_is_rf = (pit.value().link_type == LinkTypeRf || (pit.value().link_type == LinkTypeUnknown && pit.value().is_rf));
         } else {
             auto it = m_state->nodes.constFind(np.tei);
             if (it == m_state->nodes.constEnd()) continue;
-            child_is_rf = (it.value().link_type == 1 || (it.value().link_type == 0xFF && it.value().is_rf));   // 入网链路类型(表79/160),未定时回退 is_rf
+            child_is_rf = (it.value().link_type == LinkTypeRf || (it.value().link_type == LinkTypeUnknown && it.value().is_rf));   // 入网链路类型(SPLC-4 表79 / BPLC-2 表160),未定时回退 is_rf
             const quint16 parent = it.value().parent_tei;
-            if (parent == 0xFFFF || parent == np.tei) continue;
+            if (parent == kTeiInvalid || parent == np.tei) continue;
             auto pit = m_pos.constFind(parent);
             if (pit == m_pos.constEnd()) continue;
             parent_center = pit.value();
@@ -383,7 +383,7 @@ void TopoGraphWidget::paintEvent(QPaintEvent*) {
             if (it == m_state->nodes.constEnd()) continue;
             node = &it.value();
         }
-        const bool is_cco = (np.tei == 1);
+        const bool is_cco = (np.tei == kTeiCco);
         const bool is_pending = (np.tei == 0);
 
         // 高亮聚焦节点(TEI-MAC 表双击跳转):橙色粗边框醒目标识
@@ -431,9 +431,9 @@ void TopoGraphWidget::paintEvent(QPaintEvent*) {
         p.drawText(label_rect.adjusted(0, row_h, 0, -row_h), Qt::AlignCenter,
                    node->mac ? format_mac(node->mac) : QStringLiteral("MAC ?"));
         // 入网链路(表79/表160):读 link_type 而非 is_rf —— is_rf 是首次帧介质,不是入网链路
-        const QString link_txt = (node->link_type == 0xFF)
+        const QString link_txt = (node->link_type == LinkTypeUnknown)
                                    ? trl::L("未定|载波")
-                                   : (node->link_type == 1 ? trl::L("无线") : trl::L("载波"));
+                                   : (node->link_type == LinkTypeRf ? trl::L("无线") : trl::L("载波"));
         p.drawText(label_rect.adjusted(0, 2 * row_h, 0, 0), Qt::AlignCenter, link_txt);
     }
 }
@@ -472,33 +472,33 @@ void TopoGraphWidget::show_node_tip(const QPoint& global_pos, quint16 tei, quint
         auto it = m_state->nodes.constFind(tei);
         if (it == m_state->nodes.constEnd()) return;
         node = &it.value();
-        title = (tei == 1) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(tei);
+        title = (tei == kTeiCco) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(tei);
     }
     lines << (node->mac ? format_mac(node->mac) : QStringLiteral("MAC ?"));
     lines << QStringLiteral("%1: %2").arg(trl::L("入网链路"),
-        node->link_type == 0xFF ? trl::L("未定|载波")
-        : (node->link_type == 1 ? trl::L("无线") : trl::L("载波")));
+        node->link_type == LinkTypeUnknown ? trl::L("未定|载波")
+        : (node->link_type == LinkTypeRf ? trl::L("无线") : trl::L("载波")));
     // 无线信号强度(仅 RF 帧携带过信号强度时显示;dBm 为档位下限估计)
     if (node->rssi_known)
         lines << QStringLiteral("%1: %2 dBm").arg(trl::L("信号强度")).arg(node->rssi_dbm);
 
-    if (tei != 1) {
+    if (tei != kTeiCco) {
         const quint16 parent = node->parent_tei;
-        const QString pname = (parent == 1) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(parent);
+        const QString pname = (parent == kTeiCco) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(parent);
         // 上级(代理)
-        if (parent != 0xFFFF && parent != tei)
+        if (parent != kTeiInvalid && parent != tei)
             lines << QStringLiteral("%1: %2").arg(trl::L("上级"), pname);
         // ── ① 成功率区:只显示与父节点(代理)的 4 项(无线 2 + 载波 2);两组都空才显示"暂无上报" ──
         const bool has_wireless = node->proxy_up_rate >= 0 || node->proxy_down_rate >= 0;
         const bool has_carrier = node->proxy_comm_rate >= 0 || node->proxy_down_comm_rate >= 0;
-        if (parent != 0xFFFF && parent != tei && has_wireless) {
+        if (parent != kTeiInvalid && parent != tei && has_wireless) {
             // 无线:RFDL 站点属性(表217)代理上/下行接收率
             if (node->proxy_up_rate >= 0)
                 lines << trl::L("无线上行成功率（我→父 %1）: %2%").arg(pname).arg(node->proxy_up_rate);
             if (node->proxy_down_rate >= 0)
                 lines << trl::L("无线下行成功率（父→我）: %1%").arg(node->proxy_down_rate);
         }
-        if (parent != 0xFFFF && parent != tei && has_carrier) {
+        if (parent != kTeiInvalid && parent != tei && has_carrier) {
             // 载波:0x0055 发现列表(表77)与代理站点通信成功率
             if (node->proxy_comm_rate >= 0)
                 lines << trl::L("载波上行成功率（我→父 %1）: %2%").arg(pname).arg(node->proxy_comm_rate);
@@ -1018,7 +1018,7 @@ void TopoWindow::on_teimac_double_clicked(const QModelIndex& idx) {
     rows.reserve(nb_set.size());
     for (quint16 nb : nb_set) {
         const TopoNode& node = st->nodes.value(nb);
-        const bool is_rf = node.link_type == 1 || (node.link_type == 0xFF && node.is_rf);  // 评分按入网链路,未定时回退 is_rf(与"入网链路"列口径一致)
+        const bool is_rf = node.link_type == LinkTypeRf || (node.link_type == LinkTypeUnknown && node.is_rf);  // 评分按入网链路,未定时回退 is_rf(与"入网链路"列口径一致)
         const int cnt_me_nb = counts_me.value(nb, 0);
         const int cnt_nb_me = st->neighbor_counts.value(nb).value(sta_tei, 0);
         const int cnt_sum = cnt_me_nb + cnt_nb_me;
@@ -1068,9 +1068,9 @@ void TopoWindow::on_teimac_double_clicked(const QModelIndex& idx) {
         const quint16 nb = row.tei;
         const TopoNode& node = st->nodes.value(nb);
         const QString s_mac = node.mac ? format_mac(node.mac) : QStringLiteral("-");
-        const QString s_link = node.link_type == 0xFF
+        const QString s_link = node.link_type == LinkTypeUnknown
             ? trl::L("未定|载波")
-            : (node.link_type == 1 ? trl::L("无线") : trl::L("载波"));
+            : (node.link_type == LinkTypeRf ? trl::L("无线") : trl::L("载波"));
         const QString s_dual = node.rf_capable ? trl::L("是") : trl::L("否");
         const QString s_snr = snrs_me.contains(nb) ? QString::number(snrs_me.value(nb)) : QStringLiteral("—");
         const QString s_rssi = node.rssi_known ? QString::number(node.rssi_dbm) : QStringLiteral("—");
@@ -1202,7 +1202,7 @@ void TopoWindow::rebuild_teimac_table() {
 
     for (quint16 tei : teis) {
         const TopoNode& node = st->nodes.value(tei);
-        const QString s_tei = tei == 1 ? QStringLiteral("CCO(1)") : QString::number(tei);
+        const QString s_tei = tei == kTeiCco ? QStringLiteral("CCO(1)") : QString::number(tei);
         const QString s_mac = node.mac ? format_mac(node.mac) : QStringLiteral("-");
         const QString s_online =
             node.status == NodeStatus::Offline     ? trl::L("离线") :
@@ -1254,12 +1254,12 @@ void TopoWindow::rebuild_teimac_table() {
                 s_neighbors = QStringLiteral("-");
             }
         }
-        const QString s_parent = node.parent_tei == 0xFFFF
+        const QString s_parent = node.parent_tei == kTeiInvalid
             ? QStringLiteral("-") : QString::number(node.parent_tei);
         // 入网链路(读 link_type,不读 is_rf):0=载波 1=无线 0xFF=未定
-        const QString s_link = node.link_type == 0xFF
+        const QString s_link = node.link_type == LinkTypeUnknown
             ? trl::L("未定|载波")
-            : (node.link_type == 1 ? trl::L("无线") : trl::L("载波"));
+            : (node.link_type == LinkTypeRf ? trl::L("无线") : trl::L("载波"));
         const QString s_dual = node.rf_capable ? trl::L("是") : trl::L("否");
 
         if (!search.isEmpty()) {

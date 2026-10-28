@@ -572,7 +572,7 @@ static QStringList csv_row(const PacketEntry& e, const TeiMacMap& macs) {
         QString s;
         if (e.accepted && e.msdu.present && !e.msdu.simple_head && e.msdu.msdu_src_tei > 0) {
             const int tei = e.msdu.msdu_src_tei;
-            s = (tei == 1) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(tei);
+            s = (tei == kTeiCco) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(tei);
             quint64 mac = e.msdu.msdu_src_mac;
             if (!mac) mac = csv_lookup_mac(macs, e.mpdu.net_id, quint16(tei));
             if (mac) s += QStringLiteral(" [%1]").arg(mac_str(mac));
@@ -591,7 +591,7 @@ static QStringList csv_row(const PacketEntry& e, const TeiMacMap& macs) {
                 const quint64 mac = csv_lookup_mac(macs, e.mpdu.net_id, 1);
                 if (mac) s += QStringLiteral(" [%1]").arg(mac_str(mac));
             } else if (tei != 0) {
-                s = (tei == 1) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(tei);
+                s = (tei == kTeiCco) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(tei);
                 const quint64 mac = csv_lookup_mac(macs, e.mpdu.net_id, tei);
                 if (mac) s += QStringLiteral(" [%1]").arg(mac_str(mac));
             } else if (e.msdu.sta_mac) {
@@ -607,12 +607,12 @@ static QStringList csv_row(const PacketEntry& e, const TeiMacMap& macs) {
         QString s;
         if (!e.accepted) {
             s = e.reason;
-        } else if (e.mpdu.dst_tei == 0xFFF) {
+        } else if (e.mpdu.dst_tei == kTeiBroadcast) {
             s = QStringLiteral("BROADCAST");
         } else {
             const quint16 tei = e.mpdu.dst_tei;
             if (tei != 0) {
-                s = (tei == 1) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(tei);
+                s = (tei == kTeiCco) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(tei);
                 const quint64 mac = csv_lookup_mac(macs, e.mpdu.net_id, tei);
                 if (mac) s += QStringLiteral(" [%1]").arg(mac_str(mac));
             } else {
@@ -626,9 +626,9 @@ static QStringList csv_row(const PacketEntry& e, const TeiMacMap& macs) {
         QString s;
         if (e.accepted && e.msdu.present && !e.msdu.simple_head && e.msdu.msdu_dst_tei > 0) {
             const int tei = e.msdu.msdu_dst_tei;
-            s = (tei == 0xFFF) ? QStringLiteral("BCAST")
-              : (tei == 1) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(tei);
-            if (tei == 0xFFF) {
+            s = (tei == kTeiBroadcast) ? QStringLiteral("BCAST")
+              : (tei == kTeiCco) ? QStringLiteral("CCO") : QStringLiteral("STA-%1").arg(tei);
+            if (tei == kTeiBroadcast) {
                 if (e.msdu.msdu_dst_mac) s += QStringLiteral(" [%1]").arg(mac_str(e.msdu.msdu_dst_mac));
             } else {
                 quint64 mac = e.msdu.msdu_dst_mac;
@@ -934,7 +934,7 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
         // - 南网(NW_2021/NW_2026):无链路类型字段,统一用物理层介质 meta.is_rf 判定
         if (te.link_type >= 0) {
             // 帧内链路类型(表79/表160)优先:0=高速载波链路 1=无线链路
-            te.is_rf = (te.link_type == 1);
+            te.is_rf = (te.link_type == LinkTypeRf);
             te.is_rf_known = true;
         } else if ((e.protocol & 0x7F) == kProtocolNw2021 || (e.protocol & 0x7F) == kProtocolNw2026) {
             te.is_rf = e.meta.is_rf;
@@ -960,7 +960,7 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
         && (!e.msdu.topo_event.neighbor_rates.isEmpty()
             || !e.msdu.topo_event.neighbor_snrs.isEmpty()
             || !e.msdu.topo_event.rssi_entries.isEmpty()
-            || e.msdu.topo_event.proxy_tei != 0xFFFF)) {
+            || e.msdu.topo_event.proxy_tei != kTeiInvalid)) {
         auto ts_it = m_topo_states.find(e.mpdu.net_id);
         if (ts_it != m_topo_states.end()) {
             ts_it.value().apply_channel_info(e.mpdu.src_tei, e.msdu.topo_event);

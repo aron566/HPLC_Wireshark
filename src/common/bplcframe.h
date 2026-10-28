@@ -19,6 +19,19 @@
 #include <QStringList>
 #include <QVector>
 
+/// 链路类型取值:南网 SPLC-4 表79 / BPLC-2 表160;国网 HDC1.0 表61、表72 / HDC2.0 表56、表58 含义列
+/// —— 两家定义完全一致(0=高速载波链路 1=无线链路),故置于 common 层共用
+enum LinkTypeValue : quint8 {
+    LinkTypeHplc    = 0,    ///< 高速载波链路
+    LinkTypeRf      = 1,    ///< 无线链路
+    LinkTypeUnknown = 0xFF, ///< 未定(⚠️ 本机约定,非协议值:该域仅 1bit,协议只可能 0/1)
+};
+
+/// TEI 相关常量(12bit 域)
+constexpr quint16 kTeiCco       = 1;      ///< CCO 的 TEI(南网「TEI固定为1」/ HDC2.0 5.3.3.1 同)
+constexpr quint16 kTeiBroadcast = 0xFFF;  ///< 广播报文 TEI(南网「广播报文TEI为0xFFF」/ HDC2.0 5.3.3.1 同)
+constexpr quint16 kTeiInvalid   = 0xFFFF; ///< 无效/未分配(⚠️ 本机哨兵,超出 12bit 域,协议无此值)
+
 /// @brief MSDU 跨帧重组状态(SOF 多 PB 块)
 struct MsduState {
     QByteArray buffer;
@@ -283,13 +296,13 @@ struct TopoEvent {
     QVector<QPair<quint16, int>> rssi_entries;  ///< 邻居信号强度(TEI→dBm 估计;RF 发现列表信道信息,dBm 取档位下限)
     QVector<QPair<quint16, quint8>> neighbor_rates;  ///< 邻居 TEI → 接收率%(RFDL UpRate;方向=邻居→我,即上行成功率)
     QVector<QPair<quint16, qint16>> neighbor_snrs;   ///< 邻居 TEI → SNR(dB;组合类型含 SNR 时,无则不入表)
-    quint16 proxy_tei = 0xFFFF;    ///< 代理 TEI(表217/表126 站点属性 byte6-7,12bit;0xFFFF=无)
+    quint16 proxy_tei = kTeiInvalid;    ///< 代理 TEI(表217/表126 站点属性 byte6-7,12bit;0xFFFF=无)
     qint16  proxy_up_rate = -1;    ///< 代理上行接收率%(表217 byte9 / 表126 ProxyUpRcvRate;-1=无)
     qint16  proxy_down_rate = -1;  ///< 代理下行接收率%(表217 byte10 / 表126 ProxyDownRcvRate)
     qint16  min_link_rate = -1;    ///< 链路最小接收率%(表217 byte11 / 表126 MinRcvRate)
     quint8  rf_hop = 0;            ///< RF 跳数(表217/表126 byte8 高4bit)
     quint8  rf_role = 0;           ///< 角色(表217/表126 byte7 高4bit;0未知/1站点/2代理站点/4中央协调器)
-    int link_type = -1;                         ///< 链路类型(表79/表160:0=高速载波链路 1=无线链路;-1=帧内无此字段)
+    int link_type = -1;                         ///< 链路类型(SPLC-4 表79 / BPLC-2 表160:0=高速载波链路 1=无线链路;-1=帧内无此字段)
     QVector<QPair<quint16, quint8>> node_link_types; ///< 路由表(表55/56)每节点入网链路类型:(TEI,0=载波/1=无线),关联确认/指示帧权威
     qint32 proxy_comm_rate = -1;      ///< 与代理站点通信成功率(表77 byte16-19,32bit;取值范围0-100,超出无效;-1=无)
     qint32 proxy_down_comm_rate = -1; ///< 与代理站点下行通信成功率(表77 byte20-23,32bit;同上)
@@ -445,7 +458,7 @@ inline QString make_search_text(const PacketEntry& e) {
     parts << (e.mpdu.src_tei == 0x0001 ? QStringLiteral("cco")
             : e.mpdu.src_tei != 0      ? QStringLiteral("sta-%1").arg(e.mpdu.src_tei)
             : e.meta.is_rf ? QStringLiteral("hrf") : QStringLiteral("plc"));
-    parts << (e.mpdu.dst_tei == 0xFFF ? QStringLiteral("broadcast")
+    parts << (e.mpdu.dst_tei == kTeiBroadcast ? QStringLiteral("broadcast")
             : e.mpdu.dst_tei == 0x0001 ? QStringLiteral("cco")
             : e.mpdu.dst_tei != 0      ? QStringLiteral("sta-%1").arg(e.mpdu.dst_tei)
                                        : QStringLiteral("*"));
@@ -479,7 +492,7 @@ inline QString dir_display(const PacketEntry& e) {
     // 排除 CCO 作为发起者/回应者直发的消息(不算中继):关联确认(表92)、关联指示(表99)、
     // 代理变更确认(表108);其余消息(站点间数据帧 mme_type=0xFFFF、CCO 转发的关联请求
     // 0x0030 等)CCO 当转发者仍标 R。枚举见 NwCcoInitiatedMme(dir_display 跨协议通用)。
-    const bool cco_initiated = (e.mpdu.src_tei == 1)
+    const bool cco_initiated = (e.mpdu.src_tei == kTeiCco)
                     && (e.msdu.mme_type == NwCcoInitMmeAssocCnf
                         || e.msdu.mme_type == NwCcoInitMmeAssocInd
                         || e.msdu.mme_type == NwCcoInitMmeChangeProxyCnf);
@@ -489,7 +502,7 @@ inline QString dir_display(const PacketEntry& e) {
                         && !cco_initiated);
     const quint8 bdir  = e.msdu.broadcast_direction;
     const quint8 hops  = e.msdu.route_hops_left;
-    const bool   bcast = (e.msdu.msdu_dst_tei == 0xFFF)
+    const bool   bcast = (e.msdu.msdu_dst_tei == kTeiBroadcast)
                       && (e.msdu.msdu_send_type != 0);  // 广播 = 广播目的地址 + 发送类型非单播
     if (bcast && bdir == 1)       // 下行广播:↓[R]N→
         return QStringLiteral("\u2193") + (relay ? QStringLiteral("R") : QString())
@@ -507,8 +520,8 @@ inline QString dir_display(const PacketEntry& e) {
         return QStringLiteral("*");
     if (bcast)                    // 保留值(3-15)
         return QStringLiteral("*");
-    if (e.msdu.msdu_dst_tei == 1) return relay ? QStringLiteral("\u2191R") : QStringLiteral("\u2191");
-    if (e.msdu.msdu_src_tei == 1) return relay ? QStringLiteral("\u2193R") : QStringLiteral("\u2193");
+    if (e.msdu.msdu_dst_tei == kTeiCco) return relay ? QStringLiteral("\u2191R") : QStringLiteral("\u2191");
+    if (e.msdu.msdu_src_tei == kTeiCco) return relay ? QStringLiteral("\u2193R") : QStringLiteral("\u2193");
     // 站点间通讯 P2P(非 CCO):用应用层报文 TransDirectionFlag(表8 0=下行 1=上行)
     if (e.msdu.trans_direction_flag == 1) return relay ? QStringLiteral("\u2191R") : QStringLiteral("\u2191");
     if (e.msdu.trans_direction_flag == 0) return relay ? QStringLiteral("\u2193R") : QStringLiteral("\u2193");

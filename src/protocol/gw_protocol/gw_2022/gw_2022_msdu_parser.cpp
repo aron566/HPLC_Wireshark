@@ -1500,10 +1500,10 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
                     out.topo_event.kind = TopoEventKind::DiscoverList;
                     out.topo_event.cco_mac = cco_mac;
                     // CCO 重启检测用:MSDU 头 RestartCount(发送方重启次数);
-                    // 只有 CCO 本人发出(src_tei==1)的发现列表才采用,STA 中继转发的
+                    // 只有 CCO 本人发出(src_tei == kTeiCco)的发现列表才采用,STA 中继转发的
                     // 发现列表其 RestartCount 是中继 STA 的,不能用于 CCO 重启判断;
                     // 0xFF=无此字段不检测
-                    if (out.restart_count != 0xFF && out.msdu_src_tei == 1)
+                    if (out.restart_count != 0xFF && out.msdu_src_tei == kTeiCco)
                         out.topo_event.restart_count = (int)out.restart_count;
                     if (sta_tei && sta_mac) out.topo_event.nodes.append({sta_tei, sta_mac});
                     if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});

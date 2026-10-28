@@ -1191,7 +1191,7 @@ private:
         const CoverageNode& nd = m_model.nodes[m_hover_tei];
         QStringList lines;
         lines << QStringLiteral("TEI %1%2").arg(nd.tei)
-                      .arg(nd.tei == 1 ? QStringLiteral(" (CCO)") : QString());
+                      .arg(nd.tei == kTeiCco ? QStringLiteral(" (CCO)") : QString());
         lines << QStringLiteral("MAC %1").arg(
             nd.mac ? format_mac(nd.mac) : QStringLiteral("-"));
         lines << QStringLiteral("邻居 Neighbors: %1").arg(nd.neighbors.size());

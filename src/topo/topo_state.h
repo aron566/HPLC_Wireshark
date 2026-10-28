@@ -21,7 +21,7 @@ enum class NodeStatus {
 struct TopoNode {
     quint16 tei = 0;
     quint64 mac = 0;
-    quint16 parent_tei = 0xFFFF; ///< 代理 TEI;1=CCO 直属;0=根(CCO 自身);0xFFFF=未知
+    quint16 parent_tei = kTeiInvalid; ///< 代理 TEI;1=CCO 直属;0=根(CCO 自身);0xFFFF=未知
     NodeStatus status = NodeStatus::OnlineGoing;
     qint64  last_seen_ms = 0;
     bool    is_rf = false;            ///< 首次观察到该 TEI 时帧的物理介质(false=载波 true=RF);
@@ -36,7 +36,7 @@ struct TopoNode {
     quint8  rf_hop = 0;               ///< RF 跳数(表217/表126 byte8 高4bit)
     quint8  rf_role = 0;              ///< 角色(表217/表126 byte7 高4bit;0未知/1站点/2代理站点/4CCO)
     bool    proxy_rate_known = false; ///< 站点属性速率是否有效
-    quint8  link_type = 0xFF;         ///< 入网链路类型(表79/表160:0=载波链路 1=无线链路 0xFF=未定)
+    quint8  link_type = LinkTypeUnknown; ///< 入网链路类型(SPLC-4 表79 / BPLC-2 表160:0=载波链路 1=无线链路 0xFF=未定)
     bool    link_type_known = false;  ///< 入网链路是否已确定(权威帧赋值后锁定,不被后续帧翻转)
     bool    rf_capable = false;       ///< 双模标记:该 TEI 作为发送方发过 RF 帧(置位后不清除)
     qint32  proxy_comm_rate = -1;      ///< 与代理站点通信成功率(表77 byte16-19,32bit;0-100%;-1=无)
@@ -70,7 +70,7 @@ public:
     /// @note  不建占位节点(避免数据帧/广播帧在拓扑里凭空生成 TEI 节点);不覆盖已确定值(防双模抖动)
     /// @return 是否实际发生写入(UI 刷新节流用)
     bool note_frame_medium(quint16 tei, bool is_rf) {
-        if (!tei || tei == 0xFFFF) return false;
+        if (!tei || tei == kTeiInvalid) return false;
         auto it = nodes.find(tei);
         if (it == nodes.end()) return false;   // 节点不存在 → 不建(等事件帧创建)
         if (it->is_rf_known) return false;     // 已确定 → 不覆盖(双模设备会来回跳)
@@ -82,7 +82,7 @@ public:
     /// @note  判据取"发过"而非"收发过"(收到 RF 帧不能证明该节点有 RF 发射能力)
     /// @return 是否实际发生写入(UI 刷新节流用)
     bool note_rf_capable(quint16 src_tei, bool is_rf) {
-        if (!src_tei || src_tei == 0xFFFF || !is_rf) return false;
+        if (!src_tei || src_tei == kTeiInvalid || !is_rf) return false;
         auto it = nodes.find(src_tei);
         if (it == nodes.end() || it->rf_capable) return false;   // 已置位不清除
         it->rf_capable = true;

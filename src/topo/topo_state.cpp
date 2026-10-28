@@ -52,11 +52,11 @@ static void assign_link_type(TopoNode& n, const TopoEvent& e) {
         if (authoritative) {
             n.link_type = (quint8)e.link_type;
             n.link_type_known = true;    // 权威:赋值即锁定
-        } else if (n.link_type == 0xFF) {
+        } else if (n.link_type == LinkTypeUnknown) {
             n.link_type = (quint8)e.link_type;   // 首个为准,不锁,等权威帧覆盖
         }
-    } else if (e.is_rf_known && n.link_type == 0xFF) {
-        n.link_type = e.is_rf ? 1 : 0;   // 回退物理媒介,不锁
+    } else if (e.is_rf_known && n.link_type == LinkTypeUnknown) {
+        n.link_type = e.is_rf ? LinkTypeRf : LinkTypeHplc;   // 回退物理媒介,不锁
     }
 }
 
@@ -92,7 +92,7 @@ bool TopoState::remove_node_by_mac(quint64 mac) {
     const auto iit = mac_to_tei.find(mac);
     if (iit == mac_to_tei.end()) return false;
     const quint16 old_tei = iit.value();
-    if (old_tei == 1) return false;  // CCO 永不移除
+    if (old_tei == kTeiCco) return false;  // CCO 永不移除
     const auto nit = nodes.find(old_tei);
     if (nit == nodes.end() || nit.value().mac != mac) {
         mac_to_tei.erase(iit);  // 坏索引:删映射(与离线路径一致的回退策略)
@@ -242,7 +242,7 @@ void TopoState::apply(const TopoEvent& e) {
         || e.kind == TopoEventKind::AssocGatherInd) {
         for (const auto& pr : e.node_link_types) {
             const quint16 tei = pr.first;
-            if (!tei || tei == 0xFFFF) continue;
+            if (!tei || tei == kTeiInvalid) continue;
             TopoNode& n = nodes[tei];
             n.tei = tei;
             if (n.link_type_known) continue;   // 已锁定不覆盖
@@ -273,12 +273,12 @@ void TopoState::apply(const TopoEvent& e) {
     // 节点不存在时建占位(parent 未知),后续关联/发现事件再补全 MAC/父节点
     if (e.link_type >= 0) {
         for (quint16 ctei : e.child_teis) {
-            if (!ctei || ctei == 0xFFFF) continue;   // 0=根(CCO 自身);0xFFFF=未知,均不建节点
+            if (!ctei || ctei == kTeiInvalid) continue;   // 0=根(CCO 自身);0xFFFF=未知,均不建节点
             TopoNode& n = nodes[ctei];
             n.tei = ctei;
             if (n.last_seen_ms == 0) n.last_seen_ms = e.epoch_ms;
             // 帧内链路类型:仅首次写入并锁定(方案②,后续事件不翻转);last_seen 为 0 时的补写不受影响
-            if (!n.is_rf_known) { n.is_rf = (e.link_type == 1); n.is_rf_known = true; }
+            if (!n.is_rf_known) { n.is_rf = (e.link_type == LinkTypeRf); n.is_rf_known = true; }
         }
     }
     // 离网节点(按 MAC 匹配,标记离线):先走 MAC→TEI 索引 O(1),索引不一致时回退线性扫描
@@ -348,10 +348,10 @@ void TopoState::apply(const TopoEvent& e) {
 }
 
 void TopoState::apply_channel_info(quint16 reporter_tei, const TopoEvent& e) {
-    if (!reporter_tei || reporter_tei == 0xFFFF) return;
+    if (!reporter_tei || reporter_tei == kTeiInvalid) return;
     // 站点属性(表217/表126):代理上行/下行接收率、最小接收率、RF 跳数、角色 + parent_tei 校正
     // 站点属性直报的代理 TEI 比路由推导权威;节点不存在时据此建占位(站点属性自带 proxy/role 身份)
-    if (e.proxy_tei != 0xFFFF) {
+    if (e.proxy_tei != kTeiInvalid) {
         TopoNode& node = nodes[reporter_tei];   // operator[] 自动创建(站点属性即身份来源)
         if (node.tei == 0) node.tei = reporter_tei;
         node.is_rf = true;                       // RFDL 站点属性来自无线发现列表(无线媒介)
@@ -416,9 +416,9 @@ QHash<quint16, int> TopoState::compute_levels() const {
         bool changed = false;
         for (auto it = nodes.begin(); it != nodes.end(); ++it) {
             const quint16 tei = it.key();
-            if (tei == 1) continue;
+            if (tei == kTeiCco) continue;
             const quint16 parent = it.value().parent_tei;
-            if (parent == 0xFFFF || !lv.contains(parent)) continue;
+            if (parent == kTeiInvalid || !lv.contains(parent)) continue;
             const int nl = lv[parent] + 1;
             if (!lv.contains(tei) || lv[tei] != nl) { lv[tei] = nl; changed = true; }
         }

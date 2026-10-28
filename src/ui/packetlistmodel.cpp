@@ -108,7 +108,7 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                 if (e.accepted && e.msdu.present && !e.msdu.simple_head
                     && e.msdu.msdu_src_tei > 0) {
                     const int tei = e.msdu.msdu_src_tei;
-                    QString s = (tei == 1) ? QStringLiteral("CCO")
+                    QString s = (tei == kTeiCco) ? QStringLiteral("CCO")
                                            : QStringLiteral("STA-%1").arg(tei);
                     // MACAddrFlag=1 → 扩展源 MAC;否则查映射表
                     quint64 mac = e.msdu.msdu_src_mac;
@@ -122,10 +122,10 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                 if (e.accepted && e.msdu.present && !e.msdu.simple_head
                     && e.msdu.msdu_dst_tei > 0) {
                     const int tei = e.msdu.msdu_dst_tei;
-                    QString s = (tei == 0xFFF) ? QStringLiteral("BCAST")
-                               : (tei == 1) ? QStringLiteral("CCO")
+                    QString s = (tei == kTeiBroadcast) ? QStringLiteral("BCAST")
+                               : (tei == kTeiCco) ? QStringLiteral("CCO")
                                : QStringLiteral("STA-%1").arg(tei);
-                    if (tei == 0xFFF) {
+                    if (tei == kTeiBroadcast) {
                         // 广播:MACAddrFlag=1 显示帧字段里的 MAC(不一定是 ff:ff:ff:ff:ff:ff);
                         // MACAddrFlag=0 不显示(不查映射表)
                         if (e.msdu.msdu_dst_mac)
@@ -178,7 +178,7 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
             }
             case COL_DEST: {
                 if (!e.accepted) return e.reason;
-                if (e.mpdu.dst_tei == 0xFFF) return QStringLiteral("BROADCAST");
+                if (e.mpdu.dst_tei == kTeiBroadcast) return QStringLiteral("BROADCAST");
                 const quint16 tei = e.mpdu.dst_tei;
                 if (tei != 0) {
                     QString s = (tei == 0x0001) ? QStringLiteral("CCO")
