@@ -16,19 +16,6 @@
 
 namespace {
 
-// SOF PB 块长:TMI 主表 + TMI_EXT 扩展(与 Python MPDU_Class 一致;
-// HDC 2.0 载波分集拷贝模式的调制参数仍为 XXX.41 TMI 编号,表7 byte10 bit2-6)
-int sof_pb_size(quint8 tmi, quint8 tmi_ext) {
-    if (tmi == 0 || tmi == 1)                          return 520;
-    if (tmi >= 2 && tmi <= 6)                          return 136;
-    if (tmi >= 7 && tmi <= 10)                         return 520;
-    if (tmi == 11 || tmi == 12)                        return 264;
-    if (tmi == 13 || tmi == 14)                        return 72;
-    if (tmi_ext >= 1 && tmi_ext <= 6)                  return 520;
-    if (tmi_ext >= 10 && tmi_ext <= 14)                return 136;
-    return -1;
-}
-
 // 无线 SOF 载荷PB大小(表29):索引 0-5 对应 16/40/72/136/264/520 字节
 int sof_rf_pb_size(quint8 idx) {
     static const quint16 table[] = {16, 40, 72, 136, 264, 520};
@@ -118,7 +105,7 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
                 st.pb_num    = st_pb_num;
 
                 // PB 大小:分集拷贝模式即 TMI 编号(协议「应符合 Q/GDW XXX.41 5.1.7.6 分集拷贝模式」)
-                int sz = sof_pb_size(copy_mode, 0);
+                int sz = gw_2026_diversity_pb_size(copy_mode);
                 if (is_ofdma && sz != 72 && sz != 136) {
                     return trl::L("OFDMA PB 大小越界(copy_mode=%1 → %2B，协议限 72/136)")
                                .arg(copy_mode).arg(sz);
@@ -160,8 +147,8 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
             // 未验证(weak) —— 只有实包能证伪：
             //   · eFC 是否恒为 16 字节（表11/13 内部字节号 0-15 是推断依据，
             //     「扩展帧控制符号数」是时序属性，不影响字节布局的判断尚待实包确认）
-            //   · 分集拷贝模式(5bit) → PB 大小 的映射：协议原文指向外部
-            //     Q/GDW XXX.41 5.1.7.6，本地无该表，暂复用 sof_pb_size()(TMI 表)
+            //   · 分集拷贝模式(5bit) → PB 大小 的映射：已按分集拷贝模式表
+            //     (gw_2026_diversity_pb_size,用户 2026-10-28 提供)实现,
             //     并用 5.2.5.7「只允许 PB72/PB136」做约束
             //   · 真实设备是否在 eFC 后插厂商私有字段
             // ⚠ 循环论证风险：仿真帧是按同一份协议文档构造的，两者一致只能排除
@@ -194,14 +181,14 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
                                        | (get_bits(p, 12, 0, 3) << 1));
         info.sof_load_table_id = (quint8) get_bits(p, 12, 3, 1);
         info.symbol_num = 0;
-        info.tmi = info.sof_mod_param;   // 分集拷贝模式:调制参数 = TMI 编号(查 PB 大小)
-        info.tmi_ext = 0;
+        info.tmi = info.sof_mod_param;   // 分集拷贝模式编号 = 调制参数(表7 byte10 bit2-6)
+        // HDC 2.0 无 TMI_EXT:载波不填扩展字段,info.tmi_ext 保持默认 0,不再参与查表。
 
-        // PB 大小按调制方式分派(枚举驱动):分集拷贝=调制参数查 TMI 表;
+        // PB 大小按调制方式分派(枚举驱动):分集拷贝=调制参数查分集拷贝模式表;
         // 动态加载=调制参数查物理块类型表(表8)
         switch (static_cast<GW_2026_ModMode>(info.sof_mod_mode)) {
             case GW_2026_ModMode::DIVERSITY_COPY:
-                pb_size = sof_pb_size(info.tmi, info.tmi_ext);
+                pb_size = gw_2026_diversity_pb_size(info.tmi);
                 break;
             case GW_2026_ModMode::DYNAMIC_LOAD:
                 pb_size = sof_dynamic_pb_size(info.sof_mod_param);
@@ -216,7 +203,7 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
     }
 
     const int max_pb_num = (band < 4)
-        ? gw_2026_max_pb_num(band, info.tmi, info.tmi_ext) : 4;  // 非 PLC:1-4 上限
+        ? gw_2026_max_pb_num(band, info.tmi) : 4;  // 非 PLC:1-4 上限
     // 块数合法性只约束载波;RF 生效块数恒 1(见上);PB 大小非法(-1)对载波/无线均拒收
     if (pb_size <= 0
         || (!is_rf && (info.pb_num == 0 || info.pb_num > max_pb_num))) {
