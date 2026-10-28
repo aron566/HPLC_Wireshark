@@ -271,14 +271,14 @@ local mme_type_vals = {
     [0x0055] = T("发现列表 MMeDiscoverNodeList", "MMeDiscoverNodeList"),
     [0x005D] = T("延迟离线指示 MMeDelayLeaveInd", "MMeDelayLeaveInd"),
     [0x005E] = T("通信成功率上报 MMeSuccessRateReport", "MMeSuccessRateReport"),
-    [0x005F] = T("网络冲突上报 MMeNetworkConflictReport", "MMeNetworkConflictReport"),
+    [0x005F] = T("网络冲突上报 MMeNetworkConflictReport", "MMeNetworkConflictReport"),   -- SPLC-4 表129/BPLC-2 表204
     [0x0062] = T("过零NTB采集指示 MMeZeroCrossNTBCollectInd", "MMeZeroCrossNTBCollectInd"),
     [0x0063] = T("过零NTB上报 MMeZeroCrossNTBReport", "MMeZeroCrossNTBReport"),
     [0x0064] = T("网络诊断 MMeNetDiagnose", "MMeNetDiagnose"),
-    [0x0070] = T("无线信道冲突上报 MMeRFChannelConflictReport", "MMeRFChannelConflictReport"),
-    [0x00A0] = T("物联终端接入请求 MMeIoTAssocReq", "MMeIoTAssocReq"),
-    [0x00A1] = T("物联终端接入确认 MMeIoTAssocInd", "MMeIoTAssocInd"),
-    [0x00A2] = T("物联终端离线指示 MMeIoTLeaveInd", "MMeIoTLeaveInd"),
+    [0x0070] = T("无线信道冲突上报 MMeRFChannelConflictReport", "MMeRFChannelConflictReport"),   -- SPLC-4 表137/BPLC-2 表212
+    [0x00A0] = T("物联终端接入请求 MMeIoTAssocReq", "MMeIoTAssocReq"),   -- SPLC-4 表242/BPLC-2 表38 段
+    [0x00A1] = T("物联终端接入确认 MMeIoTAssocInd", "MMeIoTAssocInd"),   -- SPLC-4 表242/BPLC-2 表38 段
+    [0x00A2] = T("物联终端离线指示 MMeIoTLeaveInd", "MMeIoTLeaveInd"),   -- SPLC-4 表242/BPLC-2 表38 段
 }
 -- 关联确认结果 (表53)
 local assoc_cnf_result_vals = {
@@ -625,6 +625,20 @@ f.mme_version = ProtoField.uint8 ("nw_2021.mme.version", T("管理消息版本",
 f.mme_type = ProtoField.uint16 ("nw_2021.mme.type", T("管理消息类型(MMType)", "Management Message Type (MMType)"), base.HEX, mme_type_vals)
 f.mme_rsv = ProtoField.bytes ("nw_2021.mme.rsv", T("保留", "Reserved"), base.NONE)
 
+-- 物联终端接入系列(BPLC-2 表39/40/42;体偏移自 MMe 头 6B 之后)
+f.mme_iot_rsv = ProtoField.uint8 ("nw_2021.mme.iot.rsv", T("保留(表39 byte7 高4b)", "Reserved (Table 39 byte7 high)"), base.HEX, nil, 0xF0)
+f.mme_iot_mac = ProtoField.ether ("nw_2021.mme.iot.mac", T("物联终端设备地址", "IoT Device Address"))
+f.mme_iot_gw = ProtoField.uint16 ("nw_2021.mme.iot.gw", T("物联网关设备地址(TEI)", "IoT Gateway TEI"), base.DEC)
+f.mme_iot_dev = ProtoField.uint8 ("nw_2021.mme.iot.dev", T("设备类型", "Device Type"), base.DEC)
+f.mme_iot_pwr = ProtoField.uint8 ("nw_2021.mme.iot.pwr", T("功耗类型", "Power Type"), base.DEC, nil, 0x0F)
+f.mme_iot_result = ProtoField.uint8 ("nw_2021.mme.iot.result", T("接入结果", "Access Result"), base.DEC, {
+    [0] = T("允许接入网络", "Allow network access"), [1] = T("白名单认证失败", "Whitelist Authentication Failed"),
+})
+f.mme_iot_reason = ProtoField.uint8 ("nw_2021.mme.iot.reason", T("离线原因", "Leave Reason"), base.DEC, {
+    [0] = T("CCO判定未接入网络需重新接入", "Not Joined, Rejoin Required"),
+    [1] = T("不在认证名单中", "Not in Authentication List"),
+})
+
 -- 关联请求 MMeAssocReq (0x0030)
 f.ar_sta_mac = ProtoField.ether ("nw_2021.assoc_req.sta_mac", T("站点MAC地址", "STA MAC Address"))
 f.ar_proxy_tei = ProtoField.uint16 ("nw_2021.assoc_req.proxy_tei", T("候选代理TEI", "Candidate Proxy TEI"), base.DEC)
@@ -903,6 +917,8 @@ nw.fields = {
     f.sh_type, f.sh_len, f.sh_data,
     f.mac_icv, f.mac_icv_calc, f.mac_icv_ok,
     f.mme_version, f.mme_type, f.mme_rsv,
+    f.mme_iot_rsv, f.mme_iot_mac, f.mme_iot_gw, f.mme_iot_dev, f.mme_iot_pwr,
+    f.mme_iot_result, f.mme_iot_reason,
     f.ar_sta_mac, f.ar_proxy_tei, f.ar_link_type, f.ar_link_rsv, f.ar_phase,
     f.ar_dev_type, f.ar_rsv, f.ar_mac_type, f.ar_module, f.ar_link,
     f.ar_assoc_rand, f.ar_manuf_info, f.ar_boot_reason, f.ar_boot_ver,
@@ -1814,6 +1830,28 @@ local function dissect_mme_diag(tvb, tree)
     end
 end
 
+-- 物联终端接入请求 (0x00A0, BPLC-2 表39)
+local function dissect_mme_iot_assoc_req(tvb, tree)
+    -- 表39:固定体 10B 自 MMe 头 6B 之后(mme[6..15])
+    tree:add(f.mme_iot_mac, tvb(6, 6))
+    add_val(tree, f.mme_iot_gw, tvb, 12, 2, read_bits(tvb, 96, 12))
+    tree:add(f.mme_iot_rsv, tvb(13, 1))
+    tree:add(f.mme_iot_dev, tvb(14, 1))
+    tree:add(f.mme_iot_pwr, tvb(15, 1))
+end
+-- 物联终端接入确认 (0x00A1, BPLC-2 表40)
+local function dissect_mme_iot_assoc_ind(tvb, tree)
+    -- 表40:固定体 7B 自 MMe 头 6B 之后
+    tree:add(f.mme_iot_mac, tvb(6, 6))
+    tree:add(f.mme_iot_result, tvb(12, 1))
+end
+-- 物联终端离线指示 (0x00A2, BPLC-2 表42)
+local function dissect_mme_iot_leave_ind(tvb, tree)
+    -- 表42:固定体 7B 自 MMe 头 6B 之后
+    tree:add(f.mme_iot_mac, tvb(6, 6))
+    tree:add(f.mme_iot_reason, tvb(12, 1))
+end
+
 -- MMe 消息体分发
 local function dissect_mme_body(tvb, tree, mmtype)
     if mmtype == 0x0030 then dissect_mme_assoc_req(tvb, tree)
@@ -1831,9 +1869,10 @@ local function dissect_mme_body(tvb, tree, mmtype)
     elseif mmtype == 0x0062 then dissect_mme_zc_collect(tvb, tree)
     elseif mmtype == 0x0063 then dissect_mme_zc_report(tvb, tree)
     elseif mmtype == 0x0064 then dissect_mme_diag(tvb, tree)
+    elseif mmtype == 0x00A0 then dissect_mme_iot_assoc_req(tvb, tree)
+    elseif mmtype == 0x00A1 then dissect_mme_iot_assoc_ind(tvb, tree)
+    elseif mmtype == 0x00A2 then dissect_mme_iot_leave_ind(tvb, tree)
     end
-    -- 注: 0x00A0/0x00A1/0x00A2 物联终端接入类消息体暂不解析(与 Qt 监控器一致),
-    --     仅显示消息名称;名称依 SPLC-4 表242(BPLC 管理消息扩展)
 end
 
 -- 管理消息体里「单一 MMe 主体」的 STA MAC 字符串 + TEI(代理转发判定 + STA-N 显示);
@@ -2256,11 +2295,11 @@ local function dissect_mac_frame(tvb, tree, pinfo, snid, sof_src_tei)
                 end
                 -- 代理转发主体标记(与 C++ packetlistmodel COL_MSDU_TYPE 同口径):
                 -- 单一 MMe 主体 MAC ≠ 本跳发送方 MAC → Info 追加 " STA-N [MAC:...]"
-                -- ⚠️ 本调用在 dissect_mme_body 的 pcall 之外:helper 内部虽有 mac_to_str/read_bits
-                -- 越界守卫,仍加 body_tvb:len() 下限检查兜底(最深分支=关联指示 TEI@bit160-171→byte21),
-                -- 防未来 helper 演化引入裸 tvb() 访问时整个 dissector 报错
+                -- ⚠️ 本调用在 dissect_mme_body 的 pcall 之外:按 mmtype 最小长度守卫
+                -- (BPLC-2/SPLC-4 同构),防未来 helper 演化引入裸 tvb() 访问时整个 dissector 报错
+                local BODY_MIN_LEN = { [0x0030]=12, [0x0031]=16, [0x0034]=22, [0x0049]=16, [0x0055]=16 }
                 local body_mac_str, body_tei
-                if body_tvb:len() >= 22 then
+                if body_tvb:len() >= (BODY_MIN_LEN[mmtype] or 0) then
                     body_mac_str, body_tei = mme_body_sta_mac_tei(mmtype, body_tvb)
                 end
                 if body_mac_str and src_mac_str and body_mac_str ~= src_mac_str then
