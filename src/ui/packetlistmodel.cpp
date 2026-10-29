@@ -9,6 +9,7 @@
 #include <QDir>
 #include "i18n.h"
 #include <QFile>
+#include <QSet>
 #include <QtConcurrent>
 #include <QFutureWatcher>
 #include <QThreadPool>
@@ -111,7 +112,7 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                     && !e.msdu.orig_srcs.isEmpty()) {
                     QVector<TeiMacPair> srcs;
                     for (const auto& p : e.msdu.orig_srcs) {
-                        if (p.tei == 0 || p.mac == 0) continue;
+                        if (p.tei == 0) continue;
                         bool dup = false;
                         for (const auto& q : srcs)
                             if (q.tei == p.tei && q.mac == p.mac) { dup = true; break; }
@@ -122,7 +123,8 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                         for (const auto& p : srcs) {
                             QString s = (p.tei == kTeiCco) ? QStringLiteral("CCO")
                                                            : QStringLiteral("STA-%1").arg(p.tei);
-                            s += QStringLiteral(" [%1]").arg(format_mac(p.mac));
+                            // TEI-only 段(mac==0)只出 STA-N,不带 MAC 括号
+                            if (p.mac) s += QStringLiteral(" [%1]").arg(format_mac(p.mac));
                             parts.append(s);
                         }
                         return parts.join(QLatin1Char(','));
@@ -149,7 +151,7 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                     && !e.msdu.orig_dsts.isEmpty()) {
                     QVector<TeiMacPair> dsts;
                     for (const auto& p : e.msdu.orig_dsts) {
-                        if (p.tei == 0 || p.mac == 0) continue;
+                        if (p.tei == 0) continue;
                         bool dup = false;
                         for (const auto& q : dsts)
                             if (q.tei == p.tei && q.mac == p.mac) { dup = true; break; }
@@ -161,7 +163,8 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                             QString s = (p.tei == kTeiBroadcast) ? QStringLiteral("BCAST")
                                        : (p.tei == kTeiCco) ? QStringLiteral("CCO")
                                        : QStringLiteral("STA-%1").arg(p.tei);
-                            s += QStringLiteral(" [%1]").arg(format_mac(p.mac));
+                            // TEI-only 段(mac==0)只出 STA-N,不带 MAC 括号
+                            if (p.mac) s += QStringLiteral(" [%1]").arg(format_mac(p.mac));
                             parts.append(s);
                         }
                         return parts.join(QLatin1Char(','));
@@ -561,17 +564,22 @@ bool prepared_match(const PacketPreparedFilter& pf, quint8 frame_type,
     if (pf.empty) return true;
     // sta- 词整词匹配:search_text 为空格分隔的小写词,其 sta- 词除 hop TEI 外
     // 还含 Orig Src(帧级源 + 聚合/多站点源);整词比对避免 sta-130 误命中 sta-1300。
+    // 性能:tei 条件不再每条件全扫 search_text;首个 tei 条件需要时把
+    // haystack 按空格分词一次建成 sta- 词集合(与整词语义完全等价),
+    // 之后每条件为 O(1) 哈希查找。盘块行无结构化 orig 字段,只能以
+    // search_text 为准,故此处仍以文本为准、不改语义;纯 O(1) 需盘块
+    // 索引扩 orig 字段(另案,涉盘块版本)。
+    QSet<QString> sta_words;
+    bool sta_words_built = false;
     auto has_sta_word = [&](int tei) {
-        const QString word = QStringLiteral("sta-%1").arg(tei);
-        int i = haystack.indexOf(word);
-        while (i >= 0) {
-            const bool left_ok = (i == 0) || (haystack[i - 1] == QLatin1Char(' '));
-            const int end = i + word.size();
-            const bool right_ok = (end == haystack.size()) || (haystack[end] == QLatin1Char(' '));
-            if (left_ok && right_ok) return true;
-            i = haystack.indexOf(word, i + 1);
+        if (!sta_words_built) {
+            sta_words_built = true;
+            for (const QString& tok : haystack.split(QLatin1Char(' '),
+                                                     Qt::SkipEmptyParts)) {
+                if (tok.startsWith(QLatin1String("sta-"))) sta_words.insert(tok);
+            }
         }
-        return false;
+        return sta_words.contains(QStringLiteral("sta-%1").arg(tei));
     };
     for (const auto& conds : pf.groups) {
         bool all = true;

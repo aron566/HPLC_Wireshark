@@ -374,8 +374,8 @@ struct MsduInfo {
     QString summary;         ///< 概要,如 "MMeDiscoverNodeList" / "APP EventPacket"
     QVector<MsduFieldNode> tree;  ///< 字段树(协议树直接挂载显示)
     QVector<TeiMacPair> tei_mac_pairs; ///< 本帧携带的 TEI→MAC 学习对(发现列表等)
-    QVector<TeiMacPair> orig_srcs;   ///< 聚合/多站点帧各段/各站的原始源(TEI,MAC),按段/站序、去重;仅帧级无原始 TEI 时收集,帧级有源或单段帧时为空(走原单源逻辑)
-    QVector<TeiMacPair> orig_dsts;   ///< 聚合/多站点帧各段/各站的原始目的(TEI,MAC),按段/站序、去重;仅帧级无原始目的 TEI 时收集,帧级有目的或单段帧时为空(走原单目的逻辑;与 orig_srcs 镜像,用户 2026-10-29 定)
+    QVector<TeiMacPair> orig_srcs;   ///< 聚合/多站点帧各段/各站的原始源(TEI,MAC),按段/站序、去重;仅帧级无原始 TEI 时收集,帧级有源或单段帧时为空(走原单源逻辑);TEI-only 段(短头 MACAddrFlag=0)亦收集,MAC 为 0,显示只出 STA-N(不进 tei_mac_pairs)
+    QVector<TeiMacPair> orig_dsts;   ///< 聚合/多站点帧各段/各站的原始目的(TEI,MAC),按段/站序、去重;仅帧级无原始目的 TEI 时收集,帧级有目的或单段帧时为空(走原单目的逻辑;与 orig_srcs 镜像,用户 2026-10-29 定);TEI-only 段同源规则,MAC 为 0 时显示只出 STA-N
     TopoEvent topo_event;        ///< 拓扑事件(关键管理消息填充;kind=Other 表示无)
     QVector<TopoEvent> topo_extra_events; ///< 多站点合并的后续拓扑事件:topo_event=首事件,本字段=其余事件;消费全部事件必须两者都读
 
