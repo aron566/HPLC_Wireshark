@@ -308,8 +308,19 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                 if (!e.accepted) return e.reason;
                 QString nid = QString::number(e.mpdu.net_id, 16).toUpper().rightJustified(6, QChar('0'));
                 if (e.mpdu.frame_type == 0) {
-                    return QStringLiteral("NetID=0x%1 ts=%2")
-                           .arg(nid).arg(e.meta.timestamp);
+                    // 信标帧 Info:载波(HPLC)显示 TMI + PBNum(单块恒 1,信标 FCH 无 PBNum 字段)
+                    // + PBSize;无线(HRF)显示 MCS + PBSize(无线不显示 PBNum)。
+                    // pb_size<=0(查表无效)时省略 PBSize 段,不占位瞎显。
+                    // ts 保留:信标时间戳是网络基准时间,有业务意义。
+                    QString info = QStringLiteral("NetID=0x%1 src=%2 ts=%3")
+                                   .arg(nid).arg(e.mpdu.src_tei).arg(e.meta.timestamp);
+                    if (e.meta.is_rf)
+                        info += QStringLiteral(" MCS=%1").arg(e.mpdu.mcs);
+                    else
+                        info += QStringLiteral(" TMI=%1 PBNum=1").arg(e.mpdu.tmi);
+                    if (e.mpdu.pb_size > 0)
+                        info += QStringLiteral(" PBSize=%1B").arg(e.mpdu.pb_size);
+                    return info;
                 }
                 if (e.mpdu.frame_type == 1) {
                     // 训练帧只在【单站点帧】里成立(表23 byte4 bit1);多站点帧的 bit1 是 OFDMA帧类型的 bit0(表26)
