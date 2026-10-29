@@ -765,14 +765,14 @@ static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
 }
 
 /// 解析无线/载波发现列表(RFDL)载荷,挂到 out.tree;rfdl=载荷本身,rel_base=其在 body 中的偏移;
-/// carrier=false: 表91 无线发现列表(单跳帧消息类型0,组合表 表95/表103,无 BRU 变体);
-/// carrier=true : 表62 载波发现列表(单跳帧消息类型2,组合表 表68/表77,combo10/11 含 BRUSNR32)
+/// carrier=false: HDC2.0 4-2 表91 无线发现列表(单跳帧消息类型0,组合表 HDC2.0 4-2 表95/表103,无 BRU 变体);
+/// carrier=true : HDC2.0 4-2 表62 载波发现列表(单跳帧消息类型2,组合表 HDC2.0 4-2 表68/表77,combo10/11 含 BRUSNR32)
 static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool carrier) {
     const QByteArray d = rfdl;
     if (d.size() < 7) { pa::warn("gw_2026:truncated", QStringLiteral("RFDL %1B<7B").arg(d.size())); append_summary(out, trl::L(" (RFDL 截断)")); return; }
 
-    // 表91/表62 头:站点MAC 6B + 统计序号 1B
-    // 发送节点 MAC(表62/表91 头 @0-5):载波站点属性 IE 的 TEI 与之配对(见 IE0 载波分支)
+    // HDC2.0 4-2 表91/表62 头:站点MAC 6B + 统计序号 1B
+    // 发送节点 MAC(HDC2.0 4-2 表62/表91 头 @0-5):载波站点属性 IE 的 TEI 与之配对(见 IE0 载波分支)
     const quint64 sender_mac = (quint64)get_bits(d, 0, 0, 48);
     {
         MsduFieldNode mac;
@@ -825,10 +825,10 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
             auto& g = group(out.tree, QStringLiteral("IE[%1] Station Attribute [%2B]").arg(ie_idx).arg(elen));
             g.rel_start = content_abs; g.rel_len = elen;
             if (carrier) {
-                // 载波发现列表(msg_type 2)站点属性:表63 23B
+                // 载波发现列表(msg_type 2)站点属性:HDC2.0 4-2 表63 23B
                 add_fields(g.children, content, 0, kCarrierRfdlAttrSpec, kCarrierRfdlAttrSpecN, content_abs);
-                // TEI→MAC 学习(51242 表62/表63:头 MAC@0-5 为发送节点 MAC,IE TEI@0 为发送节点 TEI):
-                // 单跳 MSDU 无 MSDU_BASE 头,头对覆盖不到;无线版表92 IE 无发送方 TEI,故仅载波分支学。
+                // TEI→MAC 学习(HDC2.0 4-2 表62/表63:头 MAC@0-5 为发送节点 MAC,IE TEI@0 为发送节点 TEI):
+                // 单跳 MSDU 无 MSDU_BASE 头,头对覆盖不到;无线版 HDC2.0 4-2 表92 IE 无发送方 TEI,故仅载波分支学。
                 const quint16 sender_tei = (quint16)get_bits(content, 0, 0, 12);
                 if (sender_tei && sender_mac) out.tei_mac_pairs.append({sender_tei, sender_mac});
                 out.topo_event.proxy_tei = (quint16)get_bits(content, 1, 4, 12);
@@ -1183,12 +1183,12 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
         QByteArray msdu_body = body.mid(4, msdu_len);
         const auto st = static_cast<GW_2026_MsduSType>(msdu_type);
         if (st == GW_2026_MsduSType::DISCOVERY_LIST) {
-            // 消息类型0 = 无线发现列表(表91),按 TLV 逐字段解析
+            // 消息类型0 = 无线发现列表(HDC2.0 4-2 表91),按 TLV 逐字段解析
             out.summary = trl::L("发现列表消息");
             parse_rfdl(out, msdu_body, 4, /*carrier=*/false);   // RFDL 载荷自单跳头(4B)之后
         } else if (st == GW_2026_MsduSType::CARRIER_DISCOVERY) {
-            // 消息类型2 = 载波发现列表(表62),结构与无线版同构,
-            // 差异仅在组合类型表(表68/表77 多 BRU 变体 combo10/11)
+            // 消息类型2 = 载波发现列表(HDC2.0 4-2 表62),结构与无线版同构,
+            // 差异仅在组合类型表(HDC2.0 4-2 表68/表77 多 BRU 变体 combo10/11)
             out.summary = trl::L("载波发现列表消息");
             parse_rfdl(out, msdu_body, 4, /*carrier=*/true);
         } else if (st == GW_2026_MsduSType::CHANNEL_EVAL) {
@@ -1366,7 +1366,7 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                     out.topo_event.is_rf_known = true;
                     if (cco_mac) out.topo_event.cco_mac = cco_mac;
                     if (sta_tei && sta_mac) out.topo_event.nodes.append({sta_tei, sta_mac});
-                    // TEI→MAC 学习(51242 表47:站点 MAC@0-5 为目的终端设备 MAC,站点 TEI@14 为 CCO 分配的 TEI):
+                    // TEI→MAC 学习(HDC2.0 4-2 表47:站点 MAC@0-5 为目的终端设备 MAC,站点 TEI@14 为 CCO 分配的 TEI):
                     // 长头时 MSDU 头目的对已覆盖;短头(MACAddrFlag=0,无 MAC 字段)时仅体对可学,故成功时体对必发。
                     if (sta_tei && sta_mac) out.tei_mac_pairs.append({sta_tei, sta_mac});
                     if (sta_tei && proxy_tei) out.topo_event.routes.append({sta_tei, proxy_tei});
@@ -1490,7 +1490,7 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                         const quint16 gsta_tei = (quint16)get_bits(b, off + 6, 0, 12);
                         if (g_ok) {
                             if (gsta_tei && gsta_mac) out.topo_event.nodes.append({gsta_tei, gsta_mac});
-                            // TEI→MAC 学习(51242 表52/表54:条目为站点 MAC 6B + 站点 TEI 12b):
+                            // TEI→MAC 学习(HDC2.0 4-2 表52/表54:条目为站点 MAC 6B + 站点 TEI 12b):
                             // 所列站点非 MSDU 头地址,头对覆盖不到,仅 g_ok 时学。
                             if (gsta_tei && gsta_mac) out.tei_mac_pairs.append({gsta_tei, gsta_mac});
                             if (gsta_tei && gproxy_tei) out.topo_event.routes.append({gsta_tei, gproxy_tei});

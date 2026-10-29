@@ -46,7 +46,7 @@ void stats_account(qint64 us_env, qint64 us_mpdu, qint64 us_body) {
 GW_2026_Parser::GW_2026_Parser() {}
 
 // 学习层合并(供 OFDMA/TDA 站点 MSDU 用):对全并、头对以对形式并入、topo 事件首个优先;
-// 不改 present/摘要/树显示(站点 MSDU 仅作学习源,不进包列表 MSDU 列)。
+// 头对字段见 HDC2.0 4-2 表2 标准 MAC 帧头;不改 present/摘要/树显示(站点 MSDU 仅作学习源,不进包列表 MSDU 列)。
 static void merge_msdu_learn(MsduInfo& dst, const MsduInfo& src) {
     for (const auto& p : src.tei_mac_pairs) dst.tei_mac_pairs.append(p);
     if (src.msdu_src_tei > 0 && src.msdu_src_mac != 0)
@@ -268,7 +268,7 @@ GW_2026_Parser::Result GW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
             // 多块重组时各 pb_body 在 raw 中被 pb_head/CRC 隔断,不连续,置 -1。
             r.msdu_raw_base = (r.mpdu.pb_num == 1) ? 17 : -1;
         }
-        // 多站点帧(OFDMA/TDA,51242 表10/11/12/13):各站 MSDU 只组装进 sof_stations,
+        // 多站点帧(OFDMA/TDA,HDC2.0 4-2 表10/11/12/13):各站 MSDU 只组装进 sof_stations,
         // 从未进通用解析;逐站解析仅合并学习(对 + 头对 + 首个 topo 事件),不改显示。
         for (const auto& st : r.mpdu.sof_stations) {
             if (st.msdu.isEmpty()) continue;
