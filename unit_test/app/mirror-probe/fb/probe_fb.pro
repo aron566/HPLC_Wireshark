@@ -1,0 +1,10 @@
+QT += core network
+CONFIG += c++17 console
+CONFIG -= app_bundle
+TARGET = mirror_probe_fb
+TEMPLATE = app
+A = $$PWD/../../../../src/app
+F = $$PWD
+INCLUDEPATH += $$A $$F
+HEADERS += $$F/updatemirror.h $$A/appconfig.h
+SOURCES += $$PWD/../main.cpp $$F/updatemirror.cpp
