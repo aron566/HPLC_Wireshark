@@ -33,8 +33,24 @@ void DispatcherWorker::on_replay_finished() {
 void DispatcherWorker::on_frame(const BplcFrame& frame) {
     if (m_stopped.load()) return;   // 已停止:立即返回,快速清空积压帧
     QElapsedTimer t; t.start();
-    // 解析时不过滤(仅显示过滤):传默认空过滤,内置解析器不再读取过滤字段
-    auto r = m_parser->parse(frame, m_msdu, ParseFilter{});
+    ParseResult r;
+    if (!frame.error_reason.isEmpty() || !frame.accepted) {
+        // reader 已判定的成帧垃圾(DROP):不进解析器,直接合成拒收结果。
+        // mpdu/msdu 值初始化全零,保证行着色走灰(DROP)而不触发红 clause;
+        // msdu 重组状态不被垃圾污染(重组链只见真帧)。
+        r.protocol = m_parser->variant();
+        r.meta = frame.meta;
+        r.raw_wire = frame.raw_wire;
+        r.arrival_us = frame.arrival_us;
+        r.accept = false;
+        r.reject_reason = frame.error_reason;
+        r.mpdu = MpduInfo();
+        r.msdu = MsduInfo();
+        r.beacon = MsduInfo();
+    } else {
+        // 解析时不过滤(仅显示过滤):传默认空过滤,内置解析器不再读取过滤字段
+        r = m_parser->parse(frame, m_msdu, ParseFilter{});
+    }
     // 帧级拒绝留痕(限流):协议 + 帧序号 + 原因,便于现场排查帧被丢弃的根因
     if (!r.accept && !r.reject_reason.isEmpty())
         pa::warn(proto_name(r.protocol) + QStringLiteral(":frame_rejected"),
