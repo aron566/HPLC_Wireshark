@@ -1,10 +1,9 @@
 #!/bin/bash
 # Build mac-filter-probe (main-interface MAC search filter) from the repo root.
 # Reproduces the original probe link; moc outputs are generated at build time
-# (never committed). NOTE: a full pass requires the MAC-filter feature, which
-# lives on the unmerged branch feat/main-filter-mac-search (see README.md);
-# against main sources the MAC-expansion assertions fail while the old
-# regression assertions (sta-*, beacon, ...) still pass.
+# (never committed). NOTE: the MAC-filter feature was merged into main
+# (12d1cbc); against main sources the probe passes 47/47
+# (RESULT: 0 failures). Before the merge, main sources gave 28/47.
 # Usage: ./build.sh   (produces ./build/mac_filter_probe)
 set -e
 cd "$(dirname "$0")"

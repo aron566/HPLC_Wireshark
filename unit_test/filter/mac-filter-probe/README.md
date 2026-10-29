@@ -13,14 +13,11 @@
 ./build/mac_filter_probe
 ```
 
-## 状态：main 源码下部分失败（预期内，非探针缺陷）
+## 状态：main 源码下全过
 
-MAC 过滤特性在未合入 main 的分支 `feat/main-filter-mac-search`
-（d5d4629）。对 main（`39e6e42`）源码构建运行：
-**28/47 通过，19 项 MAC 展开断言失败，exit 1**；
-旧回归断言（sta-5、beacon、空串、not-mac 回退等）全部通过。
-补充验证：同一探针链接该分支的 `packetlistmodel.{cpp,h}`
-（只读 `git show` 到忽略的 `build/feature/` scratch，不入库）→
+MAC 过滤特性已合入 main（合并提交 `12d1cbc`，分支
+`feat/main-filter-mac-search` d5d4629）。对合入后 main 源码构建运行：
 **47/47，`RESULT: 0 failures`，exit 0**。
-特性合入 main 后，本用例应对 main 全过；届时若仍有失败，
+合入前 main（`39e6e42`）源码为 28/47（19 项 MAC 展开断言失败，
+属预期内缺特性，非探针缺陷）；若今后对 main 再有失败，
 先查特性实现而非探针。
