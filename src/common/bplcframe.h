@@ -97,7 +97,7 @@ struct MpduInfo {
     quint8  link_id;       ///< SOF 链路标识符(8-bit)
     quint16 frame_len;     ///< 帧长(12-bit,SOF;载波表19 ×10µs / 无线表30 ×100µs)
     quint8  pb_num;        ///< 生效物理块个数(SOF;载波=字段值 1-4,无线固定 1)
-    quint8  pb_num_field;  ///< SOF 字节9 bit4-7 原始值:载波=物理块个数(表19)/无线=载荷PB大小索引(表29)
+    quint8  pb_num_field;  ///< SOF 原始 PB 字段值:GW=字节9 bit4-7(载波块数表19/无线大小码表29);NW_2021 载波=字节7 bit0-3 线 PBNum(归一门覆盖 pb_num 前留存)
     quint8  pblen;         ///< 南网无线载荷PB大小索引(表130:0-5=16/40/72/136/264/520;载波/国网无效,填 0)
     quint8  mcs;           ///< 无线 MCS(国网表28 / 南网表129:0-6=分集/调制/码率;载波无此字段,填 0)
     quint16 symbol_num;    ///< 符号数 9-bit(载波 SOF 表19;无线 SOF 表30 该位段为保留,存原始值、不参与解析)

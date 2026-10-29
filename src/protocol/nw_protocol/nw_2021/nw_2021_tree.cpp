@@ -197,7 +197,8 @@ void NW_2021_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             const quint16 rsv0 = (raw_sz > 6)
                 ? (quint16)(((quint8)d[5] >> 1) | ((quint16)(quint8)d[6] << 7)) : 0;
             tree_add_bit_field(sof, "RSV", QStringLiteral("0x%1").arg(rsv0, 4, 16, QChar('0')), 5, 1, 15);
-            tree_add_bit_field(sof, "PB Num", QString::number(e.mpdu.pb_num), 7, 0, 4);
+            // 位段节点显示线值(归一门前留存的原始 PBNum);采用块数由下方 PB 块节点数体现。
+            tree_add_bit_field(sof, "PB Num", QString::number(e.mpdu.pb_num_field), 7, 0, 4);
             tree_add_bit_field(sof, "TMI", QString::number(e.mpdu.tmi), 7, 4, 4);
             tree_add_bit_field(sof, "Frame Length",
                 QStringLiteral("%1 (x10us)").arg(e.mpdu.frame_len), 8, 0, 12);
