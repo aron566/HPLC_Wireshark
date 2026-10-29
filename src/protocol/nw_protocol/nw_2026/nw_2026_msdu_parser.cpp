@@ -611,8 +611,8 @@ static const FieldSpec kMMeAssocGatherIndSpec[] = {
     { "ProxyTEI", 8, 0, 16, Fmt::DEC },
     { "NetSN", 10, 0, 8, Fmt::DEC },
     { "NewSTANumber", 11, 0, 8, Fmt::DEC },
-    // 载波频段(表102:byte12 bit0-2 3bit,取值见表95)+保留(bit3-7 5bit + byte13-27 15字节)=125bit
-    // 注意: 表102 关联汇总指示无「链路类型」字段(与表92/99 不同)
+    // 载波频段(SPLC 第4部分 表102:byte12 bit0-2 3bit,取值见 SPLC 第4部分 表95)+保留(bit3-7 5bit + byte13-27 15字节)=125bit
+    // 注意: SPLC 第4部分 表102 关联汇总指示无「链路类型」字段(与 SPLC 第4部分 表92/99 不同)
     { "CarrierFreq", 12, 0, 3, Fmt::DEC },
     { "RSV3", 12, 3, 125, Fmt::HEX4 },
 };
@@ -793,14 +793,14 @@ static const FieldSpec kMMeTEIListReqSpec[] = {
     { "StationNum",  7, 0, 8,  Fmt::DEC },   // ≤20
 };
 static const int kMMeTEIListReqSpecN = int(sizeof(kMMeTEIListReqSpec)/sizeof(kMMeTEIListReqSpec[0]));
-// 站点TEI列表回复 0x0084(表161/162,固定头 8B + TEI 列表 8B/条)
+// 站点TEI列表回复 0x0084(SPLC 第4部分 表161/162,固定头 8B + TEI 列表 8B/条)
 static const FieldSpec kMMeTEIListCnfSpec[] = {
     { "RequestSeq",  0, 0, 8,  Fmt::DEC },
     { "SrcMAC",      1, 0, 48, Fmt::MAC },
     { "StationNum",  7, 0, 8,  Fmt::DEC },
 };
 static const int kMMeTEIListCnfSpecN = int(sizeof(kMMeTEIListCnfSpec)/sizeof(kMMeTEIListCnfSpec[0]));
-// 站点TEI列表条目(表162:MAC 48b + TEI 12b + 保留 4b)
+// 站点TEI列表条目(SPLC 第4部分 表162:MAC 48b + TEI 12b + 保留 4b)
 static const FieldSpec kTEIListEntrySpec[] = {
     { "StationMAC", 0, 0, 48, Fmt::MAC },
     { "StationTEI", 6, 0, 12, Fmt::DEC },
@@ -1200,7 +1200,7 @@ static bool mme_body_complete(const QByteArray& mme, NW_2026_MMeType type) {
         // MAC 列表(表160):固定头 8B(至报文体 byte7 = mme[13])后每站点 6B(自 mme[14])
         return has_items(14, int(get_bits(mme, 13, 0, 8)), 6);
     case NW_2026_MMeType::MME_TEI_LIST_CNF:
-        // TEI 列表(表161/162):固定头 8B(至报文体 byte7 = mme[13])后每站点 8B(自 mme[14])
+        // TEI 列表(SPLC 第4部分 表161/162):固定头 8B(至报文体 byte7 = mme[13])后每站点 8B(自 mme[14])
         return has_items(14, int(get_bits(mme, 13, 0, 8)), 8);
     case NW_2026_MMeType::MME_EXT_NETWORK_CONFLICT_RPT:
         // 邻居网络条目(表163/164):固定头 7B(至报文体 byte6 = mme[12])后每条 1B(自 mme[13])
@@ -2093,6 +2093,7 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
                     const quint16 gsta_tei = (quint16)get_bits(mme, off + 6, 0, 12);
                     if (gsta_tei && gsta_mac) {
                         out.topo_event.nodes.append({gsta_tei, gsta_mac});
+                        // 学习 TEI→MAC(SPLC 第4部分 表102/表103:条目 MAC 6B + TEI 12b;仅 g_ok 时学)
                         out.tei_mac_pairs.append({gsta_tei, gsta_mac});
                     }
                     if (gsta_tei && gproxy_tei) out.topo_event.routes.append({gsta_tei, gproxy_tei});
@@ -2583,7 +2584,7 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
                 auto& g = group(out.tree, QStringLiteral("TEIEntry[%1]").arg(i));
                 g.rel_start = mme_rel_base + 14 + i * 8; g.rel_len = 8;
                 add_fields(g.children, mme, 14 + i * 8, kTEIListEntrySpec, kTEIListEntrySpecN, mme_rel_base);
-                // 学习 TEI→MAC(表161/162 条目:StationMAC 6B + StationTEI 12b;仅发对,不动 topo)
+                // 学习 TEI→MAC(SPLC 第4部分 表161/162 条目:StationMAC 6B + StationTEI 12b;仅发对,不动 topo)
                 {
                     const quint64 mac = get_bits(mme, 14 + i * 8, 0, 48);
                     const quint16 tei = (quint16)get_bits(mme, 14 + i * 8 + 6, 0, 12);
