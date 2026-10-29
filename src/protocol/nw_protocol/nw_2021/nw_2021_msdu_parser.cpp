@@ -83,8 +83,8 @@ static const char* kDeviceTypeZh[] = {
     "II型采集器", "I型采集器", "三相表通信模块" };
 
 static const char* const kLinkTypeZh[] = { "高速载波链路", "无线链路" };
-// 模块类型(表164:0=HPLC单模模块 1=双模 HPLC和RF模块 2=无线单模模块)
-static const char* kModuleTypeZh[] = { "HPLC单模模块", "双模 HPLC和RF模块", "无线单模模块" };
+// 模块类型(表164:0=HPLC 单模模块 1=双模 HPLC 和 RF 模块 2=无线单模模块)
+static const char* kModuleTypeZh[] = { "HPLC 单模模块", "双模 HPLC 和 RF 模块", "无线单模模块" };
 /// MAC 地址类型(表46:0 电能表地址 1 模块本身MAC 2 采集器地址)
 static const char* kMACAddrTypeZh[] = { "电能表地址", "模块本身MAC地址", "采集器地址" };
 /// 代理类型(表50/63:0x1 保留 0x2 动态代理)
@@ -331,8 +331,8 @@ struct MMeI18nReg {
         trl::register_en("认证失败", "Authentication Failed");
         trl::register_en("高速载波链路", "HPLC Link");
         trl::register_en("无线链路", "HRF Link");
-        trl::register_en("HPLC单模模块", "HPLC Single Mode Module");
-        trl::register_en("双模 HPLC和RF模块", "Dual-mode HPLC and RF Module");
+        trl::register_en("HPLC 单模模块", "HPLC Single Mode Module");
+        trl::register_en("双模 HPLC 和 RF 模块", "Dual-mode HPLC and RF Module");
         trl::register_en("无线单模模块", "Wireless Single Mode Module");
         trl::register_en("在位图(第%1字节)", "In Bitmap (Byte %1)");
         trl::register_en("SNID[%1]", "SNID[%1]");

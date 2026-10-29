@@ -92,8 +92,8 @@ static const char* kMACAddrTypeZh[] = { "电能表地址", "模块本身MAC地�
 static const char* kLinkTypeZh[] = { "高速载波链路", "无线链路" };
 // PLC 能力指示(0 支持BPLC版本 1 支持BPLC和SPLC版本)
 static const char* kPLCCapZh[] = { "支持BPLC版本", "支持BPLC和SPLC版本" };
-// 模块类型(0 HPLC单模模块 1 双模 HPLC和RF模块 2 无线单模模块)
-static const char* kModuleTypeZh[] = { "HPLC单模模块", "双模 HPLC和RF模块", "无线单模模块" };
+// 模块类型(0 HPLC 单模模块 1 双模 HPLC 和 RF 模块 2 无线单模模块)
+static const char* kModuleTypeZh[] = { "HPLC 单模模块", "双模 HPLC 和 RF 模块", "无线单模模块" };
 // 通道数(0 单通道 1 多通道)
 static const char* kChannelNumZh[] = { "单通道", "多通道" };
 // 载波频段(表95:0-4 频段定义,5-7 保留;ASCII 频段值,无需英译)
@@ -255,8 +255,8 @@ struct MMeI18nReg {
         trl::register_en("无线链路", "HRF Link");
         trl::register_en("支持BPLC版本", "BPLC supported");
         trl::register_en("支持BPLC和SPLC版本", "BPLC & SPLC supported");
-        trl::register_en("HPLC单模模块", "HPLC Single Mode Module");
-        trl::register_en("双模 HPLC和RF模块", "Dual-mode HPLC and RF Module");
+        trl::register_en("HPLC 单模模块", "HPLC Single Mode Module");
+        trl::register_en("双模 HPLC 和 RF 模块", "Dual-mode HPLC and RF Module");
         trl::register_en("无线单模模块", "Wireless Single Mode Module");
         trl::register_en("单通道", "Single Channel");
         trl::register_en("多通道", "Multi Channels");
