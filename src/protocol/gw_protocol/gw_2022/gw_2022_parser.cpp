@@ -133,6 +133,7 @@ bool GW_2022_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QSt
 
 // 主入口:帧分发
 GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msdu, const Filter& f) {
+    Q_UNUSED(f);  // 解析时不过滤(仅显示过滤),过滤参数不再读取
     Result r;
     r.protocol = ProtocolVariant::GW_2022;   // 协议身份由解析器标记
     QElapsedTimer pt;
@@ -143,9 +144,6 @@ GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msd
     }
     const qint64 us_env = pt.nsecsElapsed() / 1000;
 
-    if (!r.meta.is_rf && !f.link_hplc) { r.reject_reason = trl::L("HPLC 链路被过滤"); r.accept = false; return r; }
-    if ( r.meta.is_rf && !f.link_hrf ) { r.reject_reason = trl::L("HRF 链路被过滤");  r.accept = false; return r; }
-
     QString err;
     if (!parse_mpdu_base(r.payload_for_log, r.mpdu, err)) {
         r.reject_reason = err;
@@ -154,21 +152,7 @@ GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msd
     }
     const qint64 us_mpdu = pt.nsecsElapsed() / 1000 - us_env;
 
-    if (f.nid_filter && !f.nid_list.contains(r.mpdu.net_id)) {
-        r.reject_reason = trl::L("NetID 不在白名单: 0x%1")
-                         .arg(r.mpdu.net_id, 6, 16, QChar('0'));
-        r.accept = false;
-        return r;
-    }
-
     const GW_2022_FrameType ft = static_cast<GW_2022_FrameType>(r.mpdu.frame_type);
-    switch (ft) {
-        case GW_2022_FrameType::BEACON: if (!f.allow_beacon) { r.reject_reason = trl::L("BEACON 被过滤"); r.accept = false; return r; } break;
-        case GW_2022_FrameType::SOF:    if (!f.allow_sof)    { r.reject_reason = trl::L("SOF 被过滤");    r.accept = false; return r; } break;
-        case GW_2022_FrameType::ACK:    if (!f.allow_ack)    { r.reject_reason = trl::L("ACK 被过滤");    r.accept = false; return r; } break;
-        case GW_2022_FrameType::COORD:  if (!f.allow_coord)  { r.reject_reason = trl::L("COORD 被过滤");  r.accept = false; return r; } break;
-        default: break;
-    }
 
     const quint8* p =
         reinterpret_cast<const quint8*>(r.payload_for_log.constData());
@@ -179,12 +163,6 @@ GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msd
                                     r.meta.is_rf ? 0xFF : (quint8)r.meta.channel,
                                     r.meta.is_rf);
         if (!err.isEmpty()) { r.reject_reason = err; r.accept = false; return r; }
-        if (f.tei_filter && !f.tei_list.contains(r.mpdu.src_tei)
-                        && !f.tei_list.contains(r.mpdu.dst_tei)) {
-            r.reject_reason = trl::L("TEI 不在白名单");
-            r.accept = false;
-            return r;
-        }
         // MSDU 重组完整:解析 MAC 层字段
         if (!r.msdu_body.isEmpty()) {
             r.msdu = GW_2022_MsduParser::parse(r.msdu_body);
@@ -265,13 +243,6 @@ struct I18nRegParser {
         trl::register_en("剥头后载荷过短(<4B)", "Payload Too Short After Header (<4B)");
         trl::register_en("剥头后空载荷", "Empty Payload After Header");
         trl::register_en("MPDU_BASE 长度不足 16B", "MPDU_BASE shorter than 16B");
-        trl::register_en("HPLC 链路被过滤", "HPLC link filtered");
-        trl::register_en("HRF 链路被过滤", "HRF link filtered");
-        trl::register_en("BEACON 被过滤", "BEACON filtered");
-        trl::register_en("SOF 被过滤", "SOF filtered");
-        trl::register_en("ACK 被过滤", "ACK filtered");
-        trl::register_en("COORD 被过滤", "COORD filtered");
-        trl::register_en("TEI 不在白名单", "TEI not in whitelist");
     }
 };
 const I18nRegParser g_i18n_reg_parser;

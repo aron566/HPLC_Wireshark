@@ -119,13 +119,11 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
     Result r;
     r.protocol = ProtocolVariant::NW_2021;   // 协议身份由解析器标记
     Q_UNUSED(msdu);
+    Q_UNUSED(f);  // 解析时不过滤(仅显示过滤),过滤参数不再读取
     if (!decode_envelope(in, r)) {
         r.accept = false;
         return r;
     }
-
-    if (!r.meta.is_rf && !f.link_hplc) { r.reject_reason = trl::L("HPLC 链路被过滤"); r.accept = false; return r; }
-    if ( r.meta.is_rf && !f.link_hrf ) { r.reject_reason = trl::L("HRF 链路被过滤");  r.accept = false; return r; }
 
     QString err;
     if (!parse_mpdu_base(r.payload_for_log, r.mpdu, err)) {
@@ -137,7 +135,7 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
     // SNID 共 5bit(试行规约 §5.1.2.2.1/表16):低位在 FCH(0,4,4),高位按帧型坐标合并:
     //   SOF 载波 BPLC(表20)=(5,0,1) / 信标 载波(12,1,1) 无线(12,0,1) /
     //   ACK(表19/21)=(4,0,1) / COORD(表41)=(12,0,1);无线 SOF(表131)byte12 为保留,无高位。
-    // 过滤与列显示统一用合并后的 5bit SNID(有效取值 1-31)。
+    // 列显示统一用合并后的 5bit SNID(有效取值 1-31)。
     {
         const quint8* fch = reinterpret_cast<const quint8*>(r.payload_for_log.constData());
         quint8 snid_high = 0;
@@ -159,20 +157,8 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
         r.mpdu.net_id |= (quint32(snid_high) << 4);
     }
 
-    if (f.nid_filter && !f.nid_list.contains(r.mpdu.net_id)) {
-        r.reject_reason = trl::L("SNID 不在白名单: 0x%1").arg(r.mpdu.net_id, 1, 16);
-        r.accept = false;
-        return r;
-    }
-
     const NW_2021_FrameType ftype = static_cast<NW_2021_FrameType>(r.mpdu.frame_type);
-    switch (ftype) {
-        case NW_2021_FrameType::BEACON: if (!f.allow_beacon) { r.reject_reason = trl::L("BEACON 被过滤"); r.accept = false; return r; } break;
-        case NW_2021_FrameType::SOF:    if (!f.allow_sof)    { r.reject_reason = trl::L("SOF 被过滤");    r.accept = false; return r; } break;
-        case NW_2021_FrameType::ACK:    if (!f.allow_ack)    { r.reject_reason = trl::L("ACK 被过滤");    r.accept = false; return r; } break;
-        case NW_2021_FrameType::COORD:  if (!f.allow_coord)  { r.reject_reason = trl::L("COORD 被过滤");  r.accept = false; return r; } break;
-        default: break;
-    }
+
 
     const quint8* p = reinterpret_cast<const quint8*>(r.payload_for_log.constData());
 
@@ -211,12 +197,6 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
             // MSDU 恒空且 pb_crc_ok 恒 false(误报 FAIL)。pb_size<=8 时不归一,
             // 保留 0 块语义(pb_size=0 的合法 0 块路径不受影响)。门与循环不动。
             if (r.mpdu.pb_num == 0 && r.mpdu.pb_size > 8) r.mpdu.pb_num = 1;
-        }
-        if (f.tei_filter && !f.tei_list.contains(r.mpdu.src_tei)
-                        && !f.tei_list.contains(r.mpdu.dst_tei)) {
-            r.reject_reason = trl::L("TEI 不在白名单");
-            r.accept = false;
-            return r;
         }
         // PB 块重组 + CRC24 校验(南网:块 = PB头4B + 块体(pb_size-8) + 保留1B + CRC24 3B)
         if (r.mpdu.pb_size > 8 && r.mpdu.pb_num > 0) {

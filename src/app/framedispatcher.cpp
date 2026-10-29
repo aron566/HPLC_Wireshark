@@ -25,10 +25,6 @@ DispatcherWorker::DispatcherWorker(std::unique_ptr<IProtocolParser> parser,
                                    QObject* parent)
     : QObject(parent), m_parser(std::move(parser)) {}
 
-void DispatcherWorker::on_filter_changed(ParseFilter f) {
-    m_filter = f;
-}
-
 void DispatcherWorker::on_replay_finished() {
     // 经队列投递到 worker 线程,晚于全部 frame_ready → 此刻积压帧已解析完,汇总计数完整
     pa::summarize();
@@ -37,7 +33,8 @@ void DispatcherWorker::on_replay_finished() {
 void DispatcherWorker::on_frame(const BplcFrame& frame) {
     if (m_stopped.load()) return;   // 已停止:立即返回,快速清空积压帧
     QElapsedTimer t; t.start();
-    auto r = m_parser->parse(frame, m_msdu, m_filter);
+    // 解析时不过滤(仅显示过滤):传默认空过滤,内置解析器不再读取过滤字段
+    auto r = m_parser->parse(frame, m_msdu, ParseFilter{});
     // 帧级拒绝留痕(限流):协议 + 帧序号 + 原因,便于现场排查帧被丢弃的根因
     if (!r.accept && !r.reject_reason.isEmpty())
         pa::warn(proto_name(r.protocol) + QStringLiteral(":frame_rejected"),
@@ -78,9 +75,6 @@ FrameDispatcher::FrameDispatcher(QObject* parent)
     m_worker = new DispatcherWorker(std::move(parser));
     m_worker->moveToThread(m_thread);
     connect(m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
-    connect(this,     &FrameDispatcher::filter_changed,
-            m_worker, &DispatcherWorker::on_filter_changed,
-            Qt::QueuedConnection);
     connect(m_worker, &DispatcherWorker::parsed,
             this,     &FrameDispatcher::on_parsed,
             Qt::QueuedConnection);
@@ -97,10 +91,6 @@ FrameDispatcher::~FrameDispatcher() {
             m_thread->wait();
         }
     }
-}
-
-void FrameDispatcher::set_filter(const ParseFilter& f) {
-    emit filter_changed(f);
 }
 
 void FrameDispatcher::connect_source(QObject* source) {

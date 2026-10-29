@@ -124,7 +124,6 @@ namespace {
 struct I18nReg {
     I18nReg() {
         trl::register_en("训练帧（MIMO训练帧）", "Training Frame (MIMO)");
-        trl::register_en("SNID 不在白名单: 0x%1", "SNID Not in Whitelist: 0x%1");
         trl::register_en(" (截断: PB 块不完整, 声明 %1 块仅收到 %2 块)", " (truncated: %1 PB declared, %2 received)");
         trl::register_en("训练帧（Bitloading训练帧）", "Training Frame (Bitloading)");
         trl::register_en("聚合帧(%1 个级联 MAC 帧)", "Aggregated Frame (%1 cascade MAC frames)");
@@ -211,9 +210,6 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
         return r;
     }
 
-    if (!r.meta.is_rf && !f.link_hplc) { r.reject_reason = trl::L("HPLC 链路被过滤"); r.accept = false; return r; }
-    if ( r.meta.is_rf && !f.link_hrf ) { r.reject_reason = trl::L("HRF 链路被过滤");  r.accept = false; return r; }
-
     QString err;
     if (!parse_mpdu_base(r.payload_for_log, r.mpdu, err)) {
         r.reject_reason = err;
@@ -277,7 +273,7 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
     //   信标 载波(12,1,1) 无线(12,0,1) / ACK(表19/21)=(4,0,1) / COORD(表41)=(12,0,1)。
     //   注意 BPLC 版坐标不同:载波 SOF(表20)高位在 (5,0,1)、无线(表131)无高位——
     //   那是 NW_2021 的取值;NW_2026 走 SPLC 表23/表45,两种 SOF 都在 (12,0,1)。
-    // 过滤与列显示统一用合并后的 5bit SNID(有效取值 1-31)。
+    // 列显示统一用合并后的 5bit SNID(有效取值 1-31)。
     {
         const quint8* fch = reinterpret_cast<const quint8*>(r.payload_for_log.constData());
         quint8 snid_high = 0;
@@ -302,20 +298,8 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
         r.mpdu.net_id |= (quint32(snid_high) << 4);
     }
 
-    if (f.nid_filter && !f.nid_list.contains(r.mpdu.net_id)) {
-        r.reject_reason = trl::L("SNID 不在白名单: 0x%1").arg(r.mpdu.net_id, 1, 16);
-        r.accept = false;
-        return r;
-    }
-
     const NW_2026_FrameType ftype = static_cast<NW_2026_FrameType>(r.mpdu.frame_type);
-    switch (ftype) {
-        case NW_2026_FrameType::BEACON: if (!f.allow_beacon) { r.reject_reason = trl::L("BEACON 被过滤"); r.accept = false; return r; } break;
-        case NW_2026_FrameType::SOF:    if (!f.allow_sof)    { r.reject_reason = trl::L("SOF 被过滤");    r.accept = false; return r; } break;
-        case NW_2026_FrameType::ACK:    if (!f.allow_ack)    { r.reject_reason = trl::L("ACK 被过滤");    r.accept = false; return r; } break;
-        case NW_2026_FrameType::COORD:  if (!f.allow_coord)  { r.reject_reason = trl::L("COORD 被过滤");  r.accept = false; return r; } break;
-        default: break;
-    }
+
 
     const quint8* p = reinterpret_cast<const quint8*>(r.payload_for_log.constData());
 
@@ -428,12 +412,6 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.symbol_num   = (quint16)get_bits(p, 10, 7, 9);  // 符号数(表16)
             r.mpdu.tmi_ext   = (quint8) get_bits(p, 12, 0, 4);
             { const int sz = nw_2026_pb_size(r.mpdu.tmi, r.mpdu.tmi_ext); r.mpdu.pb_size = (quint16)(sz > 0 ? sz : 0); }
-        }
-        if (f.tei_filter && !f.tei_list.contains(r.mpdu.src_tei)
-                        && !f.tei_list.contains(r.mpdu.dst_tei)) {
-            r.reject_reason = trl::L("TEI 不在白名单");
-            r.accept = false;
-            return r;
         }
         // PB 块逐块 CRC24 + 块体提取 + 聚合级联拆分(公共 pb_assembler;南网布局:
         // PB头4B 表47 + 块体 + 保留1B + CRC24 3B,聚合标志 byte2 bit0,§5.1.3.2.1)
