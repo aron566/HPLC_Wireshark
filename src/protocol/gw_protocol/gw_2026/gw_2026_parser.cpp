@@ -66,6 +66,18 @@ static void merge_msdu_learn(MsduInfo& dst, const MsduInfo& src) {
             add_orig_src((quint16)src.msdu_src_tei, src.msdu_src_mac);
         for (const auto& p : src.orig_srcs) add_orig_src(p.tei, p.mac);
     }
+    // 聚合/多站点目的(与源镜像:仅当帧级尚无原始目的 TEI 时收集)。
+    if (dst.msdu_dst_tei <= 0) {
+        auto add_orig_dst = [&](quint16 tei, quint64 mac) {
+            if (tei == 0 || mac == 0) return;
+            for (const auto& p : dst.orig_dsts)
+                if (p.tei == tei && p.mac == mac) return;
+            dst.orig_dsts.append({tei, mac});
+        };
+        if (src.msdu_dst_tei > 0 && src.msdu_dst_mac != 0)
+            add_orig_dst((quint16)src.msdu_dst_tei, src.msdu_dst_mac);
+        for (const auto& p : src.orig_dsts) add_orig_dst(p.tei, p.mac);
+    }
     if (src.topo_event.kind != TopoEventKind::Other) {
         if (dst.topo_event.kind == TopoEventKind::Other)
             dst.topo_event = src.topo_event;
@@ -291,6 +303,18 @@ GW_2026_Parser::Result GW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
         // 从未进通用解析;逐站解析仅合并学习(对 + 头对 + 首个 topo 事件),不改显示。
         for (const auto& st : r.mpdu.sof_stations) {
             if (st.msdu.isEmpty()) continue;
+            // CRC 失败块不解析(用户 2026-10-29 定,NW 同款多块补定):
+            // 本站全好,或本站 MSDU span 避开坏块,才解析合并;否则该站
+            // 不解析不学习,坏块字节不进 tei_mac_pairs/orig/topology。
+            // 本站 MSDU 只用于学习,故无需摘要附注;块 CRC 失败仍由
+            // pb_crc_oks/红行可见。单站点已由 assemble 的 seq 链等价
+            // 覆盖(任一坏块即无完整 MSDU),此处不另设门。
+            bool all_ok = true;
+            for (bool ok : st.pb_crc_oks) all_ok = all_ok && ok;
+            if (!all_ok
+                && !gw_2026_sof::msdu_span_avoids_bad_blocks(st.msdu, st.pb_crc_oks,
+                                                            int(st.pb_size)))
+                continue;
             merge_msdu_learn(r.msdu, GW_2026_MsduParser::parse(st.msdu));
         }
     } else if (ft == GW_2026_FrameType::BEACON) {

@@ -62,6 +62,7 @@ int main(int argc, char** argv) {
             ParseResult r = parser.parse(fr, msdu_state, filt);
             // Expected: dedup of direct station header sources, in station order.
             QVector<TeiMacPair> want;
+            QVector<TeiMacPair> want_dst;  // Orig Dst 镜像:各站头目的去重,站序
             for (int si = 0; si < r.mpdu.sof_stations.size(); ++si) {
                 const auto& st = r.mpdu.sof_stations[si];
                 MsduInfo si_info = GW_2026_MsduParser::parse(st.msdu);
@@ -70,6 +71,12 @@ int main(int argc, char** argv) {
                     for (const auto& p : want)
                         if (p.tei == si_info.msdu_src_tei && p.mac == si_info.msdu_src_mac) { dup = true; break; }
                     if (!dup) want.append({(quint16)si_info.msdu_src_tei, si_info.msdu_src_mac});
+                }
+                if (si_info.msdu_dst_tei > 0 && si_info.msdu_dst_mac != 0) {
+                    bool dup = false;
+                    for (const auto& p : want_dst)
+                        if (p.tei == si_info.msdu_dst_tei && p.mac == si_info.msdu_dst_mac) { dup = true; break; }
+                    if (!dup) want_dst.append({(quint16)si_info.msdu_dst_tei, si_info.msdu_dst_mac});
                 }
             }
             bool ok = (r.msdu.orig_srcs.size() == want.size());
@@ -82,6 +89,13 @@ int main(int argc, char** argv) {
             char buf[64];
             std::snprintf(buf, sizeof(buf), "parser frame %ld orig_srcs invariant", idx);
             check(r.accept && ok, buf);
+            bool ok_dst = (r.msdu.orig_dsts.size() == want_dst.size());
+            if (ok_dst) {
+                for (int k = 0; k < want_dst.size(); ++k)
+                    if (r.msdu.orig_dsts[k].tei != want_dst[k].tei || r.msdu.orig_dsts[k].mac != want_dst[k].mac) { ok_dst = false; break; }
+            }
+            std::snprintf(buf, sizeof(buf), "parser frame %ld orig_dsts invariant", idx);
+            check(r.accept && ok_dst, buf);
         }
         check(idx == 3, "parser read 3 frames");
     }
@@ -193,6 +207,96 @@ int main(int argc, char** argv) {
         p.msdu.orig_srcs.append({11, macA});
         p.msdu.orig_srcs.append({12, macB});
         p.search_text = make_search_text(p);
+        t("precondition-filter", "sta-12", p, false);
+        t("precondition-filter", "sta-5", p, true);
+    }
+
+    // ---- B2. Model column: Orig Dst (mirror of B) ----
+    {
+        PacketListModel model2;
+        PacketEntry m;  // merged-style: present=false, dup destination
+        m.accepted = true;
+        m.msdu.present = false;
+        m.msdu.simple_head = false;
+        m.msdu.msdu_dst_tei = -1;
+        m.msdu.orig_dsts.append({11, macA});
+        m.msdu.orig_dsts.append({12, macB});
+        m.msdu.orig_dsts.append({11, macA});
+        PacketEntry s;  // single-frame fallback
+        s.accepted = true;
+        s.msdu.present = true;
+        s.msdu.simple_head = false;
+        s.msdu.msdu_dst_tei = 5;
+        s.msdu.msdu_dst_mac = macC;
+        PacketEntry cco;  // CCO naming
+        cco.accepted = true;
+        cco.msdu.present = false;
+        cco.msdu.simple_head = false;
+        cco.msdu.msdu_dst_tei = -1;
+        cco.msdu.orig_dsts.append({1, macCco});
+        PacketEntry bc;  // broadcast naming
+        bc.accepted = true;
+        bc.msdu.present = false;
+        bc.msdu.simple_head = false;
+        bc.msdu.msdu_dst_tei = -1;
+        bc.msdu.orig_dsts.append({0xFFF, mac6(0xff, 0xff, 0xff, 0xff, 0xff, 0xff)});
+        PacketEntry p;  // precondition: frame dst present -> single, never multi
+        p.accepted = true;
+        p.msdu.present = true;
+        p.msdu.simple_head = false;
+        p.msdu.msdu_dst_tei = 5;
+        p.msdu.msdu_dst_mac = macC;
+        p.msdu.orig_dsts.append({11, macA});
+        p.msdu.orig_dsts.append({12, macB});
+        model2.append_packets(QVector<PacketEntry>{m, s, cco, bc, p});
+        model2.set_display_filter(QString());
+        const auto col = [&](int row) {
+            return model2.data(model2.index(row, PacketListModel::COL_ORIG_DST), Qt::DisplayRole).toString();
+        };
+        check(col(0) == QStringLiteral("STA-11 [aa:bb:cc:dd:ee:0b],STA-12 [01:02:03:04:05:06]"),
+              "dst column multi format + dedup");
+        check(col(1) == QStringLiteral("STA-5 [0a:0b:0c:0d:0e:0f]"),
+              "dst column single fallback unchanged");
+        check(col(2) == QStringLiteral("CCO [00:11:22:33:44:55]"), "dst column CCO naming");
+        check(col(3) == QStringLiteral("BCAST [ff:ff:ff:ff:ff:ff]"), "dst column BCAST naming");
+        check(col(4) == QStringLiteral("STA-5 [0a:0b:0c:0d:0e:0f]"),
+              "dst column precondition: frame dst present -> single, not multi");
+    }
+
+    // ---- C2. Filter: Orig Dst words (mirror of C) ----
+    {
+        PacketListModel model3;
+        PacketEntry m;  // merged-style entry, hop TEIs 0 to isolate the word path
+        m.accepted = true;
+        m.msdu.present = false;
+        m.msdu.simple_head = false;
+        m.msdu.msdu_src_tei = -1;
+        m.msdu.msdu_dst_tei = -1;
+        m.msdu.orig_dsts.append({11, macA});
+        m.msdu.orig_dsts.append({12, macB});
+        m.search_text = make_search_text(m);
+        PacketEntry p;  // precondition on the filter side
+        p.accepted = true;
+        p.msdu.present = true;
+        p.msdu.simple_head = false;
+        p.msdu.msdu_src_tei = -1;
+        p.msdu.msdu_dst_tei = 5;
+        p.msdu.msdu_dst_mac = macC;
+        p.msdu.orig_dsts.append({11, macA});
+        p.msdu.orig_dsts.append({12, macB});
+        p.search_text = make_search_text(p);
+        auto t = [&](const char* name, const QString& expr, const PacketEntry& e, bool want) {
+            model3.set_display_filter(expr);
+            const bool got = model3.passes_filter(e);
+            char buf[128];
+            std::snprintf(buf, sizeof(buf), "dst filter %s '%s' -> %d want %d",
+                          name, qPrintable(expr), got ? 1 : 0, want ? 1 : 0);
+            check(got == want, buf);
+        };
+        t("sta-word", "sta-12", m, true);
+        t("sta-word", "sta-11", m, true);
+        t("sta-word-boundary", "sta-1", m, false);
+        t("sta-word-neg", "sta-99", m, false);
         t("precondition-filter", "sta-12", p, false);
         t("precondition-filter", "sta-5", p, true);
     }

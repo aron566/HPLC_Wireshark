@@ -449,6 +449,8 @@ inline void write_msdu_info(QDataStream& s, const MsduInfo& m, StrPool& pool) {
     for (const TopoEvent& t : m.topo_extra_events) write_topo_event(s, t, pool);
     write_u32(s, quint32(m.orig_srcs.size()));
     for (const TeiMacPair& p : m.orig_srcs) { write_u16(s, p.tei); s << p.mac; }
+    write_u32(s, quint32(m.orig_dsts.size()));
+    for (const TeiMacPair& p : m.orig_dsts) { write_u16(s, p.tei); s << p.mac; }
 }
 
 inline void read_msdu_info(QDataStream& s, MsduInfo& m,
@@ -489,6 +491,8 @@ inline void read_msdu_info(QDataStream& s, MsduInfo& m,
       for (quint32 i = 0; i < n; ++i) { TopoEvent t; read_topo_event(s, t, table); m.topo_extra_events.append(t); } }
     { quint32 n = 0; read_u32(s, n); m.orig_srcs.clear();
       for (quint32 i = 0; i < n; ++i) { TeiMacPair p; read_u16(s, p.tei); s >> p.mac; m.orig_srcs.append(p); } }
+    { quint32 n = 0; read_u32(s, n); m.orig_dsts.clear();
+      for (quint32 i = 0; i < n; ++i) { TeiMacPair p; read_u16(s, p.tei); s >> p.mac; m.orig_dsts.append(p); } }
 }
 
 /// @brief 序列化一个 PacketEntry 到字节流(不含长度前缀)
@@ -565,7 +569,7 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
 // ---------------------------------------------------------------------------
 
 inline quint32 block_magic()   { return 0x50424C4Bu; }  // "PBLK"
-inline quint32 block_version() { return 18u; }  // v18: MsduInfo 补 orig_srcs(聚合/多站点原始源); v17: MsduInfo 补 topo_extra_events(多站点后续拓扑事件); v16: 补 MsduInfo::trans_direction_flag(APP 传输方向,P2P Dir 列); v15: TopoEvent 补 sender_mac(STA 重启按发送方建基线); v14: 删 MpduInfo::sof_multi_site_verified(死字段,UI 零读取); v13: 补 MpduInfo::sof_stations(多站点 PB 分组 OFDMA/TDA) + sof_multi_site_verified; v12: 补 fch_crc_checked(FCH CRC 三态);v11: 补 MsduInfo::cascade + TopoEvent 23 字段 + MpduInfo 13 字段;v10: 删死字段 pb_index/coord_option/ack_search_freq;补写 coord_rsv1/2/3(树渲染依赖,原先漏写导致换页后恒 0);v9 增 mcs;v8 增 pblen;v7 增 beacon_rsv;v6 三线合流并集
+inline quint32 block_version() { return 19u; }  // v19: MsduInfo 补 orig_dsts(聚合/多站点原始目的,与 orig_srcs 镜像); v18: MsduInfo 补 orig_srcs(聚合/多站点原始源); v17: MsduInfo 补 topo_extra_events(多站点后续拓扑事件); v16: 补 MsduInfo::trans_direction_flag(APP 传输方向,P2P Dir 列); v15: TopoEvent 补 sender_mac(STA 重启按发送方建基线); v14: 删 MpduInfo::sof_multi_site_verified(死字段,UI 零读取); v13: 补 MpduInfo::sof_stations(多站点 PB 分组 OFDMA/TDA) + sof_multi_site_verified; v12: 补 fch_crc_checked(FCH CRC 三态);v11: 补 MsduInfo::cascade + TopoEvent 23 字段 + MpduInfo 13 字段;v10: 删死字段 pb_index/coord_option/ack_search_freq;补写 coord_rsv1/2/3(树渲染依赖,原先漏写导致换页后恒 0);v9 增 mcs;v8 增 pblen;v7 增 beacon_rsv;v6 三线合流并集
 /// @brief 独立压缩分块的条目数(随机解码粒度:解一条最多解压一个分块)
 inline constexpr int kBlockChunkEntries = 50;
 

@@ -9,6 +9,7 @@
 #include "nw_2021_beacon_parser.h"
 #include "nw_2021_tree.h"
 #include "common/fieldtools.h"
+#include "common/pb_assembler.h"
 #include "crc.h"
 #include "bcd.h"
 #include "i18n.h"
@@ -251,8 +252,17 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
                 // samples/gen_nw_bplc_frames.py build_singlehop_rfdl(载波外壳+is_rf=0)。
                 if (!r.meta.is_rf && (((quint8)msdu_body[0] >> 1) & 0x03) == 2)
                     qWarning("NW_2021: single-hop MAC version=2 on PLC channel (isRF=0)");
-                r.msdu = NW_2021_MsduParser::parse(msdu_body);
-                r.msdu_raw_base = (r.mpdu.pb_num == 1) ? (16 + 4) : -1;
+                // CRC 失败块不解析(用户 2026-10-29 定,同 NW_2026 口径 +
+                // 多块补定:好块要解析):首帧 span 完整落在好块内即解析,
+                // 横跨坏块时整段不解析,仅留摘要说明。
+                if (r.mpdu.pb_crc_ok
+                    || pb_asm::msdu_span_avoids_bad_blocks(msdu_body, r.mpdu.pb_crc_oks,
+                                                           body_len)) {
+                    r.msdu = NW_2021_MsduParser::parse(msdu_body);
+                    r.msdu_raw_base = (r.mpdu.pb_num == 1) ? (16 + 4) : -1;
+                } else {
+                    r.msdu.summary = trl::L("块 CRC 失败未解析");
+                }
             }
         }
     } else if (ftype == NW_2021_FrameType::BEACON) {
