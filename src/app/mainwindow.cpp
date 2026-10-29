@@ -950,7 +950,9 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
             te.is_rf_known = true;
         }
         te.frame_index = e.index;  // 来源帧序号(路由表序号列/双击追溯)
-        te.sender_mac = e.msdu.msdu_src_mac;  // 本跳发送方 MAC(STA 重启按发送方建基线)
+        // sender_mac 不再此处覆盖:由解析器逐事件填(本站/本段 MSDU 头源);
+        // 帧级源只属于首站/首段,盖到多站/级联后续事件上会串归属,留 0 的
+        // 事件由 TopoState 回落到该事件 nodes 首条。
         m_topo_states[e.mpdu.net_id].apply(te);
         m_topo_log.append({e.index, te});
         // 增量回放依赖日志严格按帧序追加;若乱序到达则重置回放水位,下次回放全量重建

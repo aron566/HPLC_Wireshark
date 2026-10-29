@@ -2133,6 +2133,11 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
             out.tree.append(crc);
         }
     }
+    // 逐事件发送方 MAC:与重启次数同源(MSDU 头源 MAC);短头无 MAC 时留 0,
+    // TopoState 回落到事件 nodes 首条;多站/级联每段/每站解析各填各的,
+    // 合并时随 TopoEvent 对象整体拷贝,不混、不丢。
+    if (out.topo_event.kind != TopoEventKind::Other && out.msdu_src_mac)
+        out.topo_event.sender_mac = out.msdu_src_mac;
     return out;
 }
 
