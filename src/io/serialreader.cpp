@@ -231,6 +231,7 @@ void ReaderWorker::try_extract_frame() {
                     // 不碰时间链(m_last_ntb/m_last_ft/m_first_frame):垃圾无可信 NTB,
                     // 下一真帧的时间仍以前一真帧为基准(commit 3 的解析器锚点同理)
                     ++m_frame_count;
+                    drop.meta.local_rx_ms = QDateTime::currentMSecsSinceEpoch();  // 收帧本地时刻(回退显示时间用)
                     emit frame_ready(drop);
                 }
                 m_in_buf.remove(0, next_3c);
@@ -263,6 +264,7 @@ void ReaderWorker::try_extract_frame() {
                 drop.accepted = false;
                 drop.error_reason = trl::L("DROP:双 0x3C 成帧垃圾");
                 ++m_frame_count;
+                drop.meta.local_rx_ms = QDateTime::currentMSecsSinceEpoch();  // 收帧本地时刻(回退显示时间用)
                 emit frame_ready(drop);
             }
             m_in_buf.remove(0, idx3c);
@@ -331,6 +333,7 @@ void ReaderWorker::try_extract_frame() {
             drop.accepted = false;
             drop.error_reason = trl::L("DROP:帧长小于 FCH(16B)");
             ++m_frame_count;
+            drop.meta.local_rx_ms = QDateTime::currentMSecsSinceEpoch();  // 收帧本地时刻(回退显示时间用)
             emit frame_ready(drop);
             continue;
         }
@@ -412,6 +415,7 @@ void ReaderWorker::try_extract_frame() {
             }
         }
         bf.arrival_us = m_frame_rx_us;   // 0x3C 起始高精度接收时刻(实时)
+        bf.meta.local_rx_ms = QDateTime::currentMSecsSinceEpoch();  // 收帧本地时刻(解析器回退显示时间用)
         bf.raw_wire   = wire;            // 原始串口帧原样(调试复制)
         // 帧 ts 域语义(2026-09 统一):ts 一律为 NTB tick(25kHz,40ns),
         // 无论实时串口(设备填)还是文件回放(bin/裸 hex 导出均写 NTB)
@@ -500,6 +504,7 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
         bf.meta.replay_time_tag = replay_time_tag;
         bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(t2_us / 1000);
         bf.arrival_us = t2_us;
+        bf.meta.local_rx_ms = QDateTime::currentMSecsSinceEpoch();  // 收帧本地时刻(解析器回退显示时间用)
         bf.raw_wire   = raw;   // 0x3C...0x3E 原样
         bf.data       = data;  // 反转义后的 [dlen][ts][media][MPDU]
         emit frame_ready(bf);

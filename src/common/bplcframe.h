@@ -60,6 +60,9 @@ struct PhysicalMeta {
     bool     has_time_tag;    ///< 是否携带 8 字节 BCD 时间标签(has_time_tag=1)
     QDateTime frame_time;     ///< 帧时间(BCD 解码或 PC 本地时间)
     qint64    epoch_ms;       ///< frame_time 的 epoch ms 缓存(热路径避免 toMSecsSinceEpoch 时区转换)
+    qint64    local_rx_ms;    ///< reader 成帧完成时取的本地 wall clock(epoch ms),
+                              ///< 供解析器回退显示时间用;不序列化,仅内存透传
+                              ///< (解析线程收到时若为 0 则回退现取)
     bool     from_raw;        ///< 是否为裸 hex 文本导入(无哨兵封装)
     bool     frame_ts_is_ntb; ///< ts 域为 NTB tick(实时串口;25kHz,40µs);
                               ///< false=文件回放(ts=epoch ms 低 32 位,毫秒级)
@@ -68,7 +71,7 @@ struct PhysicalMeta {
 
     PhysicalMeta()
         : timestamp(0), phr_mcs(0), option(0), channel(0),
-          is_rf(false), has_time_tag(false), epoch_ms(0),
+          is_rf(false), has_time_tag(false), epoch_ms(0), local_rx_ms(0),
           from_raw(false), frame_ts_is_ntb(false), seg_start(false), replay_time_tag(false) {}
 };
 

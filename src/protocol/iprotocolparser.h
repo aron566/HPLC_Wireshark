@@ -35,7 +35,9 @@ struct ParseResult {
                     msdu_raw_base(-1), arrival_us(0), accept(false) {}
 };
 
-/// @brief 解析器向主界面提供本行显示时间/Delta 的上下文(分发器在 parse 前填)
+/// @brief 解析器向主界面提供本行显示时间/Delta 的上下文(分发器在 parse 前填:
+///        行序号 + 本地时间,其中本地时间由 reader 成帧时采样、经分发器透传,
+///        未带时分发器现取)
 struct DisplayContext {
     qint64 row_index = 0;  ///< 该帧将填入 tableview 的行序号(分发器帧计数)
     qint64 now_ms = 0;     ///< parse 时本地时间(epoch ms),回退值
@@ -84,7 +86,8 @@ struct DisplayTimeAnchor {
                 return;
             }
         }
-        // 回退:此前无好帧,或偏差超限(≤0 或 >60s)——用分发器给的本地时间
+        // 回退:此前无好帧,或偏差超限(≤0 或 >60s)——用 reader 收帧时取的本地时间
+        // (队列积压时比解析时现取更接近收帧时刻,回退误差更小)
         r.meta.frame_time = QDateTime::fromMSecsSinceEpoch(ctx.now_ms);
         r.meta.epoch_ms = ctx.now_ms;
         r.display_delta_us = 0;
