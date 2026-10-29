@@ -19,6 +19,8 @@
 #include <QStringList>
 #include <QVector>
 
+#include "mac_format.h"  // 48-bit MAC 格式化唯一实现(同目录)
+
 /// 链路类型取值:南网 SPLC-4 表79 / BPLC-2 表160;国网 HDC1.0 表61、表72 / HDC2.0 表56、表58 含义列
 /// —— 两家定义完全一致(0=高速载波链路 1=无线链路),故置于 common 层共用
 enum LinkTypeValue : quint8 {
@@ -374,8 +376,8 @@ struct MsduInfo {
     QString summary;         ///< 概要,如 "MMeDiscoverNodeList" / "APP EventPacket"
     QVector<MsduFieldNode> tree;  ///< 字段树(协议树直接挂载显示)
     QVector<TeiMacPair> tei_mac_pairs; ///< 本帧携带的 TEI→MAC 学习对(发现列表等)
-    QVector<TeiMacPair> orig_srcs;   ///< 聚合/多站点帧各段/各站的原始源(TEI,MAC),按段/站序、去重;仅帧级无原始 TEI 时收集,帧级有源或单段帧时为空(走原单源逻辑)
-    QVector<TeiMacPair> orig_dsts;   ///< 聚合/多站点帧各段/各站的原始目的(TEI,MAC),按段/站序、去重;仅帧级无原始目的 TEI 时收集,帧级有目的或单段帧时为空(走原单目的逻辑;与 orig_srcs 镜像,用户 2026-10-29 定)
+    QVector<TeiMacPair> orig_srcs;   ///< 聚合/多站点帧各段/各站的原始源(TEI,MAC),按段/站序、去重;仅帧级无原始 TEI 时收集,帧级有源或单段帧时为空(走原单源逻辑);TEI-only 段(短头 MACAddrFlag=0)亦收集,MAC 为 0,显示只出 STA-N(不进 tei_mac_pairs)
+    QVector<TeiMacPair> orig_dsts;   ///< 聚合/多站点帧各段/各站的原始目的(TEI,MAC),按段/站序、去重;仅帧级无原始目的 TEI 时收集,帧级有目的或单段帧时为空(走原单目的逻辑;与 orig_srcs 镜像,用户 2026-10-29 定);TEI-only 段同源规则,MAC 为 0 时显示只出 STA-N
     TopoEvent topo_event;        ///< 拓扑事件(关键管理消息填充;kind=Other 表示无)
     QVector<TopoEvent> topo_extra_events; ///< 多站点合并的后续拓扑事件:topo_event=首事件,本字段=其余事件;消费全部事件必须两者都读
 
@@ -491,15 +493,8 @@ inline QString make_search_text(const PacketEntry& e) {
             for (const auto& p : e.msdu.orig_srcs) add_src(p.tei, p.mac);
         for (const auto& p : srcs) {
             parts << QStringLiteral("sta-%1").arg(p.tei);
-            if (p.mac) {
-                // MAC u64 约定:低字节为首字节,与 format_mac/字段树 mac_str 一致
-                QString m;
-                for (int i = 0; i < 6; ++i) {
-                    m += QStringLiteral("%1").arg((p.mac >> (8 * i)) & 0xFF, 2, 16, QChar('0'));
-                    if (i < 5) m += QLatin1Char(':');
-                }
-                parts << m;
-            }
+            // MAC u64 约定:低字节为首字节,格式见 common/mac_format.h
+            if (p.mac) parts << format_mac_u64(p.mac);
         }
     }
     // Orig Dst 列内容亦可搜:与 Orig Src 镜像——帧级有目的时只列帧级目的,
@@ -519,14 +514,7 @@ inline QString make_search_text(const PacketEntry& e) {
             for (const auto& p : e.msdu.orig_dsts) add_dst(p.tei, p.mac);
         for (const auto& p : dsts) {
             parts << QStringLiteral("sta-%1").arg(p.tei);
-            if (p.mac) {
-                QString m;
-                for (int i = 0; i < 6; ++i) {
-                    m += QStringLiteral("%1").arg((p.mac >> (8 * i)) & 0xFF, 2, 16, QChar('0'));
-                    if (i < 5) m += QLatin1Char(':');
-                }
-                parts << m;
-            }
+            if (p.mac) parts << format_mac_u64(p.mac);
         }
     }
     return parts.join(QLatin1Char(' '));

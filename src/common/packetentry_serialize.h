@@ -569,7 +569,7 @@ inline bool deserialize_entry(const QByteArray& buf, PacketEntry& e,
 // ---------------------------------------------------------------------------
 
 inline quint32 block_magic()   { return 0x50424C4Bu; }  // "PBLK"
-inline quint32 block_version() { return 19u; }  // v19: MsduInfo 补 orig_dsts(聚合/多站点原始目的,与 orig_srcs 镜像); v18: MsduInfo 补 orig_srcs(聚合/多站点原始源); v17: MsduInfo 补 topo_extra_events(多站点后续拓扑事件); v16: 补 MsduInfo::trans_direction_flag(APP 传输方向,P2P Dir 列); v15: TopoEvent 补 sender_mac(STA 重启按发送方建基线); v14: 删 MpduInfo::sof_multi_site_verified(死字段,UI 零读取); v13: 补 MpduInfo::sof_stations(多站点 PB 分组 OFDMA/TDA) + sof_multi_site_verified; v12: 补 fch_crc_checked(FCH CRC 三态);v11: 补 MsduInfo::cascade + TopoEvent 23 字段 + MpduInfo 13 字段;v10: 删死字段 pb_index/coord_option/ack_search_freq;补写 coord_rsv1/2/3(树渲染依赖,原先漏写导致换页后恒 0);v9 增 mcs;v8 增 pblen;v7 增 beacon_rsv;v6 三线合流并集
+inline quint32 block_version() { return 20u; }  // v20: 轻量索引补 orig_src_teis/orig_dst_teis(TEI-only 段亦含,过滤 sta- 条件纯 TEI 比对,不扫 search_text); v19: MsduInfo 补 orig_dsts(聚合/多站点原始目的,与 orig_srcs 镜像); v18: MsduInfo 补 orig_srcs(聚合/多站点原始源); v17: MsduInfo 补 topo_extra_events(多站点后续拓扑事件); v16: 补 MsduInfo::trans_direction_flag(APP 传输方向,P2P Dir 列); v15: TopoEvent 补 sender_mac(STA 重启按发送方建基线); v14: 删 MpduInfo::sof_multi_site_verified(死字段,UI 零读取); v13: 补 MpduInfo::sof_stations(多站点 PB 分组 OFDMA/TDA) + sof_multi_site_verified; v12: 补 fch_crc_checked(FCH CRC 三态);v11: 补 MsduInfo::cascade + TopoEvent 23 字段 + MpduInfo 13 字段;v10: 删死字段 pb_index/coord_option/ack_search_freq;补写 coord_rsv1/2/3(树渲染依赖,原先漏写导致换页后恒 0);v9 增 mcs;v8 增 pblen;v7 增 beacon_rsv;v6 三线合流并集
 /// @brief 独立压缩分块的条目数(随机解码粒度:解一条最多解压一个分块)
 inline constexpr int kBlockChunkEntries = 50;
 
@@ -658,6 +658,30 @@ inline QByteArray encode_block(const QVector<PacketEntry>& entries) {
               << search_idx[i];
         }
     }
+    // Orig TEI 索引段(v20,筛选专用):每行依次 [qint32 msdu_src_tei]
+    // [qint32 msdu_dst_tei][u16 n_src][u16 src_teis...][u16 n_dst]
+    // [u16 dst_teis...];orig TEI 去重保序(TEI-only 段亦含,仅 TEI 值,
+    // 不含 MAC)。sta- 条件据此纯 TEI 比对,不再扫 search_text:
+    // 命中集 = 轻量索引段的 hop 源/目的 TEI ∪ (msdu 帧级 TEI>0 时取
+    // 其值,否则取 orig 两列),与 make_search_text 的 sta- 词集合
+    // 完全一致(含帧级有源时 orig 词缺席的前提条件)。
+    QByteArray orig_raw;
+    {
+        QDataStream s(&orig_raw, QIODevice::WriteOnly);
+        auto write_teis = [&s](const QVector<TeiMacPair>& pairs) {
+            QVector<quint16> teis;
+            for (const auto& p : pairs) {
+                if (p.tei != 0 && !teis.contains(p.tei)) teis.append(p.tei);
+            }
+            s << quint16(teis.size());
+            for (const quint16 t : teis) s << t;
+        };
+        for (const PacketEntry& e : entries) {
+            s << qint32(e.msdu.msdu_src_tei) << qint32(e.msdu.msdu_dst_tei);
+            write_teis(e.msdu.orig_srcs);
+            write_teis(e.msdu.orig_dsts);
+        }
+    }
     // 条目分块段(每分块独立压缩,支撑按条随机解码)
     const int nchunks = (entries.size() + kBlockChunkEntries - 1)
                         / kBlockChunkEntries;
@@ -678,11 +702,12 @@ inline QByteArray encode_block(const QVector<PacketEntry>& entries) {
     }
     // 文件头总长(分块表偏移为绝对文件偏移):全部由布局结构体的 sizeof
     // 推导,与下方 QDataStream 实际写出的字节数逐字节对应——定长头
-    // WireBlockHead、两个 QByteArray 变长段(长度前缀+内容)、nchunks
-    // 计数、分块表 WireChunkEntry × nchunks。
+    // WireBlockHead、三个 QByteArray 变长段(长度前缀+内容:池/轻量索引/
+    // Orig TEI 索引)、nchunks 计数、分块表 WireChunkEntry × nchunks。
     const qint64 header_len = qint64(sizeof(WireBlockHead))
                             + (kLenPrefixBytes + pool_blob.size())
                             + (kLenPrefixBytes + index_raw.size())
+                            + (kLenPrefixBytes + orig_raw.size())
                             + qint64(sizeof(quint32))
                             + qint64(nchunks) * qint64(sizeof(WireChunkEntry));
     QByteArray out;
@@ -690,6 +715,7 @@ inline QByteArray encode_block(const QVector<PacketEntry>& entries) {
     s << block_magic() << block_version() << quint32(entries.size());
     s << quint8(pool_zipped ? 1 : 0) << pool_blob;
     s << index_raw;
+    s << orig_raw;
     s << quint32(nchunks);
     qint64 off = header_len;
     for (int c = 0; c < nchunks; ++c) {
@@ -720,6 +746,10 @@ public:
         m_data = data;
         m_table.clear();
         m_index.clear();
+        m_msdu_src.clear();
+        m_msdu_dst.clear();
+        m_orig_src.clear();
+        m_orig_dst.clear();
         m_chunks.clear();
         m_chunk_no = -1;
         m_chunk_raw.clear();
@@ -728,8 +758,9 @@ public:
         QDataStream s(m_data);
         quint32 magic = 0, ver = 0, count = 0;
         quint8 pool_zipped = 0;
-        QByteArray pool_blob, index_raw;
-        s >> magic >> ver >> count >> pool_zipped >> pool_blob >> index_raw;
+        QByteArray pool_blob, index_raw, orig_raw;
+        s >> magic >> ver >> count >> pool_zipped >> pool_blob >> index_raw
+          >> orig_raw;
         if (s.status() != QDataStream::Ok || magic != block_magic()
             || ver != block_version() || count == 0 || count > 100000)
             return false;
@@ -764,6 +795,49 @@ public:
                 m_index.append(ix);
             }
         }
+        {
+            // Orig TEI 索引段(v20):每行 [qint32 msdu_src][qint32 msdu_dst]
+            // [u16 n_src][u16 src...][u16 n_dst][u16 dst...],必须恰好解析
+            // 出 count 行且用尽整段,否则拒收(与轻量索引段同等严格)。
+            QDataStream os(orig_raw);
+            m_msdu_src.clear();
+            m_msdu_dst.clear();
+            m_orig_src.clear();
+            m_orig_dst.clear();
+            m_msdu_src.reserve(int(count));
+            m_msdu_dst.reserve(int(count));
+            m_orig_src.reserve(int(count));
+            m_orig_dst.reserve(int(count));
+            for (quint32 i = 0; i < count; ++i) {
+                qint32 msdu_src = 0, msdu_dst = 0;
+                quint16 n_src = 0, n_dst = 0;
+                os >> msdu_src >> msdu_dst >> n_src;
+                if (os.status() != QDataStream::Ok) return false;
+                QVector<quint16> src_teis;
+                src_teis.reserve(int(n_src));
+                for (quint16 j = 0; j < n_src; ++j) {
+                    quint16 t = 0;
+                    os >> t;
+                    if (os.status() != QDataStream::Ok) return false;
+                    src_teis.append(t);
+                }
+                os >> n_dst;
+                if (os.status() != QDataStream::Ok) return false;
+                QVector<quint16> dst_teis;
+                dst_teis.reserve(int(n_dst));
+                for (quint16 j = 0; j < n_dst; ++j) {
+                    quint16 t = 0;
+                    os >> t;
+                    if (os.status() != QDataStream::Ok) return false;
+                    dst_teis.append(t);
+                }
+                m_msdu_src.append(msdu_src);
+                m_msdu_dst.append(msdu_dst);
+                m_orig_src.append(std::move(src_teis));
+                m_orig_dst.append(std::move(dst_teis));
+            }
+            if (!os.atEnd()) return false;
+        }
         quint32 nchunks = 0;
         s >> nchunks;
         if (s.status() != QDataStream::Ok
@@ -793,6 +867,11 @@ public:
     const QString& search_text(int i) const {
         return m_table[int(m_index[i].search_idx)];
     }
+    // Orig TEI 索引(v20,筛选专用):仅 TEI 值,去重保序;hop TEI 见 src_tei/dst_tei
+    int msdu_src_tei(int i) const { return m_msdu_src[i]; }
+    int msdu_dst_tei(int i) const { return m_msdu_dst[i]; }
+    const QVector<quint16>& orig_src_teis(int i) const { return m_orig_src[i]; }
+    const QVector<quint16>& orig_dst_teis(int i) const { return m_orig_dst[i]; }
 
     /// @brief 按条随机解码(只解压所在分块,只反序列化目标条)
     bool entry_at(int i, PacketEntry& out) const {
@@ -882,6 +961,10 @@ private:
     int                 m_count = 0;
     QVector<QString>    m_table;
     QVector<IndexEntry> m_index;
+    QVector<int> m_msdu_src;  // v20 MSDU 帧级源 TEI(与 m_index 等长,-1=无)
+    QVector<int> m_msdu_dst;  // v20 MSDU 帧级目的 TEI(与 m_index 等长,-1=无)
+    QVector<QVector<quint16>> m_orig_src;  // v20 Orig TEI 索引(与 m_index 等长)
+    QVector<QVector<quint16>> m_orig_dst;
     QVector<Chunk>      m_chunks;
     mutable int         m_chunk_no = -1;
     mutable QByteArray  m_chunk_raw;

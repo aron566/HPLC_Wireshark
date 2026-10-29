@@ -2,6 +2,7 @@
 /// @brief PacketListModel 实现(磁盘换页)
 #include "packetlistmodel.h"
 #include "packetentry_serialize.h"
+#include "mac_format.h"  // 48-bit MAC 格式化唯一实现(src/common)
 #include <algorithm>
 #include <cstdint>
 #include <QColor>
@@ -28,15 +29,8 @@ constexpr quint8 kAppPacketAckNack = 0x0;   ///< 帧类型域=确认/否认
 constexpr quint8 kBidConfirm       = 0x00;  ///< BID=确认(ACK)
 constexpr quint8 kBidDeny          = 0x01;  ///< BID=否认(NACK)
 
-/// @brief 48-bit MAC 帧内原始字节序 → "aa:bb:cc:dd:ee:ff"(与 fieldspec::mac_str 一致)
-QString format_mac(quint64 v) {
-    QString s;
-    for (int i = 0; i < 6; ++i) {
-        s += QStringLiteral("%1").arg((v >> (8 * i)) & 0xFF, 2, 16, QChar('0'));
-        if (i < 5) s += QLatin1Char(':');
-    }
-    return s;
-}
+/// @brief 48-bit MAC 帧内原始字节序 → "aa:bb:cc:dd:ee:ff"(唯一实现见 common/mac_format.h)
+QString format_mac(quint64 v) { return format_mac_u64(v); }
 
 /// @brief 管理消息 MMe 类型颜色:暖色系色相(20-179,避开 0-19 红色区),
 ///        与 APP 层冷色系(180-359)视觉区分;红色仅保留给异常报文
@@ -111,7 +105,7 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                     && !e.msdu.orig_srcs.isEmpty()) {
                     QVector<TeiMacPair> srcs;
                     for (const auto& p : e.msdu.orig_srcs) {
-                        if (p.tei == 0 || p.mac == 0) continue;
+                        if (p.tei == 0) continue;
                         bool dup = false;
                         for (const auto& q : srcs)
                             if (q.tei == p.tei && q.mac == p.mac) { dup = true; break; }
@@ -122,7 +116,8 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                         for (const auto& p : srcs) {
                             QString s = (p.tei == kTeiCco) ? QStringLiteral("CCO")
                                                            : QStringLiteral("STA-%1").arg(p.tei);
-                            s += QStringLiteral(" [%1]").arg(format_mac(p.mac));
+                            // TEI-only 段(mac==0)只出 STA-N,不带 MAC 括号
+                            if (p.mac) s += QStringLiteral(" [%1]").arg(format_mac(p.mac));
                             parts.append(s);
                         }
                         return parts.join(QLatin1Char(','));
@@ -149,7 +144,7 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                     && !e.msdu.orig_dsts.isEmpty()) {
                     QVector<TeiMacPair> dsts;
                     for (const auto& p : e.msdu.orig_dsts) {
-                        if (p.tei == 0 || p.mac == 0) continue;
+                        if (p.tei == 0) continue;
                         bool dup = false;
                         for (const auto& q : dsts)
                             if (q.tei == p.tei && q.mac == p.mac) { dup = true; break; }
@@ -161,7 +156,8 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                             QString s = (p.tei == kTeiBroadcast) ? QStringLiteral("BCAST")
                                        : (p.tei == kTeiCco) ? QStringLiteral("CCO")
                                        : QStringLiteral("STA-%1").arg(p.tei);
-                            s += QStringLiteral(" [%1]").arg(format_mac(p.mac));
+                            // TEI-only 段(mac==0)只出 STA-N,不带 MAC 括号
+                            if (p.mac) s += QStringLiteral(" [%1]").arg(format_mac(p.mac));
                             parts.append(s);
                         }
                         return parts.join(QLatin1Char(','));
@@ -557,26 +553,30 @@ PacketPreparedFilter prepare_filter(
 /// @brief 预处理后的 DNF 匹配:帧型字节 + src/dst TEI + Orig Src sta- 词 + search_text 即可判定
 bool prepared_match(const PacketPreparedFilter& pf, quint8 frame_type,
                     quint16 src_tei, quint16 dst_tei,
+                    int msdu_src_tei, int msdu_dst_tei,
+                    const QVector<quint16>& orig_src_teis,
+                    const QVector<quint16>& orig_dst_teis,
                     const QString& haystack) {
     if (pf.empty) return true;
-    // sta- 词整词匹配:search_text 为空格分隔的小写词,其 sta- 词除 hop TEI 外
-    // 还含 Orig Src(帧级源 + 聚合/多站点源);整词比对避免 sta-130 误命中 sta-1300。
-    auto has_sta_word = [&](int tei) {
-        const QString word = QStringLiteral("sta-%1").arg(tei);
-        int i = haystack.indexOf(word);
-        while (i >= 0) {
-            const bool left_ok = (i == 0) || (haystack[i - 1] == QLatin1Char(' '));
-            const int end = i + word.size();
-            const bool right_ok = (end == haystack.size()) || (haystack[end] == QLatin1Char(' '));
-            if (left_ok && right_ok) return true;
-            i = haystack.indexOf(word, i + 1);
-        }
+    // sta- 条件纯 TEI 比对,不扫 search_text:命中集 = hop 源/目的
+    // TEI ∪ (msdu 帧级 TEI>0 时取其值,否则取 orig 两列 TEI),与
+    // make_search_text 的 sta- 词集合完全一致(含帧级有源时 orig 词
+    // 缺席的前提条件,故 130/1300 边界与旧整词语义一致)。每条件只
+    // 比对该行自身的 TEI 值(段数有界),与 search_text 长度无关;
+    // 子串条件仍走 haystack.contains(固有 O(len))。orig 两列来自
+    // 盘块索引 v20(盘块行)或条目字段(热区行),均已去重保序。
+    auto has_tei = [&](int tei) {
+        if (src_tei == tei || dst_tei == tei) return true;
+        if (msdu_src_tei > 0) { if (msdu_src_tei == tei) return true; }
+        else if (orig_src_teis.contains(quint16(tei))) return true;
+        if (msdu_dst_tei > 0) { if (msdu_dst_tei == tei) return true; }
+        else if (orig_dst_teis.contains(quint16(tei))) return true;
         return false;
     };
     for (const auto& conds : pf.groups) {
         bool all = true;
         for (const PacketFilterCond& c : conds) {
-            const bool hit = (c.tei >= 0) ? (src_tei == c.tei || dst_tei == c.tei || has_sta_word(c.tei))
+            const bool hit = (c.tei >= 0) ? has_tei(c.tei)
                            : (c.type_byte >= 0) ? (frame_type == c.type_byte)
                            : (c.type_byte == -1) ? haystack.contains(c.term)
                                                  : false;
@@ -585,6 +585,18 @@ bool prepared_match(const PacketPreparedFilter& pf, quint8 frame_type,
         if (all) return true;
     }
     return false;
+}
+
+// 条目 orig 两列抽 TEI(去重保序,tei==0 不入集,与索引写入口径一致)
+static void entry_orig_teis(const PacketEntry& e,
+                            QVector<quint16>& out_src,
+                            QVector<quint16>& out_dst) {
+    out_src.clear();
+    out_dst.clear();
+    for (const auto& p : e.msdu.orig_srcs)
+        if (p.tei != 0 && !out_src.contains(p.tei)) out_src.append(p.tei);
+    for (const auto& p : e.msdu.orig_dsts)
+        if (p.tei != 0 && !out_dst.contains(p.tei)) out_dst.append(p.tei);
 }
 
 /// @brief 工作线程:遍历快照盘块(只读 v3 索引,不解码条目)+ 热区,
@@ -604,14 +616,19 @@ QVector<int> run_filter(const PacketListModel::ExportSnapshot& snap,
         const int n = reader.count();
         for (int i = 0; i < n; ++i) {
             if (prepared_match(pf, reader.frame_type(i), reader.src_tei(i),
-                                reader.dst_tei(i), reader.search_text(i)))
+                                reader.dst_tei(i), reader.msdu_src_tei(i),
+                                reader.msdu_dst_tei(i), reader.orig_src_teis(i),
+                                reader.orig_dst_teis(i), reader.search_text(i)))
                 result.append(g + i);
         }
         g += n;
     }
     for (const PacketEntry& e : snap.hot) {
+        QVector<quint16> o_src, o_dst;
+        entry_orig_teis(e, o_src, o_dst);
         if (prepared_match(pf, e.mpdu.frame_type, e.mpdu.src_tei,
-                            e.mpdu.dst_tei, e.search_text))
+                            e.mpdu.dst_tei, e.msdu.msdu_src_tei,
+                            e.msdu.msdu_dst_tei, o_src, o_dst, e.search_text))
             result.append(g);
         ++g;
     }
@@ -620,8 +637,11 @@ QVector<int> run_filter(const PacketListModel::ExportSnapshot& snap,
 }  // namespace
 
 bool PacketListModel::passes_filter(const PacketEntry& e) const {
+    QVector<quint16> o_src, o_dst;
+    entry_orig_teis(e, o_src, o_dst);
     return prepared_match(m_prepared, e.mpdu.frame_type, e.mpdu.src_tei,
-                          e.mpdu.dst_tei, e.search_text);
+                          e.mpdu.dst_tei, e.msdu.msdu_src_tei,
+                          e.msdu.msdu_dst_tei, o_src, o_dst, e.search_text);
 }
 
 QString PacketListModel::block_path(int idx) const {

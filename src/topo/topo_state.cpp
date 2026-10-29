@@ -2,6 +2,7 @@
 /// @brief 拓扑状态模型实现(节点/路由累积 + 层级计算)
 #include "topo_state.h"
 #include "i18n.h"
+#include "mac_format.h"  // 48-bit MAC 格式化唯一实现(src/common)
 #include "QsLog.h"
 
 namespace {
@@ -17,16 +18,8 @@ struct I18nRegTopoState { I18nRegTopoState() {
     trl::register_en("TEI=%1 下一跳%2→%3", "TEI=%1 next hop %2→%3");
 } } i18n_reg_topo_state;
 
-/// @brief 48-bit MAC 转冒号分隔小端字符串(与 protocol/common/fieldtools.h:mac_str 同式;
-///        本模块不依赖 protocol 层,此处自维护一份)
-inline QString topo_mac_str(quint64 v) {
-    QString s;
-    for (int i = 0; i < 6; ++i) {
-        s += QString("%1").arg((v >> (8 * i)) & 0xFF, 2, 16, QChar('0'));
-        if (i < 5) s += ':';
-    }
-    return s;
-}
+/// @brief 48-bit MAC 转冒号分隔小端字符串(唯一实现见 common/mac_format.h,本函数仅委托)
+inline QString topo_mac_str(quint64 v) { return format_mac_u64(v); }
 
 /// @brief 事件类型 → 节点入网状态(发起关联请求=正在入网,其余在网事件=已入网)
 NodeStatus status_for(TopoEventKind k) {
