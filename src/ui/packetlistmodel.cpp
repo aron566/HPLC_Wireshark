@@ -2,6 +2,7 @@
 /// @brief PacketListModel 实现(磁盘换页)
 #include "packetlistmodel.h"
 #include "packetentry_serialize.h"
+#include "mac_format.h"  // 48-bit MAC 格式化唯一实现(src/common)
 #include <algorithm>
 #include <cstdint>
 #include <QColor>
@@ -28,15 +29,8 @@ constexpr quint8 kAppPacketAckNack = 0x0;   ///< 帧类型域=确认/否认
 constexpr quint8 kBidConfirm       = 0x00;  ///< BID=确认(ACK)
 constexpr quint8 kBidDeny          = 0x01;  ///< BID=否认(NACK)
 
-/// @brief 48-bit MAC 帧内原始字节序 → "aa:bb:cc:dd:ee:ff"(与 fieldspec::mac_str 一致)
-QString format_mac(quint64 v) {
-    QString s;
-    for (int i = 0; i < 6; ++i) {
-        s += QStringLiteral("%1").arg((v >> (8 * i)) & 0xFF, 2, 16, QChar('0'));
-        if (i < 5) s += QLatin1Char(':');
-    }
-    return s;
-}
+/// @brief 48-bit MAC 帧内原始字节序 → "aa:bb:cc:dd:ee:ff"(唯一实现见 common/mac_format.h)
+QString format_mac(quint64 v) { return format_mac_u64(v); }
 
 /// @brief 管理消息 MMe 类型颜色:暖色系色相(20-179,避开 0-19 红色区),
 ///        与 APP 层冷色系(180-359)视觉区分;红色仅保留给异常报文

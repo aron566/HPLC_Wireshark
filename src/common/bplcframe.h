@@ -19,6 +19,8 @@
 #include <QStringList>
 #include <QVector>
 
+#include "mac_format.h"  // 48-bit MAC 格式化唯一实现(同目录)
+
 /// 链路类型取值:南网 SPLC-4 表79 / BPLC-2 表160;国网 HDC1.0 表61、表72 / HDC2.0 表56、表58 含义列
 /// —— 两家定义完全一致(0=高速载波链路 1=无线链路),故置于 common 层共用
 enum LinkTypeValue : quint8 {
@@ -491,15 +493,8 @@ inline QString make_search_text(const PacketEntry& e) {
             for (const auto& p : e.msdu.orig_srcs) add_src(p.tei, p.mac);
         for (const auto& p : srcs) {
             parts << QStringLiteral("sta-%1").arg(p.tei);
-            if (p.mac) {
-                // MAC u64 约定:低字节为首字节,与 format_mac/字段树 mac_str 一致
-                QString m;
-                for (int i = 0; i < 6; ++i) {
-                    m += QStringLiteral("%1").arg((p.mac >> (8 * i)) & 0xFF, 2, 16, QChar('0'));
-                    if (i < 5) m += QLatin1Char(':');
-                }
-                parts << m;
-            }
+            // MAC u64 约定:低字节为首字节,格式见 common/mac_format.h
+            if (p.mac) parts << format_mac_u64(p.mac);
         }
     }
     // Orig Dst 列内容亦可搜:与 Orig Src 镜像——帧级有目的时只列帧级目的,
@@ -519,14 +514,7 @@ inline QString make_search_text(const PacketEntry& e) {
             for (const auto& p : e.msdu.orig_dsts) add_dst(p.tei, p.mac);
         for (const auto& p : dsts) {
             parts << QStringLiteral("sta-%1").arg(p.tei);
-            if (p.mac) {
-                QString m;
-                for (int i = 0; i < 6; ++i) {
-                    m += QStringLiteral("%1").arg((p.mac >> (8 * i)) & 0xFF, 2, 16, QChar('0'));
-                    if (i < 5) m += QLatin1Char(':');
-                }
-                parts << m;
-            }
+            if (p.mac) parts << format_mac_u64(p.mac);
         }
     }
     return parts.join(QLatin1Char(' '));
