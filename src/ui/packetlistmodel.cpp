@@ -353,12 +353,14 @@ QVariant PacketListModel::data_color(const PacketEntry& e) const {
 }
 
 namespace {
-/// @brief MAC 前缀 token 解析:2~6 组两位十六进制,冒号分隔,如 03:02(前缀)或完整 6 组
+/// @brief MAC 模式 token 解析:2~6 组两位十六进制,冒号分隔,如 03:02 或完整 6 组
 /// @details 调用方已将 token 小写+trim;字节序与 format_mac/m_mac_tei 的 u64 约定一致:
-///          首组=低字节(位 0~7),次组=位 8~15,依此类推;掩码覆盖已给组数对应的低位。
+///          首组=模式首字节,次组=次字节,依此类推;掩码覆盖组数对应的低位,
+///          匹配时模式可在 MAC 任意字节偏移处出现(前缀/中间/后缀)。
 ///          非 MAC 格式(组数不足 2 或超 6、组长非 2、含非十六进制字符)返回 false,
 ///          调用方按旧语义走 search_text 子串;单组 "03" 等不成 MAC。
-bool parse_mac_prefix(const QString& t, quint64& prefix_val, quint64& mask) {
+bool parse_mac_pattern(const QString& t, quint64& pattern_val, quint64& mask,
+                       int& group_count) {
     const QStringList parts = t.split(':');
     if (parts.size() < 2 || parts.size() > 6) return false;
     quint64 v = 0;
@@ -375,20 +377,27 @@ bool parse_mac_prefix(const QString& t, quint64& prefix_val, quint64& mask) {
         if (!ok) return false;
         v |= quint64(byte) << (8 * i);
     }
-    prefix_val = v;
+    pattern_val = v;
     mask = (quint64(1) << (8 * parts.size())) - 1;
+    group_count = parts.size();
     return true;
 }
 
-/// @brief MAC 前缀反查:映射表(m_mac_tei,全 NID)中前缀相符的全部 TEI,去重后升序
-/// @details 匹配谓词本身不带 NID,与 sta-<数字> 的跨 NID 语义一致;返回空即无命中。
-QVector<int> lookup_teis_by_mac_prefix(
+/// @brief MAC 模式反查:映射表(m_mac_tei,全 NID)中模式在任意字节偏移处出现的全部 TEI,去重后升序
+/// @details 偏移 0=前缀、中间偏移=中间匹配、末偏移=后缀;完整 6 组时仅偏移 0,即精确匹配。
+///          匹配谓词本身不带 NID,与 sta-<数字> 的跨 NID 语义一致;返回空即无命中。
+QVector<int> lookup_teis_by_mac_pattern(
         const QHash<quint32, QHash<quint64, quint16>>& mac_tei,
-        quint64 prefix_val, quint64 mask) {
+        quint64 pattern_val, quint64 mask, int group_count) {
     QVector<int> out;
     for (auto it = mac_tei.constBegin(); it != mac_tei.constEnd(); ++it) {
         for (auto mit = it->constBegin(); mit != it->constEnd(); ++mit) {
-            if ((mit.key() & mask) == prefix_val) out.append(int(mit.value()));
+            const quint64 mac = mit.key();
+            bool hit = false;
+            for (int off = 0; off + group_count <= 6; ++off) {
+                if (((mac >> (8 * off)) & mask) == pattern_val) { hit = true; break; }
+            }
+            if (hit) out.append(int(mit.value()));
         }
     }
     std::sort(out.begin(), out.end());
@@ -402,8 +411,9 @@ QVector<int> lookup_teis_by_mac_prefix(
 ///          里的 sta 词只由 src/dst TEI 生成),不再做子串匹配,避免
 ///          sta-130 误命中 sta-1300;其余条件词仍按 search_text 子串比对,
 ///          空条件词永假。
-///          MAC 格式 token 在准备时查映射表展开为命中 TEI 的或:组内按 DNF
-///          分配律扇出,每组把 MAC token 换成一个 sta-<TEI> 等值谓词;
+///          MAC 格式 token 在准备时查映射表展开为命中 TEI 的或:模式可在
+///          MAC 任意字节偏移处出现(前缀/中间/后缀),组内按 DNF 分配律扇出,
+///          每组把 MAC token 换成一个 sta-<TEI> 等值谓词;
 ///          无命中则该组作废,整个表达式无组即永假(条件为空)。
 PacketPreparedFilter prepare_filter(
         const QString& filter,
@@ -445,25 +455,28 @@ PacketPreparedFilter prepare_filter(
                 const qlonglong v = t.mid(4).toLongLong(&ok);
                 if (ok && v <= UINT16_MAX) cond.tei = int(v);
                 else                       cond.type_byte = -2;
-            } else if (quint64 prefix_val = 0, mask = 0;
-                       parse_mac_prefix(t, prefix_val, mask)) {
-                // MAC 前缀 → 映射表反查 TEI,隐式展开为多 TEI 的或(DNF 扇出)
-                const QVector<int> teis =
-                    lookup_teis_by_mac_prefix(mac_tei, prefix_val, mask);
-                if (teis.isEmpty()) { dead = true; break; }  // 无命中:本组为空
-                QVector<QVector<PacketFilterCond>> next;
-                for (const auto& p : partials) {
-                    for (const int tei : teis) {
-                        QVector<PacketFilterCond> copy = p;
-                        PacketFilterCond sc;
-                        sc.tei = tei;
-                        copy.append(sc);
-                        next.append(copy);
-                    }
-                }
-                partials = next;
-                continue;
             } else {
+                // MAC 模式 → 映射表反查 TEI(前缀/中间/后缀任一偏移命中),
+                // 隐式展开为多 TEI 的或(DNF 扇出);不成 MAC 则走子串
+                quint64 pattern_val = 0, mask = 0;
+                int group_count = 0;
+                if (parse_mac_pattern(t, pattern_val, mask, group_count)) {
+                    const QVector<int> teis = lookup_teis_by_mac_pattern(
+                        mac_tei, pattern_val, mask, group_count);
+                    if (teis.isEmpty()) { dead = true; break; }  // 无命中:本组为空
+                    QVector<QVector<PacketFilterCond>> next;
+                    for (const auto& p : partials) {
+                        for (const int tei : teis) {
+                            QVector<PacketFilterCond> copy = p;
+                            PacketFilterCond sc;
+                            sc.tei = tei;
+                            copy.append(sc);
+                            next.append(copy);
+                        }
+                    }
+                    partials = next;
+                    continue;
+                }
                 cond.type_byte = -1;
                 cond.term = t;
             }
