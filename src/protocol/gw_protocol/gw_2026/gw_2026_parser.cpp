@@ -53,6 +53,17 @@ static void merge_msdu_learn(MsduInfo& dst, const MsduInfo& src) {
         dst.tei_mac_pairs.append({(quint16)src.msdu_src_tei, src.msdu_src_mac});
     if (src.msdu_dst_tei > 0 && src.msdu_dst_mac != 0)
         dst.tei_mac_pairs.append({(quint16)src.msdu_dst_tei, src.msdu_dst_mac});
+    // 聚合/多站点源:本站 MSDU 头源按站序收集、去重;src 若本身已是合并
+    // 结果,其 orig_srcs 一并传递(单站解析时恒空)。
+    auto add_orig_src = [&](quint16 tei, quint64 mac) {
+        if (tei == 0 || mac == 0) return;
+        for (const auto& p : dst.orig_srcs)
+            if (p.tei == tei && p.mac == mac) return;
+        dst.orig_srcs.append({tei, mac});
+    };
+    if (src.msdu_src_tei > 0 && src.msdu_src_mac != 0)
+        add_orig_src((quint16)src.msdu_src_tei, src.msdu_src_mac);
+    for (const auto& p : src.orig_srcs) add_orig_src(p.tei, p.mac);
     if (src.topo_event.kind != TopoEventKind::Other) {
         if (dst.topo_event.kind == TopoEventKind::Other)
             dst.topo_event = src.topo_event;
