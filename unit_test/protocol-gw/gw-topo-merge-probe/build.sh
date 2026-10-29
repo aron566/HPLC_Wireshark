@@ -21,10 +21,11 @@ g++ -std=c++17 -fPIC \
   -I$R/src/protocol/gw_protocol/gw_2022 -I$R/src/protocol/gw_protocol/gw_2022/beacon \
   -I$R/src/protocol/gw_protocol/gw_2022/sof -I$R/src/protocol/gw_protocol/gw_2022/ack \
   -I$R/src/protocol/gw_protocol/gw_2022/coord \
-  -I$R/src/common -I$R/3rdparty/qslog \
+  -I$R/src/common -I$R/src/topo -I$R/3rdparty/qslog \
   -I$QT/include -I$QT/include/QtCore -I$QT/include/QtGui -I$QT/include/QtWidgets \
   gw_topo_merge_probe.cpp build/moc_QsLogDestFunctor.cpp \
   $R/src/common/i18n.cpp \
+  $R/src/topo/topo_state.cpp \
   $R/3rdparty/qslog/QsLog.cpp $R/3rdparty/qslog/QsLogDest.cpp \
   $R/3rdparty/qslog/QsLogDestConsole.cpp $R/3rdparty/qslog/QsLogDestFile.cpp \
   $R/3rdparty/qslog/QsLogDestFunctor.cpp \

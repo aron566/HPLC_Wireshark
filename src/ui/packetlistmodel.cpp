@@ -212,11 +212,23 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                         if (!body_tei) {
                             for (const auto& p : e.msdu.topo_event.nodes)
                                 if (p.mac == body_mac && p.tei) { body_tei = p.tei; break; }
+                            // 多站点合并帧:首事件 nodes 未命中时续查 extras(保持首事件优先序)
+                            for (const auto& extra : e.msdu.topo_extra_events) {
+                                if (body_tei) break;
+                                for (const auto& p : extra.nodes)
+                                    if (p.mac == body_mac && p.tei) { body_tei = p.tei; break; }
+                            }
                         }
                     }
                     if (!body_tei) {
                         for (const auto& p : e.msdu.topo_event.nodes)
                             if (p.tei) { body_tei = p.tei; break; }
+                        // 多站点合并帧:首事件 nodes 无非零 TEI 时续查 extras(保持首事件优先序)
+                        for (const auto& extra : e.msdu.topo_extra_events) {
+                            if (body_tei) break;
+                            for (const auto& p : extra.nodes)
+                                if (p.tei) { body_tei = p.tei; break; }
+                        }
                     }
                     const bool mac_relay = (body_mac != 0) && (body_mac != e.msdu.msdu_src_mac);
                     const bool tei_relay = (body_mac == 0) && (body_tei != 0)

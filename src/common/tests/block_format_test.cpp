@@ -115,6 +115,8 @@ static PacketEntry make_entry(int i) {
     e.msdu.trans_direction_flag = quint8(i % 2);  // v16: APP 传输方向 round-trip(P2P Dir 列)
     fill_topo(e.msdu.topo_event, i);              // msdu 拓扑事件 32 字段(换页后不丢)
     fill_topo(e.beacon.topo_event, i + 1000);     // beacon 拓扑事件(同为 MsduInfo,序列化路径相同)
+    { TopoEvent ex; fill_topo(ex, i + 2000); e.msdu.topo_extra_events.append(ex); }    // 多站点后续事件(v17 往返)
+    { TopoEvent ex; fill_topo(ex, i + 3000); e.beacon.topo_extra_events.append(ex); }  // 同上(beacon 路径)
     e.raw_bytes = QByteArray(64, char(i & 0xFF));
     e.msdu_raw_base = 10;
     return e;
@@ -221,6 +223,12 @@ static bool entry_equal(const PacketEntry& a, const PacketEntry& b, QString& why
     }
     if (!topo_equal(a.msdu.topo_event, b.msdu.topo_event, why)) return false;
     if (!topo_equal(a.beacon.topo_event, b.beacon.topo_event, why)) return false;
+    if (a.msdu.topo_extra_events.size() != b.msdu.topo_extra_events.size()) { why = QStringLiteral("msdu topo_extra_events size mismatch"); return false; }
+    for (int k = 0; k < a.msdu.topo_extra_events.size(); ++k)
+        if (!topo_equal(a.msdu.topo_extra_events[k], b.msdu.topo_extra_events[k], why)) return false;
+    if (a.beacon.topo_extra_events.size() != b.beacon.topo_extra_events.size()) { why = QStringLiteral("beacon topo_extra_events size mismatch"); return false; }
+    for (int k = 0; k < a.beacon.topo_extra_events.size(); ++k)
+        if (!topo_equal(a.beacon.topo_extra_events[k], b.beacon.topo_extra_events[k], why)) return false;
     const MsduFieldNode& x = a.msdu.tree[0], &y = b.msdu.tree[0];
     if (x.name != y.name || x.value != y.value || x.children.size() != y.children.size()
         || x.children[1].children.size() != y.children[1].children.size()

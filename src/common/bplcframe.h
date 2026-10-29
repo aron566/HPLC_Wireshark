@@ -375,6 +375,7 @@ struct MsduInfo {
     QVector<MsduFieldNode> tree;  ///< 字段树(协议树直接挂载显示)
     QVector<TeiMacPair> tei_mac_pairs; ///< 本帧携带的 TEI→MAC 学习对(发现列表等)
     TopoEvent topo_event;        ///< 拓扑事件(关键管理消息填充;kind=Other 表示无)
+    QVector<TopoEvent> topo_extra_events; ///< 多站点合并的后续拓扑事件:topo_event=首事件,本字段=其余事件;消费全部事件必须两者都读
 
     MsduInfo() : present(false), simple_head(false), msdu_seq(0),
                  msdu_src_tei(-1), msdu_dst_tei(-1), msdu_send_type(-1),

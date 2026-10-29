@@ -45,7 +45,7 @@ void stats_account(qint64 us_env, qint64 us_mpdu, qint64 us_body) {
 
 GW_2026_Parser::GW_2026_Parser() {}
 
-// 学习层合并(供 OFDMA/TDA 站点 MSDU 用):对全并、头对以对形式并入、topo 事件首个优先;
+// 学习层合并(供 OFDMA/TDA 站点 MSDU 用):对全并、头对以对形式并入、topo 事件首个进 topo_event、其余进 topo_extra_events;
 // 头对字段见 HDC2.0 4-2 表2 标准 MAC 帧头;不改 present/摘要/树显示(站点 MSDU 仅作学习源,不进包列表 MSDU 列)。
 static void merge_msdu_learn(MsduInfo& dst, const MsduInfo& src) {
     for (const auto& p : src.tei_mac_pairs) dst.tei_mac_pairs.append(p);
@@ -53,8 +53,14 @@ static void merge_msdu_learn(MsduInfo& dst, const MsduInfo& src) {
         dst.tei_mac_pairs.append({(quint16)src.msdu_src_tei, src.msdu_src_mac});
     if (src.msdu_dst_tei > 0 && src.msdu_dst_mac != 0)
         dst.tei_mac_pairs.append({(quint16)src.msdu_dst_tei, src.msdu_dst_mac});
-    if (dst.topo_event.kind == TopoEventKind::Other && src.topo_event.kind != TopoEventKind::Other)
-        dst.topo_event = src.topo_event;
+    if (src.topo_event.kind != TopoEventKind::Other) {
+        if (dst.topo_event.kind == TopoEventKind::Other)
+            dst.topo_event = src.topo_event;
+        else
+            dst.topo_extra_events.append(src.topo_event);
+    }
+    // 稳健性:src 若本身已是合并结果,其 extras 一并传递(单站解析时恒空)。
+    for (const auto& e : src.topo_extra_events) dst.topo_extra_events.append(e);
 }
 
 // 剥物理层头

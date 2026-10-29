@@ -2,7 +2,8 @@
 /// @brief 拓扑(Topo)状态模型:单 NID 网络的节点/路由累积状态 + 路由变更事件历史
 /// @details 本模块独立于 app/io/ui,只依赖 common(bplcframe.h 的 TopoEvent/TeiMacPair)。
 ///          协议解析器在关键管理消息(关联请求/关联确认/代理变更/发现列表/离网指示)
-///          解析时填充 MsduInfo::topo_event;TopoState 消费该事件,累积为节点图 + 事件表。
+///          解析时填充 MsduInfo::topo_event(首事件)与 topo_extra_events(多站点后续事件);
+///          TopoState 消费这些事件,累积为节点图 + 事件表(主界面逐个 apply)。
 #ifndef TOPO_STATE_H
 #define TOPO_STATE_H
 

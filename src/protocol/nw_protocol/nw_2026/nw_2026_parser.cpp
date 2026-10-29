@@ -154,18 +154,22 @@ static quint32 ofdma_full_snid(quint32 net_id_low4, const quint8* p);
 // 多段帧学习合并(级联/OFDMA 多站点共用):把一段已解析 MSDU 的学习信息并入帧级 MsduInfo。
 // - tei_mac_pairs 全并(守卫同 update_tei_mac 的对循环:tei!=0 && mac);
 // - 头对(src/dst)以对形式并入(单槽位装不下 N 段;守卫同 update_tei_mac 的头对门:tei>0 && mac;头对字段见 SPLC 第4部分 表1/表7);
-// - topo 事件单槽位:首个非 Other 段事件为准,后段事件丢弃(完整恢复需 TopoEvent 列表化,另案)。
-static void merge_msdu_learn(MsduInfo& dst, const MsduInfo& cm, bool& topo_taken) {
+// - topo 事件:首个非 Other 段事件进 topo_event,后续段事件进 topo_extra_events(消费时两者都读)。
+static void merge_msdu_learn(MsduInfo& dst, const MsduInfo& cm) {
     for (const TeiMacPair& p : cm.tei_mac_pairs)
         if (p.tei != 0 && p.mac) dst.tei_mac_pairs.append(p);
     if (cm.msdu_src_tei > 0 && cm.msdu_src_mac)
         dst.tei_mac_pairs.append({(quint16)cm.msdu_src_tei, cm.msdu_src_mac});
     if (cm.msdu_dst_tei > 0 && cm.msdu_dst_mac)
         dst.tei_mac_pairs.append({(quint16)cm.msdu_dst_tei, cm.msdu_dst_mac});
-    if (!topo_taken && cm.topo_event.kind != TopoEventKind::Other) {
-        dst.topo_event = cm.topo_event;
-        topo_taken = true;
+    if (cm.topo_event.kind != TopoEventKind::Other) {
+        if (dst.topo_event.kind == TopoEventKind::Other)
+            dst.topo_event = cm.topo_event;
+        else
+            dst.topo_extra_events.append(cm.topo_event);
     }
+    // 稳健性:cm 若本身已是合并结果,其 extras 一并传递(单段解析时恒空)。
+    for (const auto& e : cm.topo_extra_events) dst.topo_extra_events.append(e);
 }
 
 NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msdu, const Filter& f) {
@@ -420,11 +424,10 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                 // 级联体流(msdu_body)坐标系,树层 MsduRawMap 按块换算 raw 多段高亮
                 int cas_cnt = 0;
                 QStringList cas_sums;   // 各级联帧 MSDU 类型摘要(MSDU Type 列展示聚合内容)
-                // topo 事件单槽位:首个非 Other 段事件为准(见 merge_msdu_learn)
-                bool topo_taken = false;
+                // topo 事件:首段事件进 topo_event,后续段事件进 topo_extra_events(见 merge_msdu_learn)
                 for (const auto& c : res.cascade) {
                     const MsduInfo cm = NW_2026_MsduParser::parse(c.mac);
-                    merge_msdu_learn(r.msdu, cm, topo_taken);
+                    merge_msdu_learn(r.msdu, cm);
                     MsduFieldNode grp;
                     grp.name = QStringLiteral("Cascade MAC Frame[%1]").arg(cas_cnt);
                     grp.value = QStringLiteral("%1 B%2%3")
@@ -493,12 +496,12 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
             r.msdu.cascade_break_len = res.cascade_break_declared_len;
             // DL-OFDMA 站点1+ 补解析:通用循环只跑了站点0 的块,站点1+ 的 PB 依序随后。
             // 逐站按 SPLC 第4部分 表27 eFC(每站 25b:PBNum 1b + TEI 12b + TMI 5b + RU 4b + SACK RU 3b)组装解析,
-            // 只合并学习(对 + 首段 topo 事件),不改站点0 的树/摘要/体流;eFC CRC 已在类型0 分支验过。
+            // 只合并学习(对 + topo 事件首/余),不改站点0 的树/摘要/体流;eFC CRC 已在类型0 分支验过。
             if (dl_ofdma && dl_sta_count > 1) {
                 const quint8* e = p + 16;   // eFC @16,16B(SPLC 第4部分 表27)
                 int bp = 2 + 25;            // 跳过站点0 的 25b
                 int base = 32 + (int)r.mpdu.pb_num * (int)r.mpdu.pb_size;   // 站点1 首块基址
-                bool topo_taken = (r.msdu.topo_event.kind != TopoEventKind::Other);
+
                 for (int s = 1; s < dl_sta_count; ++s) {
                     if (bp + 25 > 104) break;   // 超出 eFC CRC 保护区(13B),停止
                     const int pbn = (int)get_bits(e, bp / 8, bp % 8, 1); bp += 1;
@@ -519,11 +522,11 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                     if (ar.any_aggregated) {
                         for (const auto& c : ar.cascade) {
                             const MsduInfo cm = NW_2026_MsduParser::parse(c.mac);
-                            merge_msdu_learn(r.msdu, cm, topo_taken);
+                            merge_msdu_learn(r.msdu, cm);
                         }
                     } else {
                         const MsduInfo cm = NW_2026_MsduParser::parse(ar.msdu_body);
-                        merge_msdu_learn(r.msdu, cm, topo_taken);
+                        merge_msdu_learn(r.msdu, cm);
                     }
                 }
             }
@@ -674,8 +677,7 @@ void NW_2026_Parser::parse_ofdma_type1(Result& r, const quint8* p, int raw_sz) {
                                && (m_frame_count - it->frame_index <= kTriggerCtxMaxAge);
         if (ctx_valid && it->station_count >= 1) {
             int base = 16;                           // 类型1 无 eFC,站载荷自 byte16 起
-            // topo 事件单槽位:首站非 Other 事件为准(见 merge_msdu_learn)
-            bool topo_taken = false;
+            // topo 事件:首站事件进 topo_event,后续站事件进 topo_extra_events(见 merge_msdu_learn)
             for (int s = 0; s < it->station_count; ++s) {
                 const auto& ts = it->st[s];
                 SofStationPb st;
@@ -699,11 +701,11 @@ void NW_2026_Parser::parse_ofdma_type1(Result& r, const quint8* p, int raw_sz) {
                         if (res.any_aggregated) {
                             for (const auto& c : res.cascade) {
                                 const MsduInfo cm = NW_2026_MsduParser::parse(c.mac);
-                                merge_msdu_learn(r.msdu, cm, topo_taken);
+                                merge_msdu_learn(r.msdu, cm);
                             }
                         } else {
                             const MsduInfo cm = NW_2026_MsduParser::parse(st.msdu);
-                            merge_msdu_learn(r.msdu, cm, topo_taken);
+                            merge_msdu_learn(r.msdu, cm);
                         }
                     }
                 }

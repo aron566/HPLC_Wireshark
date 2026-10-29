@@ -4,10 +4,13 @@
 // For each frame it prints, per station, the DIRECT MsduParser::parse result
 // (what merge_msdu_learn receives) and the MERGED frame-level result, then
 // checks: (1) merged topo == first station topo with kind != Other
-// (first-non-Other wins, later events dropped); (2) merged pairs ==
+// (first-non-Other wins); (2) merged pairs ==
 // concatenation of all station pairs PLUS each station's head pairs
 // (merge converts hdr src/dst into pair form; full merge, no dedup);
-// (3) merged present == false; (4) merged summary empty.
+// (3) merged present == false; (4) merged summary empty;
+// (5) merged topo_extra_events == station events after the first
+// non-Other, in order (Shape J: first in topo_event, rest in extras);
+// (6) TopoState applied with first + extras contains every station's nodes.
 // Fresh MsduState per frame (frame independence); default ParseFilter.
 #include <cstdio>
 #include <cstdint>
@@ -17,10 +20,12 @@
 #include <QCoreApplication>
 #include <QByteArray>
 #include <QString>
+#include <QSet>
 #include "bplcframe.h"
 #include "iprotocolparser.h"
 #include "gw_protocol/gw_2026/gw_2026_parser.h"
 #include "gw_protocol/gw_2026/gw_2026_msdu_parser.h"
+#include "topo_state.h"
 
 static QString macstr(quint64 m) {
     char buf[32];
@@ -182,12 +187,39 @@ int main(int argc, char** argv) {
         // CHECK 3/4: display fields untouched.
         bool present_ok = !r.msdu.present;
         bool summary_ok = r.msdu.summary.isEmpty();
-        bool frame_ok = r.accept && topo_ok && pairs_ok && present_ok && summary_ok;
+        // CHECK 5: merged extras == station events after the first non-Other, in order.
+        QVector<const TopoEvent*> ordered_events;
+        for (const auto& si_info : station_infos)
+            if (si_info.topo_event.kind != TopoEventKind::Other) ordered_events.append(&si_info.topo_event);
+        const int want_extras = ordered_events.isEmpty() ? 0 : ordered_events.size() - 1;
+        bool extras_ok = (r.msdu.topo_extra_events.size() == want_extras);
+        if (extras_ok) {
+            for (int k = 1; k < ordered_events.size(); ++k)
+                if (!topo_equal(r.msdu.topo_extra_events[k - 1], *ordered_events[k])) { extras_ok = false; break; }
+        }
+        QString extras_str;
+        for (const auto& ex : r.msdu.topo_extra_events) extras_str += QString("[%1] ").arg(topo_str(ex));
+        emit_line(out, QString("  EXTRAS: %1").arg(extras_str.isEmpty() ? QStringLiteral("(none)") : extras_str));
+        // CHECK 6: TopoState applied with first + extras contains every station's nodes.
+        TopoState ts;
+        auto apply_ev = [&](TopoEvent e) { e.nid = 1; e.frame_index = idx; ts.apply(e); };
+        if (r.msdu.topo_event.kind != TopoEventKind::Other) apply_ev(r.msdu.topo_event);
+        for (const auto& ex : r.msdu.topo_extra_events)
+            if (ex.kind != TopoEventKind::Other) apply_ev(ex);
+        QSet<quint16> want_teis;
+        for (const auto& ev : ordered_events)
+            for (const auto& nd : ev->nodes)
+                if (nd.tei) want_teis.insert(nd.tei);
+        bool state_ok = true;
+        for (quint16 tei : want_teis)
+            if (!ts.nodes.contains(tei)) { state_ok = false; break; }
+        bool frame_ok = r.accept && topo_ok && pairs_ok && present_ok && summary_ok && extras_ok && state_ok;
         if (frame_ok) ++n_pass; else ++n_fail;
-        emit_line(out, QString("  CHECK topo_first_non_other=%1 pairs_full_merge=%2 (want %3 got %4) present_false=%5 summary_empty=%6 => %7")
+        emit_line(out, QString("  CHECK topo_first_non_other=%1 pairs_full_merge=%2 (want %3 got %4) present_false=%5 summary_empty=%6 extras_in_order=%7 topo_state_nodes=%8 => %9")
             .arg(topo_ok ? "PASS" : "FAIL").arg(pairs_ok ? "PASS" : "FAIL")
             .arg(want_n).arg(r.msdu.tei_mac_pairs.size())
             .arg(present_ok ? "PASS" : "FAIL").arg(summary_ok ? "PASS" : "FAIL")
+            .arg(extras_ok ? "PASS" : "FAIL").arg(state_ok ? "PASS" : "FAIL")
             .arg(frame_ok ? "PASS" : "FAIL"));
     }
     emit_line(out, QString("AGG frames=%1 PASS=%2 FAIL=%3").arg(idx).arg(n_pass).arg(n_fail));
