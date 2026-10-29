@@ -926,9 +926,11 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
     e.dissect_fields = r.dissect_fields;  // 插件解析器通用字段树(内置解析恒空)
     // 拓扑:关键管理消息(关联确认/代理变更/发现列表/离网)喂给拓扑状态;
     // 同时记入回放日志:事件直接填充在 entry 内(nid/epoch_ms/is_rf),
-    // 供 TOPO 历史回放调试(点击帧 → 按帧序号重放到该帧)
-    if (e.msdu.topo_event.kind != TopoEventKind::Other) {
-        TopoEvent& te = e.msdu.topo_event;
+    // 供 TOPO 历史回放调试(点击帧 → 按帧序号重放到该帧)。
+    // 多站点合并帧:首事件 + topo_extra_events 逐个应用、逐个记日志;
+    // 首事件沿用原地语义(改写 e.msdu.topo_event,下游插件喂帧/盘块沿用),
+    // 后续事件取拷贝应用,不改写存储的 extras。
+    auto apply_one_topo_event = [&](TopoEvent& te) {
         te.nid = e.mpdu.net_id;
         te.epoch_ms = e.epoch_ms;
         // 接入方式判定口径:
@@ -957,6 +959,13 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
         // (历史回放模式下 mark_dirty 会被 TopoWindow 忽略,保持冻结)
         if (m_topo_window)
             m_topo_window->mark_dirty();
+    };
+    if (e.msdu.topo_event.kind != TopoEventKind::Other)
+        apply_one_topo_event(e.msdu.topo_event);
+    for (const auto& extra : e.msdu.topo_extra_events) {
+        if (extra.kind == TopoEventKind::Other) continue;
+        TopoEvent te = extra;
+        apply_one_topo_event(te);
     }
     // RFDL 单跳帧(kind=Other,不走事件门):邻居信道信息(接收率/SNR/RSSI)按发送方 FCH src_tei 键控落地
     if (e.msdu.simple_head && e.msdu.present
