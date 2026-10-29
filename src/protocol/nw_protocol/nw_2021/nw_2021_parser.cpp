@@ -201,6 +201,9 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.symbol_num   = (quint16)get_bits(p, 10, 7, 9);  // 符号数(表16)
             r.mpdu.tmi_ext   = (quint8) get_bits(p, 12, 0, 4);
             { const int sz = nw_2021_pb_size(r.mpdu.tmi, r.mpdu.tmi_ext); r.mpdu.pb_size = (quint16)(sz > 0 ? sz : 0); }
+            // 线 PBNum 留存:归一门会覆盖 pb_num,树“PB Num”位段节点显示线值用
+            // (与 GW 解析器留存线字段口径一致)。
+            r.mpdu.pb_num_field = r.mpdu.pb_num;
             // PBNum=0 实帧归一:载波 SOF 帧头 PBNum=0 但 TMI 查表得有效块长
             // (pb_size>8)时,块体确实存在于偏移 16(实证:PBNum=0/TMI=0 → 520B,
             // 整块 CRC24 通过);此时按 1 块组装,否则 :212 门与循环双重跳过,
@@ -236,7 +239,10 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
                 r.mpdu.pb_crc_oks.append(ok);
                 msdu_body += r.payload_for_log.mid(block_start + 4, body_len);
             }
-            r.mpdu.pb_crc_ok = all_pb_ok;
+            // 截断不空转:循环遇载荷不足 break 时,已校验块数 < 声明块数,
+            // 此时 all_pb_ok 仍为初值 true,必须以校验块数与声明块数相等为门,
+            // 否则未校验块会被报成 CRC 通过(归一帧截断、真多块帧截断同洞)。
+            r.mpdu.pb_crc_ok = all_pb_ok && (r.mpdu.pb_crc_oks.size() == r.mpdu.pb_num);
             if (!msdu_body.isEmpty()) {
                 r.msdu_body = msdu_body;
                 // BPLC 表107:单跳帧协议(版本=2)载波不支持、仅无线信道支持
