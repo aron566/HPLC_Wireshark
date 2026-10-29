@@ -368,13 +368,71 @@ QVariant PacketListModel::data_color(const PacketEntry& e) const {
 }
 
 namespace {
+/// @brief MAC 模式 token 解析:2~6 组两位十六进制,冒号分隔,如 03:02 或完整 6 组
+/// @details 调用方已将 token 小写+trim;字节序与 format_mac/m_mac_tei 的 u64 约定一致:
+///          首组=模式首字节,次组=次字节,依此类推;掩码覆盖组数对应的低位,
+///          匹配时模式可在 MAC 任意字节偏移处出现(前缀/中间/后缀)。
+///          非 MAC 格式(组数不足 2 或超 6、组长非 2、含非十六进制字符)返回 false,
+///          调用方按旧语义走 search_text 子串;单组 "03" 等不成 MAC。
+bool parse_mac_pattern(const QString& t, quint64& pattern_val, quint64& mask,
+                       int& group_count) {
+    const QStringList parts = t.split(':');
+    if (parts.size() < 2 || parts.size() > 6) return false;
+    quint64 v = 0;
+    for (int i = 0; i < parts.size(); ++i) {
+        const QString& p = parts[i];
+        if (p.size() != 2) return false;
+        for (const QChar ch : p) {
+            if (!((ch >= QLatin1Char('0') && ch <= QLatin1Char('9'))
+                  || (ch >= QLatin1Char('a') && ch <= QLatin1Char('f'))))
+                return false;
+        }
+        bool ok = false;
+        const uint byte = p.toUInt(&ok, 16);
+        if (!ok) return false;
+        v |= quint64(byte) << (8 * i);
+    }
+    pattern_val = v;
+    mask = (quint64(1) << (8 * parts.size())) - 1;
+    group_count = parts.size();
+    return true;
+}
+
+/// @brief MAC 模式反查:映射表(m_mac_tei,全 NID)中模式在任意字节偏移处出现的全部 TEI,去重后升序
+/// @details 偏移 0=前缀、中间偏移=中间匹配、末偏移=后缀;完整 6 组时仅偏移 0,即精确匹配。
+///          匹配谓词本身不带 NID,与 sta-<数字> 的跨 NID 语义一致;返回空即无命中。
+QVector<int> lookup_teis_by_mac_pattern(
+        const QHash<quint32, QHash<quint64, quint16>>& mac_tei,
+        quint64 pattern_val, quint64 mask, int group_count) {
+    QVector<int> out;
+    for (auto it = mac_tei.constBegin(); it != mac_tei.constEnd(); ++it) {
+        for (auto mit = it->constBegin(); mit != it->constEnd(); ++mit) {
+            const quint64 mac = mit.key();
+            bool hit = false;
+            for (int off = 0; off + group_count <= 6; ++off) {
+                if (((mac >> (8 * off)) & mask) == pattern_val) { hit = true; break; }
+            }
+            if (hit) out.append(int(mit.value()));
+        }
+    }
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
 /// @brief 过滤表达式预处理:split/trim/小写/关键词判定只做一次,逐条匹配零分配
 /// @details 帧型关键词(beacon/sof/ack/coord/search/switch)按帧型字节比对;
 ///          sta-<纯数字> 解析为 TEI 等值谓词(比对 src/dst TEI——search_text
 ///          里的 sta 词只由 src/dst TEI 生成),不再做子串匹配,避免
 ///          sta-130 误命中 sta-1300;其余条件词仍按 search_text 子串比对,
 ///          空条件词永假。
-PacketPreparedFilter prepare_filter(const QString& filter) {
+///          MAC 格式 token 在准备时查映射表展开为命中 TEI 的或:模式可在
+///          MAC 任意字节偏移处出现(前缀/中间/后缀),组内按 DNF 分配律扇出,
+///          每组把 MAC token 换成一个 sta-<TEI> 等值谓词;
+///          无命中则该组作废,整个表达式无组即永假(条件为空)。
+PacketPreparedFilter prepare_filter(
+        const QString& filter,
+        const QHash<quint32, QHash<quint64, quint16>>& mac_tei) {
     PacketPreparedFilter pf;
     pf.empty = filter.isEmpty();
     if (pf.empty) return pf;
@@ -389,7 +447,11 @@ PacketPreparedFilter prepare_filter(const QString& filter) {
     };
     const QStringList or_groups = filter.split('|', Qt::SkipEmptyParts);
     for (const QString& g : or_groups) {
-        QVector<PacketFilterCond> conds;
+        // 组内展开用中间组:MAC token 命中多 TEI 时把本组扇出为多组,
+        // 每组把 MAC token 换成一个 sta-<TEI> 等值谓词;无命中则整组作废。
+        QVector<QVector<PacketFilterCond>> partials;
+        partials.append(QVector<PacketFilterCond>());
+        bool dead = false;
         for (const QString& c : g.split('&')) {
             const QString t = c.trimmed().toLower();
             PacketFilterCond cond;
@@ -409,12 +471,35 @@ PacketPreparedFilter prepare_filter(const QString& filter) {
                 if (ok && v <= UINT16_MAX) cond.tei = int(v);
                 else                       cond.type_byte = -2;
             } else {
+                // MAC 模式 → 映射表反查 TEI(前缀/中间/后缀任一偏移命中),
+                // 隐式展开为多 TEI 的或(DNF 扇出);不成 MAC 则走子串
+                quint64 pattern_val = 0, mask = 0;
+                int group_count = 0;
+                if (parse_mac_pattern(t, pattern_val, mask, group_count)) {
+                    const QVector<int> teis = lookup_teis_by_mac_pattern(
+                        mac_tei, pattern_val, mask, group_count);
+                    if (teis.isEmpty()) { dead = true; break; }  // 无命中:本组为空
+                    QVector<QVector<PacketFilterCond>> next;
+                    for (const auto& p : partials) {
+                        for (const int tei : teis) {
+                            QVector<PacketFilterCond> copy = p;
+                            PacketFilterCond sc;
+                            sc.tei = tei;
+                            copy.append(sc);
+                            next.append(copy);
+                        }
+                    }
+                    partials = next;
+                    continue;
+                }
                 cond.type_byte = -1;
                 cond.term = t;
             }
-            conds.append(cond);
+            for (auto& p : partials) p.append(cond);
         }
-        pf.groups.append(conds);
+        if (!dead) {
+            for (const auto& p : partials) pf.groups.append(p);
+        }
     }
     return pf;
 }
@@ -441,8 +526,9 @@ bool prepared_match(const PacketPreparedFilter& pf, quint8 frame_type,
 /// @brief 工作线程:遍历快照盘块(只读 v3 索引,不解码条目)+ 热区,
 ///        返回命中过滤器的全局行号
 QVector<int> run_filter(const PacketListModel::ExportSnapshot& snap,
-                        const QString& filter) {
-    const PacketPreparedFilter pf = prepare_filter(filter);
+                        const QString& filter,
+                        const QHash<quint32, QHash<quint64, quint16>>& mac_tei) {
+    const PacketPreparedFilter pf = prepare_filter(filter, mac_tei);
     QVector<int> result;
     int g = 0;
     for (const QString& bp : snap.block_paths) {
@@ -661,7 +747,7 @@ bool PacketListModel::entry_at(int visible_row, PacketEntry& out) const {
 void PacketListModel::set_display_filter(const QString& expr) {
     if (m_filter == expr) return;
     m_filter = expr;
-    m_prepared = prepare_filter(expr);       // 预处理与表达式同步重建
+    m_prepared = prepare_filter(expr, m_mac_tei);  // 预处理与表达式同步重建
     const int gen = ++m_filter_gen;          // 换代,丢弃在跑的旧过滤结果
     if (expr.isEmpty()) {                    // 清空过滤:恢复全可见(同步)
         m_filtering = false;                 // 复位过滤中状态(在跑旧过滤结果已由 gen 作废)
@@ -697,8 +783,10 @@ void PacketListModel::set_display_filter(const QString& expr) {
             beginResetModel();
             endResetModel();
         });
-    watcher->setFuture(QtConcurrent::run([snap, expr]() {
-        return run_filter(snap, expr);
+    // 映射表快照按值进工作线程:只读 + COW,与 snap/expr 同款,无竞态
+    const auto mac_tei = m_mac_tei;
+    watcher->setFuture(QtConcurrent::run([snap, expr, mac_tei]() {
+        return run_filter(snap, expr, mac_tei);
     }));
 }
 

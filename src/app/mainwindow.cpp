@@ -199,7 +199,7 @@ void MainWindow::build_ui() {
     m_toolbar->addSeparator();
     m_toolbar->addWidget(new QLabel(trl::L("  显示过滤器:"), m_toolbar));
     m_edt_filter = new QLineEdit(m_toolbar);
-    m_edt_filter->setPlaceholderText(QStringLiteral("beacon | sof | hrf | plc | sta-3 | drop | 0xf0f1f2 ..."));
+    m_edt_filter->setPlaceholderText(QStringLiteral("beacon | sof | hrf | plc | sta-3 | 03:02 | drop | 0xf0f1f2 ..."));
     m_edt_filter->setMinimumWidth(180);
     m_toolbar->addWidget(m_edt_filter);
     m_btn_apply_filter = new QToolButton(m_toolbar);
