@@ -9,7 +9,6 @@
 #include <QDir>
 #include "i18n.h"
 #include <QFile>
-#include <QSet>
 #include <QtConcurrent>
 #include <QFutureWatcher>
 #include <QThreadPool>
@@ -560,31 +559,30 @@ PacketPreparedFilter prepare_filter(
 /// @brief 预处理后的 DNF 匹配:帧型字节 + src/dst TEI + Orig Src sta- 词 + search_text 即可判定
 bool prepared_match(const PacketPreparedFilter& pf, quint8 frame_type,
                     quint16 src_tei, quint16 dst_tei,
+                    int msdu_src_tei, int msdu_dst_tei,
+                    const QVector<quint16>& orig_src_teis,
+                    const QVector<quint16>& orig_dst_teis,
                     const QString& haystack) {
     if (pf.empty) return true;
-    // sta- 词整词匹配:search_text 为空格分隔的小写词,其 sta- 词除 hop TEI 外
-    // 还含 Orig Src(帧级源 + 聚合/多站点源);整词比对避免 sta-130 误命中 sta-1300。
-    // 性能:tei 条件不再每条件全扫 search_text;首个 tei 条件需要时把
-    // haystack 按空格分词一次建成 sta- 词集合(与整词语义完全等价),
-    // 之后每条件为 O(1) 哈希查找。盘块行无结构化 orig 字段,只能以
-    // search_text 为准,故此处仍以文本为准、不改语义;纯 O(1) 需盘块
-    // 索引扩 orig 字段(另案,涉盘块版本)。
-    QSet<QString> sta_words;
-    bool sta_words_built = false;
-    auto has_sta_word = [&](int tei) {
-        if (!sta_words_built) {
-            sta_words_built = true;
-            for (const QString& tok : haystack.split(QLatin1Char(' '),
-                                                     Qt::SkipEmptyParts)) {
-                if (tok.startsWith(QLatin1String("sta-"))) sta_words.insert(tok);
-            }
-        }
-        return sta_words.contains(QStringLiteral("sta-%1").arg(tei));
+    // sta- 条件纯 TEI 比对,不扫 search_text:命中集 = hop 源/目的
+    // TEI ∪ (msdu 帧级 TEI>0 时取其值,否则取 orig 两列 TEI),与
+    // make_search_text 的 sta- 词集合完全一致(含帧级有源时 orig 词
+    // 缺席的前提条件,故 130/1300 边界与旧整词语义一致)。每条件只
+    // 比对该行自身的 TEI 值(段数有界),与 search_text 长度无关;
+    // 子串条件仍走 haystack.contains(固有 O(len))。orig 两列来自
+    // 盘块索引 v20(盘块行)或条目字段(热区行),均已去重保序。
+    auto has_tei = [&](int tei) {
+        if (src_tei == tei || dst_tei == tei) return true;
+        if (msdu_src_tei > 0) { if (msdu_src_tei == tei) return true; }
+        else if (orig_src_teis.contains(quint16(tei))) return true;
+        if (msdu_dst_tei > 0) { if (msdu_dst_tei == tei) return true; }
+        else if (orig_dst_teis.contains(quint16(tei))) return true;
+        return false;
     };
     for (const auto& conds : pf.groups) {
         bool all = true;
         for (const PacketFilterCond& c : conds) {
-            const bool hit = (c.tei >= 0) ? (src_tei == c.tei || dst_tei == c.tei || has_sta_word(c.tei))
+            const bool hit = (c.tei >= 0) ? has_tei(c.tei)
                            : (c.type_byte >= 0) ? (frame_type == c.type_byte)
                            : (c.type_byte == -1) ? haystack.contains(c.term)
                                                  : false;
@@ -593,6 +591,18 @@ bool prepared_match(const PacketPreparedFilter& pf, quint8 frame_type,
         if (all) return true;
     }
     return false;
+}
+
+// 条目 orig 两列抽 TEI(去重保序,tei==0 不入集,与索引写入口径一致)
+static void entry_orig_teis(const PacketEntry& e,
+                            QVector<quint16>& out_src,
+                            QVector<quint16>& out_dst) {
+    out_src.clear();
+    out_dst.clear();
+    for (const auto& p : e.msdu.orig_srcs)
+        if (p.tei != 0 && !out_src.contains(p.tei)) out_src.append(p.tei);
+    for (const auto& p : e.msdu.orig_dsts)
+        if (p.tei != 0 && !out_dst.contains(p.tei)) out_dst.append(p.tei);
 }
 
 /// @brief 工作线程:遍历快照盘块(只读 v3 索引,不解码条目)+ 热区,
@@ -612,14 +622,19 @@ QVector<int> run_filter(const PacketListModel::ExportSnapshot& snap,
         const int n = reader.count();
         for (int i = 0; i < n; ++i) {
             if (prepared_match(pf, reader.frame_type(i), reader.src_tei(i),
-                                reader.dst_tei(i), reader.search_text(i)))
+                                reader.dst_tei(i), reader.msdu_src_tei(i),
+                                reader.msdu_dst_tei(i), reader.orig_src_teis(i),
+                                reader.orig_dst_teis(i), reader.search_text(i)))
                 result.append(g + i);
         }
         g += n;
     }
     for (const PacketEntry& e : snap.hot) {
+        QVector<quint16> o_src, o_dst;
+        entry_orig_teis(e, o_src, o_dst);
         if (prepared_match(pf, e.mpdu.frame_type, e.mpdu.src_tei,
-                            e.mpdu.dst_tei, e.search_text))
+                            e.mpdu.dst_tei, e.msdu.msdu_src_tei,
+                            e.msdu.msdu_dst_tei, o_src, o_dst, e.search_text))
             result.append(g);
         ++g;
     }
@@ -628,8 +643,11 @@ QVector<int> run_filter(const PacketListModel::ExportSnapshot& snap,
 }  // namespace
 
 bool PacketListModel::passes_filter(const PacketEntry& e) const {
+    QVector<quint16> o_src, o_dst;
+    entry_orig_teis(e, o_src, o_dst);
     return prepared_match(m_prepared, e.mpdu.frame_type, e.mpdu.src_tei,
-                          e.mpdu.dst_tei, e.search_text);
+                          e.mpdu.dst_tei, e.msdu.msdu_src_tei,
+                          e.msdu.msdu_dst_tei, o_src, o_dst, e.search_text);
 }
 
 QString PacketListModel::block_path(int idx) const {

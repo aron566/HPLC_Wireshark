@@ -345,11 +345,20 @@ int main(int argc, char** argv) {
     {
         QVector<PacketEntry> src; src.reserve(2500);
         for (int i = 1; i <= 2500; ++i) { PacketEntry e = make_entry(i); e.search_text = make_search_text(e); src.append(e); }
+        src[0].msdu.orig_srcs.append({99, 0});   // TEI-only 段亦进索引(v20)
+        src[0].msdu.orig_dsts.append({98, 0});
+        src[0].search_text = make_search_text(src[0]);  // 追加后重算,存取一致
         const QByteArray blob = pser::encode_block(src);
         pser::BlockReader r;
         if (!r.open_data(blob) || r.count() != 2500) {
             qWarning() << "BlockReader open failed"; ++fails;
         } else {
+            auto teis_of = [](const QVector<TeiMacPair>& pairs) {
+                QVector<quint16> teis;
+                for (const auto& p : pairs)
+                    if (p.tei != 0 && !teis.contains(p.tei)) teis.append(p.tei);
+                return teis;
+            };
             for (int i : {0, 1, 49, 50, 51, 999, 1000, 1234, 2499}) {
                 PacketEntry e; QString why;
                 if (!r.entry_at(i, e) || !entry_equal(src[i], e, why)) {
@@ -358,7 +367,11 @@ int main(int argc, char** argv) {
                 if (r.frame_type(i) != src[i].mpdu.frame_type
                     || r.src_tei(i) != src[i].mpdu.src_tei
                     || r.dst_tei(i) != src[i].mpdu.dst_tei
-                    || r.search_text(i) != src[i].search_text) {
+                    || r.search_text(i) != src[i].search_text
+                    || r.msdu_src_tei(i) != src[i].msdu.msdu_src_tei
+                    || r.msdu_dst_tei(i) != src[i].msdu.msdu_dst_tei
+                    || r.orig_src_teis(i) != teis_of(src[i].msdu.orig_srcs)
+                    || r.orig_dst_teis(i) != teis_of(src[i].msdu.orig_dsts)) {
                     qWarning() << "index mismatch at" << i; ++fails; break;
                 }
             }
