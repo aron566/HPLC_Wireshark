@@ -133,6 +133,12 @@ bool GW_2022_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QSt
 
 // 主入口:帧分发
 GW_2022_Parser::Result GW_2022_Parser::parse(const BplcFrame& in, MsduState& msdu, const Filter& f) {
+    Result r = parse_inner(in, msdu, f);
+    m_time_anchor.apply(r, m_display_ctx);
+    return r;
+}
+
+GW_2022_Parser::Result GW_2022_Parser::parse_inner(const BplcFrame& in, MsduState& msdu, const Filter& f) {
     Q_UNUSED(f);  // 解析时不过滤(仅显示过滤),过滤参数不再读取
     Result r;
     r.protocol = ProtocolVariant::GW_2022;   // 协议身份由解析器标记

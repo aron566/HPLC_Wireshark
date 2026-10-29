@@ -199,6 +199,12 @@ bool GW_2026_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QSt
 
 // 主入口:帧分发
 GW_2026_Parser::Result GW_2026_Parser::parse(const BplcFrame& in, MsduState& msdu, const Filter& f) {
+    Result r = parse_inner(in, msdu, f);
+    m_time_anchor.apply(r, m_display_ctx);
+    return r;
+}
+
+GW_2026_Parser::Result GW_2026_Parser::parse_inner(const BplcFrame& in, MsduState& msdu, const Filter& f) {
     Result r;
     r.protocol = ProtocolVariant::GW_2026;   // 协议身份由解析器标记
     QElapsedTimer pt;
@@ -234,10 +240,11 @@ GW_2026_Parser::Result GW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                     // 版本号是帧内字段,委托后直接返回 GW_2022 的结果
                     //(含其自身的过滤/统计/协议标记)。
                     // 委托耗时计入本协议统计(delegate 口径,分母含 HDC 1.0 帧):
-                    // env=共用剥头+版本探测,mpdu/body 由 legacy.parse 全包
+                    // env=共用剥头+版本探测,mpdu/body 由 legacy.parse_inner 全包
+                    // (不做显示时间判定,外层 parse() 统一用本解析器锚点做)
                     const qint64 us_del = pt.nsecsElapsed() / 1000 - us_env;
                     stats_account(us_env, us_del, 0);
-                    return m_legacy.parse(in, msdu, f);
+                    return m_legacy.parse_inner(in, msdu, f);
                 }
                 case GW_2026_Version::HDC_2_0:
                     break;  // 新协议,继续走 GW_2026 解析

@@ -25,9 +25,15 @@ public:
 
     Result parse(const BplcFrame& in, MsduState& msdu, const Filter& f) override;
 
+    void set_display_context(const DisplayContext& ctx) override { m_display_ctx = ctx; }
+
 private:
+    Result parse_inner(const BplcFrame& in, MsduState& msdu, const Filter& f);
     bool decode_envelope(const BplcFrame& in, Result& r);
     bool parse_mpdu_base(const QByteArray& body, MpduInfo& info, QString& err);
+
+    DisplayTimeAnchor m_time_anchor;  ///< 显示时间锚点(上一个好帧,含委托的 BPLC 版帧)
+    DisplayContext m_display_ctx;     ///< 分发器给的行序号 + 本地时间
 
     /// @brief BPLC 版委托解析器(标准版本号≠2 帧整帧转交;见 parse() 版本自适应段)
     /// @details NW_2021_Parser 无状态,实例缓存免逐帧栈上构造;

@@ -48,6 +48,12 @@ void DispatcherWorker::on_frame(const BplcFrame& frame) {
         r.msdu = MsduInfo();
         r.beacon = MsduInfo();
     } else {
+        // 显示时间上下文:行序号(分发器帧计数,即该帧将填入的行号) + 本地时间
+        // (回退值);解析器据此提供本行显示时间/Delta(见 DisplayTimeAnchor)
+        DisplayContext ctx;
+        ctx.row_index = m_frame_count.load() + 1;
+        ctx.now_ms = QDateTime::currentMSecsSinceEpoch();
+        m_parser->set_display_context(ctx);
         // 解析时不过滤(仅显示过滤):传默认空过滤,内置解析器不再读取过滤字段
         r = m_parser->parse(frame, m_msdu, ParseFilter{});
     }

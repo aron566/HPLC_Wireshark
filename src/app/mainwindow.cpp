@@ -906,12 +906,15 @@ PacketEntry MainWindow::make_entry(const ParseResult& r, qint64 now) {
     qint64 t = (r.meta.frame_time.isValid())
                    ? r.meta.epoch_ms : now;   // 用 parse 时缓存的 epoch_ms,避免时区转换
     e.epoch_ms  = t;
-    e.accepted  = r.accept;     // 先落 accepted,Delta/last 追踪依赖它
+    e.accepted  = r.accept;     // 拒收行 Info 列显示 reason,着色走灰/红判定
     e.reason    = r.reject_reason;
-    // Delta:统一用帧内 NTB 差(tick × 40ns),实时串口与回放 bin 一致。
+    // Delta:内置解析器已在解析时算好显示 Delta(好帧锚点链,见 DisplayTimeAnchor),
+    // 直接取用;插件解析器不算(-1)时沿用旧 NTB 差算法(m_last_ntb 链)。
     // 本地接收时间(0x3C 打点 arrival_us)只作 serialreader 断段(seg_start)
     // 判断参考,不参与 Delta 计算。
-    e.delta_us = playback::next_delta_us(r.meta, m_last_ntb, m_have_last_ntb);
+    e.delta_us = (r.display_delta_us >= 0)
+        ? r.display_delta_us
+        : playback::next_delta_us(r.meta, m_last_ntb, m_have_last_ntb);
     e.meta      = r.meta;
     e.mpdu      = r.mpdu;
     // 协议身份来自解析器,非全局配置。

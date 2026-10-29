@@ -202,6 +202,12 @@ static void merge_msdu_learn(MsduInfo& dst, const MsduInfo& cm) {
 }
 
 NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msdu, const Filter& f) {
+    Result r = parse_inner(in, msdu, f);
+    m_time_anchor.apply(r, m_display_ctx);
+    return r;
+}
+
+NW_2026_Parser::Result NW_2026_Parser::parse_inner(const BplcFrame& in, MsduState& msdu, const Filter& f) {
     Result r;
     ++m_frame_count;                        // 帧计数(trigger 上下文失效基准)
     r.protocol = ProtocolVariant::NW_2026;   // 协议身份由解析器标记
@@ -264,7 +270,7 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                 }
             }
             if (!splc_ext_mme)
-                return m_legacy.parse(in, msdu, f);
+                return m_legacy.parse_inner(in, msdu, f);
         }
     }
 
@@ -575,7 +581,7 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
         // 非 SOF 帧 SPLC 结构性失败(载荷不足/信标载荷区不完整,parse_beacon 置 present=false)
         // → 回退 BPLC 解析(分派策略第 3 条,用户决策)
         if (!r.beacon.present) {
-            return m_legacy.parse(in, msdu, f);
+            return m_legacy.parse_inner(in, msdu, f);
         }
     } else if (ftype == NW_2026_FrameType::ACK) {
         // ACK(南网 MPDU_ACK_FCH 坐标,表19/表21)

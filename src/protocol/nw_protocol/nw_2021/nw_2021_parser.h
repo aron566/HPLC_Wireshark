@@ -24,9 +24,16 @@ public:
 
     Result parse(const BplcFrame& in, MsduState& msdu, const Filter& f) override;
 
+    void set_display_context(const DisplayContext& ctx) override { m_display_ctx = ctx; }
+
 private:
+    friend class NW_2026_Parser;  // 委托方调 parse_inner(不做显示时间判定,委托方统一做)
+    Result parse_inner(const BplcFrame& in, MsduState& msdu, const Filter& f);
     bool decode_envelope(const BplcFrame& in, Result& r);
     bool parse_mpdu_base(const QByteArray& body, MpduInfo& info, QString& err);
+
+    DisplayTimeAnchor m_time_anchor;  ///< 显示时间锚点(上一个好帧)
+    DisplayContext m_display_ctx;     ///< 分发器给的行序号 + 本地时间
 };
 
 #endif // NW_2021_PARSER_H
