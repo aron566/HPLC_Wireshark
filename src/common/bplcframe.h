@@ -374,7 +374,7 @@ struct MsduInfo {
     QString summary;         ///< 概要,如 "MMeDiscoverNodeList" / "APP EventPacket"
     QVector<MsduFieldNode> tree;  ///< 字段树(协议树直接挂载显示)
     QVector<TeiMacPair> tei_mac_pairs; ///< 本帧携带的 TEI→MAC 学习对(发现列表等)
-    QVector<TeiMacPair> orig_srcs;   ///< 聚合/多站点帧各段/各站的原始源(TEI,MAC),按段/站序、去重;单段帧为空(走原单源逻辑)
+    QVector<TeiMacPair> orig_srcs;   ///< 聚合/多站点帧各段/各站的原始源(TEI,MAC),按段/站序、去重;仅帧级无原始 TEI 时收集,帧级有源或单段帧时为空(走原单源逻辑)
     TopoEvent topo_event;        ///< 拓扑事件(关键管理消息填充;kind=Other 表示无)
     QVector<TopoEvent> topo_extra_events; ///< 多站点合并的后续拓扑事件:topo_event=首事件,本字段=其余事件;消费全部事件必须两者都读
 
@@ -473,8 +473,9 @@ inline QString make_search_text(const PacketEntry& e) {
     parts << nid << QStringLiteral("0x%1").arg(nid);
     parts << QString::number(e.mpdu.src_tei) << QString::number(e.mpdu.dst_tei);
     if (e.msdu.present) parts << e.msdu.summary.toLower();
-    // Orig Src 列内容亦可搜:帧级源 + 聚合/多站点源,按序去重;
-    // sta- 词供等值谓词按整词匹配,MAC 串供子串及 MAC 模式展开后匹配。
+    // Orig Src 列内容亦可搜:前提条件与显示一致——帧级有源时只列帧级源,
+    // 无源时列各段/各站源;sta- 词供等值谓词按整词匹配,MAC 串供子串及
+    // MAC 模式展开后匹配。
     {
         QVector<TeiMacPair> srcs;
         auto add_src = [&](int tei, quint64 mac) {
@@ -483,8 +484,10 @@ inline QString make_search_text(const PacketEntry& e) {
                 if (p.tei == tei && p.mac == mac) return;
             srcs.append({(quint16)tei, mac});
         };
-        add_src(e.msdu.msdu_src_tei, e.msdu.msdu_src_mac);
-        for (const auto& p : e.msdu.orig_srcs) add_src(p.tei, p.mac);
+        if (e.msdu.msdu_src_tei > 0)
+            add_src(e.msdu.msdu_src_tei, e.msdu.msdu_src_mac);
+        else
+            for (const auto& p : e.msdu.orig_srcs) add_src(p.tei, p.mac);
         for (const auto& p : srcs) {
             parts << QStringLiteral("sta-%1").arg(p.tei);
             if (p.mac) {

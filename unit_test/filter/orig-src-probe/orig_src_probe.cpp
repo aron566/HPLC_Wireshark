@@ -117,7 +117,15 @@ int main(int argc, char** argv) {
         cco.msdu.simple_head = false;
         cco.msdu.msdu_src_tei = -1;
         cco.msdu.orig_srcs.append({1, macCco});
-        model.append_packets(QVector<PacketEntry>{m, s, rj, cco});
+        PacketEntry p;  // precondition: frame src present -> single, never multi
+        p.accepted = true;
+        p.msdu.present = true;
+        p.msdu.simple_head = false;
+        p.msdu.msdu_src_tei = 5;
+        p.msdu.msdu_src_mac = macC;
+        p.msdu.orig_srcs.append({11, macA});
+        p.msdu.orig_srcs.append({12, macB});
+        model.append_packets(QVector<PacketEntry>{m, s, rj, cco, p});
         model.set_display_filter(QString());
         const auto col = [&](int row) {
             return model.data(model.index(row, PacketListModel::COL_ORIG_SRC), Qt::DisplayRole).toString();
@@ -128,6 +136,8 @@ int main(int argc, char** argv) {
               "column single fallback unchanged");
         check(col(2).isEmpty(), "column rejected empty");
         check(col(3) == QStringLiteral("CCO [00:11:22:33:44:55]"), "column CCO naming");
+        check(col(4) == QStringLiteral("STA-5 [0a:0b:0c:0d:0e:0f]"),
+              "column precondition: frame src present -> single, not multi");
     }
 
     // ---- C. Filter ----
@@ -173,6 +183,18 @@ int main(int argc, char** argv) {
         t("substring", "dd:ee:0", m, true);
         t("single-frame-src-word", "sta-5", s, true);
         t("single-frame-src-word-neg", "sta-6", s, false);
+        // Precondition on the filter side: frame src present -> orig words absent.
+        PacketEntry p;
+        p.accepted = true;
+        p.msdu.present = true;
+        p.msdu.simple_head = false;
+        p.msdu.msdu_src_tei = 5;
+        p.msdu.msdu_src_mac = macC;
+        p.msdu.orig_srcs.append({11, macA});
+        p.msdu.orig_srcs.append({12, macB});
+        p.search_text = make_search_text(p);
+        t("precondition-filter", "sta-12", p, false);
+        t("precondition-filter", "sta-5", p, true);
     }
 
     std::printf("RESULT: %s (%d failures)\n", g_fails == 0 ? "ALL PASS" : "FAIL", g_fails);

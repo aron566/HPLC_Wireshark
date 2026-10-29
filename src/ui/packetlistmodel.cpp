@@ -104,20 +104,19 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
             case COL_DELTA:
                 return QStringLiteral("%1 s").arg(e.delta_us / 1e6, 0, 'f', 6);
             case COL_ORIG_SRC: {
-                // 多源(聚合/多站点帧):帧级源 + orig_srcs 按序去重,逗号分隔;
-                // 合并帧 present=false 亦显示,故不以 present 为门(单源逻辑在后)。
-                if (e.accepted && !e.msdu.simple_head && !e.msdu.orig_srcs.isEmpty()) {
+                // 多源(聚合/多站点帧):前提条件是帧级无原始 TEI,此时才解析
+                // 各段/各站头源;帧级已有源时走后方单源逻辑,不展示多源。
+                // 合并帧 present=false 亦显示,故不以 present 为门。
+                if (e.accepted && !e.msdu.simple_head && e.msdu.msdu_src_tei <= 0
+                    && !e.msdu.orig_srcs.isEmpty()) {
                     QVector<TeiMacPair> srcs;
-                    auto add_src = [&](int tei, quint64 mac) {
-                        if (tei <= 0) return;
-                        if (!mac) mac = lookup_mac(e.mpdu.net_id, quint16(tei));
-                        if (!mac) return;
-                        for (const auto& p : srcs)
-                            if (p.tei == tei && p.mac == mac) return;
-                        srcs.append({(quint16)tei, mac});
-                    };
-                    add_src(e.msdu.msdu_src_tei, e.msdu.msdu_src_mac);
-                    for (const auto& p : e.msdu.orig_srcs) add_src(p.tei, p.mac);
+                    for (const auto& p : e.msdu.orig_srcs) {
+                        if (p.tei == 0 || p.mac == 0) continue;
+                        bool dup = false;
+                        for (const auto& q : srcs)
+                            if (q.tei == p.tei && q.mac == p.mac) { dup = true; break; }
+                        if (!dup) srcs.append(p);
+                    }
                     if (!srcs.isEmpty()) {
                         QStringList parts;
                         for (const auto& p : srcs) {
