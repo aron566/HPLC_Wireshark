@@ -108,6 +108,14 @@ int main(int argc, char** argv) {
                 std::snprintf(buf, sizeof(buf), "parser frame %ld orig_dsts invariant", frame_no);
                 check(r.accept && ok_dst, buf);
             }
+            // EOF 断言:读满期望帧后文件须恰好结束;尾部多余记录/残字节均判失败
+            // (旧版读到 EOF 才断言帧数,写死期望改写时丢了这层严格性,此次补回)
+            unsigned char tail[4];
+            const size_t ntail = std::fread(tail, 1, 4, in);
+            char ebuf[64];
+            std::snprintf(ebuf, sizeof(ebuf), "bin %d no trailing data after %d frames",
+                          b, (int)want_frames.size());
+            check(ntail == 0, ebuf);
             std::fclose(in);
         }
         check(frame_no == (nbins == 2 ? 4 : 3), "parser read all frames");
