@@ -162,6 +162,19 @@ static void merge_msdu_learn(MsduInfo& dst, const MsduInfo& cm) {
         dst.tei_mac_pairs.append({(quint16)cm.msdu_src_tei, cm.msdu_src_mac});
     if (cm.msdu_dst_tei > 0 && cm.msdu_dst_mac)
         dst.tei_mac_pairs.append({(quint16)cm.msdu_dst_tei, cm.msdu_dst_mac});
+    // 聚合/多站点源(前提条件:仅当帧级尚无原始 TEI 时收集;帧级已有源
+    // 如 DL-OFDMA 站点 0 经通用路径已定,则不收集、不展示多源)。
+    if (dst.msdu_src_tei <= 0) {
+        auto add_orig_src = [&](quint16 tei, quint64 mac) {
+            if (tei == 0 || mac == 0) return;
+            for (const auto& p : dst.orig_srcs)
+                if (p.tei == tei && p.mac == mac) return;
+            dst.orig_srcs.append({tei, mac});
+        };
+        if (cm.msdu_src_tei > 0 && cm.msdu_src_mac)
+            add_orig_src((quint16)cm.msdu_src_tei, cm.msdu_src_mac);
+        for (const auto& p : cm.orig_srcs) add_orig_src(p.tei, p.mac);
+    }
     if (cm.topo_event.kind != TopoEventKind::Other) {
         if (dst.topo_event.kind == TopoEventKind::Other)
             dst.topo_event = cm.topo_event;

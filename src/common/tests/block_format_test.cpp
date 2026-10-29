@@ -117,6 +117,9 @@ static PacketEntry make_entry(int i) {
     fill_topo(e.beacon.topo_event, i + 1000);     // beacon 拓扑事件(同为 MsduInfo,序列化路径相同)
     { TopoEvent ex; fill_topo(ex, i + 2000); e.msdu.topo_extra_events.append(ex); }    // 多站点后续事件(v17 往返)
     { TopoEvent ex; fill_topo(ex, i + 3000); e.beacon.topo_extra_events.append(ex); }  // 同上(beacon 路径)
+    e.msdu.orig_srcs.append({quint16(11 + i), quint64(0x010203040506ULL + i)});        // 聚合原始源(v18 往返)
+    e.msdu.orig_srcs.append({quint16(12 + i), quint64(0x0a0b0c0d0e0fULL + i)});
+    e.beacon.orig_srcs.append({quint16(21 + i), quint64(0x111213141516ULL + i)});       // 同上(beacon 路径)
     e.raw_bytes = QByteArray(64, char(i & 0xFF));
     e.msdu_raw_base = 10;
     return e;
@@ -229,6 +232,12 @@ static bool entry_equal(const PacketEntry& a, const PacketEntry& b, QString& why
     if (a.beacon.topo_extra_events.size() != b.beacon.topo_extra_events.size()) { why = QStringLiteral("beacon topo_extra_events size mismatch"); return false; }
     for (int k = 0; k < a.beacon.topo_extra_events.size(); ++k)
         if (!topo_equal(a.beacon.topo_extra_events[k], b.beacon.topo_extra_events[k], why)) return false;
+    if (a.msdu.orig_srcs.size() != b.msdu.orig_srcs.size()) { why = QStringLiteral("msdu orig_srcs size mismatch"); return false; }
+    for (int k = 0; k < a.msdu.orig_srcs.size(); ++k)
+        if (a.msdu.orig_srcs[k].tei != b.msdu.orig_srcs[k].tei || a.msdu.orig_srcs[k].mac != b.msdu.orig_srcs[k].mac) { why = QStringLiteral("msdu orig_srcs mismatch"); return false; }
+    if (a.beacon.orig_srcs.size() != b.beacon.orig_srcs.size()) { why = QStringLiteral("beacon orig_srcs size mismatch"); return false; }
+    for (int k = 0; k < a.beacon.orig_srcs.size(); ++k)
+        if (a.beacon.orig_srcs[k].tei != b.beacon.orig_srcs[k].tei || a.beacon.orig_srcs[k].mac != b.beacon.orig_srcs[k].mac) { why = QStringLiteral("beacon orig_srcs mismatch"); return false; }
     const MsduFieldNode& x = a.msdu.tree[0], &y = b.msdu.tree[0];
     if (x.name != y.name || x.value != y.value || x.children.size() != y.children.size()
         || x.children[1].children.size() != y.children[1].children.size()

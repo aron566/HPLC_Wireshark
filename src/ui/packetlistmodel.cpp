@@ -104,6 +104,30 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
             case COL_DELTA:
                 return QStringLiteral("%1 s").arg(e.delta_us / 1e6, 0, 'f', 6);
             case COL_ORIG_SRC: {
+                // 多源(聚合/多站点帧):前提条件是帧级无原始 TEI,此时才解析
+                // 各段/各站头源;帧级已有源时走后方单源逻辑,不展示多源。
+                // 合并帧 present=false 亦显示,故不以 present 为门。
+                if (e.accepted && !e.msdu.simple_head && e.msdu.msdu_src_tei <= 0
+                    && !e.msdu.orig_srcs.isEmpty()) {
+                    QVector<TeiMacPair> srcs;
+                    for (const auto& p : e.msdu.orig_srcs) {
+                        if (p.tei == 0 || p.mac == 0) continue;
+                        bool dup = false;
+                        for (const auto& q : srcs)
+                            if (q.tei == p.tei && q.mac == p.mac) { dup = true; break; }
+                        if (!dup) srcs.append(p);
+                    }
+                    if (!srcs.isEmpty()) {
+                        QStringList parts;
+                        for (const auto& p : srcs) {
+                            QString s = (p.tei == kTeiCco) ? QStringLiteral("CCO")
+                                                           : QStringLiteral("STA-%1").arg(p.tei);
+                            s += QStringLiteral(" [%1]").arg(format_mac(p.mac));
+                            parts.append(s);
+                        }
+                        return parts.join(QLatin1Char(','));
+                    }
+                }
                 if (e.accepted && e.msdu.present && !e.msdu.simple_head
                     && e.msdu.msdu_src_tei > 0) {
                     const int tei = e.msdu.msdu_src_tei;
@@ -422,8 +446,9 @@ QVector<int> lookup_teis_by_mac_pattern(
 
 /// @brief 过滤表达式预处理:split/trim/小写/关键词判定只做一次,逐条匹配零分配
 /// @details 帧型关键词(beacon/sof/ack/coord/search/switch)按帧型字节比对;
-///          sta-<纯数字> 解析为 TEI 等值谓词(比对 src/dst TEI——search_text
-///          里的 sta 词只由 src/dst TEI 生成),不再做子串匹配,避免
+///          sta-<纯数字> 解析为 TEI 等值谓词(比对 hop src/dst TEI 及
+///          search_text 里的 sta- 词——后者除 hop TEI 外还含 Orig Src
+///          (帧级源 + 聚合/多站点源)),整词比对,避免
 ///          sta-130 误命中 sta-1300;其余条件词仍按 search_text 子串比对,
 ///          空条件词永假。
 ///          MAC 格式 token 在准备时查映射表展开为命中 TEI 的或:模式可在
@@ -504,15 +529,29 @@ PacketPreparedFilter prepare_filter(
     return pf;
 }
 
-/// @brief 预处理后的 DNF 匹配:帧型字节 + src/dst TEI + search_text 即可判定
+/// @brief 预处理后的 DNF 匹配:帧型字节 + src/dst TEI + Orig Src sta- 词 + search_text 即可判定
 bool prepared_match(const PacketPreparedFilter& pf, quint8 frame_type,
                     quint16 src_tei, quint16 dst_tei,
                     const QString& haystack) {
     if (pf.empty) return true;
+    // sta- 词整词匹配:search_text 为空格分隔的小写词,其 sta- 词除 hop TEI 外
+    // 还含 Orig Src(帧级源 + 聚合/多站点源);整词比对避免 sta-130 误命中 sta-1300。
+    auto has_sta_word = [&](int tei) {
+        const QString word = QStringLiteral("sta-%1").arg(tei);
+        int i = haystack.indexOf(word);
+        while (i >= 0) {
+            const bool left_ok = (i == 0) || (haystack[i - 1] == QLatin1Char(' '));
+            const int end = i + word.size();
+            const bool right_ok = (end == haystack.size()) || (haystack[end] == QLatin1Char(' '));
+            if (left_ok && right_ok) return true;
+            i = haystack.indexOf(word, i + 1);
+        }
+        return false;
+    };
     for (const auto& conds : pf.groups) {
         bool all = true;
         for (const PacketFilterCond& c : conds) {
-            const bool hit = (c.tei >= 0) ? (src_tei == c.tei || dst_tei == c.tei)
+            const bool hit = (c.tei >= 0) ? (src_tei == c.tei || dst_tei == c.tei || has_sta_word(c.tei))
                            : (c.type_byte >= 0) ? (frame_type == c.type_byte)
                            : (c.type_byte == -1) ? haystack.contains(c.term)
                                                  : false;
