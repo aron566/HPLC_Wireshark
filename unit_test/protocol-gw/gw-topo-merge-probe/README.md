@@ -11,6 +11,8 @@
 
 输入 `gw_topo_merge.bin`（927B，构造帧）已随用例入库；
 再生脚本 `gw_topo_merge_craft.py`（输出已改为脚本所在目录）。
+脚本另生成 `gw_topo_merge_multi.bin`（1 帧，两站上行源不同），
+供 `filter/orig-src-probe` 测 orig_srcs 多源收集分支用，本探针不读。
 
 ## 预期结果
 

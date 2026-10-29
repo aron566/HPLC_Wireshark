@@ -37,69 +37,81 @@ static QString srcs_str(const QVector<TeiMacPair>& v) {
 
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
-    if (argc < 2) { std::fprintf(stderr, "usage: %s <gw_topo_merge.bin>\n", argv[0]); return 2; }
-    FILE* in = std::fopen(argv[1], "rb");
-    if (!in) { std::fprintf(stderr, "cannot open %s\n", argv[1]); return 2; }
+    if (argc < 2) { std::fprintf(stderr, "usage: %s <gw_topo_merge.bin> [gw_topo_merge_multi.bin]\n", argv[0]); return 2; }
 
-    // ---- A. Parser invariant on GW multi-station frames ----
+    // ---- A. Parser invariant on GW multi-station frames (hard-coded expected) ----
+    // argv[1] = gw_topo_merge.bin (3 frames, each single source [1:CCO_MAC])
+    // argv[2] = gw_topo_merge_multi.bin (1 frame, two distinct sources 41/42)
     {
-        GW_2026_Parser parser;
-        ParseFilter filt;
-        long idx = 0;
-        for (;;) {
-            unsigned char lb[4];
-            if (std::fread(lb, 1, 4, in) != 4) break;
-            uint32_t len = (uint32_t)lb[0] | ((uint32_t)lb[1] << 8)
-                         | ((uint32_t)lb[2] << 16) | ((uint32_t)lb[3] << 24);
-            QByteArray body((int)len, 0);
-            if (len > 0 && std::fread(body.data(), 1, len, in) != len) break;
-            ++idx;
-            BplcFrame fr;
-            fr.meta.from_raw = true;
-            fr.data = body;
-            fr.meta.is_rf = (len > 0 && body[0] != 0);
-            MsduState msdu_state;
-            ParseResult r = parser.parse(fr, msdu_state, filt);
-            // Expected: dedup of direct station header sources, in station order.
-            QVector<TeiMacPair> want;
-            QVector<TeiMacPair> want_dst;  // Orig Dst 镜像:各站头目的去重,站序
-            for (int si = 0; si < r.mpdu.sof_stations.size(); ++si) {
-                const auto& st = r.mpdu.sof_stations[si];
-                MsduInfo si_info = GW_2026_MsduParser::parse(st.msdu);
-                if (si_info.msdu_src_tei > 0 && si_info.msdu_src_mac != 0) {
-                    bool dup = false;
-                    for (const auto& p : want)
-                        if (p.tei == si_info.msdu_src_tei && p.mac == si_info.msdu_src_mac) { dup = true; break; }
-                    if (!dup) want.append({(quint16)si_info.msdu_src_tei, si_info.msdu_src_mac});
+        const quint64 cco_mac = 0xAABBCCDDEE01ULL;
+        const quint64 sta29 = 0xAABBCCDDEE29ULL;
+        const quint64 sta2a = 0xAABBCCDDEE2AULL;
+        // 逐 bin 的逐帧期望 orig_srcs/orig_dsts(写死,不反推;验证"该收集却没收集"的场景)
+        // - 老 bin:3 帧,CCO→站下行,单 src [1:CCO];各站 MSDU 头目的=各站自己 → dst 逐站去重
+        //   F1: AssocCnf(11)/AssocCnf(12) → dst [11,12]
+        //   F2: AssocCnf(21)/Gather(24)   → dst [21,24]
+        //   F3: app(31)/AssocCnf(32)      → dst [31,32]
+        // - 多源 bin:1 帧,两站上行,源 41/42 不同;目的均为 CCO → 单 dst [1:CCO](去重)
+        const QVector<QVector<TeiMacPair>> want_by_bin[] = {
+            { { {1, cco_mac} }, { {1, cco_mac} }, { {1, cco_mac} } },
+            { { {41, sta29}, {42, sta2a} } },
+        };
+        const QVector<QVector<TeiMacPair>> want_dst_by_bin[] = {
+            { { {11, 0xAABBCCDDEE0BULL}, {12, 0xAABBCCDDEE0CULL} },
+              { {21, 0xAABBCCDDEE15ULL}, {24, 0xAABBCCDDEE18ULL} },
+              { {31, 0xAABBCCDDEE1FULL}, {32, 0xAABBCCDDEE20ULL} } },
+            { { {1, cco_mac} } },
+        };
+        const int nbins = (argc >= 3) ? 2 : 1;
+        long frame_no = 0;
+        for (int b = 0; b < nbins; ++b) {
+            FILE* in = std::fopen(argv[1 + b], "rb");
+            if (!in) { std::fprintf(stderr, "cannot open %s\n", argv[1 + b]); ++g_fails; continue; }
+            GW_2026_Parser parser;
+            ParseFilter filt;
+            const auto& want_frames = want_by_bin[b];
+            const auto& want_dst_frames = want_dst_by_bin[b];
+            for (int fi = 0; fi < want_frames.size(); ++fi) {
+                unsigned char lb[4];
+                if (std::fread(lb, 1, 4, in) != 4) break;
+                uint32_t len = (uint32_t)lb[0] | ((uint32_t)lb[1] << 8)
+                             | ((uint32_t)lb[2] << 16) | ((uint32_t)lb[3] << 24);
+                QByteArray body((int)len, 0);
+                if (len > 0 && std::fread(body.data(), 1, len, in) != len) break;
+                ++frame_no;
+                BplcFrame fr;
+                fr.meta.from_raw = true;
+                fr.data = body;
+                fr.meta.is_rf = (len > 0 && body[0] != 0);
+                MsduState msdu_state;
+                ParseResult r = parser.parse(fr, msdu_state, filt);
+                const QVector<TeiMacPair>& want = want_frames[fi];
+                bool ok = (r.msdu.orig_srcs.size() == want.size());
+                if (ok) {
+                    for (int k = 0; k < want.size(); ++k)
+                        if (r.msdu.orig_srcs[k].tei != want[k].tei || r.msdu.orig_srcs[k].mac != want[k].mac) { ok = false; break; }
                 }
-                if (si_info.msdu_dst_tei > 0 && si_info.msdu_dst_mac != 0) {
-                    bool dup = false;
-                    for (const auto& p : want_dst)
-                        if (p.tei == si_info.msdu_dst_tei && p.mac == si_info.msdu_dst_mac) { dup = true; break; }
-                    if (!dup) want_dst.append({(quint16)si_info.msdu_dst_tei, si_info.msdu_dst_mac});
+                std::printf("FRAME %ld accept=%d merged_orig=[%s] want=[%s]\n", frame_no, r.accept ? 1 : 0,
+                            qPrintable(srcs_str(r.msdu.orig_srcs)), qPrintable(srcs_str(want)));
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "parser frame %ld orig_srcs invariant", frame_no);
+                check(r.accept && ok, buf);
+                // Orig Dst 镜像(7f707aa):同口径写死期望
+                const QVector<TeiMacPair>& want_dst = want_dst_frames[fi];
+                bool ok_dst = (r.msdu.orig_dsts.size() == want_dst.size());
+                if (ok_dst) {
+                    for (int k = 0; k < want_dst.size(); ++k)
+                        if (r.msdu.orig_dsts[k].tei != want_dst[k].tei || r.msdu.orig_dsts[k].mac != want_dst[k].mac) { ok_dst = false; break; }
                 }
+                std::printf("FRAME %ld merged_dst=[%s] want=[%s]\n", frame_no,
+                            qPrintable(srcs_str(r.msdu.orig_dsts)), qPrintable(srcs_str(want_dst)));
+                std::snprintf(buf, sizeof(buf), "parser frame %ld orig_dsts invariant", frame_no);
+                check(r.accept && ok_dst, buf);
             }
-            bool ok = (r.msdu.orig_srcs.size() == want.size());
-            if (ok) {
-                for (int k = 0; k < want.size(); ++k)
-                    if (r.msdu.orig_srcs[k].tei != want[k].tei || r.msdu.orig_srcs[k].mac != want[k].mac) { ok = false; break; }
-            }
-            std::printf("FRAME %ld accept=%d merged_orig=[%s] want=[%s]\n", idx, r.accept ? 1 : 0,
-                        qPrintable(srcs_str(r.msdu.orig_srcs)), qPrintable(srcs_str(want)));
-            char buf[64];
-            std::snprintf(buf, sizeof(buf), "parser frame %ld orig_srcs invariant", idx);
-            check(r.accept && ok, buf);
-            bool ok_dst = (r.msdu.orig_dsts.size() == want_dst.size());
-            if (ok_dst) {
-                for (int k = 0; k < want_dst.size(); ++k)
-                    if (r.msdu.orig_dsts[k].tei != want_dst[k].tei || r.msdu.orig_dsts[k].mac != want_dst[k].mac) { ok_dst = false; break; }
-            }
-            std::snprintf(buf, sizeof(buf), "parser frame %ld orig_dsts invariant", idx);
-            check(r.accept && ok_dst, buf);
+            std::fclose(in);
         }
-        check(idx == 3, "parser read 3 frames");
+        check(frame_no == (nbins == 2 ? 4 : 3), "parser read all frames");
     }
-    std::fclose(in);
 
     // ---- B. Model column ----
     const quint64 macA = mac6(0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x0b);  // "aa:bb:cc:dd:ee:0b"

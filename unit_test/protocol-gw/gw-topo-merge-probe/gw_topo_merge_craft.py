@@ -26,6 +26,7 @@ Frames (all carrier, isRF=0, 2 stations x 1 PB block of 136B):
 Output: gw_topo_merge.bin ([u32 len][isRF][MPDU] records) + manifest on stdout.
 Helpers copied from ~/workspace/gw_learn_probe/gw_craft.py (proven builders).
 """
+import os
 import struct
 
 CCO_MAC = 0xAABBCCDDEE01
@@ -147,6 +148,13 @@ def app_msdu(dst_tei, dst_mac):
                      bytes([0x01, 0x00, 0x00, 0x00]), long_head=True)
 
 
+def uplink_app_msdu(sta_tei, sta_mac):
+    # 站点上行应用数据:MSDU 头源 = 站点自身(TEI+MAC),目的 = CCO。
+    # 供多源帧用——各站头源 TEI/MAC 不同,触发 orig_srcs 多源收集分支。
+    return msdu_base(sta_tei, 1, sta_mac, CCO_MAC, 48,
+                     bytes([0x01, 0x00, 0x00, 0x00]), long_head=True)
+
+
 def ofdma_frame_11(sta0_tei, sta0_msdu, sta1_tei, sta1_msdu):
     total = 16 + 16 + 2 * 136
     f = bytearray(total)
@@ -214,13 +222,29 @@ def main():
          ofdma_frame_11(31, app_msdu(31, 0xAABBCCDDEE1F),
                         32, assoc_cnf_msdu(32, 0xAABBCCDDEE20, 2))),
     ]
-    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "gw_topo_merge.bin"), "wb") as f:
+    out_dir = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(out_dir, "gw_topo_merge.bin"), "wb") as f:
         for name, mpdu in frames:
             body = b"\x00" + mpdu
             f.write(struct.pack("<I", len(body)))
             f.write(body)
             print(f"{name}: mpdu={len(mpdu)}B")
     print("wrote gw_topo_merge.bin, 3 frames")
+
+    # 多源帧:两站上行应用数据,MSDU 头源 TEI/MAC 均不同(41/42),
+    # 帧级无原始 TEI → orig_srcs 收集两个不同源(触发多源分支)
+    multi_frames = [
+        ("F4-OFDMA-multi",
+         ofdma_frame_11(41, uplink_app_msdu(41, 0xAABBCCDDEE29),
+                        42, uplink_app_msdu(42, 0xAABBCCDDEE2A))),
+    ]
+    with open(os.path.join(out_dir, "gw_topo_merge_multi.bin"), "wb") as f:
+        for name, mpdu in multi_frames:
+            body = b"\x00" + mpdu
+            f.write(struct.pack("<I", len(body)))
+            f.write(body)
+            print(f"{name}: mpdu={len(mpdu)}B")
+    print("wrote gw_topo_merge_multi.bin, 1 frame")
 
 
 if __name__ == "__main__":
