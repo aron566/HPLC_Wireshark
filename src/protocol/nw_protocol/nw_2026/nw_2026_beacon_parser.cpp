@@ -22,7 +22,7 @@ static QString beacon_type_name(quint8 t) {
     }
 }
 
-// 相线名称(表33:0 全相线 1 A 2 B 3 C)
+// 相线名称(SPLC 第4部分 表61:0 全相线 1 A 2 B 3 C)
 static QString line_name(quint8 l) {
     switch (static_cast<NW_2026_PhaseLine>(l)) {
         case NW_2026_PhaseLine::ALL_LINES: return trl::L("全相线");
@@ -33,7 +33,7 @@ static QString line_name(quint8 l) {
     }
 }
 
-// 站点角色(表33:0 未知 1 STA 2 PCO 4 CCO 其它保留)
+// 站点角色(SPLC 第4部分 表61:0 未知 1 STA 2 PCO 4 CCO 其它保留)
 static QString role_name(quint8 r) {
     switch (static_cast<NW_2026_StationType>(r)) {
         case NW_2026_StationType::UNKNOWN: return trl::L("未知");
@@ -90,7 +90,7 @@ static const int kBeaconLoadSpecN = int(sizeof(kBeaconLoadSpec) / sizeof(kBeacon
 
 // ── 信标条目字段表(相对条目内容 it,即条目头/长度之后) ──
 
-// 站点能力条目 0x01(表61,内容 20B;旧报批稿编号为表33)
+// 站点能力条目 0x01(SPLC 第4部分 表61,内容 20B;旧报批稿编号为表33)
 static const FieldSpec kStaCapSpec[] = {
     {"NetLevel",               0, 0, 6,  Fmt::DEC},   // 层级数
     {"STALine",                0, 6, 2,  Fmt::DEC},   // 相线
@@ -179,7 +179,7 @@ static const FieldSpec kRfChannelChangeSpec[] = {
 };
 static const int kRfChannelChangeSpecN = int(sizeof(kRfChannelChangeSpec) / sizeof(kRfChannelChangeSpec[0]));
 
-// 精简信标站点信息及时隙条目 0x0E(坐标同第2部分表155,内容 17B;表142 分配 0x0E)
+// 精简信标站点信息及时隙条目 0x0E(坐标同 BPLC 第2部分 表155,内容 17B;BPLC 第2部分 表142 分配 0x0E)
 static const FieldSpec kLiteStaSlotSpec[] = {
     {"TEI",              0, 0, 12, Fmt::DEC},   // 发送信标站点 TEI
     {"PCOTEI",           1, 4, 12, Fmt::DEC},   // 代理站点 TEI
@@ -374,8 +374,15 @@ MsduInfo NW_2026_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
             grp.children.append(ln);
 
             switch (head_type) {
-            case NW_2026_BeaconItemType::STA_CAPABILITY: {  // 站点能力条目(表33)
+            case NW_2026_BeaconItemType::STA_CAPABILITY: {  // 站点能力条目(SPLC 第4部分 表61)
                 add_fields(grp.children, it, 0, kStaCapSpec, kStaCapSpecN, abs0);
+                // 学习 TEI→SourceMAC(SPLC 第4部分 表61:TEI byte1 12b + SourceMAC byte4 48b;GW_2026 信标同型已学)
+                {
+                    const quint16 tei = (quint16)get_bits(it, 1, 0, 12);
+                    const quint64 mac = get_bits(it, 4, 0, 48);
+                    if (tei != 0 && mac)
+                        out.tei_mac_pairs.append({tei, mac});
+                }
                 annotate_unit(grp.children, "LinkMinCommSuccessRate", QStringLiteral("%"));
                 for (auto& ch : grp.children) {
                     if (ch.name.startsWith(QStringLiteral("STALine"))) {
@@ -511,8 +518,15 @@ MsduInfo NW_2026_BeaconParser::parse_beacon(const QByteArray& payload, int pbsiz
                 annotate_unit(grp.children, "SwitchRemainTime", QStringLiteral("ms"));
                 break;
             }
-            case NW_2026_BeaconItemType::SIMPLE_STA_SLOT: {  // 精简信标站点信息及时隙条目(坐标同第2部分表155)
+            case NW_2026_BeaconItemType::SIMPLE_STA_SLOT: {  // 精简信标站点信息及时隙条目(坐标同 BPLC 第2部分 表155)
                 add_fields(grp.children, it, 0, kLiteStaSlotSpec, kLiteStaSlotSpecN, abs0);
+                // 学习 TEI→BeaconSTAMAC(BPLC 第2部分 表155:TEI byte0 12b + BeaconSTAMAC byte4 48b;GW_2026 信标同型已学)
+                {
+                    const quint16 tei = (quint16)get_bits(it, 0, 0, 12);
+                    const quint64 mac = get_bits(it, 4, 0, 48);
+                    if (tei != 0 && mac)
+                        out.tei_mac_pairs.append({tei, mac});
+                }
                 annotate_unit(grp.children, "CSMASlotLen", QStringLiteral("ms"));
                 for (auto& ch : grp.children) {
                     if (ch.name.startsWith(QStringLiteral("Role"))) {
