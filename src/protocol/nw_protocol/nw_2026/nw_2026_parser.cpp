@@ -515,9 +515,13 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                 // 表6:单跳帧协议(版本=2)仅无线信道支持;载波信道收到属异常(排查信道/串口错配)
                 if (!r.meta.is_rf && (((quint8)res.msdu_body[0] >> 1) & 0x03) == 2)
                     qWarning("NW_2026: single-hop MAC version=2 on PLC channel (isRF=0)");
-                // CRC 失败块不解析(用户 2026-10-29 定):体流含坏块字节即整段
-                // 不解析,仅留摘要说明;pb_crc_ok=false 已标 FAIL/红行。
-                if (res.all_crc_ok) {
+                // CRC 失败块不解析(用户 2026-10-29 定,多块补定:好块要解析):
+                // 首帧 MSDU 完整落在好块内即解析(坏块在 span 之外不影响);
+                // span 横跨坏块时仍整段不解析,仅留摘要说明(缺失字节会使
+                // 体流错位成错误数据);pb_crc_ok=false 已标 FAIL/红行。
+                if (res.all_crc_ok
+                    || pb_asm::msdu_span_avoids_bad_blocks(res.msdu_body, res.blocks,
+                                                           layout.body_len(r.mpdu.pb_size))) {
                     r.msdu = NW_2026_MsduParser::parse(res.msdu_body);
                     // 高亮:单块连续 = 首块块体起点(块体在 raw_bytes 中的绝对偏移);
                     // 多块重组时各块体被 PB 头/保留/CRC 隔断,不连续 → -1(沿用国网约定)
@@ -743,8 +747,12 @@ void NW_2026_Parser::parse_ofdma_type1(Result& r, const quint8* p, int raw_sz) {
                                 const MsduInfo cm = NW_2026_MsduParser::parse(c.mac);
                                 merge_msdu_learn(r.msdu, cm);
                             }
-                        } else if (res.all_crc_ok) {
-                            // 非级联整段:含坏块即不解析不学习(用户 2026-10-29 定)
+                        } else if (res.all_crc_ok
+                                   || pb_asm::msdu_span_avoids_bad_blocks(
+                                          st.msdu, res.blocks,
+                                          layout.body_len(ts.pb_size))) {
+                            // 非级联整段:span 完整落在好块内即解析学习,横跨坏块
+                            // 则不解析不学习(用户 2026-10-29 定 + 多块补定)
                             const MsduInfo cm = NW_2026_MsduParser::parse(st.msdu);
                             merge_msdu_learn(r.msdu, cm);
                         }

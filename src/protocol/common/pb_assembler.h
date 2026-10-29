@@ -165,6 +165,46 @@ inline AssembleResult assemble_pb_blocks(const QByteArray& raw, int pb_num,
     return res;
 }
 
+/// @brief 首帧 MSDU span 是否避开全部 CRC 失败块(用户 2026-10-29 补定:
+/// 多块帧中好块要解析——只要首帧 MSDU 完整落在好块内即解析,坏块在
+/// span 之外时不影响;span 横跨坏块时仍不解析,因缺失字节会使体流
+/// 错位成错误数据,而非“部分正确”)。
+/// @details span 口径与 MSDU 解析器一致(nw_2026_msdu_parser.cpp):
+/// msdu_len 在体[2..3]LE;版本(体[0] bit1-2)==2 为单跳帧 span=4+len+4,
+/// 否则标准头 span=mac_hdr_len(体[0] bit0:0=32B/1=12B)+len+4(帧尾 CRC32)。
+/// span 自体流 0 起,故与坏块 [i*body_len,(i+1)*body_len) 相交当且仅当
+/// span > i*body_len。体 <4B 或 body_len<=0 时无法判定,返回 false。
+inline bool msdu_span_avoids_bad_blocks(const QByteArray& body,
+                                        const QVector<bool>& crc_oks,
+                                        int body_len) {
+    if (body.size() < 4 || body_len <= 0) return false;
+    const quint8* p = reinterpret_cast<const quint8*>(body.constData());
+    const quint16 msdu_len = (quint16)p[2] | ((quint16)p[3] << 8);
+    int span = 0;
+    if (((p[0] >> 1) & 0x03) == 2) {
+        span = 4 + msdu_len + 4;
+    } else {
+        if (body.size() < 12) return false;
+        const int mac_hdr_len = ((p[0] & 0x01) == 0) ? 32 : 12;
+        span = mac_hdr_len + msdu_len + 4;
+    }
+    for (int i = 0; i < crc_oks.size(); ++i) {
+        if (crc_oks[i]) continue;
+        if (span > i * body_len) return false;
+    }
+    return true;
+}
+
+/// @brief 上述判定的 PbBlock 容器版(块序与体流拼接序一致)。
+inline bool msdu_span_avoids_bad_blocks(const QByteArray& body,
+                                        const QVector<PbBlock>& blocks,
+                                        int body_len) {
+    QVector<bool> crc_oks;
+    crc_oks.reserve(blocks.size());
+    for (const PbBlock& b : blocks) crc_oks.append(b.crc_ok);
+    return msdu_span_avoids_bad_blocks(body, crc_oks, body_len);
+}
+
 }  // namespace pb_asm
 
 #endif  // PROTOCOL_PB_ASSEMBLER_H
