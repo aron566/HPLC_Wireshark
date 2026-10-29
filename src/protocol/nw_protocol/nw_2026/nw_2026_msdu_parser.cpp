@@ -2665,5 +2665,10 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
     // 计算覆盖 MSDU 载荷(不含 MAC 帧头),poly=0xEDB88320
     append_msdu_crc(out, body, mac_hdr_len, msdu_len);
     out.present = true;
+    // 逐事件发送方 MAC:与重启次数同源(MAC 帧头源 MAC);短头无 MAC 时留 0,
+    // TopoState 回落到事件 nodes 首条;多站/级联每段/每站解析各填各的,
+    // 合并时随 TopoEvent 对象整体拷贝,不混、不丢。
+    if (out.topo_event.kind != TopoEventKind::Other && out.msdu_src_mac)
+        out.topo_event.sender_mac = out.msdu_src_mac;
     return out;
 }
