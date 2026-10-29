@@ -128,6 +128,8 @@ struct I18nReg {
         trl::register_en(" (截断: PB 块不完整, 声明 %1 块仅收到 %2 块)", " (truncated: %1 PB declared, %2 received)");
         trl::register_en("训练帧（Bitloading训练帧）", "Training Frame (Bitloading)");
         trl::register_en("聚合帧(%1 个级联 MAC 帧)", "Aggregated Frame (%1 cascade MAC frames)");
+        trl::register_en("（%1 段因块 CRC 失败未解析）", "(%1 segments skipped: block CRC failed)");
+        trl::register_en("块 CRC 失败未解析", "Block CRC failed, not parsed");
         trl::register_en("聚合帧(%1 帧: %2)", "Aggregated Frame (%1 frames: %2)");
         trl::register_en("聚合帧(%1 帧: %2 ×%3)", "Aggregated Frame (%1 frames: %2 x%3)");
         trl::register_en(", ", ", ");
@@ -174,6 +176,19 @@ static void merge_msdu_learn(MsduInfo& dst, const MsduInfo& cm) {
         if (cm.msdu_src_tei > 0 && cm.msdu_src_mac)
             add_orig_src((quint16)cm.msdu_src_tei, cm.msdu_src_mac);
         for (const auto& p : cm.orig_srcs) add_orig_src(p.tei, p.mac);
+    }
+    // 聚合/多站点目的(与源镜像:仅当帧级尚无原始目的 TEI 时收集;
+    // 帧级已有目的则不收集、不展示多目的)。
+    if (dst.msdu_dst_tei <= 0) {
+        auto add_orig_dst = [&](quint16 tei, quint64 mac) {
+            if (tei == 0 || mac == 0) return;
+            for (const auto& p : dst.orig_dsts)
+                if (p.tei == tei && p.mac == mac) return;
+            dst.orig_dsts.append({tei, mac});
+        };
+        if (cm.msdu_dst_tei > 0 && cm.msdu_dst_mac)
+            add_orig_dst((quint16)cm.msdu_dst_tei, cm.msdu_dst_mac);
+        for (const auto& p : cm.orig_dsts) add_orig_dst(p.tei, p.mac);
     }
     if (cm.topo_event.kind != TopoEventKind::Other) {
         if (dst.topo_event.kind == TopoEventKind::Other)
@@ -480,6 +495,11 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                                              .arg(cas_cnt).arg(list);
                     }
                 }
+                // CRC 失败块剔除的记录数(assembler 已过滤):摘要里说明,避免
+                // 段数悄悄变少;被剔记录不解析、不进树、不参与学习。
+                if (res.cascade_crc_skipped > 0)
+                    r.msdu.summary += trl::L("（%1 段因块 CRC 失败未解析）")
+                                          .arg(res.cascade_crc_skipped);
                 // msdu_body 保留为级联体流供树值/高亮映射,非重组 MSDU 语义(见 msdu.cascade);
                 // total_len = 级联体流总长(树层 Length 子节点/区间高亮依据)
                 r.msdu.cascade = true;
@@ -495,11 +515,17 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                 // 表6:单跳帧协议(版本=2)仅无线信道支持;载波信道收到属异常(排查信道/串口错配)
                 if (!r.meta.is_rf && (((quint8)res.msdu_body[0] >> 1) & 0x03) == 2)
                     qWarning("NW_2026: single-hop MAC version=2 on PLC channel (isRF=0)");
-                r.msdu = NW_2026_MsduParser::parse(res.msdu_body);
-                // 高亮:单块连续 = 首块块体起点(块体在 raw_bytes 中的绝对偏移);
-                // 多块重组时各块体被 PB 头/保留/CRC 隔断,不连续 → -1(沿用国网约定)
-                r.msdu_raw_base = (r.mpdu.pb_num == 1 && !res.blocks.isEmpty())
-                                      ? res.blocks.first().body_raw_offset : -1;
+                // CRC 失败块不解析(用户 2026-10-29 定):体流含坏块字节即整段
+                // 不解析,仅留摘要说明;pb_crc_ok=false 已标 FAIL/红行。
+                if (res.all_crc_ok) {
+                    r.msdu = NW_2026_MsduParser::parse(res.msdu_body);
+                    // 高亮:单块连续 = 首块块体起点(块体在 raw_bytes 中的绝对偏移);
+                    // 多块重组时各块体被 PB 头/保留/CRC 隔断,不连续 → -1(沿用国网约定)
+                    r.msdu_raw_base = (r.mpdu.pb_num == 1 && !res.blocks.isEmpty())
+                                          ? res.blocks.first().body_raw_offset : -1;
+                } else {
+                    r.msdu.summary = trl::L("块 CRC 失败未解析");
+                }
             }
             // 截断提示(用户需求):声明块数 vs 实收块数,聚合/非聚合都标;FCH 声明 pb_num,
             // 实收 = 完整容纳块数(pb_assembler res.blocks)
@@ -712,11 +738,13 @@ void NW_2026_Parser::parse_ofdma_type1(Result& r, const quint8* p, int raw_sz) {
                     // 注:r.msdu.present 保持 false(显示不变);对循环消费不以 present 为门,学习仍生效。
                     if (!st.msdu.isEmpty()) {
                         if (res.any_aggregated) {
+                            // 级联记录已由 assembler 按 CRC 过滤,仅好块记录进合并
                             for (const auto& c : res.cascade) {
                                 const MsduInfo cm = NW_2026_MsduParser::parse(c.mac);
                                 merge_msdu_learn(r.msdu, cm);
                             }
-                        } else {
+                        } else if (res.all_crc_ok) {
+                            // 非级联整段:含坏块即不解析不学习(用户 2026-10-29 定)
                             const MsduInfo cm = NW_2026_MsduParser::parse(st.msdu);
                             merge_msdu_learn(r.msdu, cm);
                         }

@@ -375,6 +375,7 @@ struct MsduInfo {
     QVector<MsduFieldNode> tree;  ///< 字段树(协议树直接挂载显示)
     QVector<TeiMacPair> tei_mac_pairs; ///< 本帧携带的 TEI→MAC 学习对(发现列表等)
     QVector<TeiMacPair> orig_srcs;   ///< 聚合/多站点帧各段/各站的原始源(TEI,MAC),按段/站序、去重;仅帧级无原始 TEI 时收集,帧级有源或单段帧时为空(走原单源逻辑)
+    QVector<TeiMacPair> orig_dsts;   ///< 聚合/多站点帧各段/各站的原始目的(TEI,MAC),按段/站序、去重;仅帧级无原始目的 TEI 时收集,帧级有目的或单段帧时为空(走原单目的逻辑;与 orig_srcs 镜像,用户 2026-10-29 定)
     TopoEvent topo_event;        ///< 拓扑事件(关键管理消息填充;kind=Other 表示无)
     QVector<TopoEvent> topo_extra_events; ///< 多站点合并的后续拓扑事件:topo_event=首事件,本字段=其余事件;消费全部事件必须两者都读
 
@@ -492,6 +493,33 @@ inline QString make_search_text(const PacketEntry& e) {
             parts << QStringLiteral("sta-%1").arg(p.tei);
             if (p.mac) {
                 // MAC u64 约定:低字节为首字节,与 format_mac/字段树 mac_str 一致
+                QString m;
+                for (int i = 0; i < 6; ++i) {
+                    m += QStringLiteral("%1").arg((p.mac >> (8 * i)) & 0xFF, 2, 16, QChar('0'));
+                    if (i < 5) m += QLatin1Char(':');
+                }
+                parts << m;
+            }
+        }
+    }
+    // Orig Dst 列内容亦可搜:与 Orig Src 镜像——帧级有目的时只列帧级目的,
+    // 无目的时列各段/各站目的;sta- 词供等值谓词按整词匹配,MAC 串供子串及
+    // MAC 模式展开后匹配。
+    {
+        QVector<TeiMacPair> dsts;
+        auto add_dst = [&](int tei, quint64 mac) {
+            if (tei <= 0) return;
+            for (const auto& p : dsts)
+                if (p.tei == tei && p.mac == mac) return;
+            dsts.append({(quint16)tei, mac});
+        };
+        if (e.msdu.msdu_dst_tei > 0)
+            add_dst(e.msdu.msdu_dst_tei, e.msdu.msdu_dst_mac);
+        else
+            for (const auto& p : e.msdu.orig_dsts) add_dst(p.tei, p.mac);
+        for (const auto& p : dsts) {
+            parts << QStringLiteral("sta-%1").arg(p.tei);
+            if (p.mac) {
                 QString m;
                 for (int i = 0; i < 6; ++i) {
                     m += QStringLiteral("%1").arg((p.mac >> (8 * i)) & 0xFF, 2, 16, QChar('0'));

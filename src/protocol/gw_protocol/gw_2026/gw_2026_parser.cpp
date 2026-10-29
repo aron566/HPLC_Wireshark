@@ -66,6 +66,18 @@ static void merge_msdu_learn(MsduInfo& dst, const MsduInfo& src) {
             add_orig_src((quint16)src.msdu_src_tei, src.msdu_src_mac);
         for (const auto& p : src.orig_srcs) add_orig_src(p.tei, p.mac);
     }
+    // 聚合/多站点目的(与源镜像:仅当帧级尚无原始目的 TEI 时收集)。
+    if (dst.msdu_dst_tei <= 0) {
+        auto add_orig_dst = [&](quint16 tei, quint64 mac) {
+            if (tei == 0 || mac == 0) return;
+            for (const auto& p : dst.orig_dsts)
+                if (p.tei == tei && p.mac == mac) return;
+            dst.orig_dsts.append({tei, mac});
+        };
+        if (src.msdu_dst_tei > 0 && src.msdu_dst_mac != 0)
+            add_orig_dst((quint16)src.msdu_dst_tei, src.msdu_dst_mac);
+        for (const auto& p : src.orig_dsts) add_orig_dst(p.tei, p.mac);
+    }
     if (src.topo_event.kind != TopoEventKind::Other) {
         if (dst.topo_event.kind == TopoEventKind::Other)
             dst.topo_event = src.topo_event;

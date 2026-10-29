@@ -142,6 +142,31 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                 return QString();
             }
             case COL_ORIG_DST: {
+                // 多目的(聚合/多站点帧):与 Orig Src 镜像,前提条件是帧级无原始
+                // 目的 TEI,此时才展示各段/各站目的;帧级已有目的时走后方单目的
+                // 逻辑,不展示多目的。合并帧 present=false 亦显示,故不以 present 为门。
+                if (e.accepted && !e.msdu.simple_head && e.msdu.msdu_dst_tei <= 0
+                    && !e.msdu.orig_dsts.isEmpty()) {
+                    QVector<TeiMacPair> dsts;
+                    for (const auto& p : e.msdu.orig_dsts) {
+                        if (p.tei == 0 || p.mac == 0) continue;
+                        bool dup = false;
+                        for (const auto& q : dsts)
+                            if (q.tei == p.tei && q.mac == p.mac) { dup = true; break; }
+                        if (!dup) dsts.append(p);
+                    }
+                    if (!dsts.isEmpty()) {
+                        QStringList parts;
+                        for (const auto& p : dsts) {
+                            QString s = (p.tei == kTeiBroadcast) ? QStringLiteral("BCAST")
+                                       : (p.tei == kTeiCco) ? QStringLiteral("CCO")
+                                       : QStringLiteral("STA-%1").arg(p.tei);
+                            s += QStringLiteral(" [%1]").arg(format_mac(p.mac));
+                            parts.append(s);
+                        }
+                        return parts.join(QLatin1Char(','));
+                    }
+                }
                 if (e.accepted && e.msdu.present && !e.msdu.simple_head
                     && e.msdu.msdu_dst_tei > 0) {
                     const int tei = e.msdu.msdu_dst_tei;

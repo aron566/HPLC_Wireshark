@@ -67,7 +67,11 @@ struct AssembleResult {
                                    ///< 候选口径,待决策;在此之前保持本语义。
     bool all_crc_ok = true;        ///< 全部完整块 CRC24 通过
     QByteArray msdu_body;          ///< 全部块体依序拼接(分片重组缓冲/级联体流)
-    QVector<CascadeMac> cascade;   ///< 聚合级联拆分结果(any_aggregated 时有效)
+    QVector<CascadeMac> cascade;   ///< 聚合级联拆分结果(any_aggregated 时有效;
+                                   ///< 已剔除与 CRC 失败块体相交的记录,见下)
+    int cascade_crc_skipped = 0;   ///< 聚合:因块 CRC 失败被剔除的级联记录数(用户
+                                   ///< 2026-10-29 定:CRC 失败块数据不准确不解析,
+                                   ///< 仅解析全部字节均来自 CRC 通过块的记录)
     int cascade_used = 0;          ///< 聚合:级联记录流有效长度(逐条 2+级联数据块长度
                                    ///< 累加,不含块体尾填充;非聚合=0)
     int cascade_break_declared_len = -1; ///< 聚合:级联 while 因"声明长度越界/非法"终止时,
@@ -139,6 +143,24 @@ inline AssembleResult assemble_pb_blocks(const QByteArray& raw, int pb_num,
             o += 2 + clen;
         }
         res.cascade_used = o;   // 级联记录流有效长度(块体尾填充不计,协议语义=逐条累加)
+        // CRC 失败块不解析(用户 2026-10-29 定):记录 span=[body_start,
+        // body_start+2+mac_len),只要与任一 CRC 失败块体区间
+        // [i*body_len,(i+1)*body_len) 相交即剔除;msdu_body 本身不动
+        // (高亮/块映射仍按原体流),cascade_used 亦保持原流长度。
+        QVector<CascadeMac> kept;
+        kept.reserve(res.cascade.size());
+        for (const CascadeMac& c : res.cascade) {
+            const int s = c.body_start, e = c.body_start + 2 + c.mac_len;
+            bool bad = false;
+            for (int i = 0; i < res.blocks.size() && !bad; ++i) {
+                if (res.blocks[i].crc_ok) continue;
+                const int bs = i * body_len, be = bs + body_len;
+                if (s < be && e > bs) bad = true;
+            }
+            if (bad) ++res.cascade_crc_skipped;
+            else kept.append(c);
+        }
+        res.cascade = kept;
     }
     return res;
 }
