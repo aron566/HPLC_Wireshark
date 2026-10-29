@@ -178,6 +178,7 @@ struct I18nRegTopoWindow {
         trl::register_en("层级", "Level");
         trl::register_en("邻居表", "Neighbors");
         trl::register_en("代理 TEI", "Proxy TEI");
+        trl::register_en("本站点的代理 (PCO)", "This STA's proxy (PCO)");
         trl::register_en("STA TEI=%1 的邻居表", "Neighbors of STA TEI=%1");
         trl::register_en("发现列表报文数", "Discover count");
         trl::register_en("在线", "Online");
@@ -1014,6 +1015,11 @@ void TopoWindow::on_teimac_double_clicked(const QModelIndex& idx) {
         if (it.value().contains(sta_tei)) nb_set.insert(it.key());
     if (nb_set.isEmpty()) return;
 
+    // 本 STA 自己的代理(PCO):与主表"代理 TEI"列同一来源(parent_tei);
+    // 0=根(CCO 自身)、0xFFFF=未知时无可标记行
+    const quint16 own_pco = st->nodes.value(sta_tei).parent_tei;
+    const bool has_pco = own_pco != kTeiInvalid && own_pco != 0;
+
     // 每邻居评分(公式见 docs/TOPO_NEIGHBOR_SCORE.md;无线用接收率,载波用发现次数)
     struct NeighborRow { quint16 tei; int r; int cnt_sum; int rssi; QString tip; };
     QVector<NeighborRow> rows;
@@ -1066,6 +1072,10 @@ void TopoWindow::on_teimac_double_clicked(const QModelIndex& idx) {
         {QStringLiteral("TEI"), QStringLiteral("MAC"), trl::L("入网链路"), trl::L("双模"), QStringLiteral("SNR (dB)"),
          trl::L("信号强度 (dBm)"), trl::L("上行成功率%（对方→我）"), trl::L("下行成功率%（我→对方）"),
          trl::L("我报它次数"), trl::L("它报我次数"), trl::L("双向"), trl::L("可靠度")});
+    // PCO 行前景色:沿主表邻居绿色的主题口径,按表格背景明暗取琥珀色深/浅档,
+    // 白底加深、黑底提亮,保证双主题下都与普通行可区分
+    const bool light_bg = dlg->palette().color(QPalette::Base).lightness() > 128;
+    const QColor pco_color = light_bg ? QColor(176, 90, 0) : QColor(255, 183, 77);
     for (const NeighborRow& row : rows) {
         const quint16 nb = row.tei;
         const TopoNode& node = st->nodes.value(nb);
@@ -1102,6 +1112,18 @@ void TopoWindow::on_teimac_double_clicked(const QModelIndex& idx) {
         QStandardItem* ritem = new QStandardItem(QString::number(row.r));
         ritem->setToolTip(row.tip);
         items << ritem;
+        if (has_pco && nb == own_pco) {
+            // 自己的 PCO 行:整行加粗 + 琥珀色前景,双主题下均显著区别于普通邻居
+            for (QStandardItem* item : items) {
+                QFont f = item->font();
+                f.setBold(true);
+                item->setFont(f);
+                item->setForeground(pco_color);
+                // 可靠度格已有评分公式提示,不覆盖;其余格加 PCO 说明
+                if (item->toolTip().isEmpty())
+                    item->setToolTip(trl::L("本站点的代理 (PCO)"));
+            }
+        }
         model->appendRow(items);
     }
     // 方向图例(用户要求:明确"上行=对方→我 / 下行=我→对方"的数据来源)
