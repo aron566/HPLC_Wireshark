@@ -201,6 +201,12 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.symbol_num   = (quint16)get_bits(p, 10, 7, 9);  // 符号数(表16)
             r.mpdu.tmi_ext   = (quint8) get_bits(p, 12, 0, 4);
             { const int sz = nw_2021_pb_size(r.mpdu.tmi, r.mpdu.tmi_ext); r.mpdu.pb_size = (quint16)(sz > 0 ? sz : 0); }
+            // PBNum=0 实帧归一:载波 SOF 帧头 PBNum=0 但 TMI 查表得有效块长
+            // (pb_size>8)时,块体确实存在于偏移 16(实证:PBNum=0/TMI=0 → 520B,
+            // 整块 CRC24 通过);此时按 1 块组装,否则 :212 门与循环双重跳过,
+            // MSDU 恒空且 pb_crc_ok 恒 false(误报 FAIL)。pb_size<=8 时不归一,
+            // 保留 0 块语义(pb_size=0 的合法 0 块路径不受影响)。门与循环不动。
+            if (r.mpdu.pb_num == 0 && r.mpdu.pb_size > 8) r.mpdu.pb_num = 1;
         }
         if (f.tei_filter && !f.tei_list.contains(r.mpdu.src_tei)
                         && !f.tei_list.contains(r.mpdu.dst_tei)) {
@@ -233,7 +239,10 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.pb_crc_ok = all_pb_ok;
             if (!msdu_body.isEmpty()) {
                 r.msdu_body = msdu_body;
-                // 表6:单跳帧协议(版本=2)仅无线信道支持;载波信道收到属异常(排查信道/串口错配)
+                // BPLC 表107:单跳帧协议(版本=2)载波不支持、仅无线信道支持
+                // (BPLC §8.1.2.4/表113;SPLC 第4部分 5.1.2.4/表12 同结论);
+                // 载波信道收到属异常(排查信道/串口错配)。例外测试见
+                // samples/gen_nw_bplc_frames.py build_singlehop_rfdl(载波外壳+is_rf=0)。
                 if (!r.meta.is_rf && (((quint8)msdu_body[0] >> 1) & 0x03) == 2)
                     qWarning("NW_2021: single-hop MAC version=2 on PLC channel (isRF=0)");
                 r.msdu = NW_2021_MsduParser::parse(msdu_body);
