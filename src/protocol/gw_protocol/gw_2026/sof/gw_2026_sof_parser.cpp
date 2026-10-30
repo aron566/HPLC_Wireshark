@@ -202,9 +202,10 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
         // 子类型专属字段由字段树标注(见 gw_2026_tree.cpp SOF 分支)。
     }
 
-    const int max_pb_num = (band < 4)
-        ? gw_2026_max_pb_num(band, info.tmi) : 4;  // 非 PLC:1-4 上限
-    // 块数合法性只约束载波;RF 生效块数恒 1(见上);PB 大小非法(-1)对载波/无线均拒收
+    const int max_pb_num = (band < 7)
+        ? gw_2026_max_pb_num(band, info.tmi) : 4;  // 非表内频段:1-4 上限
+    // 块数合法性只约束载波;RF 生效块数恒 1(见上);PB 大小非法(-1)对载波/无线均拒收。
+    // max_pb_num==0(该频段+模式不支持,如 band3)时 pb_num>=1 即超限拒收。
     if (pb_size <= 0
         || (!is_rf && (info.pb_num == 0 || info.pb_num > max_pb_num))) {
         return trl::L("PB 大小/数量非法(band=%1 mod=%2 param=%3 num=%4 max=%5)")
