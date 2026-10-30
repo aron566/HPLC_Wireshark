@@ -1,7 +1,8 @@
 /// @file nw_2021_pb_table.h
-/// @brief 南网 NW_2021 协议参数:PB 块大小查表(载波 TMI / 无线载荷 PB 大小)
+/// @brief 南网 NW_2021 协议参数:PB 块大小查表(载波 TMI / 无线载荷 PB 大小) + PBNum 上限表
 /// @details 南网双模 2021 报批版,与国网 GW_2022 的 PB 定义不同:
-///   - 载波路径:TMI(载波映射表索引)→ PB size,取值 0-14;TMI 13-14 转查 TMI_EXT
+///   - 载波路径:TMI(载波映射表索引)→ PB size,取值 0-14;TMI=0xD(13) 转查
+///     TMI_EXT(BPLC-2 表121 j)节:仅 13 触发扩展,14 无扩展定义)
 ///   - 无线路径:载荷 PB 大小(PBLen,表130)→ PB size,0-5 → 16/40/72/136/264/520
 /// @note PB 大小映射见协议表(载波 TMI 映射表 / 无线 PBLen 表130)。与国网独立,勿共享。
 #ifndef NW_2021_PB_TABLE_H
@@ -15,9 +16,12 @@ inline int nw_2021_pb_size(quint8 tmi, quint8 tmi_ext) {
     if (tmi >= 2 && tmi <= 6)                          return 136;
     if (tmi >= 7 && tmi <= 10)                         return 520;
     if (tmi == 11 || tmi == 12)                        return 264;
-    // TMI 13-14:转查扩展 TMI_EXT
-    if (tmi_ext >= 1 && tmi_ext <= 6)                  return 520;
-    if (tmi_ext >= 10 && tmi_ext <= 14)                return 136;
+    // TMI=0xD(13):转查扩展 TMI_EXT(表121 j)节;14 无扩展定义 → -1
+    if (tmi == 13) {
+        if (tmi_ext >= 1 && tmi_ext <= 6)              return 520;
+        if (tmi_ext >= 10 && tmi_ext <= 14)            return 136;
+        return -1;
+    }
     return -1;
 }
 

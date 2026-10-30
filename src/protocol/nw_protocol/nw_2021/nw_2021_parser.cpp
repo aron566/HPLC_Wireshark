@@ -221,7 +221,9 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.tmi_ext   = (quint8) get_bits(p, 12, 0, 4);
             { const int sz = nw_2021_pb_size(r.mpdu.tmi, r.mpdu.tmi_ext); r.mpdu.pb_size = (quint16)(sz > 0 ? sz : 0); }
             // PBNum 精确上限(用户拍板):meta.channel 即载波频段号(剥头 payload[2],
-            // PLC=频段 0-2),按频段×TMI/TMI_EXT 查 nw_2021_max_pb_num;超限/组合无效拒收
+            // PLC=频段 0-2),按频段×TMI/TMI_EXT 查 nw_2021_max_pb_num;超限/组合无效拒收。
+            // 前提说明:裸 hex 导入(from_raw)无媒介头,channel=默认 0 → 按 band0 上限校验
+            //(错频段只会错严/错松,不会崩);channel>=3(媒介头异常)查表 -1 → 拒收。
             if (!r.meta.is_rf && r.mpdu.pb_num > 0) {
                 const int ub = nw_2021_max_pb_num(r.meta.channel, r.mpdu.tmi, r.mpdu.tmi_ext);
                 if (ub < 0 || r.mpdu.pb_num > ub) {

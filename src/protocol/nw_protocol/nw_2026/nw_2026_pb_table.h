@@ -19,9 +19,12 @@ inline int nw_2026_pb_size(quint8 tmi, quint8 tmi_ext) {
     if (tmi >= 2 && tmi <= 6)                          return 136;
     if (tmi >= 7 && tmi <= 10)                         return 520;
     if (tmi == 11 || tmi == 12)                        return 264;
-    // TMI 13-14:转查扩展 TMI_EXT
-    if (tmi_ext >= 1 && tmi_ext <= 6)                  return 520;
-    if (tmi_ext >= 10 && tmi_ext <= 14)                return 136;
+    // TMI=0xD(13):转查扩展 TMI_EXT(BPLC-2 表121 j)节;14 无扩展定义 → -1
+    if (tmi == 13) {
+        if (tmi_ext >= 1 && tmi_ext <= 6)              return 520;
+        if (tmi_ext >= 10 && tmi_ext <= 14)            return 136;
+        return -1;
+    }
     return -1;
 }
 
