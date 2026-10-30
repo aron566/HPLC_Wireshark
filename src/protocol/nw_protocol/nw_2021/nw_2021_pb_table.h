@@ -55,7 +55,8 @@ inline constexpr quint8 nw_2021_pb_num_table[3][28] = {
 /// 扩展触发口径与 nw_2021_pb_size 一致对齐协议(表121 j)节):TMI=0xD/13 时
 /// 载荷按 TMI_EXT 译码;TMI>=14 主表无定义,直接无效。
 inline int nw_2021_max_pb_num(quint8 band, quint8 tmi, quint8 tmi_ext) {
-    if (band >= 3) return -1;                        // 频段越界(0-2)
+    constexpr int kRows = sizeof(nw_2021_pb_num_table) / sizeof(nw_2021_pb_num_table[0]);
+    if (band >= kRows) return -1;                    // 频段越界(表行数即有效频段数)
     int col;
     if (tmi <= 12) {
         col = tmi;                                   // TMI 主列(0-12)

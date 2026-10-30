@@ -79,7 +79,8 @@ inline constexpr quint8 nw_2026_pb_num_table[5][28] = {
 /// 查南网 SPLC 某频段 + TMI 编号支持的最大 PB 块数量。返回 -1 = 配置无效。
 /// 0 = 该频段+TMI 组合不支持(调用方按非法拒收)。
 inline int nw_2026_max_pb_num(quint8 band, quint8 tmi_idx) {
-    if (band >= 5) return -1;                        // 频段越界(0-4;5/6 保留)
+    constexpr int kRows = sizeof(nw_2026_pb_num_table) / sizeof(nw_2026_pb_num_table[0]);
+    if (band >= kRows) return -1;                    // 频段越界(表行数即有效频段数)
     if (tmi_idx >= 28) return -1;                    // TMI 编号越界(表13 28 项)
     return nw_2026_pb_num_table[band][tmi_idx];
 }

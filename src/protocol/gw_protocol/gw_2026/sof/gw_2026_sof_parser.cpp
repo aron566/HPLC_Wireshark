@@ -202,8 +202,7 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
         // 子类型专属字段由字段树标注(见 gw_2026_tree.cpp SOF 分支)。
     }
 
-    const int max_pb_num = (band < 7)
-        ? gw_2026_max_pb_num(band, info.tmi) : 4;  // 非表内频段:1-4 上限
+    const int max_pb_num = gw_2026_max_pb_num(band, info.tmi);  // -1=频段/模式越界(查表自判)
     // 块数合法性只约束载波;RF 生效块数恒 1(见上);PB 大小非法(-1)对载波/无线均拒收。
     // max_pb_num==0(该频段+模式不支持,如 band3)时 pb_num>=1 即超限拒收。
     if (pb_size <= 0

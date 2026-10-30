@@ -66,8 +66,7 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
         pb_size         = sof_pb_size(info.tmi, info.tmi_ext);
     }
 
-    const int max_pb_num = (band < 4)
-        ? gw_2022_max_pb_num(band, info.tmi, info.tmi_ext) : 4;  // 非 PLC:1-4 上限
+    const int max_pb_num = gw_2022_max_pb_num(band, info.tmi, info.tmi_ext);  // -1=频段/组合越界(查表自判)
     // 块数合法性只约束载波;RF 生效块数恒 1(见上);PB 大小非法(-1)对载波/无线均拒收
     if (pb_size <= 0
         || (!is_rf && (info.pb_num == 0 || info.pb_num > max_pb_num))) {

@@ -38,7 +38,8 @@ inline constexpr quint8 gw_2022_pb_num_table[4][30] = {
 
 /// 查国网某频段 + TMI/TMI_EXT 支持的最大 PB 块数量。返回 -1 = 配置无效。
 inline int gw_2022_max_pb_num(quint8 band, quint8 tmi, quint8 tmi_ext) {
-    if (band >= 4) return -1;                       // 频段越界(0-3)
+    constexpr int kRows = sizeof(gw_2022_pb_num_table) / sizeof(gw_2022_pb_num_table[0]);
+    if (band >= kRows) return -1;                   // 频段越界(表行数即有效频段数)
     int col;
     if (tmi <= 14) {
         col = tmi;                                  // TMI 主表(0x0-0xE)

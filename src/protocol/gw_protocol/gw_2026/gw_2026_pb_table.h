@@ -66,7 +66,8 @@ inline constexpr quint8 gw_2026_pb_num_table[7][29] = {
 /// HDC 2.0 无 TMI_EXT,故本函数不取 tmi_ext。
 /// 返回 0 = 该频段+模式组合不支持分集拷贝载荷(调用方按非法拒收)。
 inline int gw_2026_max_pb_num(quint8 band, quint8 mode) {
-    if (band >= 7) return -1;                       // 频段越界(0-6)
+    constexpr int kRows = sizeof(gw_2026_pb_num_table) / sizeof(gw_2026_pb_num_table[0]);
+    if (band >= kRows) return -1;                   // 频段越界(表行数即有效频段数)
     if (mode >= 29) return -1;                      // 模式 29-31 保留
     return gw_2026_pb_num_table[band][mode];
 }
