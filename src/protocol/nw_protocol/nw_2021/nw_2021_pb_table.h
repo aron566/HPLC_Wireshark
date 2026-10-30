@@ -35,7 +35,8 @@ inline int nw_2021_rf_pb_size(quint8 pblen) {
 }
 
 /// 南网 BPLC 各频段(PL band 0-2)× 载波 TMI/TMI_EXT 支持的最大 PB 块数量。
-/// 列索引 0-13 = TMI 0-13;列 14-27 = TMI_EXT 1-14(TMI=13/14 时扩展查表)。
+/// 列索引 0-12 = TMI 0-12(主列);列 13 = TMI 13 直用(全 0=非法);列 14-27 =
+/// TMI_EXT 1-14(TMI=0xD/13 触发扩展,表121 j)节:载荷用扩展载波映射表索引译码)。
 /// 0 = 该组合不支持(拒收)。
 /// @note BPLC 版载波 SOF(表121)帧内无频段字段,band 为网络级配置,
 ///       帧级校验无法取得 → 本表暂仅作参考记录,未接入解析门限。
@@ -47,15 +48,17 @@ inline constexpr quint8 nw_2021_pb_num_table[3][28] = {
 };
 
 /// 查南网 BPLC 某频段 + TMI/TMI_EXT 支持的最大 PB 块数量。返回 -1 = 配置无效。
+/// 扩展触发口径与 nw_2021_pb_size 一致对齐协议(表121 j)节):TMI=0xD/13 时
+/// 载荷按 TMI_EXT 译码;TMI>=14 主表无定义,直接无效。
 inline int nw_2021_max_pb_num(quint8 band, quint8 tmi, quint8 tmi_ext) {
     if (band >= 3) return -1;                        // 频段越界(0-2)
     int col;
-    if (tmi <= 13) {
-        col = tmi;                                   // TMI 主列(0-13)
-    } else if (tmi_ext >= 1 && tmi_ext <= 14) {
-        col = 14 + (tmi_ext - 1);                    // TMI=13/14 → TMI_EXT 扩展列
+    if (tmi <= 12) {
+        col = tmi;                                   // TMI 主列(0-12)
+    } else if (tmi == 13 && tmi_ext >= 1 && tmi_ext <= 14) {
+        col = 14 + (tmi_ext - 1);                    // TMI=13 触发扩展 → TMI_EXT 列
     } else {
-        return -1;
+        return -1;                                   // TMI 14+(无主列/未定义扩展)或 TMI=13 无有效 TMI_EXT
     }
     return nw_2021_pb_num_table[band][col];
 }
