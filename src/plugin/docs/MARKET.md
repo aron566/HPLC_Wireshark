@@ -74,6 +74,8 @@ Entry point: **Plugins → Plugin marketplace** menu in the main window.
 Default feed URL: `https://raw.githubusercontent.com/aron566/BPLC_Plugin_Market/main/market.json`.
 Override for dev/test: env var `BPLC_MARKET_FEED_URL` (supports `file://`).
 
+Market feed requests use the same `app/mirror_mode` and `app/mirror_list` strategy as application updates. In `auto` mode, China egress selects the first mirror that returns a valid feed (`plugins` JSON key); other regions use the origin URL, and failures fall back to the origin. The selected prefix also rewrites feed-provided README and package URLs for that feed. Non-HTTP(S) feeds (for example local `file://` test feeds) bypass mirror resolution.
+
 ## Plugin settings
 
 `plugin.json` may declare a `"settings"` array; the dialog generates a

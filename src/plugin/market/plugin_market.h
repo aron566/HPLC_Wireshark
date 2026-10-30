@@ -50,7 +50,8 @@ struct MarketPlugin {
     QString category;        ///< diagnosis | report | graphics | protocol ...
     QString author;
     QString readme_url;      ///< README markdown 地址(可空)
-    QString source;          ///< feed 来源 URL(解析时填充)
+    QString source;          ///< feed 来源 URL(解析时填充,保留原始地址)
+    QString mirror_prefix;   ///< feed 探活选中的镜像前缀,用于 README/插件包链接
     QList<MarketVersion> versions;
 
     const MarketVersion* latest() const {
@@ -95,9 +96,14 @@ public:
     /// @brief 解析 feed JSON(静态,便于测试)
     /// @param source_url feed 来源 URL,写入各 MarketPlugin::source
     static QList<MarketPlugin> parse_feed(const QByteArray& json, QString* err,
-                                          const QString& source_url = QString());
+                                          const QString& source_url = QString(),
+                                          const QString& mirror_prefix = QString());
+    /// @brief 将市场资源 URL 按 feed 选中的代理前缀改写(已改写/非 HTTP URL 保持不变)
+    static QString resolve_market_url(const QString& url,
+                                      const QString& mirror_prefix);
     /// @brief 拉取任意文本(如 README markdown,异步)
-    void fetch_text(const QString& url);
+    void fetch_text(const QString& url,
+                    const QString& mirror_prefix = QString());
 
     /// @brief 从市场安装指定版本(异步,经 install_* 信号回传)
     void install_market_plugin(const MarketPlugin& plugin, int version_index);

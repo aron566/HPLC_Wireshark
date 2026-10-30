@@ -29,7 +29,8 @@ public:
     explicit UpdateMirrorResolver(QObject* parent = nullptr);
 
     /// @brief 开始解析(异步);resolved() 恰好发出一次
-    void resolve(const QString& updateUrl);
+    void resolve(const QString& updateUrl,
+                 const QString& manifest_key = QStringLiteral("updates"));
 
 signals:
     /// @brief 解析完成:effectiveUrl=实际清单地址;mirrorPrefix=命中的代理前缀(空=原生)
@@ -44,10 +45,12 @@ private:
     void probeNative();
     void probeMirror(int index);
     void finish(const QString& effectiveUrl, const QString& prefix);
-    static bool looksLikeManifest(const QByteArray& body);
+    static bool looksLikeManifest(const QByteArray& body,
+                                  const QString& manifest_key);
 
     QNetworkAccessManager* m_nam = nullptr;
     QString     m_url;        ///< 原生清单地址
+    QString     m_manifest_key; ///< 探活 JSON 必须含有的顶层键
     QStringList m_mirrors;    ///< 候选代理前缀(已规范化以 / 结尾)
     bool        m_done = false;
 };

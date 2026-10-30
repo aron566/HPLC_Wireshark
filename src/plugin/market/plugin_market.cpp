@@ -21,6 +21,7 @@
 #include <QUrl>
 
 #include "miniz.h"  // 3rdparty/miniz, public domain, zip 解包
+#include "updatemirror.h"
 
 namespace {
 
@@ -164,29 +165,50 @@ QString PluginMarket::default_feed_url() {
                           "BPLC_Plugin_Market/main/market.json");
 }
 
+QString PluginMarket::resolve_market_url(const QString& url,
+                                          const QString& mirror_prefix) {
+    const QString scheme = QUrl(url).scheme().toLower();
+    if (mirror_prefix.isEmpty() ||
+        (scheme != QStringLiteral("http") && scheme != QStringLiteral("https")) ||
+        url.startsWith(mirror_prefix))
+        return url;
+    return mirror_prefix + url;
+}
+
 void PluginMarket::fetch_feed(const QString& url) {
-    QNetworkRequest req{QUrl(url)};
-    req.setHeader(QNetworkRequest::UserAgentHeader,
-                  QStringLiteral("BPLC_STA_Monitor/") +
-                      QCoreApplication::applicationVersion());
-    QNetworkReply* rep = m_nam->get(req);
-    connect(rep, &QNetworkReply::finished, this, [this, rep, url]() {
-        rep->deleteLater();
-        if (rep->error() != QNetworkReply::NoError) {
-            emit feed_error(rep->errorString());
-            return;
-        }
-        QString err;
-        const QList<MarketPlugin> plugins =
-            parse_feed(rep->readAll(), &err, url);
-        if (!err.isEmpty()) emit feed_error(err);
-        else emit feed_ready(plugins);
+    // 同应用更新共用区域识别/镜像探活策略;市场 feed 用顶层 plugins 键校验。
+    auto* resolver = new UpdateMirrorResolver(this);
+    connect(resolver, &UpdateMirrorResolver::resolved, this,
+            [this, resolver, url](const QString& effective_url,
+                                  const QString& mirror_prefix) {
+        resolver->deleteLater();
+        QNetworkRequest req{QUrl(effective_url)};
+        req.setHeader(QNetworkRequest::UserAgentHeader,
+                      QStringLiteral("BPLC_STA_Monitor/") +
+                          QCoreApplication::applicationVersion());
+        QNetworkReply* rep = m_nam->get(req);
+        connect(rep, &QNetworkReply::finished, this,
+                [this, rep, url, mirror_prefix]() {
+            rep->deleteLater();
+            if (rep->error() != QNetworkReply::NoError) {
+                emit feed_error(rep->errorString());
+                return;
+            }
+            QString err;
+            const QList<MarketPlugin> plugins =
+                parse_feed(rep->readAll(), &err, url, mirror_prefix);
+            if (!err.isEmpty()) emit feed_error(err);
+            else emit feed_ready(plugins);
+        });
     });
+    resolver->resolve(url, QStringLiteral("plugins"));
 }
 
 /// @brief 拉取任意文本(README markdown 等,异步,经 text_ready/text_error)
-void PluginMarket::fetch_text(const QString& url) {
-    QNetworkReply* rep = m_nam->get(QNetworkRequest(QUrl(url)));
+void PluginMarket::fetch_text(const QString& url,
+                               const QString& mirror_prefix) {
+    const QString request_url = resolve_market_url(url, mirror_prefix);
+    QNetworkReply* rep = m_nam->get(QNetworkRequest(QUrl(request_url)));
     connect(rep, &QNetworkReply::finished, this, [this, rep, url]() {
         rep->deleteLater();
         if (rep->error() != QNetworkReply::NoError) {
@@ -199,7 +221,8 @@ void PluginMarket::fetch_text(const QString& url) {
 
 QList<MarketPlugin> PluginMarket::parse_feed(const QByteArray& json,
                                              QString* err,
-                                             const QString& source_url) {
+                                             const QString& source_url,
+                                             const QString& mirror_prefix) {
     QList<MarketPlugin> out;
     QJsonParseError pe;
     const QJsonDocument doc = QJsonDocument::fromJson(json, &pe);
@@ -220,6 +243,7 @@ QList<MarketPlugin> PluginMarket::parse_feed(const QByteArray& json,
         p.author = o.value(QStringLiteral("author")).toString();
         p.readme_url = o.value(QStringLiteral("readme_url")).toString();
         p.source = source_url;
+        p.mirror_prefix = mirror_prefix;
         for (const QJsonValue& vv :
              o.value(QStringLiteral("versions")).toArray()) {
             const QJsonObject vo = vv.toObject();
@@ -291,8 +315,9 @@ void PluginMarket::install_market_plugin(const MarketPlugin& plugin,
     m_pending_source =
         plugin.source.isEmpty() ? default_feed_url() : plugin.source;
     m_pending_updated_at = v.updated_at;
-    emit install_progress(QStringLiteral("downloading ") + v.url);
-    QNetworkReply* rep = m_nam->get(QNetworkRequest(QUrl(v.url)));
+    const QString package_url = resolve_market_url(v.url, plugin.mirror_prefix);
+    emit install_progress(QStringLiteral("downloading ") + package_url);
+    QNetworkReply* rep = m_nam->get(QNetworkRequest(QUrl(package_url)));
     connect(rep, &QNetworkReply::finished, this, [this, rep]() {
         rep->deleteLater();
         if (rep->error() != QNetworkReply::NoError) {

@@ -588,7 +588,7 @@ void PluginMarketDialog::update_readme_tab(const InstalledPlugin* ip,
         } else {
             m_readme->setPlainText(trl::L("正在加载 README..."));
             m_readme_pending_url = url;
-            m_market->fetch_text(url);
+            m_market->fetch_text(url, fmp->mirror_prefix);
         }
         return;
     }

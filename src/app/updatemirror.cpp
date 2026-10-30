@@ -41,9 +41,10 @@ void UpdateMirrorResolver::get(const QString& url, int timeoutMs,
     });
 }
 
-bool UpdateMirrorResolver::looksLikeManifest(const QByteArray& body) {
+bool UpdateMirrorResolver::looksLikeManifest(const QByteArray& body,
+                                               const QString& manifest_key) {
     const QJsonDocument doc = QJsonDocument::fromJson(body);
-    return doc.isObject() && doc.object().contains(QStringLiteral("updates"));
+    return doc.isObject() && doc.object().contains(manifest_key);
 }
 
 void UpdateMirrorResolver::finish(const QString& effectiveUrl, const QString& prefix) {
@@ -52,9 +53,16 @@ void UpdateMirrorResolver::finish(const QString& effectiveUrl, const QString& pr
     emit resolved(effectiveUrl, prefix);
 }
 
-void UpdateMirrorResolver::resolve(const QString& updateUrl) {
+void UpdateMirrorResolver::resolve(const QString& updateUrl,
+                                  const QString& manifest_key) {
     m_url = updateUrl;
+    m_manifest_key = manifest_key;
     m_done = false;
+    const QString scheme = QUrl(updateUrl).scheme().toLower();
+    if (scheme != QStringLiteral("http") && scheme != QStringLiteral("https")) {
+        finish(m_url, QString());
+        return;
+    }
     m_mirrors = appcfg::mirror_list();
     const QString mode = appcfg::mirror_mode();
     if (mode == QStringLiteral("native")) {
@@ -145,7 +153,7 @@ void UpdateMirrorResolver::probeNative() {
     get(m_url, kProbeTimeoutMs, [this](QNetworkReply* r) {
         const bool ok = r->error() == QNetworkReply::NoError
             && r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 200
-            && looksLikeManifest(r->readAll());
+            && looksLikeManifest(r->readAll(), m_manifest_key);
         if (ok) {
             qInfo("[update-mirror] native URL reachable, using native");
             finish(m_url, QString());
@@ -166,7 +174,7 @@ void UpdateMirrorResolver::probeMirror(int index) {
     get(prefix + m_url, kProbeTimeoutMs, [this, index, prefix](QNetworkReply* r) {
         const bool ok = r->error() == QNetworkReply::NoError
             && r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 200
-            && looksLikeManifest(r->readAll());
+            && looksLikeManifest(r->readAll(), m_manifest_key);
         if (ok) {
             qInfo("[update-mirror] mirror selected: %s", qPrintable(prefix));
             finish(prefix + m_url, prefix);

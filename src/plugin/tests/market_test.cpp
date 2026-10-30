@@ -99,6 +99,34 @@ int main(int argc, char** argv) {
     CHECK(perr.isEmpty() && !feed2.isEmpty() &&
               feed2[0].source == "https://feed.example/m.json",
           "feed source recorded");
+    ff.seek(0);
+    const QList<MarketPlugin> mirrored_feed =
+        PluginMarket::parse_feed(ff.readAll(), &perr,
+                                 QStringLiteral("https://feed.example/m.json"),
+                                 QStringLiteral("https://mirror.example/"));
+    CHECK(perr.isEmpty() && !mirrored_feed.isEmpty() &&
+              mirrored_feed[0].source == "https://feed.example/m.json" &&
+              mirrored_feed[0].mirror_prefix == "https://mirror.example/",
+          "feed origin and mirror prefix recorded separately");
+    CHECK(PluginMarket::resolve_market_url(
+              "https://raw.githubusercontent.com/org/repo/main/readme.md",
+              "https://mirror.example/") ==
+              "https://mirror.example/https://raw.githubusercontent.com/org/repo/main/readme.md",
+          "README URL uses selected mirror");
+    CHECK(PluginMarket::resolve_market_url(
+              "https://github.com/org/repo/raw/main/pkg.zip",
+              "https://mirror.example/") ==
+              "https://mirror.example/https://github.com/org/repo/raw/main/pkg.zip",
+          "package URL uses selected mirror");
+    CHECK(PluginMarket::resolve_market_url(
+              "https://mirror.example/https://raw.githubusercontent.com/org/repo/main/pkg.zip",
+              "https://mirror.example/") ==
+              "https://mirror.example/https://raw.githubusercontent.com/org/repo/main/pkg.zip",
+          "already mirrored package URL is not double-prefixed");
+    CHECK(PluginMarket::resolve_market_url("file:///tmp/local.zip",
+                                           "https://mirror.example/") ==
+              "file:///tmp/local.zip",
+          "local resource URL bypasses network mirror");
 
     // 版本比较
     CHECK(PluginMarket::compare_version("1.1.0", "1.0.0") > 0, "ver gt");
@@ -109,9 +137,11 @@ int main(int argc, char** argv) {
     CHECK(PluginMarket::app_version_ok(""), "app ver empty ok");
 
     // sha256 校验:与 market.json 记录值比对(js-topo 最新版)
-    const QString zip_path =
-        QStringLiteral("/home/hatch/workspace/BPLC_Plugin_Market/plugins/"
-                       "js-topo/js-topo-1.3.0.zip");
+    const QString zip_env = QString::fromLocal8Bit(qgetenv("MARKET_ZIP"));
+    const QString zip_path = zip_env.isEmpty()
+        ? QStringLiteral("/home/hatch/workspace/BPLC_Plugin_Market/plugins/"
+                         "js-topo/js-topo-1.3.0.zip")
+        : zip_env;
     CHECK(PluginMarket::verify_sha256(zip_path, topo.latest()->sha256),
           "sha256 match feed");
     CHECK(!PluginMarket::verify_sha256(
