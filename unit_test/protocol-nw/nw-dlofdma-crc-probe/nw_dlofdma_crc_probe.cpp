@@ -67,6 +67,24 @@ static QByteArray build_station_block(const QByteArray& msdu, int seq, bool flip
     return blk;
 }
 
+// 聚合站块:264B = 头 4B(agg=1 聚合)+ 体 256B(级联记录流)+ 保留 1B + CRC24 3B。
+// 级联记录 = 级联头 2B(级联数据块长度 12b LSB-first + Start/End 标识)+ 独立 MAC 帧。
+// 此处单条记录:MAC 帧 = NW AssocReq 134B,clen=134,头 [0x86,0x30](Start=1,End=1),
+// 体剩余 120B 为 0 填充(clen=0 触发级联 while 停止)。
+static QByteArray build_agg_station_block(const QByteArray& msdu, int seq, bool flip_crc) {
+    QByteArray blk(264, 0);
+    quint8* p = reinterpret_cast<quint8*>(blk.data());
+    p[0] = quint8(seq & 0xFF); p[1] = quint8((seq >> 8) & 0xFF);
+    p[2] = 0x01;                     // agg bit0 = 1:聚合分支
+    const int clen = msdu.size();    // 134
+    p[4] = quint8(clen & 0xFF);
+    p[5] = quint8(((clen >> 8) & 0x0F) | 0x10 | 0x20);   // 高 4b + Start + End
+    memcpy(p + 6, msdu.constData(), msdu.size());
+    put_crc24(p, 264);
+    if (flip_crc) p[263] ^= 0xFF;
+    return blk;
+}
+
 // DL-OFDMA 2 站点帧:32B(FCH+eFC) + 站点 0 块 + 站点 1 块 = 560B。
 static QByteArray build_dlofdma(bool flip_sta1, quint64 cco, quint64 sta27, quint64 sta42) {
     QByteArray f(560, 0);
@@ -88,6 +106,31 @@ static QByteArray build_dlofdma(bool flip_sta1, quint64 cco, quint64 sta27, quin
     put_crc24(e, 16);                // eFC CRC24
     f.replace(32, 264, build_station_block(build_nw_assoc(1, cco, 27, sta27, 5), 0, false));
     f.replace(296, 264, build_station_block(build_nw_assoc(1, cco, 42, sta42, 5), 0, flip_sta1));
+    return f;
+}
+
+// DL-OFDMA 2 站点聚合帧:站点 0 非聚合 + 站点 1 聚合(级联记录流)。
+// 布局与 build_dlofdma 相同,仅站点 1 块换成聚合块。
+static QByteArray build_dlofdma_agg(bool flip_sta1, quint64 cco, quint64 sta27, quint64 sta42) {
+    QByteArray f(560, 0);
+    quint8* p = reinterpret_cast<quint8*>(f.data());
+    p[0] = 0x01;                     // SOF, SNID 0
+    set_bits(p, 1, 0, 12, 1);        // FCH 源 TEI = 1 (CCO)
+    set_bits(p, 2, 4, 12, 0xFFF);    // FCH 目的 TEI = 广播
+    p[4] = 0x41;                     // multi=1, OFDMA 类型 0, 站点数码 1 -> 2 站
+    set_bits(p, 8, 0, 12, 100);      // 帧长(显示用)
+    p[12] = 0x20;                    // version 2
+    put_crc24(p, 16);                // FCH CRC24
+    quint8* e = p + 16;              // eFC, SPLC 第4部分 表27
+    set_bits(e, 0, 2, 1, 0);         // 站点 0: PBNum 码 0 -> 1 块
+    set_bits(e, 0, 3, 12, 27);       // 站点 0 TEI
+    set_bits(e, 1, 7, 5, 9);         // 站点 0 TMI 9 -> 264B
+    set_bits(e, 3, 3, 1, 0);         // 站点 1: PBNum 码 0 -> 1 块(bit27)
+    set_bits(e, 3, 4, 12, 42);       // 站点 1 TEI (bits 28..39)
+    set_bits(e, 5, 0, 5, 9);         // 站点 1 TMI 9 -> 264B (bits 40..44)
+    put_crc24(e, 16);                // eFC CRC24
+    f.replace(32, 264, build_station_block(build_nw_assoc(1, cco, 27, sta27, 5), 0, false));
+    f.replace(296, 264, build_agg_station_block(build_nw_assoc(1, cco, 42, sta42, 5), 0, flip_sta1));
     return f;
 }
 
@@ -139,6 +182,33 @@ int main(int argc, char** argv) {
               flip ? !has_pair(r, 42, sta42) : has_pair(r, 42, sta42));
         if (flip)
             check("flipped: no learned pairs at all", r.msdu.tei_mac_pairs.isEmpty());
+    }
+    // 聚合分支:站点 1 为聚合 PB(级联记录流),翻转站点 1 块 CRC 后,
+    // 组装器应剔除与坏块相交的级联记录(站点 1 对不被学习);
+    // 站点 0(好块,帧级通用路径)不受影响;帧本身仍 accept(CRC 错靠 pb_crc_oks 标红)。
+    {
+        BplcFrame fr;
+        fr.meta.from_raw = true;
+        fr.data = QByteArray(1, char(0)) + build_dlofdma_agg(true, cco, sta27, sta42);
+        MsduState msdu;
+        const ParseResult r = parser.parse(fr, msdu, filt);
+        dump_pairs("agg-flipped", r);
+        check("agg-flipped: accept", r.accept);
+        check("agg-flipped: sta0 pair kept",
+              r.msdu.msdu_src_tei == 27 && r.msdu.msdu_src_mac == sta27);
+        check("agg-flipped: sta1 pair ABSENT", !has_pair(r, 42, sta42));
+    }
+    {
+        BplcFrame fr;
+        fr.meta.from_raw = true;
+        fr.data = QByteArray(1, char(0)) + build_dlofdma_agg(false, cco, sta27, sta42);
+        MsduState msdu;
+        const ParseResult r = parser.parse(fr, msdu, filt);
+        dump_pairs("agg-control", r);
+        check("agg-control: accept", r.accept);
+        check("agg-control: sta0 pair kept",
+              r.msdu.msdu_src_tei == 27 && r.msdu.msdu_src_mac == sta27);
+        check("agg-control: sta1 pair learned", has_pair(r, 42, sta42));
     }
     std::printf(fails ? "RESULT: %d FAILURES\n" : "RESULT: ALL PASS\n", fails);
     return fails ? 1 : 0;
