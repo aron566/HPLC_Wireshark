@@ -204,13 +204,37 @@ void ReaderWorker::try_extract_frame() {
                 continue;
             }
             // idx == 0:3C 在缓冲开头。验证是否为假帧头——
-            // 帧体中的 0x3C/0x3E 均已 0x3D 转义,故合法帧 3C 后应直达 3E;
-            // 若 3C 后先遇到另一个 3C(而非 3E),说明第一个 3C 是孤立的假帧头,
-            // 丢弃它,以第二个 3C 为帧头重新对齐。
+            // 帧体中的 0x3C/0x3E/0x3D 均已 0x3D 转义(第二字节为补码
+            // 0xC3/0xC1/0xC2),故线上裸 0x3C 只可能是帧头,不会误判体字节。
+            // 若 3C 后先遇到另一个裸 0x3C(而非 3E),说明第一个 3C 是孤立的假帧头。
+            // 新口径:第一个 3C 到第二个裸 3C 之间的数据不再静默丢弃,而是作为
+            // 灰色 DROP 行发出(不进解析器,见 DispatcherWorker::on_frame 旁路),
+            // 随后以第二个 3C 为帧头重新对齐;两 3C 紧贴(中间无数据)时不发空行。
+            // 次 0x3C 本身即证明首头为假,无需等 0x3E 到达即可判 DROP;
+            // 尚无次 0x3C(或 0x3E 更早)时仍按真帧头等待/成帧。
             const int next_3c = m_in_buf.indexOf(char(0x3C), idx + 1);
             const int next_3e = m_in_buf.indexOf(char(0x3E), idx + 1);
-            if (next_3c >= 0 && next_3e >= 0 && next_3c < next_3e) {
-                m_in_buf.remove(0, 1);   // 第一个 3C 失效,丢弃
+            if (next_3c >= 0 && (next_3e < 0 || next_3c < next_3e)) {
+                if (next_3c > 1) {
+                    BplcFrame drop;
+                    drop.data = playback::unescape_frame_data(m_in_buf.mid(1, next_3c - 1));
+                    // wire 补一个合成 0x3E 闭合,使导出流仍成帧;中间字节本身
+                    // 不含裸 0x3C/0x3E(否则次哨兵会更早),故补闭合不改语义
+                    drop.raw_wire = m_in_buf.left(next_3c);
+                    drop.raw_wire.append(char(0x3E));
+                    drop.meta.frame_time = QDateTime::currentDateTime();  // 垃圾无可信时间,回退本地时刻
+                    drop.meta.epoch_ms = drop.meta.frame_time.toMSecsSinceEpoch();
+                    drop.meta.frame_ts_is_ntb = true;
+                    drop.arrival_us = (m_cfg.mode == ReaderMode::SerialPort) ? steady_us() : 0;
+                    drop.accepted = false;
+                    drop.error_reason = trl::L("DROP:双 0x3C 成帧垃圾");
+                    // 不碰时间链(m_last_ntb/m_last_ft/m_first_frame):垃圾无可信 NTB,
+                    // 下一真帧的时间仍以前一真帧为基准(commit 3 的解析器锚点同理)
+                    ++m_frame_count;
+                    drop.meta.local_rx_ms = QDateTime::currentMSecsSinceEpoch();  // 收帧本地时刻(回退显示时间用)
+                    emit frame_ready(drop);
+                }
+                m_in_buf.remove(0, next_3c);
                 continue;
             }
             m_in_buf.remove(0, 1);
@@ -221,7 +245,33 @@ void ReaderWorker::try_extract_frame() {
                 m_frame_rx_us = steady_us();
             continue;
         }
-        int idx = m_in_buf.indexOf(char(0x3E));
+        // 等 0x3E 时先遇裸 0x3C:当前帧头必为假(合法帧体内的 0x3C 均已 0x3D
+        // 转义为 0x3D 0xC3,线上不可能出现裸 0x3C)。已缓冲体 + 假头按 DROP
+        // 发出,从新 0x3C 重对齐;覆盖跨 read 分片的双 0x3C(首 0x3C 到达时
+        // 次 0x3C 尚无,只能先按真头等)。体为空(两 0x3C 紧贴)时不发空行。
+        const int idx3c = m_in_buf.indexOf(char(0x3C));
+        const int idx3e = m_in_buf.indexOf(char(0x3E));
+        if (idx3c >= 0 && (idx3e < 0 || idx3c < idx3e)) {
+            if (idx3c > 0) {
+                BplcFrame drop;
+                drop.data = playback::unescape_frame_data(m_in_buf.left(idx3c));
+                drop.raw_wire = QByteArray(1, char(0x3C)) + m_in_buf.left(idx3c);
+                drop.raw_wire.append(char(0x3E));
+                drop.meta.frame_time = QDateTime::currentDateTime();
+                drop.meta.epoch_ms = drop.meta.frame_time.toMSecsSinceEpoch();
+                drop.meta.frame_ts_is_ntb = true;
+                drop.arrival_us = m_frame_rx_us;
+                drop.accepted = false;
+                drop.error_reason = trl::L("DROP:双 0x3C 成帧垃圾");
+                ++m_frame_count;
+                drop.meta.local_rx_ms = QDateTime::currentMSecsSinceEpoch();  // 收帧本地时刻(回退显示时间用)
+                emit frame_ready(drop);
+            }
+            m_in_buf.remove(0, idx3c);
+            m_get3c = false;
+            continue;
+        }
+        int idx = idx3e;
         if (idx < 0) return;
         QByteArray frame = m_in_buf.left(idx);
         m_in_buf.remove(0, idx + 1);
@@ -258,6 +308,34 @@ void ReaderWorker::try_extract_frame() {
                 .append(playback::escape_frame_data(stripped))
                 .append(char(0x3E));
             unesc = stripped;
+        }
+
+        // 新口径:MPDU 短于 FCH(16B)的完整 0x3C...0x3E 帧不再送解析器,
+        // 由 reader 直接标 DROP(灰行、不解析)。data 布局为 len2+NTB4+媒介4+
+        // MPDU,故 MPDU<16 ⟺ data<26;此门与解析器 MPDU_BASE 16B 门同口径。
+        // 不碰时间链(理由同双 0x3C DROP);NTB/链路位尽力保留,供显示参考。
+        if (unesc.size() < 26) {
+            BplcFrame drop;
+            drop.data = unesc;
+            drop.raw_wire = wire;
+            drop.meta.frame_time = QDateTime::currentDateTime();
+            drop.meta.epoch_ms = drop.meta.frame_time.toMSecsSinceEpoch();
+            drop.meta.frame_ts_is_ntb = true;
+            if (unesc.size() >= 6) {
+                drop.meta.timestamp = (quint32)(quint8)unesc[2]
+                    | ((quint32)(quint8)unesc[3] << 8)
+                    | ((quint32)(quint8)unesc[4] << 16)
+                    | ((quint32)(quint8)unesc[5] << 24);
+            }
+            if (unesc.size() >= 10)
+                drop.meta.is_rf = ((quint8)unesc[9] != 0);
+            drop.arrival_us = m_frame_rx_us;
+            drop.accepted = false;
+            drop.error_reason = trl::L("DROP:帧长小于 FCH(16B)");
+            ++m_frame_count;
+            drop.meta.local_rx_ms = QDateTime::currentMSecsSinceEpoch();  // 收帧本地时刻(回退显示时间用)
+            emit frame_ready(drop);
+            continue;
         }
 
         BplcFrame bf;
@@ -337,6 +415,7 @@ void ReaderWorker::try_extract_frame() {
             }
         }
         bf.arrival_us = m_frame_rx_us;   // 0x3C 起始高精度接收时刻(实时)
+        bf.meta.local_rx_ms = QDateTime::currentMSecsSinceEpoch();  // 收帧本地时刻(解析器回退显示时间用)
         bf.raw_wire   = wire;            // 原始串口帧原样(调试复制)
         // 帧 ts 域语义(2026-09 统一):ts 一律为 NTB tick(25kHz,40ns),
         // 无论实时串口(设备填)还是文件回放(bin/裸 hex 导出均写 NTB)
@@ -425,6 +504,7 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
         bf.meta.replay_time_tag = replay_time_tag;
         bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(t2_us / 1000);
         bf.arrival_us = t2_us;
+        bf.meta.local_rx_ms = QDateTime::currentMSecsSinceEpoch();  // 收帧本地时刻(解析器回退显示时间用)
         bf.raw_wire   = raw;   // 0x3C...0x3E 原样
         bf.data       = data;  // 反转义后的 [dlen][ts][media][MPDU]
         emit frame_ready(bf);
@@ -513,6 +593,8 @@ struct I18nRegSerialReader {
         trl::register_en("文件回放: %1", "File replay: %1");
         trl::register_en("裸 hex 模式: %1", "Raw hex mode: %1");
         trl::register_en("文件回放结束", "File replay ended");
+        trl::register_en("DROP:双 0x3C 成帧垃圾", "DROP: framing garbage between two 0x3C");
+        trl::register_en("DROP:帧长小于 FCH(16B)", "DROP: frame shorter than FCH (16B)");
     }
 };
 const I18nRegSerialReader g_i18n_reg_serialreader;

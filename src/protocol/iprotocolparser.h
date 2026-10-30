@@ -9,8 +9,10 @@
 
 #include "bplcframe.h"
 #include "common/protocolvariant.h"
+#include <QDateTime>
 #include <QList>
 #include <QMetaType>
+#include <algorithm>
 
 /// @brief 协议无关的解析结果(展示层/过滤/导出统一消费)
 struct ParseResult {
@@ -27,9 +29,75 @@ struct ParseResult {
     QString      reject_reason;
     QByteArray   payload_for_log;
     QVector<DissectField> dissect_fields; ///< 插件解析器返回的通用字段树(内置解析器恒为空)
+    qint64       display_delta_us = -1;  ///< 本行显示 Delta(µs):内置解析器填,插件解析器留 -1(主界面沿用旧 NTB 差算法)
 
     ParseResult() : protocol(ProtocolVariant::GW_2022),
                     msdu_raw_base(-1), arrival_us(0), accept(false) {}
+};
+
+/// @brief 解析器向主界面提供本行显示时间/Delta 的上下文(分发器在 parse 前填:
+///        行序号 + 本地时间,其中本地时间由 reader 成帧时采样、经分发器透传,
+///        未带时分发器现取)
+struct DisplayContext {
+    qint64 row_index = 0;  ///< 该帧将填入 tableview 的行序号(分发器帧计数)
+    qint64 now_ms = 0;     ///< parse 时本地时间(epoch ms),回退值
+};
+
+/// @brief 解析器侧显示时间锚点:上一个好帧(epoch + NTB),边解析边维护,无需往上找
+/// @details 好帧 = accept 且 FCH 未失败且无 PB 失败。DROP 行不进解析器,故永不污染锚点;
+///          CRC 错误帧显示链时间(若有效)或回退本地时间,但不更新锚点。
+///          60s 门与 playbackwriter.h::kMaxNtbGapTicks 同值(NTB 25MHz,60s),两处须保持一致。
+struct DisplayTimeAnchor {
+    qint64  anchor_epoch_ms = 0;  ///< 上一个好帧的显示时间(epoch ms)
+    quint32 anchor_ntb = 0;       ///< 上一个好帧的帧内 NTB(tick)
+    qint64  anchor_row = 0;       ///< 上一个好帧的行序号(仅记录,不参与计算)
+    bool    have_anchor = false;
+
+    void apply(ParseResult& r, const DisplayContext& ctx) {
+        const bool good = r.accept
+            && !(r.mpdu.fch_crc_checked && !r.mpdu.fch_crc_ok)
+            && std::none_of(r.mpdu.pb_crc_oks.cbegin(), r.mpdu.pb_crc_oks.cend(),
+                            [](bool ok) { return !ok; });
+        // 段首/时间标签/裸 hex:reader 时间已是权威(段标注/裸 hex 自有时间链),
+        // 解析器不重算;好帧则成为锚点,坏帧不碰锚点
+        if (r.meta.seg_start || r.meta.replay_time_tag || r.meta.from_raw) {
+            r.display_delta_us = 0;
+            if (good && r.meta.epoch_ms > 0) {
+                anchor_epoch_ms = r.meta.epoch_ms;
+                anchor_ntb = r.meta.timestamp;
+                anchor_row = ctx.row_index;
+                have_anchor = true;
+            }
+            return;
+        }
+        if (have_anchor) {
+            const qint64 dn = qint32(r.meta.timestamp - anchor_ntb);  // 回绕安全
+            if (dn > 0 && dn <= 25000000LL * 60) {
+                const qint64 dus = dn * 40 / 1000;  // tick(40ns) → µs
+                const qint64 epoch = anchor_epoch_ms + dus / 1000;
+                r.meta.frame_time = QDateTime::fromMSecsSinceEpoch(epoch);
+                r.meta.epoch_ms = epoch;
+                r.display_delta_us = dus;
+                if (good) {
+                    anchor_epoch_ms = epoch;
+                    anchor_ntb = r.meta.timestamp;
+                    anchor_row = ctx.row_index;
+                }
+                return;
+            }
+        }
+        // 回退:此前无好帧,或偏差超限(≤0 或 >60s)——用 reader 收帧时取的本地时间
+        // (队列积压时比解析时现取更接近收帧时刻,回退误差更小)
+        r.meta.frame_time = QDateTime::fromMSecsSinceEpoch(ctx.now_ms);
+        r.meta.epoch_ms = ctx.now_ms;
+        r.display_delta_us = 0;
+        if (good) {
+            anchor_epoch_ms = ctx.now_ms;
+            anchor_ntb = r.meta.timestamp;
+            anchor_row = ctx.row_index;
+            have_anchor = true;
+        }
+    }
 };
 
 /// @brief ParseResult::protocol → PacketEntry::protocol 的唯一映射
@@ -80,6 +148,9 @@ public:
     virtual ~IProtocolParser() = default;
     /// @brief 本解析器对应的协议变体
     virtual ProtocolVariant variant() const = 0;
+    /// @brief 显示时间上下文(分发器在 parse 前调;内置解析器存下供显示时间判定用,
+    ///        插件解析器默认忽略,主界面对其结果沿用旧 NTB 差算法)
+    virtual void set_display_context(const DisplayContext&) {}
     /// @brief 解析一帧 BplcFrame → ParseResult
     virtual ParseResult parse(const BplcFrame& in, MsduState& msdu,
                               const ParseFilter& f) = 0;

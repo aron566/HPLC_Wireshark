@@ -25,10 +25,6 @@ DispatcherWorker::DispatcherWorker(std::unique_ptr<IProtocolParser> parser,
                                    QObject* parent)
     : QObject(parent), m_parser(std::move(parser)) {}
 
-void DispatcherWorker::on_filter_changed(ParseFilter f) {
-    m_filter = f;
-}
-
 void DispatcherWorker::on_replay_finished() {
     // 经队列投递到 worker 线程,晚于全部 frame_ready → 此刻积压帧已解析完,汇总计数完整
     pa::summarize();
@@ -37,7 +33,33 @@ void DispatcherWorker::on_replay_finished() {
 void DispatcherWorker::on_frame(const BplcFrame& frame) {
     if (m_stopped.load()) return;   // 已停止:立即返回,快速清空积压帧
     QElapsedTimer t; t.start();
-    auto r = m_parser->parse(frame, m_msdu, m_filter);
+    ParseResult r;
+    if (!frame.error_reason.isEmpty() || !frame.accepted) {
+        // reader 已判定的成帧垃圾(DROP):不进解析器,直接合成拒收结果。
+        // mpdu/msdu 值初始化全零,保证行着色走灰(DROP)而不触发红 clause;
+        // msdu 重组状态不被垃圾污染(重组链只见真帧)。
+        r.protocol = m_parser->variant();
+        r.meta = frame.meta;
+        r.raw_wire = frame.raw_wire;
+        r.arrival_us = frame.arrival_us;
+        r.accept = false;
+        r.reject_reason = frame.error_reason;
+        r.mpdu = MpduInfo();
+        r.msdu = MsduInfo();
+        r.beacon = MsduInfo();
+    } else {
+        // 显示时间上下文:行序号(分发器帧计数,即该帧将填入的行号) + 本地时间
+        // (reader 成帧时采样,经此透传;未带时现取。解析线程现取会含队列积压
+        // 延迟,回退行与后续链时间整体偏晚,故以收帧时刻为准)
+        DisplayContext ctx;
+        ctx.row_index = m_frame_count.load() + 1;
+        ctx.now_ms = frame.meta.local_rx_ms > 0
+            ? frame.meta.local_rx_ms
+            : QDateTime::currentMSecsSinceEpoch();
+        m_parser->set_display_context(ctx);
+        // 解析时不过滤(仅显示过滤):传默认空过滤,内置解析器不再读取过滤字段
+        r = m_parser->parse(frame, m_msdu, ParseFilter{});
+    }
     // 帧级拒绝留痕(限流):协议 + 帧序号 + 原因,便于现场排查帧被丢弃的根因
     if (!r.accept && !r.reject_reason.isEmpty())
         pa::warn(proto_name(r.protocol) + QStringLiteral(":frame_rejected"),
@@ -78,9 +100,6 @@ FrameDispatcher::FrameDispatcher(QObject* parent)
     m_worker = new DispatcherWorker(std::move(parser));
     m_worker->moveToThread(m_thread);
     connect(m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
-    connect(this,     &FrameDispatcher::filter_changed,
-            m_worker, &DispatcherWorker::on_filter_changed,
-            Qt::QueuedConnection);
     connect(m_worker, &DispatcherWorker::parsed,
             this,     &FrameDispatcher::on_parsed,
             Qt::QueuedConnection);
@@ -97,10 +116,6 @@ FrameDispatcher::~FrameDispatcher() {
             m_thread->wait();
         }
     }
-}
-
-void FrameDispatcher::set_filter(const ParseFilter& f) {
-    emit filter_changed(f);
 }
 
 void FrameDispatcher::connect_source(QObject* source) {

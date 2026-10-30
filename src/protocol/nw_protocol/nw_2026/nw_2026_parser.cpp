@@ -205,6 +205,12 @@ static void merge_msdu_learn(MsduInfo& dst, const MsduInfo& cm) {
 }
 
 NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msdu, const Filter& f) {
+    Result r = parse_inner(in, msdu, f);
+    m_time_anchor.apply(r, m_display_ctx);
+    return r;
+}
+
+NW_2026_Parser::Result NW_2026_Parser::parse_inner(const BplcFrame& in, MsduState& msdu, const Filter& f) {
     Result r;
     ++m_frame_count;                        // 帧计数(trigger 上下文失效基准)
     r.protocol = ProtocolVariant::NW_2026;   // 协议身份由解析器标记
@@ -212,9 +218,6 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
         r.accept = false;
         return r;
     }
-
-    if (!r.meta.is_rf && !f.link_hplc) { r.reject_reason = trl::L("HPLC 链路被过滤"); r.accept = false; return r; }
-    if ( r.meta.is_rf && !f.link_hrf ) { r.reject_reason = trl::L("HRF 链路被过滤");  r.accept = false; return r; }
 
     QString err;
     if (!parse_mpdu_base(r.payload_for_log, r.mpdu, err)) {
@@ -270,7 +273,7 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                 }
             }
             if (!splc_ext_mme)
-                return m_legacy.parse(in, msdu, f);
+                return m_legacy.parse_inner(in, msdu, f);
         }
     }
 
@@ -279,7 +282,7 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
     //   信标 载波(12,1,1) 无线(12,0,1) / ACK(表19/21)=(4,0,1) / COORD(表41)=(12,0,1)。
     //   注意 BPLC 版坐标不同:载波 SOF(表20)高位在 (5,0,1)、无线(表131)无高位——
     //   那是 NW_2021 的取值;NW_2026 走 SPLC 表23/表45,两种 SOF 都在 (12,0,1)。
-    // 过滤与列显示统一用合并后的 5bit SNID(有效取值 1-31)。
+    // 列显示统一用合并后的 5bit SNID(有效取值 1-31)。
     {
         const quint8* fch = reinterpret_cast<const quint8*>(r.payload_for_log.constData());
         quint8 snid_high = 0;
@@ -304,20 +307,8 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
         r.mpdu.net_id |= (quint32(snid_high) << 4);
     }
 
-    if (f.nid_filter && !f.nid_list.contains(r.mpdu.net_id)) {
-        r.reject_reason = trl::L("SNID 不在白名单: 0x%1").arg(r.mpdu.net_id, 1, 16);
-        r.accept = false;
-        return r;
-    }
-
     const NW_2026_FrameType ftype = static_cast<NW_2026_FrameType>(r.mpdu.frame_type);
-    switch (ftype) {
-        case NW_2026_FrameType::BEACON: if (!f.allow_beacon) { r.reject_reason = trl::L("BEACON 被过滤"); r.accept = false; return r; } break;
-        case NW_2026_FrameType::SOF:    if (!f.allow_sof)    { r.reject_reason = trl::L("SOF 被过滤");    r.accept = false; return r; } break;
-        case NW_2026_FrameType::ACK:    if (!f.allow_ack)    { r.reject_reason = trl::L("ACK 被过滤");    r.accept = false; return r; } break;
-        case NW_2026_FrameType::COORD:  if (!f.allow_coord)  { r.reject_reason = trl::L("COORD 被过滤");  r.accept = false; return r; } break;
-        default: break;
-    }
+
 
     const quint8* p = reinterpret_cast<const quint8*>(r.payload_for_log.constData());
 
@@ -432,12 +423,6 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.symbol_num   = (quint16)get_bits(p, 10, 7, 9);  // 符号数(表16)
             r.mpdu.tmi_ext   = (quint8) get_bits(p, 12, 0, 4);
             { const int sz = nw_2026_pb_size(r.mpdu.tmi, r.mpdu.tmi_ext); r.mpdu.pb_size = (quint16)(sz > 0 ? sz : 0); }
-        }
-        if (f.tei_filter && !f.tei_list.contains(r.mpdu.src_tei)
-                        && !f.tei_list.contains(r.mpdu.dst_tei)) {
-            r.reject_reason = trl::L("TEI 不在白名单");
-            r.accept = false;
-            return r;
         }
         // PB 块逐块 CRC24 + 块体提取 + 聚合级联拆分(公共 pb_assembler;南网布局:
         // PB头4B 表47 + 块体 + 保留1B + CRC24 3B,聚合标志 byte2 bit0,§5.1.3.2.1)
@@ -591,8 +576,16 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                             merge_msdu_learn(r.msdu, cm);
                         }
                     } else {
-                        const MsduInfo cm = NW_2026_MsduParser::parse(ar.msdu_body);
-                        merge_msdu_learn(r.msdu, cm);
+                        // CRC 失败块不解析(与主路同口径,用户 2026-10-29 定):
+                        // 本站 PB 全好或 MSDU 完整落在好块内才解析学习;坏块
+                        // 字节会使体流错位成错误数据,解析出的 MAC/TEI 对不可信。
+                        // (聚合分支已由组装器剔除与坏块相交的记录,无需再验。)
+                        if (ar.all_crc_ok
+                            || pb_asm::msdu_span_avoids_bad_blocks(ar.msdu_body, ar.blocks,
+                                                                   layout.body_len(psz))) {
+                            const MsduInfo cm = NW_2026_MsduParser::parse(ar.msdu_body);
+                            merge_msdu_learn(r.msdu, cm);
+                        }
                     }
                 }
             }
@@ -618,7 +611,7 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
         // 非 SOF 帧 SPLC 结构性失败(载荷不足/信标载荷区不完整,parse_beacon 置 present=false)
         // → 回退 BPLC 解析(分派策略第 3 条,用户决策)
         if (!r.beacon.present) {
-            return m_legacy.parse(in, msdu, f);
+            return m_legacy.parse_inner(in, msdu, f);
         }
     } else if (ftype == NW_2026_FrameType::ACK) {
         // ACK(南网 MPDU_ACK_FCH 坐标,表19/表21)

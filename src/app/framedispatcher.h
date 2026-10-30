@@ -21,7 +21,6 @@ public:
 
 public slots:
     void on_frame(const BplcFrame& frame);
-    void on_filter_changed(ParseFilter f);
     /// @brief 回放/采集结束(经队列投递,晚于所有 frame_ready):输出解析异常汇总
     void on_replay_finished();
 
@@ -32,7 +31,6 @@ signals:
 private:
     std::unique_ptr<IProtocolParser> m_parser;
     MsduState   m_msdu;
-    ParseFilter m_filter;
     std::atomic<bool> m_stopped{false};
     std::atomic<quint64> m_frame_count{0};  ///< 已解析帧数(日志统计)
     std::atomic<quint64> m_parse_us{0};     ///< parse 累计耗时(µs,含节流补齐)
@@ -44,7 +42,6 @@ public:
     explicit FrameDispatcher(QObject* parent = nullptr);
     ~FrameDispatcher() override;
 
-    void set_filter(const ParseFilter& f);
     FrameStatistics* statistics() { return &m_stats; }
 
     void connect_source(QObject* source);
@@ -54,7 +51,6 @@ public:
     void shutdown();
 
 signals:
-    void filter_changed(ParseFilter f);
     void parsed(const ParseResult& r);
     void stats_updated();
 
