@@ -186,7 +186,7 @@ int main(int argc, char** argv) {
         bool has_crc_fail = std::any_of(r.mpdu.pb_crc_oks.begin(), r.mpdu.pb_crc_oks.end(),
                                         [](bool ok) { return !ok; });
         check(flip ? "flipped: pb_crc_oks has failure" : "control: pb_crc_oks all pass",
-              !has_crc_fail);
+              flip ? has_crc_fail : !has_crc_fail);
     }
     // 聚合分支:站点 1 为聚合 PB(级联记录流),翻转站点 1 块 CRC 后,
     // 组装器应剔除与坏块相交的级联记录(站点 1 对不被学习);

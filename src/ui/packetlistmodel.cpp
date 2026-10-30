@@ -21,6 +21,7 @@ struct I18nReg {
         trl::register_en("训练帧(MIMO)", "Training Frame (MIMO)");
         trl::register_en("训练帧(Bitloading)", "Training Frame (Bitloading)");
         trl::register_en("DL-OFDMA(截断)", "DL-OFDMA (Truncated)");
+        trl::register_en("UL-OFDMA 数据帧 (需 trigger)", "UL-OFDMA Data Frame (needs trigger)");
     }
 };
 const I18nReg g_i18n_reg_pktlist;
@@ -349,41 +350,48 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                           case 2: kind = trl::L("UL-OFDMA trigger"); break;
                           default: kind = trl::L("UL-OFDMA SACK"); break;
                         }
+                        int fail_cnt = 0;
+                        for (bool ok : e.mpdu.pb_crc_oks) if (!ok) ++fail_cnt;
+                        QString crc_str = fail_cnt > 0
+                            ? trl::L("CRC FAIL(%1/%2)").arg(fail_cnt).arg(e.mpdu.pb_crc_oks.size())
+                            : (e.mpdu.pb_crc_oks.isEmpty() ? QString() : trl::L("CRC OK"));
                         return QStringLiteral("NetID=0x%1 src=%2 dst=%3 %4")
                                .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
-                               .arg(kind);
+                               .arg(kind)
+                               + (crc_str.isEmpty() ? QString() : QStringLiteral(" ") + crc_str);
                     }
                     // 训练帧 (DL-OFDMA 单站点)
                     if (e.mpdu.version == 2 && !e.meta.is_rf && !is_multi
                         && e.raw_bytes.size() > 5 && (quint8(e.raw_bytes.at(4)) & 0x02)) {
                         const bool bitload = (quint8(e.raw_bytes.at(5)) & 0x01) != 0;
-                        // CRC 状态
+                        // CRC 状态(pb_crc_oks 为空时不断言 CRC OK,避免与红行矛盾)
                         int fail_cnt = 0;
                         for (bool ok : e.mpdu.pb_crc_oks) if (!ok) ++fail_cnt;
-                        QString crc_str = fail_cnt > 0 
-                            ? trl::L("CRC FAIL(%1/%2)")
-                            : trl::L("CRC OK");
-                        return QStringLiteral("NetID=0x%1 src=%2 dst=%3 %4=%5 PBNum=%6 %7")
+                        QString crc_str = fail_cnt > 0
+                            ? trl::L("CRC FAIL(%1/%2)").arg(fail_cnt).arg(e.mpdu.pb_crc_oks.size())
+                            : (e.mpdu.pb_crc_oks.isEmpty() ? QString() : trl::L("CRC OK"));
+                        return QStringLiteral("NetID=0x%1 src=%2 dst=%3 %4 PBNum=%5")
                                .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
                                .arg(bitload ? trl::L("训练帧(Bitloading)") : trl::L("训练帧(MIMO)"))
                                .arg(e.mpdu.pb_num)
-                               .arg(crc_str);
+                               + (crc_str.isEmpty() ? QString() : QStringLiteral(" ") + crc_str);
                     }
                     // 默认情况 (含其他 SOF 帧)
                     {
                         int fail_cnt = 0;
                         for (bool ok : e.mpdu.pb_crc_oks) if (!ok) ++fail_cnt;
-                        QString crc_str = fail_cnt > 0 
-                            ? trl::L("CRC FAIL(%1/%2)")
-                            : trl::L("CRC OK");
+                        QString crc_str = fail_cnt > 0
+                            ? trl::L("CRC FAIL(%1/%2)").arg(fail_cnt).arg(e.mpdu.pb_crc_oks.size())
+                            : (e.mpdu.pb_crc_oks.isEmpty() ? QString() : trl::L("CRC OK"));
                         QString msdu = e.msdu_body.isEmpty() ? QString() :
                                        QStringLiteral(" MSDU[%1B]").arg(e.msdu_body.size());
-                        return QStringLiteral("NetID=0x%1 src=%2 dst=%3 %4=%5 PBNum=%6 %7")
+                        return QStringLiteral("NetID=0x%1 src=%2 dst=%3 %4=%5 PBNum=%6")
                                .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
                                .arg(e.meta.is_rf ? QStringLiteral("MCS") : QStringLiteral("TMI"))
                                .arg(e.meta.is_rf ? e.mpdu.mcs : e.mpdu.tmi)
                                .arg(e.mpdu.pb_num)
-                               .arg(crc_str);
+                               + (crc_str.isEmpty() ? QString() : QStringLiteral(" ") + crc_str)
+                               + msdu;
                     }
                 }
                 return QStringLiteral("NetID=0x%1 src=%2 dst=%3")
