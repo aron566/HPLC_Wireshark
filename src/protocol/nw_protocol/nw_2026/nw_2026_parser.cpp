@@ -575,6 +575,10 @@ NW_2026_Parser::Result NW_2026_Parser::parse_inner(const BplcFrame& in, MsduStat
                             const MsduInfo cm = NW_2026_MsduParser::parse(c.mac);
                             merge_msdu_learn(r.msdu, cm);
                         }
+                        // 记录聚合块的 CRC 状态
+                        for (const auto& b : ar.blocks) {
+                            r.mpdu.pb_crc_oks.append(b.crc_ok);
+                        }
                     } else {
                         // CRC 失败块不解析(与主路同口径,用户 2026-10-29 定):
                         // 本站 PB 全好或 MSDU 完整落在好块内才解析学习;坏块
@@ -585,6 +589,10 @@ NW_2026_Parser::Result NW_2026_Parser::parse_inner(const BplcFrame& in, MsduStat
                                                                    layout.body_len(psz))) {
                             const MsduInfo cm = NW_2026_MsduParser::parse(ar.msdu_body);
                             merge_msdu_learn(r.msdu, cm);
+                        }
+                        // 记录本站 CRC 状态，以支持"任意块 CRC 失败即标红"
+                        for (const auto& b : ar.blocks) {
+                            r.mpdu.pb_crc_oks.append(b.crc_ok);
                         }
                     }
                 }

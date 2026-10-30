@@ -17,7 +17,7 @@ NW_2026 DL-OFDMA 站点 1+ 非聚合分支 PB CRC 门回归用例。
 - 聚合好 CRC：站点 1 的级联记录被学到（站点 1 对入 `tei_mac_pairs`）；
 - 聚合站点 1 块 CRC 翻转：组装器剔除与坏块相交的级联记录，
   站点 1 对不被学习，站点 0（好块）不受影响，帧本身仍 accept
-  （CRC 错靠 `pb_crc_oks` 标红，不丢帧）。
+  （任意 PB 块 CRC 失败 → 整帧标红，Info 列显示 `CRC FAIL`）。
 
 对应修复：`fix/nw-dlofdma-pbcrc`（9832d1b），已合入
 `fix/remove-parse-filter`（11afa31）。未修复代码上翻转用例失败

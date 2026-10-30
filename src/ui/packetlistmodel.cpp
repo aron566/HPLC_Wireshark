@@ -333,8 +333,8 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                           case 0: kind = (e.mpdu.pb_num > 0) ? trl::L("DL-OFDMA")
                                                              : trl::L("DL-OFDMA(截断)"); break;
                           case 1: {
-                            // 类型1 双义:DL-SACK 判别与 parser 一致(单站 + 单 16B PB + 体首 MsgID==0);
-                            // 仅看站 0 尺寸会把多站 UL(站 0 为 16B)误标为 DL-SACK
+                            // 类型 1 双义:DL-SACK 判别与 parser 一致 (单站 + 单 16B PB + 体首 MsgID==0);
+                            // 仅看站 0 尺寸会把多站 UL(站 0 为 16B) 误标为 DL-SACK
                             const auto& sts = e.mpdu.sof_stations;
                             const bool dl_sack = (sts.size() == 1 && sts[0].pb_size == 16
                                                   && sts[0].msdu.size() >= 1 && (sts[0].msdu[0] & 0x0F) == 0);
@@ -343,7 +343,7 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                             else if (!sts.isEmpty())
                                 kind = trl::L("UL-OFDMA 数据帧");
                             else
-                                kind = trl::L("UL-OFDMA 数据帧(需 trigger)");
+                                kind = trl::L("UL-OFDMA 数据帧 (需 trigger)");
                             break;
                           }
                           case 2: kind = trl::L("UL-OFDMA trigger"); break;
@@ -353,20 +353,38 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                                .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
                                .arg(kind);
                     }
+                    // 训练帧 (DL-OFDMA 单站点)
                     if (e.mpdu.version == 2 && !e.meta.is_rf && !is_multi
                         && e.raw_bytes.size() > 5 && (quint8(e.raw_bytes.at(4)) & 0x02)) {
                         const bool bitload = (quint8(e.raw_bytes.at(5)) & 0x01) != 0;
-                        return QStringLiteral("NetID=0x%1 src=%2 dst=%3 %4")
-                            .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
-                            .arg(bitload ? trl::L("训练帧(Bitloading)") : trl::L("训练帧(MIMO)"));
+                        // CRC 状态
+                        int fail_cnt = 0;
+                        for (bool ok : e.mpdu.pb_crc_oks) if (!ok) ++fail_cnt;
+                        QString crc_str = fail_cnt > 0 
+                            ? trl::L("CRC FAIL(%1/%2)")
+                            : trl::L("CRC OK");
+                        return QStringLiteral("NetID=0x%1 src=%2 dst=%3 %4=%5 PBNum=%6 %7")
+                               .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
+                               .arg(bitload ? trl::L("训练帧(Bitloading)") : trl::L("训练帧(MIMO)"))
+                               .arg(e.mpdu.pb_num)
+                               .arg(crc_str);
                     }
-                    QString msdu = e.msdu_body.isEmpty() ? QString() :
-                                   QStringLiteral(" MSDU[%1B]").arg(e.msdu_body.size());
-                    return QStringLiteral("NetID=0x%1 src=%2 dst=%3 %4=%5 PBNum=%6%7")
-                           .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
-                           .arg(e.meta.is_rf ? QStringLiteral("MCS") : QStringLiteral("TMI"))
-                           .arg(e.meta.is_rf ? e.mpdu.mcs : e.mpdu.tmi)
-                           .arg(e.mpdu.pb_num).arg(msdu);
+                    // 默认情况 (含其他 SOF 帧)
+                    {
+                        int fail_cnt = 0;
+                        for (bool ok : e.mpdu.pb_crc_oks) if (!ok) ++fail_cnt;
+                        QString crc_str = fail_cnt > 0 
+                            ? trl::L("CRC FAIL(%1/%2)")
+                            : trl::L("CRC OK");
+                        QString msdu = e.msdu_body.isEmpty() ? QString() :
+                                       QStringLiteral(" MSDU[%1B]").arg(e.msdu_body.size());
+                        return QStringLiteral("NetID=0x%1 src=%2 dst=%3 %4=%5 PBNum=%6 %7")
+                               .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei)
+                               .arg(e.meta.is_rf ? QStringLiteral("MCS") : QStringLiteral("TMI"))
+                               .arg(e.meta.is_rf ? e.mpdu.mcs : e.mpdu.tmi)
+                               .arg(e.mpdu.pb_num)
+                               .arg(crc_str);
+                    }
                 }
                 return QStringLiteral("NetID=0x%1 src=%2 dst=%3")
                        .arg(nid).arg(e.mpdu.src_tei).arg(e.mpdu.dst_tei);

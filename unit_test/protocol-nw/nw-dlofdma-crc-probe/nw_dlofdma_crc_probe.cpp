@@ -175,13 +175,18 @@ int main(int argc, char** argv) {
                     tag, r.msdu.msdu_src_tei, (unsigned long long)r.msdu.msdu_src_mac,
                     r.msdu.msdu_dst_tei, (unsigned long long)r.msdu.msdu_dst_mac);
         check(flip ? "flipped: accept" : "control: accept", r.accept);
-        // 站点 0 的对走帧级字段(通用路径直接赋值 r.msdu,不进 tei_mac_pairs)。
+        // 站点 0 的对走帧级字段 (通用路径直接赋值 r.msdu,不进 tei_mac_pairs)。
         check(flip ? "flipped: sta0 pair kept" : "control: sta0 pair",
               r.msdu.msdu_src_tei == 27 && r.msdu.msdu_src_mac == sta27);
         check(flip ? "flipped: sta1 pair ABSENT" : "control: sta1 pair",
               flip ? !has_pair(r, 42, sta42) : has_pair(r, 42, sta42));
         if (flip)
             check("flipped: no learned pairs at all", r.msdu.tei_mac_pairs.isEmpty());
+        // 新增: CRC 状态检查
+        bool has_crc_fail = std::any_of(r.mpdu.pb_crc_oks.begin(), r.mpdu.pb_crc_oks.end(),
+                                        [](bool ok) { return !ok; });
+        check(flip ? "flipped: pb_crc_oks has failure" : "control: pb_crc_oks all pass",
+              !has_crc_fail);
     }
     // 聚合分支:站点 1 为聚合 PB(级联记录流),翻转站点 1 块 CRC 后,
     // 组装器应剔除与坏块相交的级联记录(站点 1 对不被学习);
@@ -197,6 +202,10 @@ int main(int argc, char** argv) {
         check("agg-flipped: sta0 pair kept",
               r.msdu.msdu_src_tei == 27 && r.msdu.msdu_src_mac == sta27);
         check("agg-flipped: sta1 pair ABSENT", !has_pair(r, 42, sta42));
+        // 新增:CRC 状态检查
+        bool has_crc_fail = std::any_of(r.mpdu.pb_crc_oks.begin(), r.mpdu.pb_crc_oks.end(),
+                                        [](bool ok) { return !ok; });
+        check("agg-flipped: pb_crc_oks has failure", has_crc_fail);
     }
     {
         BplcFrame fr;
@@ -209,6 +218,10 @@ int main(int argc, char** argv) {
         check("agg-control: sta0 pair kept",
               r.msdu.msdu_src_tei == 27 && r.msdu.msdu_src_mac == sta27);
         check("agg-control: sta1 pair learned", has_pair(r, 42, sta42));
+        // 新增:CRC 状态检查
+        bool has_crc_fail = std::any_of(r.mpdu.pb_crc_oks.begin(), r.mpdu.pb_crc_oks.end(),
+                                        [](bool ok) { return !ok; });
+        check("agg-control: pb_crc_oks all pass", !has_crc_fail);
     }
     std::printf(fails ? "RESULT: %d FAILURES\n" : "RESULT: ALL PASS\n", fails);
     return fails ? 1 : 0;
