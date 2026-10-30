@@ -441,10 +441,10 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
         }
         // PB 块逐块 CRC24 + 块体提取 + 聚合级联拆分(公共 pb_assembler;南网布局:
         // PB头4B 表47 + 块体 + 保留1B + CRC24 3B,聚合标志 byte2 bit0,§5.1.3.2.1)
-        // SPLC 单站点载波:PBNum 上限按频段×TMI 编号查 nw_2026_splc_max_pb_num
+        // SPLC 单站点载波:PBNum 上限按频段×TMI 编号查 nw_2026_max_pb_num
         // (band=PL频段标识(5,3,3),物理层表17;超限拒收,与国网 gw_2026 门限同口径)
         if (!r.meta.is_rf && r.mpdu.version == 2 && r.mpdu.pb_size > 8 && r.mpdu.pb_num > 0) {
-            const int max_n = nw_2026_splc_max_pb_num(r.mpdu.sof_band,
+            const int max_n = nw_2026_max_pb_num(r.mpdu.sof_band,
                 (quint8)get_bits(p, 6, 1, 5));
             if (max_n >= 0 && r.mpdu.pb_num > max_n) {
                 r.reject_reason = trl::L("PB 块数超上限(band=%1 tmi=%2 num=%3 max=%4)")

@@ -27,8 +27,8 @@ struct I18nRegNw2021Parser {
         trl::register_en("HRF 链路被过滤", "HRF Link Filtered");
         trl::register_en("SNID 不在白名单: 0x%1", "SNID Not in Whitelist: 0x%1");
         trl::register_en("TEI 不在白名单", "TEI not in whitelist");
-        trl::register_en("PB 块数超上限(tmi=%1 ext=%2 num=%3 max=%4)",
-                         "PB Count Over Limit (tmi=%1 ext=%2 num=%3 max=%4)");
+        trl::register_en("PB 块数超上限(band=%1 tmi=%2 ext=%3 num=%4 max=%5)",
+                         "PB Count Over Limit (band=%1 tmi=%2 ext=%3 num=%4 max=%5)");
     }
 };
 const I18nRegNw2021Parser g_i18n_reg_nw2021_parser;
@@ -220,13 +220,13 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.symbol_num   = (quint16)get_bits(p, 10, 7, 9);  // 符号数(表16)
             r.mpdu.tmi_ext   = (quint8) get_bits(p, 12, 0, 4);
             { const int sz = nw_2021_pb_size(r.mpdu.tmi, r.mpdu.tmi_ext); r.mpdu.pb_size = (quint16)(sz > 0 ? sz : 0); }
-            // PBNum 保守上限(表=三频段逐列最大,帧内无频段字段无法精确按 band 查):
-            // 只拦任何频段都不允许的组合(TMI=2 直用/13 直用/TMI_EXT 7-9 等);-1=组合无效拒收
+            // PBNum 精确上限(用户拍板):meta.channel 即载波频段号(剥头 payload[2],
+            // PLC=频段 0-2),按频段×TMI/TMI_EXT 查 nw_2021_max_pb_num;超限/组合无效拒收
             if (!r.meta.is_rf && r.mpdu.pb_num > 0) {
-                const int ub = nw_2021_pb_num_upper_bound(r.mpdu.tmi, r.mpdu.tmi_ext);
+                const int ub = nw_2021_max_pb_num(r.meta.channel, r.mpdu.tmi, r.mpdu.tmi_ext);
                 if (ub < 0 || r.mpdu.pb_num > ub) {
-                    r.reject_reason = trl::L("PB 块数超上限(tmi=%1 ext=%2 num=%3 max=%4)")
-                        .arg(r.mpdu.tmi).arg(r.mpdu.tmi_ext)
+                    r.reject_reason = trl::L("PB 块数超上限(band=%1 tmi=%2 ext=%3 num=%4 max=%5)")
+                        .arg(r.meta.channel).arg(r.mpdu.tmi).arg(r.mpdu.tmi_ext)
                         .arg(r.mpdu.pb_num).arg(ub);
                     r.accept = false;
                     return r;
