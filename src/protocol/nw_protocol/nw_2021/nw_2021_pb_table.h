@@ -34,4 +34,30 @@ inline int nw_2021_rf_pb_size(quint8 pblen) {
     }
 }
 
+/// 南网 BPLC 各频段(PL band 0-2)× 载波 TMI/TMI_EXT 支持的最大 PB 块数量。
+/// 列索引 0-13 = TMI 0-13;列 14-27 = TMI_EXT 1-14(TMI=13/14 时扩展查表)。
+/// 0 = 该组合不支持(拒收)。
+/// @note BPLC 版载波 SOF(表121)帧内无频段字段,band 为网络级配置,
+///       帧级校验无法取得 → 本表暂仅作参考记录,未接入解析门限。
+inline constexpr quint8 nw_2021_pb_num_table[3][28] = {
+    //      0  1  2  3  4  5  6  7  8  9 10 11 12 13 | 1  2  3  4  5  6  7  8  9 10 11 12 13 14 (TMI_EXT)
+    { 1, 4, 0, 4, 4, 4, 4, 1, 1, 1, 4, 4, 4, 0, 4, 4, 4, 4, 4, 4, 0, 0, 0, 4, 4, 4, 4, 4 },  // PL band0
+    { 1, 4, 0, 2, 4, 4, 4, 1, 1, 1, 3, 4, 2, 0, 4, 4, 4, 4, 4, 4, 0, 0, 0, 4, 4, 4, 4, 4 },  // PL band1
+    { 2, 4, 4, 1, 2, 3, 4, 0, 1, 1, 2, 2, 1, 0, 4, 4, 4, 4, 4, 4, 0, 0, 0, 4, 4, 4, 4, 4 },  // PL band2
+};
+
+/// 查南网 BPLC 某频段 + TMI/TMI_EXT 支持的最大 PB 块数量。返回 -1 = 配置无效。
+inline int nw_2021_max_pb_num(quint8 band, quint8 tmi, quint8 tmi_ext) {
+    if (band >= 3) return -1;                        // 频段越界(0-2)
+    int col;
+    if (tmi <= 13) {
+        col = tmi;                                   // TMI 主列(0-13)
+    } else if (tmi_ext >= 1 && tmi_ext <= 14) {
+        col = 14 + (tmi_ext - 1);                    // TMI=13/14 → TMI_EXT 扩展列
+    } else {
+        return -1;
+    }
+    return nw_2021_pb_num_table[band][col];
+}
+
 #endif // NW_2021_PB_TABLE_H

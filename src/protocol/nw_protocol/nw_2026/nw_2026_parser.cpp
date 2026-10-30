@@ -125,6 +125,8 @@ struct I18nReg {
     I18nReg() {
         trl::register_en("训练帧（MIMO训练帧）", "Training Frame (MIMO)");
         trl::register_en("SNID 不在白名单: 0x%1", "SNID Not in Whitelist: 0x%1");
+        trl::register_en("PB 块数超上限(band=%1 tmi=%2 num=%3 max=%4)",
+                         "PB Count Over Limit (band=%1 tmi=%2 num=%3 max=%4)");
         trl::register_en(" (截断: PB 块不完整, 声明 %1 块仅收到 %2 块)", " (truncated: %1 PB declared, %2 received)");
         trl::register_en("训练帧（Bitloading训练帧）", "Training Frame (Bitloading)");
         trl::register_en("聚合帧(%1 个级联 MAC 帧)", "Aggregated Frame (%1 cascade MAC frames)");
@@ -407,10 +409,12 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                         ? trl::L("训练帧（Bitloading训练帧）")
                         : trl::L("训练帧（MIMO训练帧）");
                 } else {
-                    // SPLC 单站点数据帧(表23):物理块个数(4,2-5)/Bitloading(6,0)/TMI编号(6,1-5)
+                    // SPLC 单站点数据帧(表23):物理块个数(4,2-5)/Bitloading(6,0)/TMI编号(6,1-5)/
+                    // PL频段标识(5,3-5,物理层表17 通信频段)
                     r.mpdu.pb_num  = (quint8) get_bits(p, 4, 2, 4);
                     const bool bitload = (get_bits(p, 6, 0, 1) != 0);
                     const quint8 tmi_idx = (quint8)get_bits(p, 6, 1, 5);
+                    r.mpdu.sof_band = (quint8)get_bits(p, 5, 3, 3);
                     { const int sz = bitload ? nw_2026_splc_bitload_pb_size(tmi_idx)
                                              : nw_2026_splc_pb_size(tmi_idx);
                       r.mpdu.pb_size = (quint16)(sz > 0 ? sz : 0); }
@@ -437,6 +441,20 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
         }
         // PB 块逐块 CRC24 + 块体提取 + 聚合级联拆分(公共 pb_assembler;南网布局:
         // PB头4B 表47 + 块体 + 保留1B + CRC24 3B,聚合标志 byte2 bit0,§5.1.3.2.1)
+        // SPLC 单站点载波:PBNum 上限按频段×TMI 编号查 nw_2026_splc_max_pb_num
+        // (band=PL频段标识(5,3,3),物理层表17;超限拒收,与国网 gw_2026 门限同口径)
+        if (!r.meta.is_rf && r.mpdu.version == 2 && r.mpdu.pb_size > 8 && r.mpdu.pb_num > 0) {
+            const int max_n = nw_2026_splc_max_pb_num(r.mpdu.sof_band,
+                (quint8)get_bits(p, 6, 1, 5));
+            if (max_n >= 0 && r.mpdu.pb_num > max_n) {
+                r.reject_reason = trl::L("PB 块数超上限(band=%1 tmi=%2 num=%3 max=%4)")
+                    .arg(r.mpdu.sof_band)
+                    .arg((quint8)get_bits(p, 6, 1, 5))
+                    .arg(r.mpdu.pb_num).arg(max_n);
+                r.accept = false;
+                return r;
+            }
+        }
         if (r.mpdu.pb_size > 8 && r.mpdu.pb_num > 0) {
             const pb_asm::PbLayout layout{/*head*/4, /*rsv*/1, /*crc*/3,
                                           /*agg_byte*/2, /*agg_bit*/0,
