@@ -1,12 +1,13 @@
 /// @file nw_2026_pb_table.h
 /// @brief 南网 NW_2026 协议参数:PB 块大小查表(载波 TMI / SPLC TMI编号 / 无线载荷 PB 大小)
-/// @details 通感一体化 SPLC 数据链路层(试行)物理层表13 ROBO 模式 + 数据链路层表23:
+/// @details SPLC 第3部分(物理层,试行)表13「SPLC 载荷数据的 ROBO 模式」+ 第4部分(数据链路层)表23:
+///   (表13 于 2026-10-30 以 docs/protocol_doc/nw/SPLC/ 第3部分物理层文档逐项复核,28 项 TMI→PB 全一致)
 ///   - BPLC 版本(标准版本号=1)载波路径:TMI(载波映射表索引)→ PB size,取值 0-14;
 ///     TMI 13-14 转查 TMI_EXT
 ///   - SPLC 版本(标准版本号=2)载波路径:TMI编号(表23 byte6 bit1-5)→ PB size,
 ///     Bitloading标识=0 用 nw_2026_splc_pb_size,=1 用 nw_2026_splc_bitload_pb_size
 ///   - 无线路径:载荷 PB 大小(PBLen,表130)→ PB size,0-5 → 16/40/72/136/264/520
-/// @note PB 大小映射见协议表(物理层表13 / 数据链路层表23 / 无线表130)。与国网独立,勿共享。
+/// @note PB 大小映射见协议表(SPLC 第3部分物理层表13 / 第4部分数据链路层表23 / 无线表130)。与国网独立,勿共享。
 #ifndef NW_2026_PB_TABLE_H
 #define NW_2026_PB_TABLE_H
 
@@ -37,7 +38,7 @@ inline int nw_2026_rf_pb_size(quint8 pblen) {
     }
 }
 
-/// 南网 SPLC 版(标准版本号=2)载波 TMI编号 → PB 块大小(字节,表23/物理层表13):
+/// 南网 SPLC 版(标准版本号=2)载波 TMI编号 → PB 块大小(字节,第4部分表23/第3部分物理层表13):
 /// 0-8→520 / 9-15→264 / 16-20→136 / 21-25→72 / 26-27→16。Bitloading标识=0 时使用。
 inline int nw_2026_splc_pb_size(quint8 tmi_idx) {
     if (tmi_idx <= 8)  return 520;
