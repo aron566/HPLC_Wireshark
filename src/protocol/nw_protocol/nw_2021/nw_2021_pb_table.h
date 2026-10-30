@@ -63,4 +63,23 @@ inline int nw_2021_max_pb_num(quint8 band, quint8 tmi, quint8 tmi_ext) {
     return nw_2021_pb_num_table[band][col];
 }
 
+/// 帧级可用的保守上限:BPLC 载波 SOF(表121)帧内无频段字段,无法按 band 精确查,
+/// 取三频段逐列最大值 —— 只拦"任何频段都不允许"的组合(如 TMI=2 直用、
+/// TMI=13 直用、TMI_EXT=7-9),精确按频段校验需网络级频段配置(暂无)。
+/// 返回 -1 = 组合本身无效(TMI 越界/13 无有效 TMI_EXT)。
+inline int nw_2021_pb_num_upper_bound(quint8 tmi, quint8 tmi_ext) {
+    int col;
+    if (tmi <= 12) {
+        col = tmi;
+    } else if (tmi == 13 && tmi_ext >= 1 && tmi_ext <= 14) {
+        col = 14 + (tmi_ext - 1);
+    } else {
+        return -1;
+    }
+    int m = nw_2021_pb_num_table[0][col];
+    for (int b = 1; b < 3; ++b)
+        m = (nw_2021_pb_num_table[b][col] > m) ? nw_2021_pb_num_table[b][col] : m;
+    return m;
+}
+
 #endif // NW_2021_PB_TABLE_H

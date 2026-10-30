@@ -15,6 +15,24 @@
 #include "i18n.h"
 #include <QDateTime>
 
+// 本文件拒因文案的英文注册(nw_2026_parser 同款模式;存量拒因此前漏注册,
+// 英文界面 trl::L 回退中文,一并补齐)
+struct I18nRegNw2021Parser {
+    I18nRegNw2021Parser() {
+        trl::register_en("空帧", "Empty Frame");
+        trl::register_en("帧长过短", "Frame Too Short");
+        trl::register_en("剥头后载荷过短(<4B)", "Payload Too Short After Strip (<4B)");
+        trl::register_en("剥头后空载荷", "Empty Payload After Strip");
+        trl::register_en("HPLC 链路被过滤", "HPLC Link Filtered");
+        trl::register_en("HRF 链路被过滤", "HRF Link Filtered");
+        trl::register_en("SNID 不在白名单: 0x%1", "SNID Not in Whitelist: 0x%1");
+        trl::register_en("TEI 不在白名单", "TEI not in whitelist");
+        trl::register_en("PB 块数超上限(tmi=%1 ext=%2 num=%3 max=%4)",
+                         "PB Count Over Limit (tmi=%1 ext=%2 num=%3 max=%4)");
+    }
+};
+const I18nRegNw2021Parser g_i18n_reg_nw2021_parser;
+
 NW_2021_Parser::NW_2021_Parser() {}
 
 // 剥物理层头(与国网一致:[dlen2][ts4][phr_mcs][option][channel][isRF])
@@ -202,6 +220,18 @@ NW_2021_Parser::Result NW_2021_Parser::parse(const BplcFrame& in, MsduState& msd
             r.mpdu.symbol_num   = (quint16)get_bits(p, 10, 7, 9);  // 符号数(表16)
             r.mpdu.tmi_ext   = (quint8) get_bits(p, 12, 0, 4);
             { const int sz = nw_2021_pb_size(r.mpdu.tmi, r.mpdu.tmi_ext); r.mpdu.pb_size = (quint16)(sz > 0 ? sz : 0); }
+            // PBNum 保守上限(表=三频段逐列最大,帧内无频段字段无法精确按 band 查):
+            // 只拦任何频段都不允许的组合(TMI=2 直用/13 直用/TMI_EXT 7-9 等);-1=组合无效拒收
+            if (!r.meta.is_rf && r.mpdu.pb_num > 0) {
+                const int ub = nw_2021_pb_num_upper_bound(r.mpdu.tmi, r.mpdu.tmi_ext);
+                if (ub < 0 || r.mpdu.pb_num > ub) {
+                    r.reject_reason = trl::L("PB 块数超上限(tmi=%1 ext=%2 num=%3 max=%4)")
+                        .arg(r.mpdu.tmi).arg(r.mpdu.tmi_ext)
+                        .arg(r.mpdu.pb_num).arg(ub);
+                    r.accept = false;
+                    return r;
+                }
+            }
             // 线 PBNum 留存:归一门会覆盖 pb_num,树“PB Num”位段节点显示线值用
             // (与 GW 解析器留存线字段口径一致)。
             r.mpdu.pb_num_field = r.mpdu.pb_num;
