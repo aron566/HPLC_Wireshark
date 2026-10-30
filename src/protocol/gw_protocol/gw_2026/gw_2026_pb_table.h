@@ -46,7 +46,6 @@ inline int gw_2026_diversity_pb_size(quint8 mode) {
 }
 
 /// 国网各频段(PL band 0-6)× 分集拷贝模式(0-28)支持的最大 PB 块数量。
-/// 对标 gw_2022_pb_num_table(2026-10-30 用户提供,权威口径,覆盖此前推断值):
 ///   - 频段扩为 0-6(旧表仅 0-3);band3 全 0(该频段不支持分集拷贝载荷);
 ///   - 模式 0-14 多处与旧表不同(如 band0 mode0=1、band1 mode3=4、band2 mode7=4),
 ///     旧表 band3 行作废;mode 15-28 各频段(除 band3)均为 4,与表18 附注
