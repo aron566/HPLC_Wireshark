@@ -17,6 +17,18 @@
 #include <QApplication>
 #include <QColor>
 
+namespace {
+/// i18n 注册(本 TU 概要文本)
+struct I18nRegHexView {
+    I18nRegHexView() {
+        trl::register_en("无高亮字节可复制(先点击协议字段)", "No highlighted bytes to copy (click a protocol field first)");
+        trl::register_en("复制 Hex(%1 字节)", "Copy Hex (%1 bytes)");
+        trl::register_en("复制为 0x 前缀(%1 字节)", "Copy with 0x prefix (%1 bytes)");
+    }
+};
+const I18nRegHexView g_i18n_reg_hexview;
+}  // namespace
+
 // 行布局(见 render_hex):
 //   偏移列 "0000  " = 6 字符
 //   每字节 "xx "    = 3 字符;第 8 字节(col==7)之后多 1 空格

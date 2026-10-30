@@ -53,6 +53,16 @@ QString clipped_changelog(const QString& html, int limit = 100) {
     return out;
 }
 }  // namespace
+
+namespace {
+/// i18n 注册(本 TU 概要文本)
+struct I18nRegUpdater {
+    I18nRegUpdater() {
+        trl::register_en("完整更新说明见仓库 Releases 页面", "See the repository Releases page for full update notes");
+    }
+};
+const I18nRegUpdater g_i18n_reg_updater;
+}  // namespace
 // ===== 本地修改结束 =====
 
 /**

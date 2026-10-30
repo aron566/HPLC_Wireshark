@@ -341,6 +341,9 @@ struct I18nRegCommConfig {
         trl::register_en("重启后界面语言完全生效",
                          "UI language fully applies after restart");
         trl::register_en("协议/Protocol:", "Protocol:");
+        trl::register_en("主题/Theme:", "Theme:");
+        trl::register_en("深色", "Dark");
+        trl::register_en("浅色", "Light");
         // 协议名(中/英)由 IProtocolProvider 提供,填充协议列表时登记,不在此硬编码
     }
 };

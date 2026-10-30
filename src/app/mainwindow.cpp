@@ -1377,6 +1377,28 @@ struct I18nRegMainWindow {
         trl::register_en("跳转", "Goto");
         trl::register_en("跳转帧序号无效", "Invalid frame index");
         trl::register_en("帧序号", "Frame index");
+        trl::register_en("Ready — Ctrl+E 开始捕获,Ctrl+L 清空", "Ready — Ctrl+E to start capture, Ctrl+L to clear");
+        trl::register_en("暂停", "Pause");
+        trl::register_en("清空", "Clear");
+        trl::register_en("捕获(&C)", "Capture(&C)");
+        trl::register_en("导出...", "Export...");
+        trl::register_en("分析(&A)", "Analyze(&A)");
+        trl::register_en("应用显示过滤器", "Apply Display Filter");
+        trl::register_en("帮助(&H)", "Help(&H)");
+        trl::register_en("检查更新(&U)...", "Check for Updates(&U)...");
+        trl::register_en("关于(&A)", "About(&A)");
+        trl::register_en("关于 BPLC STA Monitor", "About BPLC STA Monitor");
+        trl::register_en("BPLC/HRF 协议 STA 报文监控上位机(串口捕获 + 离线回放)。", "BPLC/HRF Protocol STA Packet Monitor (Serial Capture + Offline Replay).");
+        trl::register_en("无可导出的帧", "No frames to export");
+        trl::register_en("没有可写入的帧数据", "No frame data to write");
+        trl::register_en("已导出 %1 帧 → %2", "Exported %1 frames → %2");
+        trl::register_en("配置已保存(Ctrl+E 开始捕获)", "Settings saved (Ctrl+E to start capture)");
+        trl::register_en("导入", "Import");
+        trl::register_en("正在捕获/回放中,请先点击停止后再拖入文件", "Capture/replay in progress, please stop it before dropping files");
+        trl::register_en("不支持的文件类型(支持 .bin / .txt / .hex): %1", "Unsupported file type (supports .bin / .txt / .hex): %1");
+        trl::register_en("正在检查更新…", "Checking for updates…");
+        trl::register_en("检查更新完成:暂无可更新版本(若网络不可达请检查连接)", "Update check complete: no new version available (check your connection if the network is unreachable)");
+        trl::register_en("[状态] ", "[Status] ");
     }
 };
 const I18nRegMainWindow g_i18n_reg_mainwindow;
