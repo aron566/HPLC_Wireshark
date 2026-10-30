@@ -570,8 +570,16 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                             merge_msdu_learn(r.msdu, cm);
                         }
                     } else {
-                        const MsduInfo cm = NW_2026_MsduParser::parse(ar.msdu_body);
-                        merge_msdu_learn(r.msdu, cm);
+                        // CRC 失败块不解析(与主路同口径,用户 2026-10-29 定):
+                        // 本站 PB 全好或 MSDU 完整落在好块内才解析学习;坏块
+                        // 字节会使体流错位成错误数据,解析出的 MAC/TEI 对不可信。
+                        // (聚合分支已由组装器剔除与坏块相交的记录,无需再验。)
+                        if (ar.all_crc_ok
+                            || pb_asm::msdu_span_avoids_bad_blocks(ar.msdu_body, ar.blocks,
+                                                                   layout.body_len(psz))) {
+                            const MsduInfo cm = NW_2026_MsduParser::parse(ar.msdu_body);
+                            merge_msdu_learn(r.msdu, cm);
+                        }
                     }
                 }
             }
