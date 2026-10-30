@@ -463,7 +463,10 @@ NW_2026_Parser::Result NW_2026_Parser::parse(const BplcFrame& in, MsduState& msd
                 pb_asm::assemble_pb_blocks(r.payload_for_log, r.mpdu.pb_num,
                                            r.mpdu.pb_size, layout);
             for (const auto& b : res.blocks) r.mpdu.pb_crc_oks.append(b.crc_ok);
-            r.mpdu.pb_crc_ok = res.all_crc_ok;
+            // pb_crc_ok 语义:全部声明块都已收到且 CRC24 通过(不只是已收块全过);
+            // 截断帧即使已收块全过也为 false,与红行谓词“含截断”意图一致;
+            // NW_2021 同款口径(pb_crc_oks.size()==pb_num),GW 侧截断直接拒收。
+            r.mpdu.pb_crc_ok = res.all_crc_ok && !res.truncated;
             if (res.any_aggregated) {
                 // 聚合帧(SPLC 图11 多块聚合,用户决策:不参与 MSDU 拼接):级联 MAC 帧
                 // 逐帧独立解析展示——级联记录可跨 PB 体边界(实测锚点:4 条记录
