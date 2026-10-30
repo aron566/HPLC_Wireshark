@@ -735,6 +735,9 @@ void NW_2026_Parser::parse_ofdma_type1(Result& r, const quint8* p, int raw_sz) {
         st.pb_crc_oks.append(true);                   // 判别时已验 CRC 通过
         st.msdu       = QByteArray(reinterpret_cast<const char*>(p + 20), 8);  // 体 8B(MsgID/SrcTEI/RxStatus)
         r.mpdu.sof_stations.append(st);
+        // 逐站 CRC 进帧级 pb_crc_oks(用户 2026-10-30 定,仅 PB 块 CRC):
+        // DL-SACK 单 16B PB 的 CRC24 已在判别时验证通过,属 PB 块 CRC。
+        for (bool ok : st.pb_crc_oks) r.mpdu.pb_crc_oks.append(ok);
         r.mpdu.pb_num  = 0;    // 不参与均一 pb_num/pb_size 组装,树侧按 sof_stations 渲染
         r.mpdu.pb_size = 0;
     } else {
@@ -783,6 +786,10 @@ void NW_2026_Parser::parse_ofdma_type1(Result& r, const quint8* p, int raw_sz) {
                     }
                 }
                 r.mpdu.sof_stations.append(st);
+                // 逐站 CRC 进帧级 pb_crc_oks(用户 2026-10-30 定,仅 PB 块 CRC):
+                // 各站 st.pb_crc_oks 皆为组装器逐块 CRC24 结果,站序即块序;
+                // 类型1 通用路因 pb_num=0 跳过,无 double-append。
+                for (bool ok : st.pb_crc_oks) r.mpdu.pb_crc_oks.append(ok);
                 base += (int)ts.pb_num * (int)ts.pb_size;
             }
             r.mpdu.pb_num  = 0;    // 每站尺寸不同,不走均一组装,树侧按 sof_stations 渲染

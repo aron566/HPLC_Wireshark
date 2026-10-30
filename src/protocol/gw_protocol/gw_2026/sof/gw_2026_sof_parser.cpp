@@ -136,6 +136,11 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
             info.pb_num   = 0;
             info.pb_size  = 0;
             info.pb_num_field = sn_code;
+            // 逐站 CRC 进帧级 pb_crc_oks(用户 2026-10-30 定,仅 PB 块 CRC):
+            // 各站 st.pb_crc_oks 皆为上循环逐块 CRC24 结果(calc==rx),站序即块序;
+            // 单站点路径(info.pb_crc_oks 由组装段填)与此多站分支互斥,无 double-append。
+            for (const auto& st : info.sof_stations)
+                for (bool ok : st.pb_crc_oks) info.pb_crc_oks.append(ok);
             // 多站点 PB 布局已通过协议仿真帧验证，尚未经实包确认。
             // 已验证(strong)：
             //   · 块边界 —— 帧长恰好等于 16(FCH) + 16(eFC) + Σ(站点块数 × 块长)：
