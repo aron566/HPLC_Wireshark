@@ -5,6 +5,8 @@
 ///         逐帧采样路径(note_restart_origin)、同帧不重复报、无变化不报
 ///   D13   身份记忆按 (NID, MAC) 分键:同 MAC 在不同 NID 下 CCO/STA 身份互不串
 ///   D14   mac_to_tei 按 (NID, MAC) 分键:同 MAC 在不同 NID 下映射到不同 TEI,互不串
+///   D17   CCO 基线归一 (NID, 0):先无 MAC 后有 MAC(及反向)同一次重启只报 1 条
+///   D18   逐帧重启进历史回放:replay_topo_logs 合并事件日志与采样日志重放
 /// 用法:./probe ; exit 0 = 全部断言通过
 #include "topo_state.h"
 #include <QCoreApplication>
@@ -414,6 +416,90 @@ int main(int argc, char** argv) {
         st.note_restart_origin(0, 5, MAC_Z, 5, 2002, 3, false, true);
         CHECK(!st.note_restart_origin(0, 5, MAC_Z, 6, 2003, 4, false, true),
               "D16c note_restart_origin 拒绝 NID==0,两次采样均不建基线");
+    }
+    // D17(CCO 基线归一,04531b9 遗留):缺源 MAC 的 CCO 帧走 (NID, 0)、带 MAC 的走
+    //     (NID, cco_mac) 时,同一次重启两条基线各报一次。现 CCO 一律归一到 (NID, 0)。
+    {
+        TopoState st;
+        // 逐帧侧:帧1 缺 MAC 建基线,帧2 带 MAC 变化只报 1 条,帧3 缺 MAC 变化再报 1 条
+        CHECK(!st.note_restart_origin(0x0E, kTeiCco, 0, 2, 1001, 1, false, true),
+              "D17a 逐帧 CCO 缺 MAC 首帧建基线不报");
+        CHECK(st.note_restart_origin(0x0E, kTeiCco, MAC_CCO, 3, 1002, 2, false, true),
+              "D17b 先无 MAC 后有 MAC,同一次重启只报 1 条 CcoRestart");
+        CHECK(count_kind(st, TopoEventKind::CcoRestart) == 1
+              && count_restart_events(st) == 0, "D17c 总数 1 条且为 CcoRestart");
+        CHECK(st.note_restart_origin(0x0E, kTeiCco, 0, 4, 1003, 3, false, true),
+              "D17d 再回缺 MAC 形态,计数 3→4 仍报");
+        CHECK(count_kind(st, TopoEventKind::CcoRestart) == 2, "D17e 两次变化共 2 条,不多不少");
+        // 反向顺序:先带 MAC 建基线,后缺 MAC 变化同样只报 1 条(旧实现会漏报)
+        TopoState st2;
+        CHECK(!st2.note_restart_origin(0x0E, kTeiCco, MAC_CCO, 5, 1001, 1, false, true),
+              "D17f 逐帧 CCO 带 MAC 首帧建基线不报");
+        CHECK(st2.note_restart_origin(0x0E, kTeiCco, 0, 6, 1002, 2, false, true),
+              "D17g 先有 MAC 后无 MAC,计数 5→6 报 1 条(旧实现漏报)");
+        CHECK(count_kind(st2, TopoEventKind::CcoRestart) == 1, "D17h 反向总数 1 条");
+        // 事件侧同样归一:发现列表缺 MAC 建基线,带 cco_mac 的关联确认变化只报 1 条
+        TopoState st3;
+        TopoEvent dl = frame(TopoEventKind::DiscoverList, 0x0E, 0, 2, 1);
+        st3.apply(dl);
+        TopoEvent cnf = frame(TopoEventKind::AssocCnf, 0x0E, MAC_CCO, 3, 2, MAC_CCO);
+        st3.apply(cnf);
+        CHECK(count_kind(st3, TopoEventKind::CcoRestart) == 1
+              && count_restart_events(st3) == 0, "D17i 事件侧先无 MAC 后有 MAC 只报 1 条");
+        // CCO 事件 sender_mac 归一为 0(文案只报次数,事件表/插件不消费 sender_mac)
+        bool sender_ok = true;
+        for (const TopoEvent& ev : st.events)
+            if (ev.kind == TopoEventKind::CcoRestart && ev.sender_mac != 0) sender_ok = false;
+        CHECK(sender_ok, "D17j CcoRestart 事件 sender_mac 归一为 0");
+        // STA 基线不受影响:仍按 (NID, 主体 MAC) 分键,两 STA 各自报
+        TopoState st4;
+        CHECK(!st4.note_restart_origin(0x0E, 5, MAC_A, 2, 1001, 1, false, true),
+              "D17k STA 首帧建基线不报");
+        CHECK(st4.note_restart_origin(0x0E, 5, MAC_A, 3, 1002, 2, false, true),
+              "D17l STA 计数 2→3 报 StaRestart");
+        CHECK(count_kind(st4, TopoEventKind::CcoRestart) == 0
+              && count_restart_events(st4) == 1, "D17m STA 变化仍为 1 条 StaRestart");
+    }
+    // D18(逐帧重启进历史回放,04531b9 遗留):普通数据帧触发的重启只走逐帧采样,
+    //     不进拓扑事件日志;回放必须按帧序合并两条日志重放,否则历史快照里重启全消失。
+    {
+        // 模拟 MainWindow 实时路径:帧1 关联确认(事件+采样),帧2 普通数据帧(仅采样)。
+        // 实时侧:事件侧与逐帧侧共用同一基线,同一次重启只报一次。
+        QHash<quint32, TopoState> live;
+        QVector<TopoLogItem> topo_log;
+        QVector<TopoRestartSample> restart_log;
+        TopoState& live_st = live[0x0E];
+        live_st.nid = 0x0E;
+        TopoEvent assoc1 = frame(TopoEventKind::AssocCnf, 0x0E, MAC_A, 2, 1);
+        assoc1.nodes.append({5, MAC_A});
+        live_st.apply(assoc1);
+        topo_log.append({1, assoc1});
+        live_st.note_restart_origin(0x0E, 5, MAC_A, 2, 1001, 1, false, true);
+        restart_log.append({1, 0x0E, 5, MAC_A, 2, 1001, false, true});
+        CHECK(count_restart_events(live_st) == 0, "D18a 帧1 实时只建基线不报");
+        CHECK(live_st.note_restart_origin(0x0E, 5, MAC_A, 3, 1002, 2, false, true),
+              "D18b 帧2 普通数据帧逐帧采样报 StaRestart");
+        restart_log.append({2, 0x0E, 5, MAC_A, 3, 1002, false, true});
+        CHECK(count_restart_events(live_st) == 1, "D18c 实时共 1 条 StaRestart");
+        // 回放到帧1:冻结快照里还没有重启(变化在帧2)
+        QHash<quint32, TopoState> hist;
+        qint64 replayed = -1;
+        replay_topo_logs(topo_log, restart_log, 1, replayed, hist);
+        CHECK(hist.contains(0x0E) && count_restart_events(hist[0x0E]) == 0,
+              "D18d 回放到帧1,快照里 0 条重启");
+        // 增量回放到帧2:快照里出现实时那 1 条,不多不少
+        replay_topo_logs(topo_log, restart_log, 2, replayed, hist);
+        CHECK(count_restart_events(hist[0x0E]) == 1, "D18e 增量回放到帧2,快照里 1 条 StaRestart");
+        bool desc_ok = false;
+        for (const TopoEvent& ev : hist[0x0E].events)
+            if (ev.kind == TopoEventKind::StaRestart)
+                desc_ok = ev.desc.contains(QStringLiteral("2→3")) && ev.frame_index == 2;
+        CHECK(desc_ok, "D18f 快照里的 StaRestart 文案 2→3 且来源帧为 2");
+        // 回拨到帧1 再重放到帧2:全量重建后仍为 1 条,不 double-apply
+        replay_topo_logs(topo_log, restart_log, 1, replayed, hist);
+        CHECK(count_restart_events(hist[0x0E]) == 0, "D18g 回拨到帧1,快照清回 0 条");
+        replay_topo_logs(topo_log, restart_log, 2, replayed, hist);
+        CHECK(count_restart_events(hist[0x0E]) == 1, "D18h 回拨后再重放到帧2,仍为 1 条");
     }
 
     std::printf(failures ? "RESULT: %d FAILURES\n" : "RESULT: ALL PASS\n", failures);

@@ -138,8 +138,10 @@ public:
     ///  - **CCO 的 TEI 固定为 1**(南网规约 / HDC 2.0 5.3.3.1),故主体判定依据:
     ///    src_tei==1、或 MAC == 本 NID 已学到的 CCO MAC、或 MAC 已映射到 TEI=1 ⇒ CCO;其余按 STA;
     ///  - 分键 = (NID, MAC):旧实现 CCO 基线是单一全局值(多 NID 互相踩)、STA 基线只有 MAC
-    ///    (不同 NID 下同 MAC 会串),两者都必须带 NID;
-    ///  - src_mac==0 时不检测:宁可不报,也不把计数记到别的主体名下;
+    ///    (不同 NID 下同 MAC 会串),两者都必须带 NID;CCO 在 note_restart_change 里
+    ///    归一到 (NID, 0)(每 NID 一台 CCO,与帧是否带源 MAC 无关,防基线裂成两条);
+    ///  - src_mac==0 时只有判为 CCO 才检测(归本 NID 的 CCO 基线);判为 STA 则不检测,
+    ///    宁可不报,也不把计数记到别的主体名下;
     ///  - 已知代价:事件量上升(以前漏报的真实重启现在会报);CcoRestart/StaRestart 是插件 API 事件
     ///    (plugin/host/js_backend.cpp / lua_backend.cpp 映射为 ccoRestart/staRestart),
     ///    Lua/JS 侧若按事件条数统计会随之变化。
@@ -226,8 +228,8 @@ private:
     ///          - STA 旧实现只有 MAC,不同 NID 下同 MAC 会串(用户 2026-11 口径:先分 NID,再分 MAC)。
     ///          身份记忆 m_cco_macs 同样按 (NID, MAC) 分键(键 = nid_mac_key),同 MAC 在
     ///          不同 NID 下的 CCO 身份互不串。
-    QHash<NidMacKey, int> m_cco_restart_count;  ///< CCO 主体基线
-    QHash<NidMacKey, int> m_sta_restart_count;  ///< STA 主体基线
+    QHash<NidMacKey, int> m_cco_restart_count;  ///< CCO 主体基线(键恒为 (NID, 0):每 NID 一台 CCO)
+    QHash<NidMacKey, int> m_sta_restart_count;  ///< STA 主体基线(键 = (NID, 主体 MAC))
 
     /// @brief 主体身份判定(CCO/STA)的**唯一入口**:apply() 事件侧与逐帧采样侧都走这里,
     ///        避免两条路径判据集合不同导致同一次重启被报成 STA/CCO 两条(M1),
@@ -256,6 +258,42 @@ private:
     bool note_restart_change(quint32 net_id, quint64 subject, bool is_cco, int rc,
                              qint64 epoch_ms, qint64 frame_index, const TopoEvent& proto);
 };
+
+/// @brief 拓扑事件回放日志条目(帧序号 → 事件;供 TOPO 历史回放调试)
+struct TopoLogItem {
+    qint64    frame_index = 0; ///< PacketEntry::index(1-based 全局帧序号)
+    TopoEvent event;           ///< 已填充 nid/epoch_ms/is_rf 的完整事件
+};
+
+/// @brief 逐帧重启采样日志条目(帧序号 → 一次 RestartCount 采样;供 TOPO 历史回放)
+/// @details 只记有效采样(MSDU 在、NID 有效、计数有效);变化与否都记——首帧只建基线,
+///          回放时缺了它,后一帧的变化就报不出来。普通数据帧的重启只走这条日志,
+///          不进拓扑事件日志(见 replay_topo_logs 的注释:重启事件本身不能进事件日志)。
+struct TopoRestartSample {
+    qint64  frame_index = 0;    ///< PacketEntry::index(1-based 全局帧序号)
+    quint32 net_id = 0;         ///< 帧的 NID(0=无效,不记不重放)
+    quint16 src_tei = 0;        ///< 帧头发送方 TEI(CCO 固定为 1)
+    quint64 src_mac = 0;        ///< MSDU 头源 MAC(0=缺源 MAC)
+    int     restart_count = -1; ///< MSDU 头重启次数 4-bit
+    qint64  epoch_ms = 0;       ///< 帧时刻(epoch ms)
+    bool    is_rf = false;      ///< 帧的物理介质(false=载波 true=RF)
+    bool    is_rf_known = false;///< is_rf 是否已判定
+};
+
+/// @brief 历史回放:拓扑事件日志 + 逐帧重启采样日志按帧序合并重放到目标帧,生成冻结快照
+/// @details 增量回放:replayed_frame 记录快照已覆盖到的帧;目标帧更大时只应用差量区间,
+///          目标更小时(或水位失效)全量重建。两条日志都严格按帧序追加;同帧先应用拓扑
+///          事件再采样重启,与 MainWindow::make_entry 的实时顺序一致,两侧共用同一基线,
+///          同一次重启只报一次。NID==0 的日志条目不重放。
+/// @param[in] topo_log 拓扑事件日志(帧序)
+/// @param[in] restart_log 逐帧重启采样日志(帧序)
+/// @param[in] target_frame 回放到该帧序号(含)
+/// @param[in,out] replayed_frame 回放水位:快照已覆盖到的帧(-1=需全量重建;调用后置为目标帧)
+/// @param[out] hist_states 回放快照:重放到目标帧的拓扑(冻结显示用)
+void replay_topo_logs(const QVector<TopoLogItem>& topo_log,
+                      const QVector<TopoRestartSample>& restart_log,
+                      qint64 target_frame, qint64& replayed_frame,
+                      QHash<quint32, TopoState>& hist_states);
 
 /// @brief 获取/创建供有效 RestartCount 采样使用的 NID 状态。
 /// @details 普通 MSDU 可能先于任何拓扑管理事件到达；此时仍需保存重启计数基线。

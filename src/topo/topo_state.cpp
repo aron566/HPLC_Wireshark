@@ -132,6 +132,59 @@ TopoState* ensure_restart_sample_state(QHash<quint32, TopoState>& states,
     return &it.value();
 }
 
+void replay_topo_logs(const QVector<TopoLogItem>& topo_log,
+                      const QVector<TopoRestartSample>& restart_log,
+                      qint64 target_frame, qint64& replayed_frame,
+                      QHash<quint32, TopoState>& hist_states) {
+    // 点到更早的帧,或水位失效(初始 -1 / 日志乱序被重置):快照从零重建。
+    // 注意:水位失效时必须清快照,否则从头重放会 double-apply(事件表翻倍)。
+    if (replayed_frame < 0 || target_frame < replayed_frame) {
+        hist_states.clear();
+        replayed_frame = -1;
+    }
+    // 二分定位水位之后的第一条日志(两条日志都严格按帧序追加)
+    int topo_i = 0, topo_hi = topo_log.size();
+    while (topo_i < topo_hi) {
+        const int mid = topo_i + (topo_hi - topo_i) / 2;
+        if (topo_log[mid].frame_index <= replayed_frame) topo_i = mid + 1;
+        else topo_hi = mid;
+    }
+    int restart_i = 0, restart_hi = restart_log.size();
+    while (restart_i < restart_hi) {
+        const int mid = restart_i + (restart_hi - restart_i) / 2;
+        if (restart_log[mid].frame_index <= replayed_frame) restart_i = mid + 1;
+        else restart_hi = mid;
+    }
+    // 两条日志按帧序合并重放:同帧先应用拓扑事件再采样重启,与 MainWindow::make_entry
+    // 的实时顺序一致(事件侧先,逐帧侧后)。两侧共用同一基线,同一次重启只报一次;
+    // 逐帧采样只建基线的首帧也必须重放,否则后一帧的变化在快照里报不出来。
+    // 不能把重启事件本身也 append 进拓扑事件日志:回放 apply() 会从基线重新推导一次
+    // 重启,同一事件会被记两遍。
+    while (true) {
+        const bool has_topo = topo_i < topo_log.size()
+            && topo_log[topo_i].frame_index <= target_frame;
+        const bool has_restart = restart_i < restart_log.size()
+            && restart_log[restart_i].frame_index <= target_frame;
+        if (!has_topo && !has_restart) break;
+        if (has_restart
+            && (!has_topo || restart_log[restart_i].frame_index < topo_log[topo_i].frame_index)) {
+            const TopoRestartSample& s = restart_log[restart_i++];
+            // 网络标识符不完整(NID==0)的采样不重放(不建空状态),与实时口径一致
+            if (s.net_id == 0) continue;
+            TopoState& hs = hist_states[s.net_id];
+            hs.nid = s.net_id;
+            hs.note_restart_origin(s.net_id, s.src_tei, s.src_mac, s.restart_count,
+                                   s.epoch_ms, s.frame_index, s.is_rf, s.is_rf_known);
+        } else {
+            const TopoLogItem& it = topo_log[topo_i++];
+            // 网络标识符不完整(NID==0)的旧日志事件不回放(不建空状态)
+            if (it.event.nid == 0) continue;
+            hist_states[it.event.nid].apply(it.event);
+        }
+    }
+    replayed_frame = target_frame;
+}
+
 bool TopoState::note_restart_count(quint16 tei, bool is_rf, int rc,
                                    qint64 epoch_ms, qint64 frame_index) {
     if (!tei || tei == kTeiInvalid) return false;
@@ -283,7 +336,13 @@ bool TopoState::note_restart_change(quint32 net_id, quint64 subject, bool is_cco
     // CCO 允许"无 MAC 主体"(subject==0 ⇒ 每 NID 一条 CCO 基线);STA 必须有 MAC
     if ((!subject && !is_cco) || rc < 0 || rc == kRestartCountInvalid)
         return false;   // 0xFF=无该字段(单跳简头等)
-    const NidMacKey key = nid_mac_key(net_id, subject);
+    // CCO 主体归一:每 NID 只有一台 CCO,基线统一记到 (NID, 0),与帧是否带源 MAC 无关。
+    // 否则缺源 MAC 的 CCO 帧走 (NID, 0)、带 MAC 的走 (NID, cco_mac),同一次重启两条
+    // 基线各报一次(M1 换了个形式);先无 MAC 后有 MAC 也不另起基线。CCO 文案只报次数
+    // 不报 MAC,事件 sender_mac 也不被 TOPO 事件表/插件后端消费,归一不丢信息。
+    // STA 仍按 (NID, 主体 MAC) 分键(多 STA 共存,必须分主体)。
+    const quint64 key_subject = is_cco ? 0 : subject;
+    const NidMacKey key = nid_mac_key(net_id, key_subject);
     QHash<NidMacKey, int>& base = is_cco ? m_cco_restart_count : m_sta_restart_count;
     const auto it = base.constFind(key);
     const bool changed = (it != base.constEnd() && it.value() != rc);
@@ -294,7 +353,7 @@ bool TopoState::note_restart_change(quint32 net_id, quint64 subject, bool is_cco
     re.nid = net_id;
     re.kind = is_cco ? TopoEventKind::CcoRestart : TopoEventKind::StaRestart;
     re.restart_count = rc;
-    re.sender_mac = subject;
+    re.sender_mac = key_subject;
     re.epoch_ms = epoch_ms;
     re.frame_index = frame_index;
     re.desc = is_cco
@@ -373,7 +432,8 @@ void TopoState::apply(const TopoEvent& e) {
     //  - CCO 的 TEI 固定为 1(南网规约 / HDC 2.0 5.3.3.1):主体判定用「本帧 CCO MAC」、
     //    「MAC 已映射到 TEI=1」、或「本帧 nodes 里 (TEI=1, 该 MAC)」三条依据;其余按 STA。
     //  - 分键 = nid_mac_key(NID, 主体 MAC):CCO 旧基线是单一全局值(多 NID 互相踩),
-    //    STA 旧基线只有 MAC(不同 NID 下同 MAC 会串)。
+    //    STA 旧基线只有 MAC(不同 NID 下同 MAC 会串);CCO 在 note_restart_change 里
+    //    归一到 (NID, 0)(每 NID 一台 CCO,与帧是否带源 MAC 无关,防基线裂成两条)。
     //  - 已知代价:事件量上升(以前漏报的真实重启现在会报),且 CcoRestart/StaRestart 是插件
     //    API 事件(plugin/host/js_backend.cpp:47、lua_backend.cpp:65 → ccoRestart/staRestart),
     //    Lua/JS 侧若按事件条数统计会变化。
