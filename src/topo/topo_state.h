@@ -139,7 +139,8 @@ public:
     ///    src_tei==1、或 MAC == 本 NID 已学到的 CCO MAC、或 MAC 已映射到 TEI=1 ⇒ CCO;其余按 STA;
     ///  - 分键 = (NID, MAC):旧实现 CCO 基线是单一全局值(多 NID 互相踩)、STA 基线只有 MAC
     ///    (不同 NID 下同 MAC 会串),两者都必须带 NID;CCO 在 note_restart_change 里
-    ///    归一到 (NID, 0)(每 NID 一台 CCO,与帧是否带源 MAC 无关,防基线裂成两条);
+    ///    归一到 (NID, 已知 cco_mac)(未知时暂用 (NID, 0) 占位,已知后把基线值迁移过去
+    ///    并删占位键,防基线裂成两条);事件 sender_mac 保留真实源 MAC,不归一;
     ///  - src_mac==0 时只有判为 CCO 才检测(归本 NID 的 CCO 基线);判为 STA 则不检测,
     ///    宁可不报,也不把计数记到别的主体名下;
     ///  - 已知代价:事件量上升(以前漏报的真实重启现在会报);CcoRestart/StaRestart 是插件 API 事件
@@ -228,7 +229,7 @@ private:
     ///          - STA 旧实现只有 MAC,不同 NID 下同 MAC 会串(用户 2026-11 口径:先分 NID,再分 MAC)。
     ///          身份记忆 m_cco_macs 同样按 (NID, MAC) 分键(键 = nid_mac_key),同 MAC 在
     ///          不同 NID 下的 CCO 身份互不串。
-    QHash<NidMacKey, int> m_cco_restart_count;  ///< CCO 主体基线(键恒为 (NID, 0):每 NID 一台 CCO)
+    QHash<NidMacKey, int> m_cco_restart_count;  ///< CCO 主体基线(规范键 (NID, 已知 cco_mac);未知时暂用 (NID, 0) 占位,迁移后删除)
     QHash<NidMacKey, int> m_sta_restart_count;  ///< STA 主体基线(键 = (NID, 主体 MAC))
 
     /// @brief 主体身份判定(CCO/STA)的**唯一入口**:apply() 事件侧与逐帧采样侧都走这里,
@@ -252,7 +253,18 @@ private:
 
     QSet<NidMacKey> m_cco_macs;   ///< CCO 身份记忆(键 = nid_mac_key(NID, MAC),先分 NID 再分 MAC;防归属漂移)
 
+    /// @brief CCO 基线规范 MAC:每 NID 一台 CCO,基线键为 (NID, 已知 cco_mac)。
+    /// @details 优先级:当前主体 MAC(已判 CCO 且非 0 时即 cco_mac) > 当前事件的
+    ///          cco_mac 字段 > 已学到的 cco_mac 成员 > m_cco_macs 身份记忆里本 NID
+    ///          唯一的那条。全部未知时返回 0,调用方暂用 (NID, 0) 作占位键。
+    /// @return 规范 cco_mac,未知时为 0
+    quint64 canonical_cco_mac(quint32 net_id, quint64 subject,
+                              const TopoEvent& proto) const;
+
     /// @brief 重启变化记录(CCO/STA 共用实现):比较基线、变化即生成重启事件并更新基线
+    /// @details CCO 先归一再比较:规范键 (NID, 已知 cco_mac);占位键 (NID, 0) 已有
+    ///          基线且规范键已知时,先把值迁移过去再删占位键,同值不报、变值只报 1 条。
+    ///          事件 sender_mac 保留真实源 MAC(已知时即 cco_mac,未知时为 0)。
     /// @param[in] proto 事件模板(沿用其 nid/is_rf/来源信息),只有 kind/desc/restart_count/主体被改写
     /// @return 是否新增了重启事件
     bool note_restart_change(quint32 net_id, quint64 subject, bool is_cco, int rc,

@@ -331,17 +331,54 @@ bool TopoState::resolve_is_cco(quint32 net_id, quint16 src_tei, quint64 mac, con
     return cco;
 }
 
+quint64 TopoState::canonical_cco_mac(quint32 net_id, quint64 subject,
+                                     const TopoEvent& proto) const {
+    // 1. 当前主体 MAC:已判 CCO 且带源 MAC 时,源 MAC 就是 cco_mac。
+    if (subject) return subject;
+    // 2. 当前事件的 cco_mac 字段(apply() 事件侧:发现列表等常带 cco_mac)。
+    if (proto.cco_mac) return proto.cco_mac;
+    // 3. 本状态已学到的 cco_mac(apply() 里 e.cco_mac 到达后写入成员)。
+    if (cco_mac) return cco_mac;
+    // 4. 身份记忆里本 NID 唯一的那条(逐帧侧不写 cco_mac 成员,只能靠记忆找回;
+    //    如先带 MAC 的帧经 resolve_is_cco 学过 MAC,后到的无 MAC 帧靠它归一)。
+    //    记忆里本 NID 有多条不同 MAC 时无法唯一确定,不猜,回占位键。
+    quint64 found = 0;
+    int count = 0;
+    for (const NidMacKey& k : m_cco_macs) {
+        if (k.nid == net_id && k.mac != 0) {
+            found = k.mac;
+            ++count;
+        }
+    }
+    if (count == 1) return found;
+    return 0;  // 全部未知:占位键 (NID, 0),等 cco_mac 已知后再迁移。
+}
+
 bool TopoState::note_restart_change(quint32 net_id, quint64 subject, bool is_cco, int rc,
                                     qint64 epoch_ms, qint64 frame_index, const TopoEvent& proto) {
-    // CCO 允许"无 MAC 主体"(subject==0 ⇒ 每 NID 一条 CCO 基线);STA 必须有 MAC
+    // CCO 允许"无 MAC 主体"(subject==0 ⇒ 暂用占位键 (NID, 0));STA 必须有 MAC
     if ((!subject && !is_cco) || rc < 0 || rc == kRestartCountInvalid)
         return false;   // 0xFF=无该字段(单跳简头等)
-    // CCO 主体归一:每 NID 只有一台 CCO,基线统一记到 (NID, 0),与帧是否带源 MAC 无关。
-    // 否则缺源 MAC 的 CCO 帧走 (NID, 0)、带 MAC 的走 (NID, cco_mac),同一次重启两条
-    // 基线各报一次(M1 换了个形式);先无 MAC 后有 MAC 也不另起基线。CCO 文案只报次数
-    // 不报 MAC,事件 sender_mac 也不被 TOPO 事件表/插件后端消费,归一不丢信息。
+    // CCO 基线归一:每 NID 只有一台 CCO,规范键是 (NID, 已知 cco_mac),不是 (NID, 0)。
+    // cco_mac 未知时暂用 (NID, 0) 作占位;一旦已知,先把占位键的基线值迁移到规范键
+    // 再比较——先无 MAC 建基线计数值 3、后有 MAC 同值 3 到达时只迁移不报,变成 4 时
+    // 恰好报 1 条且 prev=3。反向(先有 MAC 后无 MAC)同样:无 MAC 帧用已知的 cco_mac
+    // 作键,不再另起 (NID, 0)。规范键已有值时占位键是旧残留,直接删(规范键的值更新)。
     // STA 仍按 (NID, 主体 MAC) 分键(多 STA 共存,必须分主体)。
-    const quint64 key_subject = is_cco ? 0 : subject;
+    quint64 key_subject = subject;
+    if (is_cco) {
+        key_subject = canonical_cco_mac(net_id, subject, proto);
+        if (key_subject != 0) {
+            const NidMacKey placeholder_key = nid_mac_key(net_id, 0);
+            auto pit = m_cco_restart_count.find(placeholder_key);
+            if (pit != m_cco_restart_count.end()) {
+                const NidMacKey canon_key = nid_mac_key(net_id, key_subject);
+                if (!m_cco_restart_count.contains(canon_key))
+                    m_cco_restart_count[canon_key] = pit.value();
+                m_cco_restart_count.erase(pit);
+            }
+        }
+    }
     const NidMacKey key = nid_mac_key(net_id, key_subject);
     QHash<NidMacKey, int>& base = is_cco ? m_cco_restart_count : m_sta_restart_count;
     const auto it = base.constFind(key);
@@ -353,7 +390,7 @@ bool TopoState::note_restart_change(quint32 net_id, quint64 subject, bool is_cco
     re.nid = net_id;
     re.kind = is_cco ? TopoEventKind::CcoRestart : TopoEventKind::StaRestart;
     re.restart_count = rc;
-    re.sender_mac = key_subject;
+    re.sender_mac = subject;  // 保留真实源 MAC(已知时即 cco_mac,未知时为 0),不再归一
     re.epoch_ms = epoch_ms;
     re.frame_index = frame_index;
     re.desc = is_cco
@@ -433,7 +470,7 @@ void TopoState::apply(const TopoEvent& e) {
     //    「MAC 已映射到 TEI=1」、或「本帧 nodes 里 (TEI=1, 该 MAC)」三条依据;其余按 STA。
     //  - 分键 = nid_mac_key(NID, 主体 MAC):CCO 旧基线是单一全局值(多 NID 互相踩),
     //    STA 旧基线只有 MAC(不同 NID 下同 MAC 会串);CCO 在 note_restart_change 里
-    //    归一到 (NID, 0)(每 NID 一台 CCO,与帧是否带源 MAC 无关,防基线裂成两条)。
+    //    归一到 (NID, 已知 cco_mac)(未知时暂用 (NID, 0) 占位,已知后迁移,防基线裂成两条)。
     //  - 已知代价:事件量上升(以前漏报的真实重启现在会报),且 CcoRestart/StaRestart 是插件
     //    API 事件(plugin/host/js_backend.cpp:47、lua_backend.cpp:65 → ccoRestart/staRestart),
     //    Lua/JS 侧若按事件条数统计会变化。
