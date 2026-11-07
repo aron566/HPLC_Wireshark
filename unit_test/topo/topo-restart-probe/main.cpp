@@ -5,7 +5,7 @@
 ///         逐帧采样路径(note_restart_origin)、同帧不重复报、无变化不报
 ///   D13   身份记忆按 (NID, MAC) 分键:同 MAC 在不同 NID 下 CCO/STA 身份互不串
 ///   D14   mac_to_tei 按 (NID, MAC) 分键:同 MAC 在不同 NID 下映射到不同 TEI,互不串
-///   D17   CCO 基线归一到已知 cco_mac(带迁移):先无 MAC 后有 MAC(及反向)同一次重启只报 1 条
+///   D17   CCO 基线按 MAC 隔离;同一 NID 多 CCO MAC 标为 NID 冲突,无 MAC 样本不猜身份
 ///   D18   逐帧重启进历史回放:replay_topo_logs 合并事件日志与采样日志重放
 /// 用法:./probe ; exit 0 = 全部断言通过
 #include "topo_state.h"
@@ -501,6 +501,84 @@ int main(int argc, char** argv) {
               "D17s STA 计数 2→3 报 StaRestart");
         CHECK(count_kind(st4, TopoEventKind::CcoRestart) == 0
               && count_restart_events(st4) == 1, "D17t STA 变化仍为 1 条 StaRestart");
+    }
+    // D17u:不同 CCO MAC 即使计数相同也属于不同身份;同一 NID 下同时记为 NID 冲突。
+    //       无 MAC 样本只更新独立占位基线,后续带 MAC 样本仍各自按原基线判断。
+    {
+        TopoState st;
+        CHECK(!st.note_restart_origin(0x0E, kTeiCco, MAC_CCO, 3, 1001, 1, false, true),
+              "D17u-a 首个 CCO MAC 的计数 3 建基线");
+        CHECK(!st.note_restart_origin(0x0E, kTeiCco, MAC_B, 3, 1002, 2, false, true),
+              "D17u-b 第二个 CCO MAC 的相同计数仍建独立基线");
+        int nid_conflicts = 0;
+        bool conflict_pair_ok = false;
+        for (const TopoAnomaly& a : st.anomalies) {
+            if (a.kind != TopoAnomalyKind::NidConflict) continue;
+            ++nid_conflicts;
+            conflict_pair_ok = a.mac_old == MAC_CCO && a.mac == MAC_B
+                            && a.trips == 1 && a.first_frame == 2;
+        }
+        CHECK(nid_conflicts == 1 && conflict_pair_ok,
+              "D17u-c 同一 NID 下不同 CCO MAC 记录 NID 冲突及 MAC 对");
+        CHECK(!st.note_restart_origin(0x0E, kTeiCco, 0, 4, 1003, 3, false, true)
+                  && count_kind(st, TopoEventKind::CcoRestart) == 0,
+              "D17u-d 多身份时无 MAC 样本只建独立占位基线,不冒认任一设备");
+        CHECK(st.note_restart_origin(0x0E, kTeiCco, MAC_CCO, 4, 1004, 4, false, true),
+              "D17u-e 后续 MAC_CCO 样本仍按自身 3→4 基线告警");
+        CHECK(!st.note_restart_origin(0x0E, kTeiCco, MAC_B, 3, 1005, 5, false, true),
+              "D17u-f 另一 MAC 的基线未被无 MAC 样本改写");
+        CHECK(st.note_restart_origin(0x0E, kTeiCco, MAC_B, 4, 1006, 6, false, true),
+              "D17u-g 第二个 MAC 独立 3→4 时也报告");
+        bool independent_events_ok = false;
+        int cco_restart_count = 0;
+        for (const TopoEvent& ev : st.events) {
+            if (ev.kind != TopoEventKind::CcoRestart) continue;
+            ++cco_restart_count;
+            if (ev.sender_mac == MAC_B && ev.frame_index == 6
+                && ev.desc.contains(QStringLiteral("3→4")))
+                independent_events_ok = true;
+        }
+        CHECK(cco_restart_count == 2 && independent_events_ok,
+              "D17u-h 两台设备分别告警,事件保留真实 MAC 与帧号");
+
+        TopoState ambiguous;
+        ambiguous.note_restart_origin(0x0E, kTeiCco, MAC_CCO, 3, 2001, 1, false, true);
+        ambiguous.note_restart_origin(0x0E, kTeiCco, MAC_B, 7, 2002, 2, false, true);
+        CHECK(!ambiguous.note_restart_origin(0x0E, kTeiCco, 0, 4, 2003, 3, false, true)
+                  && count_kind(ambiguous, TopoEventKind::CcoRestart) == 0,
+              "D17u-i 候选值不同的无 MAC 样本不借用任一身份的基线");
+        CHECK(ambiguous.note_restart_origin(0x0E, kTeiCco, MAC_CCO, 4, 2004, 4, false, true)
+                  && !ambiguous.note_restart_origin(0x0E, kTeiCco, MAC_B, 7, 2005, 5, false, true),
+              "D17u-j 候选冲突后各带 MAC 样本仍分别使用 3 与 7 的基线");
+        CHECK(count_kind(ambiguous, TopoEventKind::CcoRestart) == 1,
+              "D17u-k 只有 MAC_CCO 的 3→4 产生重启事件");
+
+        TopoState separate_nids;
+        separate_nids.note_restart_origin(0x0E, kTeiCco, MAC_CCO, 3, 3001, 1, false, true);
+        separate_nids.note_restart_origin(0x14, kTeiCco, MAC_B, 3, 3002, 2, false, true);
+        CHECK(separate_nids.anomalies.isEmpty(),
+              "D17u-l 不同 NID 的 CCO MAC 不构成彼此的 NID 冲突");
+        TopoState multiple_nids;
+        multiple_nids.note_restart_origin(0x0E, kTeiCco, MAC_CCO, 1, 4001, 1, false, true);
+        multiple_nids.note_restart_origin(0x0E, kTeiCco, MAC_B, 1, 4002, 2, false, true);
+        multiple_nids.note_restart_origin(0x14, kTeiCco, MAC_A, 1, 4003, 3, false, true);
+        multiple_nids.note_restart_origin(0x14, kTeiCco, MAC_B, 1, 4004, 4, false, true);
+        nid_conflicts = 0;
+        for (const TopoAnomaly& a : multiple_nids.anomalies)
+            if (a.kind == TopoAnomalyKind::NidConflict) ++nid_conflicts;
+        CHECK(nid_conflicts == 2,
+              "D17u-m 同一状态内两个 NID 的冲突异常也分别保留");
+
+        TopoState no_counter;
+        no_counter.apply(frame(TopoEventKind::DiscoverList, 0x0E, 0,
+                               kRestartCountInvalid, 1, MAC_CCO));
+        no_counter.apply(frame(TopoEventKind::DiscoverList, 0x0E, 0,
+                               kRestartCountInvalid, 2, MAC_B));
+        nid_conflicts = 0;
+        for (const TopoAnomaly& a : no_counter.anomalies)
+            if (a.kind == TopoAnomalyKind::NidConflict) ++nid_conflicts;
+        CHECK(nid_conflicts == 1,
+              "D17u-n 即使没有重启计数,TEI=1 的不同 CCO MAC 仍记录 NID 冲突");
     }
     // D18(逐帧重启进历史回放,04531b9 遗留):普通数据帧触发的重启只走逐帧采样,
     //     不进拓扑事件日志;回放必须按帧序合并两条日志重放,否则历史快照里重启全消失。

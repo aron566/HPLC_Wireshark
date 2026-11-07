@@ -59,7 +59,8 @@ static void assign_link_type(TopoNode& n, const TopoEvent& e) {
 
 } // namespace
 
-void TopoState::note_anomaly(TopoAnomalyKind kind, quint16 tei, quint64 mac, quint64 mac_old,
+void TopoState::note_anomaly(quint32 net_id, TopoAnomalyKind kind,
+                            quint16 tei, quint64 mac, quint64 mac_old,
                             quint16 tei_old, bool is_rf, int from, int to,
                             qint64 epoch_ms, qint64 frame_index) {
     // 合并键只取"类别 + 主体",不含变化中的两端值:同一主体反复冲突/振荡只占一行,
@@ -77,6 +78,9 @@ void TopoState::note_anomaly(TopoAnomalyKind kind, quint16 tei, quint64 mac, qui
             break;
         case TopoAnomalyKind::LinkCountMismatch:
             key = QStringLiteral("D|%1").arg(tei);
+            break;
+        case TopoAnomalyKind::NidConflict:
+            key = QStringLiteral("E|%1").arg(net_id);
             break;
     }
     auto it = m_anom_idx.find(key);
@@ -217,7 +221,7 @@ bool TopoState::note_restart_count(quint16 tei, bool is_rf, int rc,
                 if (forward && t.fwd_run >= 2) {
                     // 连续前进后的回绕:不记
                 } else {
-                    note_anomaly(TopoAnomalyKind::RestartCountOscillation, tei, mac_of(tei), 0, tei,
+                    note_anomaly(nid, TopoAnomalyKind::RestartCountOscillation, tei, mac_of(tei), 0, tei,
                                  is_rf, prev, rc, epoch_ms, frame_index);
                     touched = true;
                 }
@@ -244,7 +248,7 @@ bool TopoState::note_restart_count(quint16 tei, bool is_rf, int rc,
             const QPair<int, int> pair(plc_rc, rf_rc);
             const auto pit = m_link_pair.constFind(tei);
             if (pit == m_link_pair.constEnd() || pit.value() != pair) {
-                note_anomaly(TopoAnomalyKind::LinkCountMismatch, tei, mac_of(tei), 0, tei,
+                note_anomaly(nid, TopoAnomalyKind::LinkCountMismatch, tei, mac_of(tei), 0, tei,
                              false, plc_rc, rf_rc, epoch_ms, frame_index);
                 m_link_pair.insert(tei, pair);
                 touched = true;
@@ -258,6 +262,8 @@ bool TopoState::note_restart_count(quint16 tei, bool is_rf, int rc,
 
 void TopoState::index_mac(quint32 net_id, quint16 tei, quint64 mac, qint64 epoch_ms, qint64 frame_index) {
     if (!tei || !mac) return;
+    if (tei == kTeiCco)
+        resolve_is_cco(net_id, kTeiCco, mac, nullptr, epoch_ms, frame_index);
     // 情况1:该 MAC 在本 NID 之前映射到别的 TEI(TEI 复用/STA 重入网换 TEI)
     //       → 把旧 TEI 节点的 MAC 清零,避免之后按 MAC 查找时 stale 命中。
     //       旧 TEI 若仍在线 ⇒ 同一 MAC 同时占两个 TEI(重复组网/身份冲突),记异常;
@@ -269,7 +275,7 @@ void TopoState::index_mac(quint32 net_id, quint16 tei, quint64 mac, qint64 epoch
         if (nit != nodes.end() && nit.value().mac == mac) {
             if (nit.value().status != NodeStatus::Offline)
                 // mac_old 对 A 类无意义(A 用 tei/tei_old 表示冲突两端),传 0 避免语义误导
-                note_anomaly(TopoAnomalyKind::MacMultipleTei, tei, mac, 0, old_tei,
+                note_anomaly(net_id, TopoAnomalyKind::MacMultipleTei, tei, mac, 0, old_tei,
                              nit.value().is_rf, int(old_tei), int(tei), epoch_ms, frame_index);
             nit.value().mac = 0;
         }
@@ -282,7 +288,7 @@ void TopoState::index_mac(quint32 net_id, quint16 tei, quint64 mac, qint64 epoch
         const quint64 old_mac = nit.value().mac;
         if (old_mac && old_mac != mac) {
             if (nit.value().status != NodeStatus::Offline)
-                note_anomaly(TopoAnomalyKind::TeiMultipleMac, tei, mac, old_mac, tei,
+                note_anomaly(net_id, TopoAnomalyKind::TeiMultipleMac, tei, mac, old_mac, tei,
                              nit.value().is_rf, 0, 0, epoch_ms, frame_index);
             auto oit = mac_to_tei.find(nid_mac_key(net_id, old_mac));
             if (oit != mac_to_tei.end() && oit.value() == tei)
@@ -314,7 +320,8 @@ NidMacKey TopoState::nid_mac_key(quint32 net_id, quint64 mac) {
     return NidMacKey{net_id, mac & 0xFFFFFFFFFFFFULL};
 }
 
-bool TopoState::resolve_is_cco(quint32 net_id, quint16 src_tei, quint64 mac, const TopoEvent* ev) {
+bool TopoState::resolve_is_cco(quint32 net_id, quint16 src_tei, quint64 mac,
+                               const TopoEvent* ev, qint64 epoch_ms, qint64 frame_index) {
     bool cco = false;
     if (src_tei == kTeiCco) cco = true;                                     // 1. TEI 固定为 1
     if (!cco && mac && m_cco_macs.contains(nid_mac_key(net_id, mac))) cco = true;  // 2. 身份记忆(NID, MAC)
@@ -327,7 +334,21 @@ bool TopoState::resolve_is_cco(quint32 net_id, quint16 src_tei, quint64 mac, con
     // 6. 发现列表是 CCO 广播:缺源 MAC 时按 CCO 归属
     //    (否则会走 nodes 首条回落,把 CCO 重启记到发现列表里第一个 STA 头上 —— 实测缺陷 M2)
     if (!cco && !mac && ev && ev->kind == TopoEventKind::DiscoverList) cco = true;
-    if (cco && mac) m_cco_macs.insert(nid_mac_key(net_id, mac));  // 身份记忆(NID, MAC):防后续 cco_mac 缺失时漂移成 STA
+    if (cco && mac) {
+        const NidMacKey key = nid_mac_key(net_id, mac);
+        if (!m_cco_macs.contains(key)) {
+            quint64& first_mac = m_first_cco_mac[net_id];
+            if (first_mac == 0) {
+                first_mac = mac;
+            } else {
+                // 同一 TopoState 对应同一 NID；第二个不同的 CCO MAC 是 NID 冲突，
+                // 仍记住独立身份，但绝不把它与已有设备合并。
+                note_anomaly(net_id, TopoAnomalyKind::NidConflict, 0, mac, first_mac, 0,
+                             false, 0, 0, epoch_ms, frame_index);
+            }
+            m_cco_macs.insert(key);  // 身份记忆按 (NID, MAC) 独立保留
+        }
+    }
     return cco;
 }
 
@@ -337,11 +358,7 @@ quint64 TopoState::canonical_cco_mac(quint32 net_id, quint64 subject,
     if (subject) return subject;
     // 2. 当前事件的 cco_mac 字段(apply() 事件侧:发现列表等常带 cco_mac)。
     if (proto.cco_mac) return proto.cco_mac;
-    // 3. 本状态已学到的 cco_mac(apply() 里 e.cco_mac 到达后写入成员)。
-    if (cco_mac) return cco_mac;
-    // 4. 身份记忆里本 NID 唯一的那条(逐帧侧不写 cco_mac 成员,只能靠记忆找回;
-    //    如先带 MAC 的帧经 resolve_is_cco 学过 MAC,后到的无 MAC 帧靠它归一)。
-    //    记忆里本 NID 有多条不同 MAC 时无法唯一确定,不猜,回占位键。
+    // 3. 多个 CCO MAC 已构成 NID 冲突时，无 MAC 样本不能借用单值 cco_mac 猜身份。
     quint64 found = 0;
     int count = 0;
     for (const NidMacKey& k : m_cco_macs) {
@@ -350,8 +367,12 @@ quint64 TopoState::canonical_cco_mac(quint32 net_id, quint64 subject,
             ++count;
         }
     }
+    if (count > 1) return 0;
+    // 4. 本状态已学到的 cco_mac(apply() 里 e.cco_mac 到达后写入成员)，仅在无身份冲突时使用。
+    if (cco_mac) return cco_mac;
+    // 5. 身份记忆里本 NID 唯一的那条(逐帧侧不写 cco_mac 成员,只能靠记忆找回)。
     if (count == 1) return found;
-    return 0;  // 全部未知:占位键 (NID, 0),等 cco_mac 已知后再迁移。
+    return 0;  // 全部未知或身份冲突:无 MAC 样本独立使用 (NID, 0) 键。
 }
 
 bool TopoState::note_restart_change(quint32 net_id, quint64 subject, bool is_cco, int rc,
@@ -359,11 +380,9 @@ bool TopoState::note_restart_change(quint32 net_id, quint64 subject, bool is_cco
     // CCO 允许"无 MAC 主体"(subject==0 ⇒ 暂用占位键 (NID, 0));STA 必须有 MAC
     if ((!subject && !is_cco) || rc < 0 || rc == kRestartCountInvalid)
         return false;   // 0xFF=无该字段(单跳简头等)
-    // CCO 基线归一:每 NID 只有一台 CCO,规范键是 (NID, 已知 cco_mac),不是 (NID, 0)。
-    // cco_mac 未知时暂用 (NID, 0) 作占位;一旦已知,先把占位键的基线值迁移到规范键
-    // 再比较——先无 MAC 建基线计数值 3、后有 MAC 同值 3 到达时只迁移不报,变成 4 时
-    // 恰好报 1 条且 prev=3。反向(先有 MAC 后无 MAC)同样:无 MAC 帧用已知的 cco_mac
-    // 作键,不再另起 (NID, 0)。规范键已有值时占位键是旧残留,直接删(规范键的值更新)。
+    // CCO 基线按 (NID, MAC) 独立；缺 MAC 时用 (NID, 0) 专属占位键。
+    // 仅在 NID 下尚未出现多个 CCO MAC 时，单一已知身份可承接旧占位基线；出现 NID 冲突后，
+    // 无 MAC 样本留在占位键，已知 MAC 样本只读写自身基线。
     // STA 仍按 (NID, 主体 MAC) 分键(多 STA 共存,必须分主体)。
     quint64 key_subject = subject;
     if (is_cco) {
@@ -372,10 +391,15 @@ bool TopoState::note_restart_change(quint32 net_id, quint64 subject, bool is_cco
             const NidMacKey placeholder_key = nid_mac_key(net_id, 0);
             auto pit = m_cco_restart_count.find(placeholder_key);
             if (pit != m_cco_restart_count.end()) {
-                const NidMacKey canon_key = nid_mac_key(net_id, key_subject);
-                if (!m_cco_restart_count.contains(canon_key))
-                    m_cco_restart_count[canon_key] = pit.value();
-                m_cco_restart_count.erase(pit);
+                int known_mac_count = 0;
+                for (const NidMacKey& cco_key : m_cco_macs)
+                    if (cco_key.nid == net_id && cco_key.mac != 0) ++known_mac_count;
+                if (known_mac_count <= 1) {
+                    const NidMacKey canon_key = nid_mac_key(net_id, key_subject);
+                    if (!m_cco_restart_count.contains(canon_key))
+                        m_cco_restart_count[canon_key] = pit.value();
+                    m_cco_restart_count.erase(pit);
+                }
             }
         }
     }
@@ -408,7 +432,8 @@ bool TopoState::note_restart_origin(quint32 net_id, quint16 src_tei, quint64 src
     if (net_id == 0) return false;
     if (rc < 0 || rc == kRestartCountInvalid) return false;   // 无该字段(单跳简头等)不采样
     // 身份判定统一走 resolve_is_cco(TEI 固定 1 / 身份记忆 / cco_mac / mac_to_tei)
-    const bool is_cco = resolve_is_cco(net_id, src_tei, src_mac, nullptr);
+    const bool is_cco = resolve_is_cco(net_id, src_tei, src_mac, nullptr,
+                                       epoch_ms, frame_index);
     // STA 必须有 MAC 才能定位主体;唯一例外:CCO 帧缺源 MAC ⇒ 归本 NID 的 CCO 基线(subject=0)
     if (!src_mac && !is_cco) return false;
     TopoEvent proto;
@@ -481,18 +506,21 @@ void TopoState::apply(const TopoEvent& e) {
         bool is_cco = false;
         if (subject) {
             // 有源 MAC:身份判定统一走 resolve_is_cco(事件侧无 TEI 信息 ⇒ 传 0)
-            is_cco = resolve_is_cco(e.nid, quint16(0), subject, &e);
+            is_cco = resolve_is_cco(e.nid, quint16(0), subject, &e,
+                                    e.epoch_ms, e.frame_index);
         } else {
             // 无源 MAC:先看能否按"无 MAC 的 CCO"归属(发现列表 = CCO 广播,实测缺陷 M2:
             // 旧实现直接回落 nodes 首条,把 CCO 的重启次数记到发现列表里第一个 STA 头上)
-            is_cco = resolve_is_cco(e.nid, quint16(0), 0, &e);
+            is_cco = resolve_is_cco(e.nid, quint16(0), 0, &e,
+                                    e.epoch_ms, e.frame_index);
             if (!is_cco) {
                 // 既有口径保留(AssocReq 等:直接关联时主体即发送方):回落本事件 nodes 首条,
                 // 再对该主体做一次身份判定(它可能就是 CCO 条目)
                 for (const TeiMacPair& p : e.nodes) {
                     if (p.mac) { subject = p.mac; break; }
                 }
-                if (subject) is_cco = resolve_is_cco(e.nid, quint16(0), subject, &e);
+                if (subject) is_cco = resolve_is_cco(e.nid, quint16(0), subject, &e,
+                                                     e.epoch_ms, e.frame_index);
             }
         }
         if (subject || is_cco) {

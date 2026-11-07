@@ -60,6 +60,7 @@ enum class TopoAnomalyKind {
     TeiMultipleMac,          ///< 同一 TEI 先后对应两个仍在线的 MAC(TEI 被两台设备占用)
     RestartCountOscillation, ///< 同一 TEI+介质的重启次数往返振荡(双实体共用 TEI/计数被复位)
     LinkCountMismatch,       ///< 同一 TEI 载波与无线的重启次数不同(两条链路各自计数)
+    NidConflict,             ///< 同一 NID 下出现不同 CCO MAC(网络标识冲突)
 };
 
 /// @brief 一条异常/冲突记录(同类同主体合并到一行,trips 累加,防刷屏)
@@ -137,10 +138,10 @@ public:
     ///    天然处理 15→0 回绕(判据未改,仅扩采样点);
     ///  - **CCO 的 TEI 固定为 1**(南网规约 / HDC 2.0 5.3.3.1),故主体判定依据:
     ///    src_tei==1、或 MAC == 本 NID 已学到的 CCO MAC、或 MAC 已映射到 TEI=1 ⇒ CCO;其余按 STA;
-    ///  - 分键 = (NID, MAC):旧实现 CCO 基线是单一全局值(多 NID 互相踩)、STA 基线只有 MAC
-    ///    (不同 NID 下同 MAC 会串),两者都必须带 NID;CCO 在 note_restart_change 里
-    ///    归一到 (NID, 已知 cco_mac)(未知时暂用 (NID, 0) 占位,已知后把基线值迁移过去
-    ///    并删占位键,防基线裂成两条);事件 sender_mac 保留真实源 MAC,不归一;
+    ///  - 基线按 (NID, MAC) 分键,STA/CCO 的不同 MAC 永不合并;不同 NID 的相同 MAC 也隔离。
+    ///    无 MAC 的 CCO 样本使用 (NID, 0) 独立占位键；仅身份唯一时才可迁移旧占位值。
+    ///    同一 NID 下确认到不同 CCO MAC 时记录 NID 冲突,且不再把无 MAC 样本归到任一 MAC;
+    ///    事件 sender_mac 保留真实源 MAC,不归一;
     ///  - src_mac==0 时只有判为 CCO 才检测(归本 NID 的 CCO 基线);判为 STA 则不检测,
     ///    宁可不报,也不把计数记到别的主体名下;
     ///  - 已知代价:事件量上升(以前漏报的真实重启现在会报);CcoRestart/StaRestart 是插件 API 事件
@@ -200,7 +201,8 @@ private:
     ///          删除旧映射时只删本 NID 的键,不动别 NID 的映射。
     void index_mac(quint32 net_id, quint16 tei, quint64 mac, qint64 epoch_ms = 0, qint64 frame_index = -1);
     /// @brief 记录/合并一条异常(同类同主体合并,trips 累加,更新最近取值与时间)
-    void note_anomaly(TopoAnomalyKind kind, quint16 tei, quint64 mac, quint64 mac_old,
+    void note_anomaly(quint32 net_id, TopoAnomalyKind kind,
+                      quint16 tei, quint64 mac, quint64 mac_old,
                       quint16 tei_old, bool is_rf, int from, int to,
                       qint64 epoch_ms, qint64 frame_index);
 
@@ -223,13 +225,13 @@ private:
     /// @return 是否移除了节点
     bool remove_node_by_mac(quint32 net_id, quint64 mac);
 
-    /// @brief 重启次数基线(键 = nid_mac_key(NID, 主体 MAC))
+    /// @brief 重启次数基线(键 = nid_mac_key(NID, MAC),无 MAC 的 CCO 使用 MAC=0)
     /// @details 两个哈希都不能省 NID:
     ///          - CCO 旧实现是**单一全局值**(m_last_restart_count,已删除),多 NID 同时抓包时互相踩;
     ///          - STA 旧实现只有 MAC,不同 NID 下同 MAC 会串(用户 2026-11 口径:先分 NID,再分 MAC)。
     ///          身份记忆 m_cco_macs 同样按 (NID, MAC) 分键(键 = nid_mac_key),同 MAC 在
     ///          不同 NID 下的 CCO 身份互不串。
-    QHash<NidMacKey, int> m_cco_restart_count;  ///< CCO 主体基线(规范键 (NID, 已知 cco_mac);未知时暂用 (NID, 0) 占位,迁移后删除)
+    QHash<NidMacKey, int> m_cco_restart_count;  ///< CCO 每 MAC 独立基线;(NID,0) 只用于无 MAC 样本
     QHash<NidMacKey, int> m_sta_restart_count;  ///< STA 主体基线(键 = (NID, 主体 MAC))
 
     /// @brief 主体身份判定(CCO/STA)的**唯一入口**:apply() 事件侧与逐帧采样侧都走这里,
@@ -249,21 +251,22 @@ private:
     /// @param[in] net_id 事件/NID(身份记忆按 (NID, MAC) 分键)
     /// @param[in] ev 事件上下文(可为 nullptr:逐帧路径没有 TopoEvent)
     /// @return true=CCO 主体
-    bool resolve_is_cco(quint32 net_id, quint16 src_tei, quint64 mac, const TopoEvent* ev);
+    bool resolve_is_cco(quint32 net_id, quint16 src_tei, quint64 mac, const TopoEvent* ev,
+                        qint64 epoch_ms, qint64 frame_index);
 
     QSet<NidMacKey> m_cco_macs;   ///< CCO 身份记忆(键 = nid_mac_key(NID, MAC),先分 NID 再分 MAC;防归属漂移)
+    QHash<quint32, quint64> m_first_cco_mac; ///< 每 NID 首个已确认 CCO MAC,用于冲突行的稳定旧值
 
-    /// @brief CCO 基线规范 MAC:每 NID 一台 CCO,基线键为 (NID, 已知 cco_mac)。
-    /// @details 优先级:当前主体 MAC(已判 CCO 且非 0 时即 cco_mac) > 当前事件的
-    ///          cco_mac 字段 > 已学到的 cco_mac 成员 > m_cco_macs 身份记忆里本 NID
-    ///          唯一的那条。全部未知时返回 0,调用方暂用 (NID, 0) 作占位键。
+    /// @brief 取 CCO 样本可确认的 MAC；没有 MAC 且身份不唯一时返回 0。
+    /// @details 优先级:当前主体 MAC > 当前事件 cco_mac > 无冲突时的已学到身份。
+    ///          同 NID 记住多个 CCO MAC 后，无 MAC 样本必须使用 (NID, 0) 独立占位键。
     /// @return 规范 cco_mac,未知时为 0
     quint64 canonical_cco_mac(quint32 net_id, quint64 subject,
                               const TopoEvent& proto) const;
 
     /// @brief 重启变化记录(CCO/STA 共用实现):比较基线、变化即生成重启事件并更新基线
-    /// @details CCO 先归一再比较:规范键 (NID, 已知 cco_mac);占位键 (NID, 0) 已有
-    ///          基线且规范键已知时,先把值迁移过去再删占位键,同值不报、变值只报 1 条。
+    /// @details CCO 基线按 (NID, MAC) 分离；(NID, 0) 只记录确实缺 MAC 的样本。
+    ///          仅在 NID 下身份唯一时可把旧占位基线迁移到该 MAC；发生 NID 冲突后不再迁移。
     ///          事件 sender_mac 保留真实源 MAC(已知时即 cco_mac,未知时为 0)。
     /// @param[in] proto 事件模板(沿用其 nid/is_rf/来源信息),只有 kind/desc/restart_count/主体被改写
     /// @return 是否新增了重启事件
