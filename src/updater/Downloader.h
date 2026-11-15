@@ -49,7 +49,7 @@ class Downloader : public QWidget {
 signals:
   void downloadFinished(const QString& url, const QString& filepath);
   /// @brief Local extension (M6):文件重命名失败时发出(替代 downloadFinished)。
-  ///        注意:Updater/QSimpleUpdater 暂未转发本信号,见 Downloader::finished()。
+  ///        Updater/QSimpleUpdater 原样转发到主程序,见 Downloader::finished()。
   void downloadFailed(const QString& url, const QString& error);
 
 public:

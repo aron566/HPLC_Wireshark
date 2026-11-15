@@ -1,6 +1,7 @@
 # Downloader 重命名失败回归(M6):QFile::rename 失败必须发 downloadFailed、
 # 不得发 downloadFinished、不得进 installUpdate。本地 HTTP 服务器提供小文件;
-# 目标路径预先建同名目录使重命名失败。
+# 目标路径预先建同名目录使重命名失败。另含 M6 转发用例:downloadFailed 须经
+# Updater/QSimpleUpdater 两层到达主程序(本地清单 + 本地文件全链路)。
 QT += core gui widgets network
 CONFIG += c++17 console
 CONFIG -= app_bundle
