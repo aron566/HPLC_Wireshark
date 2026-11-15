@@ -45,8 +45,13 @@
   已编起来并短跑 30 秒:776,945 次执行,无崩溃/超时/泄漏产物,覆盖 482
   (`-runs=1` 种子轮:6 次执行全过)。注意 VM 会不定期被替换,clang
   随 VM 消失后需重装(见上);`build.sh` 开头的特性探测会明确报错。
-- **未接进 CI**:CI 镜像同样无 clang/libFuzzer,接进去会让 CI 变红;
-  待 CI 镜像提供 clang 后再接(届时直接调 `./build.sh`)。
+- **已接进 CI**:`.github/workflows/protocol-regression.yml` 的独立 job
+  `fuzz-frame-parse-linux`(与各回归 job 并行,失败不拖垮回归探针):job 内
+  `sudo apt-get install -y clang libclang-rt-18-dev`(noble 自带 clang 18;
+  libFuzzer 运行时随 `libclang-common-18-dev` 的传递依赖带进来,
+  `libclang-rt-18-dev` 再显式点一遍)后直接调 `./build.sh`(默认 30 秒短跑)。
+  CI 镜像本身无 clang,但 runner 有 sudo apt 权限,与 wireshark-lua-linux
+  装 lua5.4 同一路子,不必等镜像提供 clang。
 
 ## 发现崩溃后
 

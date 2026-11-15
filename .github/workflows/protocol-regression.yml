@@ -580,6 +580,61 @@ jobs:
           bash unit_test/wireshark-lua/lang-path-test/run.sh | tee "$RUNNER_TEMP/lang-path.out"
           grep -qF "RESULT: ALL PASS (76/76 passed, 0 failures)" "$RUNNER_TEMP/lang-path.out"
 
+  # ---------------------------------------------------------------------------
+  # L6 libFuzzer 目标(unit_test/fuzz):帧解析入口 get_bits / PB 组装 / add_fields,
+  # 默认 30 秒有界短跑。CI 镜像本身无 clang/libFuzzer,但 ubuntu-24.04 runner 有
+  # sudo apt 权限,与 wireshark-lua-linux 装 lua5.4 同一路子:这里 apt 装 clang 18,
+  # libFuzzer 运行时随 libclang-common-18-dev 的传递依赖带进来(本机 noble 实测),
+  # libclang-rt-18-dev 再显式点一遍,不依赖传递依赖。build.sh 开头先特性探测
+  # -fsanitize=fuzzer,工具链不满足就明确报错,不静默跳过。
+  # 独立 job(与各回归 job 并行):失败只红自己,不拖垮任何回归探针;但 fuzz 报出的
+  # 崩溃/超时/泄漏是真缺陷信号(不像 mirror-probe 依赖外部网络才设 continue-on-error),
+  # 所以这里不设 continue-on-error,红了就该修。触发条件/Qt 版本/既有 job 均未动。
+  # ---------------------------------------------------------------------------
+  fuzz-frame-parse-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Qt 6.11.3
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.3'
+          modules: 'qtserialport'
+          cache: true
+
+      - name: Qt symlink farm (QT_ROOT for unit_test build scripts)
+        run: |
+          set -e
+          QT_ROOT="$RUNNER_TEMP/qt-root"
+          mkdir -p "$QT_ROOT"
+          for key in QT_HOST_BINS QT_INSTALL_LIBEXECS QT_INSTALL_HEADERS QT_INSTALL_LIBS QT_INSTALL_PLUGINS; do
+            value=$(qmake -query "$key" || true)
+            if [ -z "$value" ] || [ ! -d "$value" ]; then
+              echo "::error::qmake -query $key 返回空或目录不存在: '$value'"
+              exit 1
+            fi
+          done
+          [ -e "$QT_ROOT/bin" ]     || ln -s "$(qmake -query QT_HOST_BINS)"        "$QT_ROOT/bin"
+          [ -e "$QT_ROOT/libexec" ] || ln -s "$(qmake -query QT_INSTALL_LIBEXECS)" "$QT_ROOT/libexec"
+          [ -e "$QT_ROOT/include" ] || ln -s "$(qmake -query QT_INSTALL_HEADERS)"  "$QT_ROOT/include"
+          [ -e "$QT_ROOT/lib" ]     || ln -s "$(qmake -query QT_INSTALL_LIBS)"     "$QT_ROOT/lib"
+          [ -e "$QT_ROOT/plugins" ] || ln -s "$(qmake -query QT_INSTALL_PLUGINS)"  "$QT_ROOT/plugins"
+          echo "QT_ROOT=$QT_ROOT" >> "$GITHUB_ENV"
+
+      - name: Install clang with libFuzzer runtime
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq clang libclang-rt-18-dev
+          clang++ --version
+
+      - name: Build and run libFuzzer short run (unit_test/fuzz, 30 s)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: bash unit_test/fuzz/build.sh
+
   protocol-probes-linux:
     name: protocol-probes-linux (${{ matrix.group }})
     runs-on: ubuntu-24.04
