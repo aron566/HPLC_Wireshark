@@ -43,6 +43,8 @@ private slots:
     void on_feed_error(const QString& error);
     void on_text_ready(const QString& url, const QString& text);
     void on_text_error(const QString& url, const QString& error);
+    /// @brief README 里的链接点击:只放行 http/https,且先弹确认(L7)
+    void on_readme_anchor_clicked(const QUrl& url);
     void on_install_progress(const QString& text);
     void on_install_finished(bool ok, const QString& error,
                              const QString& name);
