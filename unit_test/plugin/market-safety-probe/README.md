@@ -25,3 +25,10 @@ QT_ROOT=/path/to/Qt/6.11.3/gcc_64 bash build.sh
   （旧实现共享 `m_pending_*`，先完成的安装会拿到后一个的 sha256）；
 - sha256 不符的包被拒绝时不调用 `unload_cb`（卸载推迟到真正改动安装目录前一刻）；
 - 卸载之后删旧版失败（目录不可写）时调用 `reload_cb` 恢复加载。
+
+## 离线安装只解包一次（fix/offline-install-single-unzip）
+
+- `install_from_file` 解包读清单后把 staged 目录传给 `finish_install_from_zip`
+  复用，不再二次解包（修前两者各解一次）；在线安装路径不受影响，仍只解一次。
+- 探针用 `PluginMarket::unzip_call_count()`（仅探针用计数器）断言两种路径
+  各只解包一次，并核对离线安装后的文件内容与 `meta.json` 的 `source=file`。
