@@ -5,7 +5,7 @@
 #   bash build.sh                                   # 自动找 Qt / make
 #   QT_ROOT=C:/Qt/6.11.2/mingw_64 bash build.sh
 #
-# Qt 查找顺序: $QT_ROOT → $QT → $HOME/Qt/6.11.3/6.11.3/gcc_64 → C:/Qt/6.11.2/mingw_64 → $HOME/qt/6.11.2/gcc_64
+# Qt 查找顺序: $QT_ROOT → $QT → $HOME/Qt/6.11.3/gcc_64 → $HOME/Qt/6.11.3/6.11.3/gcc_64 → C:/Qt/6.11.2/mingw_64 → $HOME/qt/6.11.2/gcc_64
 # make 查找顺序: $MAKE → make → mingw32-make(Windows 只有 mingw32-make)
 set -e
 cd "$(dirname "$0")"
@@ -27,7 +27,7 @@ done
 
 QT="${QT_ROOT:-${QT:-}}"
 if [ -z "$QT" ]; then
-    for cand in "$HOME/Qt/6.11.3/6.11.3/gcc_64" "C:/Qt/6.11.2/mingw_64" "$HOME/qt/6.11.2/gcc_64" "/c/Qt/6.11.2/mingw_64"; do
+    for cand in "$HOME/Qt/6.11.3/gcc_64" "$HOME/Qt/6.11.3/6.11.3/gcc_64" "C:/Qt/6.11.2/mingw_64" "$HOME/qt/6.11.2/gcc_64" "/c/Qt/6.11.2/mingw_64"; do
         if [ -d "$cand" ]; then QT="$cand"; break; fi
     done
 fi
