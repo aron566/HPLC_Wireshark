@@ -138,6 +138,11 @@ public:
     static bool is_sha256_hex(const QString& s);
     static bool verify_sha256(const QString& file_path,
                               const QString& expected_hex);
+    /// @brief 暂存目录内容摘要(提权部署前算、提权脚本内重算比对)。
+    /// @details 覆盖目录/文件/符号链接:每条目一行 "<相对路径>\0<内容 sha256 hex |
+    ///          link:<目标>|(目录)>\n",相对路径 "./" 开头、按字节序排;算法须与
+    ///          pkexec_deploy 内嵌脚本逐字节一致。读失败返回空串(调用方拒装)。
+    static QString staged_dir_digest(const QString& staged_dir);
     /// @brief 解包到 dest_dir:拒绝不安全条目名(见 safe_extract_path),
     ///        限制单条目 64 MB / 总量 256 MB / 条目数 4096
     static bool unzip_to_dir(const QString& zip_path, const QString& dest_dir,

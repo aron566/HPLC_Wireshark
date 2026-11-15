@@ -8,6 +8,7 @@
 #include <QCryptographicHash>
 #include <QEventLoop>
 #include <QMap>
+#include <QProcess>
 #include <QTimer>
 #include <QUrl>
 #include <QDir>
@@ -202,6 +203,55 @@ static void test_offline_install_single_unzip(const QString& root) {
           meta.open(QIODevice::ReadOnly) &&
               meta.readAll().contains(QByteArray("\"source\": \"file\"")));
     mk.uninstall(QStringLiteral("once-pkg"));
+}
+
+// ── L6:提权部署的暂存摘要 ──
+/// 与 pkexec_deploy 内嵌脚本同款的摘要管道(须逐字节一致,见 plugin_market.cpp);
+/// 篡改后重算的摘要须与提权前算好的不一致(否则 root 侧复核形同虚设)。
+static QString shell_staged_digest(const QString& staged) {
+    static const char* kScript =
+        "find . \\( -type f -o -type l -o -type d \\) -print0 | LC_ALL=C sort -z | "
+        "tr \"\\0\" \"\\n\" | while IFS= read -r f; do "
+        "if [ -L \"$f\" ]; then printf \"%s\\000link:%s\\n\" \"$f\" \"$(readlink \"$f\")\"; "
+        "elif [ -d \"$f\" ]; then printf \"%s/\\000\\n\" \"$f\"; "
+        "else printf \"%s\\000\" \"$f\"; sha256sum \"$f\" | cut -d\" \" -f1; fi; done | "
+        "sha256sum | cut -d\" \" -f1";
+    QProcess proc;
+    proc.setWorkingDirectory(staged);
+    proc.start(QStringLiteral("sh"),
+               QStringList() << QStringLiteral("-c") << QString::fromLatin1(kScript));
+    if (!proc.waitForFinished(30000) || proc.exitCode() != 0) return QString();
+    return QString::fromLatin1(proc.readAllStandardOutput()).trimmed();
+}
+
+static void test_staged_digest(const QString& root) {
+    const QString staged = root + QStringLiteral("/staged");
+    QDir().mkpath(staged + QStringLiteral("/sub/empty"));
+    check("digest: fixture",
+          write_file(staged + QStringLiteral("/plugin.json"), "hello") &&
+              write_file(staged + QStringLiteral("/sub/a.lua"), "print(1)\n") &&
+              write_file(staged + QStringLiteral("/z.lua"), "z") &&
+              QFile::link(staged + QStringLiteral("/sub/a.lua"),
+                          staged + QStringLiteral("/link.lua")));
+    const QString digest = PluginMarket::staged_dir_digest(staged);
+    check("digest: 64 hex",
+          digest.size() == 64 && PluginMarket::is_sha256_hex(digest));
+    const QString shell = shell_staged_digest(staged);
+    check("digest: C++ matches privileged-script pipeline",
+          !shell.isEmpty() && shell == digest);
+    // 反向:改动内容/换链接目标/删空目录,管道重算的摘要必须与提权前算好的不一致
+    write_file(staged + QStringLiteral("/sub/a.lua"), "print(2)\n");
+    check("digest: tampered file detected", shell_staged_digest(staged) != digest);
+    write_file(staged + QStringLiteral("/sub/a.lua"), "print(1)\n");
+    QFile::remove(staged + QStringLiteral("/link.lua"));
+    QFile::link(staged + QStringLiteral("/z.lua"), staged + QStringLiteral("/link.lua"));
+    check("digest: swapped symlink target detected",
+          shell_staged_digest(staged) != digest);
+    QFile::remove(staged + QStringLiteral("/link.lua"));
+    QFile::link(staged + QStringLiteral("/sub/a.lua"),
+                staged + QStringLiteral("/link.lua"));
+    QDir(staged + QStringLiteral("/sub")).rmdir(QStringLiteral("empty"));
+    check("digest: removed empty dir detected", shell_staged_digest(staged) != digest);
 }
 
 // ── H3:zip 条目名校验 + 解包上限 ──
@@ -442,6 +492,7 @@ int main(int argc, char** argv) {
     test_zip_limits(tmp.path());
     test_market_sha256(tmp.path());
     test_install_context(tmp.path());
+    test_staged_digest(tmp.path());
     QDir(PluginMarket::default_install_dir()).removeRecursively();
     std::printf("\nRESULT: %s (%d failures)\n", g_fails ? "FAILURES" : "ALL PASS", g_fails);
     return g_fails ? 1 : 0;
