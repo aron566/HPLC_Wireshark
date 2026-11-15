@@ -246,6 +246,13 @@ p_app_frame_dispatcher_lifetime_probe() {   # FrameDispatcher 重建生命周期
         && OUT="$LOGD/frame-dispatcher-lifetime.out" \
         && has "frame_dispatcher_lifetime_probe: OK" && lacks "ERROR: AddressSanitizer" && lacks "runtime error:"
 }
+p_app_downloader_rename_probe() {   # Downloader 重命名失败发 downloadFailed(M6)、不装错文件
+    build app/downloader-rename-probe || return 1
+    local d; d=$(rundir downloader-rename)
+    cp "$UT/app/downloader-rename-probe/build/downloader_rename_probe/downloader_rename_probe" "$d/" || return 1
+    (cd "$d" && run downloader-rename 120 ./downloader_rename_probe) && OUT="$LOGD/downloader-rename.out" \
+        && has "RESULT: ALL PASS (0 failures)" && lacks " FAIL"
+}
 p_plugin_plugin_ipc_thread_probe() {   # PluginManager 跨线程 IPC + 异步图形(真实 host 子进程)
     local host; host=$(plugin_host) || { echo "  FAIL: bplc-plugin-host 构建失败"; return 1; }
     build plugin/plugin-ipc-thread-probe || return 1
