@@ -48,7 +48,8 @@ class Downloader : public QWidget {
 
 signals:
   void downloadFinished(const QString& url, const QString& filepath);
-  /// @brief Local extension (M6):文件重命名失败时发出(替代 downloadFinished)。
+  /// @brief Local extension (M6):下载失败时发出(替代 downloadFinished)。
+  ///        三路:重命名失败、网络错误、超限;用户主动取消不发。
   ///        Updater/QSimpleUpdater 原样转发到主程序,见 Downloader::finished()。
   void downloadFailed(const QString& url, const QString& error);
 

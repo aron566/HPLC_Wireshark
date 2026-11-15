@@ -57,6 +57,8 @@ struct I18nRegDownloader {
                          "Update Error");
         trl::register_en("重命名更新包失败（%1 → %2）",
                          "Failed to Rename the Update Package (%1 → %2)");
+        trl::register_en("下载更新包失败（%1）",
+                         "Failed to Download the Update Package (%1)");
         trl::register_en("找不到已下载的更新包",
                          "Cannot Find the Downloaded Update");
     }
@@ -234,13 +236,25 @@ void Downloader::setUserAgentString(const QString& agent)
  * @brief Called when the download finishes.
  *
  * Renames the partial file, emits @c downloadFinished(), and triggers the
- * install flow. If the rename fails, emits @c downloadFailed() instead and
- * returns without installing (M6; the old code ignored the rename result
- * and installed a missing or stale file).
+ * install flow. Three failure paths emit @c downloadFailed() instead and
+ * return without installing (M6; the old code ignored the rename result
+ * and installed a missing or stale file):
+ * - rename failure (M6): dialog + signal;
+ * - network error (M6 follow-up): dialog + signal, the old code silently
+ *   deleted the .part file and returned with no trace at all;
+ * - oversize (M6 follow-up): the existing dialog stays, signal added so
+ *   the main program keeps a persistent trace and logs it.
+ * A user-cancelled download (OperationCanceledError, unless m_sizeExceeded
+ * was set by abortOversize()) stays silent on purpose: cancelling is the
+ * user's intent, reporting it as a failure would mislead.
  */
 void Downloader::finished()
 {
-  if (!m_reply || m_reply->error() != QNetworkReply::NoError || m_sizeExceeded) {
+  // 先抓错误快照:m_reply 随后即 deleteLater,之后再读不到。
+  const QNetworkReply::NetworkError net_error =
+      m_reply ? m_reply->error() : QNetworkReply::NoError;
+  const QString net_error_text = m_reply ? m_reply->errorString() : QString();
+  if (!m_reply || net_error != QNetworkReply::NoError || m_sizeExceeded) {
     QFile::remove(m_downloadDir.filePath(m_fileName + PARTIAL_DOWN));
     if (m_reply) {
       m_reply->deleteLater();
@@ -254,6 +268,22 @@ void Downloader::finished()
       m_ui->downloadLabel->setText(trl::L("更新包已拒收"));
       m_ui->timeLabel->setText(msg);
       QMessageBox::critical(this, trl::L("更新错误"), msg, QMessageBox::Close);
+      // M6 跟进:超限只有弹框没有信号,主程序留不下持久痕迹也不记日志;
+      // 弹框旁补发 downloadFailed,走已有的 Updater/QSimpleUpdater 转发链。
+      emit downloadFailed(m_url, msg);
+    } else if (net_error != QNetworkReply::NoError &&
+               net_error != QNetworkReply::OperationCanceledError) {
+      // M6 跟进:网络错误不能静默消失——旧代码删 .part 后直接返回,无弹框、
+      // 无信号、无痕迹,下载就这么停了。用户主动取消(OperationCanceledError)
+      // 保持静默:取消本就是用户意图,报失败会误导;abortOversize 置位
+      // m_sizeExceeded 后走上面超限分支,不受此条件影响。
+      const QString msg =
+          trl::L("下载更新包失败（%1）").arg(net_error_text);
+      m_ui->stopButton->setText(tr("Close"));
+      m_ui->downloadLabel->setText(trl::L("更新包已拒收"));
+      m_ui->timeLabel->setText(msg);
+      QMessageBox::critical(this, trl::L("更新错误"), msg, QMessageBox::Close);
+      emit downloadFailed(m_url, msg);
     }
     return;
   }
