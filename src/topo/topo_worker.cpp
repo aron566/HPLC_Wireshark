@@ -575,7 +575,6 @@ void TopoReplayWorker::clear() {
     // 因此无论清库成败,内存实时状态都随之重置;清库失败时库内仍是旧帧,与新的
     // 帧序号不再一致,历史回放标记为不可用(rebuild/回放均被挡住,不会回放风暴),
     // 直到下次清库成功才恢复。
-    const bool store_open = m_db.isOpen();
     const bool cleared = clear_store();
     m_live_states.clear();
     m_checkpoints.clear();
@@ -584,8 +583,12 @@ void TopoReplayWorker::clear() {
         m_store_failed = true;
         m_store_error_message = QStringLiteral("Topology history is unavailable because clearing the replay store failed");
         m_store_error_reported = true;   // clear_store 已上报具体原因
-    } else if (store_open) {
-        // 库已清空、实时状态随之重置,两者重新一致:此前入库失败造成的"历史不可用"到此为止
+    } else {
+        // 库已清空(或库从未打开、clear_store 直接返回成功)、实时状态随之重置,
+        // 两者重新一致:此前入库失败造成的"历史不可用"到此为止;下次入库重新尝试
+        // open_store,失败再置位。只在库已打开时复位会在"开库失败→清库"后把
+        // m_store_failed 永久留在真值上,insert_frame 此后永远直接返回,历史回放
+        // 只能重启恢复。
         m_store_failed = false;
         m_store_error_reported = false;
         m_store_error_message.clear();
