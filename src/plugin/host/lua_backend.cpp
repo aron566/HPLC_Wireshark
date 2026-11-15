@@ -421,16 +421,24 @@ namespace {
 // dofile/loadfile 只能读插件目录内的文件;load/loadfile/dofile 只接受文本 chunk
 // (恶意字节码可绕过 Lua VM 校验)。环境变量请用 host.getEnv。
 
-/// 解析插件目录内的脚本路径(相对路径相对插件目录);越界返回空串
-QString sandbox_plugin_path(lua_State* L, const char* fname) {
+/// 解析插件目录内的脚本路径(相对路径相对插件目录)。
+/// L11:三态返回——文件不存在(NotFound)与越界(Outside)是两种失败,
+/// 调用点分别报错,不得把"不存在"混报成"在插件目录之外"。
+enum class SandboxPathStatus { Ok, NotFound, Outside };
+struct SandboxPath {
+    SandboxPathStatus status = SandboxPathStatus::NotFound;
+    QString path;
+};
+SandboxPath sandbox_plugin_path(lua_State* L, const char* fname) {
     const QString dir = QString::fromUtf8(lua_tostring(L, lua_upvalueindex(1)));
     const QString root = QFileInfo(dir).canonicalFilePath();
     const QString path = QDir(dir).absoluteFilePath(QString::fromUtf8(fname));
     const QString real = QFileInfo(path).canonicalFilePath();
-    if (root.isEmpty() || real.isEmpty() ||
-        !real.startsWith(root + QLatin1Char('/')))
-        return QString();
-    return real;
+    // canonicalFilePath 为空 = 文件不存在(无法确认是否越界,按不存在报)
+    if (real.isEmpty()) return {SandboxPathStatus::NotFound, QString()};
+    if (root.isEmpty() || !real.startsWith(root + QLatin1Char('/')))
+        return {SandboxPathStatus::Outside, QString()};
+    return {SandboxPathStatus::Ok, real};
 }
 
 /// loadfile(filename [, mode [, env]]):仅插件目录内、仅文本 chunk
@@ -443,13 +451,15 @@ int l_sandbox_loadfile(lua_State* L) {
             lua_pushliteral(L, "loadfile: stdin is not available to plugins");
             return 2;
         }
-        const QString path = sandbox_plugin_path(L, fname);
-        if (path.isEmpty()) {
+        const SandboxPath resolved = sandbox_plugin_path(L, fname);
+        if (resolved.status != SandboxPathStatus::Ok) {
             luaL_pushfail(L);
-            lua_pushfstring(L, "loadfile: '%s' is outside the plugin directory", fname);
+            lua_pushfstring(L, resolved.status == SandboxPathStatus::NotFound
+                ? "loadfile: '%s' does not exist"
+                : "loadfile: '%s' is outside the plugin directory", fname);
             return 2;
         }
-        const QByteArray p = path.toUtf8();  // 与入口脚本加载同口径
+        const QByteArray p = resolved.path.toUtf8();  // 与入口脚本加载同口径
         if (luaL_loadfilex(L, p.constData(), "t") != LUA_OK) {
             luaL_pushfail(L);
             lua_insert(L, -2);
@@ -469,13 +479,18 @@ int l_sandbox_dofile(lua_State* L) {
         const char* fname = luaL_checkstring(L, 1);
         // L12:路径解析与判空只在内层作用域做,QString 在 luaL_error 之前已
         // 析构(longjmp 会跳过栈上 C++ 对象的析构)。
-        if ([&] { return sandbox_plugin_path(L, fname).isEmpty(); }())
-            return luaL_error(L, "dofile: '%s' is outside the plugin directory", fname);
+        // L11:不存在与越界分开报——状态只在内层作用域取,结构体随之析构。
+        const SandboxPathStatus resolved_status =
+            [&] { return sandbox_plugin_path(L, fname).status; }();
+        if (resolved_status != SandboxPathStatus::Ok)
+            return luaL_error(L, resolved_status == SandboxPathStatus::NotFound
+                ? "dofile: '%s' does not exist"
+                : "dofile: '%s' is outside the plugin directory", fname);
         lua_settop(L, 1);
         // 路径串压进 Lua 栈由 Lua 持有,后续加载/调用抛错 longjmp 时栈上
         // 无待析构的 C++ 对象;加载完弹出,不进入返回值。
         {
-            const QByteArray p = sandbox_plugin_path(L, fname).toUtf8();
+            const QByteArray p = sandbox_plugin_path(L, fname).path.toUtf8();
             lua_pushlstring(L, p.constData(), (size_t)p.size());
         }
         const char* path_c = lua_tostring(L, -1);
@@ -518,12 +533,17 @@ int l_sandbox_lua_searcher(lua_State* L) {
         const char* fname = lua_tostring(L, 3);
         // L12:路径解析与判空在内层作用域做,越界时 QString 已析构;路径串
         // 压进 Lua 栈由 Lua 持有,后续 luaL_error longjmp 不跳过 C++ 析构。
-        if ([&] { return sandbox_plugin_path(L, fname).isEmpty(); }()) {
-            lua_pushfstring(L, "\n\tmodule file '%s' is outside the plugin directory", fname);
+        // L11:不存在与越界分开报。
+        const SandboxPathStatus resolved_status =
+            [&] { return sandbox_plugin_path(L, fname).status; }();
+        if (resolved_status != SandboxPathStatus::Ok) {
+            lua_pushfstring(L, resolved_status == SandboxPathStatus::NotFound
+                ? "\n\tmodule file '%s' does not exist"
+                : "\n\tmodule file '%s' is outside the plugin directory", fname);
             return 1;
         }
         {
-            const QByteArray p = sandbox_plugin_path(L, fname).toUtf8();
+            const QByteArray p = sandbox_plugin_path(L, fname).path.toUtf8();
             lua_pushlstring(L, p.constData(), (size_t)p.size());
         }
         const char* path_c = lua_tostring(L, -1);
