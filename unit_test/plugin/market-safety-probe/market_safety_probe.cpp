@@ -79,7 +79,9 @@ static QByteArray manifest_json(const QByteArray& name) {
 
 // ── H2:插件名白名单 + 安装目录一级子目录约束 ──
 static void test_plugin_name() {
-    for (const char* ok : {"js-topo", "lua_echo", "Cpp.Coverage2", "a"})
+    for (const char* ok : {"js-topo", "lua_echo", "Cpp.Coverage2", "a",
+                           // L15:COM10/LPT10 不在保留名之列;CON 开头但不是保留名
+                           "COM10", "LPT10", "CONTROLLER", "console"})
         check(qPrintable(QStringLiteral("name ok: %1").arg(QLatin1String(ok))),
               plugin_name_is_safe(QString::fromLatin1(ok)));
     const QString bad[] = {QString(), QStringLiteral("."), QStringLiteral(".."),
@@ -87,10 +89,20 @@ static void test_plugin_name() {
                            QStringLiteral("a\\b"), QStringLiteral("C:x"),
                            QStringLiteral(".hidden"), QStringLiteral("-x"),
                            QStringLiteral("a b"), QString(65, QLatin1Char('a')),
-                           QStringLiteral("插件")};
+                           QStringLiteral("插件"),
+                           // L15:Windows 保留设备名(大小写不敏感;带后缀也拒)
+                           QStringLiteral("CON"), QStringLiteral("con"),
+                           QStringLiteral("Con"), QStringLiteral("PRN"),
+                           QStringLiteral("AUX"), QStringLiteral("NUL"),
+                           QStringLiteral("COM1"), QStringLiteral("com9"),
+                           QStringLiteral("LPT1"), QStringLiteral("lpt9"),
+                           QStringLiteral("con.txt"), QStringLiteral("COM1.txt"),
+                           QStringLiteral("CON.")};
     bool all_rej = true;
     for (const QString& b : bad) all_rej = all_rej && !plugin_name_is_safe(b);
-    check("name rejected: empty . .. ../x a/b a\\b C:x .x -x space 65ch CJK", all_rej);
+    check("name rejected: empty . .. ../x a/b a\\b C:x .x -x space 65ch CJK "
+          "CON con PRN AUX NUL COM1 COM9 LPT1 LPT9 con.txt COM1.txt CON.",
+          all_rej);
 }
 
 static void test_plugin_dir_path(const QString& root) {
@@ -119,7 +131,8 @@ static void test_manifest_name(const QString& root) {
     const QString d = root + QStringLiteral("/mf");
     QDir().mkpath(d);
     write_file(d + QStringLiteral("/x.js"), "1");
-    for (const QByteArray& n : {QByteArray(".."), QByteArray("a/../../x"), QByteArray("ok-name")}) {
+    for (const QByteArray& n : {QByteArray(".."), QByteArray("a/../../x"),
+                                QByteArray("ok-name"), QByteArray("CON")}) {
         write_file(d + QStringLiteral("/plugin.json"), manifest_json(n));
         const PluginManifest m = read_plugin_manifest(d);
         const bool expect_ok = (n == "ok-name");
