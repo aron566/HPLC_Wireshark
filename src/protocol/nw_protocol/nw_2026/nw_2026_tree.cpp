@@ -377,33 +377,33 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     const int sn = (raw_sz > 4) ? ((d[4] >> 6) & 0x03) : 0;  // 站点数-1
                     int bp = 0;   // eFC 内位偏移(站点 0 前置 TF 个数 2b)
                     tree_add_bit_field(sof, "eFC TFNum",
-                        trl::L("%1 (实际=%2)").arg(get_bits(e, 0, 0, 2))
-                            .arg(oft == 2 ? (get_bits(e, 0, 0, 2) + 1) * 2
-                                          : (get_bits(e, 0, 0, 2) + 1) * 2),
+                        trl::L("%1 (实际=%2)").arg(get_bits_unchecked(e, 0, 0, 2))
+                            .arg(oft == 2 ? (get_bits_unchecked(e, 0, 0, 2) + 1) * 2
+                                          : (get_bits_unchecked(e, 0, 0, 2) + 1) * 2),
                         16, 0, 2);
                     bp = 2;
                     for (int s = 0; s <= sn; ++s) {
                         const int pb_bits = 1;
-                        const int pb_num_s = get_bits(e, bp / 8, bp % 8, pb_bits);
+                        const int pb_num_s = get_bits_unchecked(e, bp / 8, bp % 8, pb_bits);
                         // 表27/表28 同语义:字段值 0→1 个 PB 块、1→2 个 PB 块,统一 +1
                         tree_add_bit_field(sof, QString("eFC Sta%1 PBNum").arg(s),
                             QString::number(pb_num_s + 1), 16 + bp / 8, bp % 8, 1);
                         bp += pb_bits;
-                        const int tei = get_bits(e, bp / 8, bp % 8, 12);
+                        const int tei = get_bits_unchecked(e, bp / 8, bp % 8, 12);
                         tree_add_bit_field(sof, QString("eFC Sta%1 TEI").arg(s),
                             QString::number(tei), 16 + bp / 8, bp % 8, 12);
                         bp += 12;
-                        const int tmi = get_bits(e, bp / 8, bp % 8, 5);
+                        const int tmi = get_bits_unchecked(e, bp / 8, bp % 8, 5);
                         tree_add_bit_field(sof, QString("eFC Sta%1 TMI").arg(s),
                             QString::number(tmi), 16 + bp / 8, bp % 8, 5);
                         bp += 5;
-                        const int ru = get_bits(e, bp / 8, bp % 8, 4);
+                        const int ru = get_bits_unchecked(e, bp / 8, bp % 8, 4);
                         tree_add_bit_field(sof, QString("eFC Sta%1 RU").arg(s),
                             QString::number(ru), 16 + bp / 8, bp % 8, 4);
                         bp += 4;
                         // 表27 SACK RU / 表28 TxPowerBackoff(3b):每站都有,不是仅站0
                         // (原实现仅站0推进 3b,3站以上帧的站2/站3 eFC 字段整体错位 3b)
-                        const int sr = get_bits(e, bp / 8, bp % 8, 3);
+                        const int sr = get_bits_unchecked(e, bp / 8, bp % 8, 3);
                         if (oft == 2) {
                             tree_add_bit_field(sof, QString("eFC Sta%1 TxPowerBackoff").arg(s),
                                 trl::L("%1 (回退 %2dB)").arg(sr).arg(sr * 4),
@@ -420,8 +420,8 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     for (int s = 0; s < 4; ++s) {
                         const int b = s * 3;
                         tree_add_bit_field(sof, QString("eFC Sta%1 TEI").arg(s),
-                            QString::number(get_bits(e, b, 0, 12)), 16 + b, 0, 12);
-                        const quint8 st = get_bits(e, b + 1, 4, 4);
+                            QString::number(get_bits_unchecked(e, b, 0, 12)), 16 + b, 0, 12);
+                        const quint8 st = get_bits_unchecked(e, b + 1, 4, 4);
                         QStringList oks;
                         for (int i = 0; i < 4; ++i)
                             if (st & (1u << i)) oks << QStringLiteral("PB%1").arg(i);
@@ -430,7 +430,7 @@ void NW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                                 .arg(oks.isEmpty() ? trl::L("全部校验失败") : oks.join('+')),
                             16 + b + 1, 4, 4);
                         tree_add_bit_field(sof, QString("eFC Sta%1 RSV").arg(s),
-                            QStringLiteral("0x%1").arg(get_bits(e, b + 2, 0, 8), 2, 16, QChar('0')),
+                            QStringLiteral("0x%1").arg(get_bits_unchecked(e, b + 2, 0, 8), 2, 16, QChar('0')),
                             16 + b + 2, 0, 8);
                     }
                 }

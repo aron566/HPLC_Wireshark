@@ -1707,8 +1707,8 @@ static void parse_rf_discover_list(MsduInfo& out, const QByteArray& msdu, int re
 static void parse_single_hop(MsduInfo& out, const QByteArray& body) {
     out.simple_head = true;   // 单跳帧标志(GW 同语义):供帧列表 Orig 列等 UI 跳过 TEI 语义
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
-    const quint8  msdu_type = (quint8)get_bits(p, 1, 0, 8);
-    const quint16 msdu_len  = (quint16)get_bits(p, 2, 0, 16);
+    const quint8  msdu_type = (quint8)get_bits_unchecked(p, 1, 0, 8);
+    const quint16 msdu_len  = (quint16)get_bits_unchecked(p, 2, 0, 16);
     out.msdu_type = msdu_type;
     // 单跳 MAC 帧头(表113,4B)
     MsduFieldNode& mh = group(out.tree, QStringLiteral("MAC Header [4B]"));
@@ -1771,7 +1771,7 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
     // 单跳帧协议(第2部分无线 §8.1.2.4 表113,仅无线信道)使用专用 4B 帧头,
     // 无 TEI/SNID/路由字段;此前按"保留版本回退标准头"会错位 8B 误解析,现独立处理。
     // 版本 0/3(保留)仍回退按标准头解析(表6 未定义其布局,按用户决策保持)。
-    if ((quint8)get_bits(p, 0, 1, 2) == 2) {
+    if ((quint8)get_bits_unchecked(p, 0, 1, 2) == 2) {
         parse_single_hop(out, body);
         return out;
     }
@@ -1779,16 +1779,16 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
     // 标准 MAC 帧头 MSDU_BASE:MACHeadFlag(0,0,1) 决定长(32B)/短(12B)
     // 短头至少 12 字节(读到 msdu_seq 在 byte 10-11),不足则无法解析。
     if (body.size() < 12) { pa::warn("nw_2026:content_short", QStringLiteral("body %1B<12B (short MAC hdr)").arg(body.size())); return out; }
-    const quint8 mac_head_flag = (quint8)get_bits(p, 0, 0, 1);
-    const quint16 msdu_len     = (quint16)get_bits(p, 2, 0, 16);
+    const quint8 mac_head_flag = (quint8)get_bits_unchecked(p, 0, 0, 1);
+    const quint16 msdu_len     = (quint16)get_bits_unchecked(p, 2, 0, 16);
 
-    out.msdu_dst_tei        = (int)get_bits(p, 4, 0, 12);
-    out.msdu_src_tei        = (int)get_bits(p, 5, 4, 12);
-    out.restart_count       = (quint8)get_bits(p, 7, 4, 4);
-    out.route_hops_left     = (quint8)get_bits(p, 8, 0, 4);   // 路由跳数(表3 byte8 bit0-3)
-    out.broadcast_direction = (quint8)get_bits(p, 8, 4, 4);
-    out.msdu_send_type      = (int)get_bits(p, 9, 0, 3);
-    out.msdu_seq            = (quint16)get_bits(p, 10, 0, 16);
+    out.msdu_dst_tei        = (int)get_bits_unchecked(p, 4, 0, 12);
+    out.msdu_src_tei        = (int)get_bits_unchecked(p, 5, 4, 12);
+    out.restart_count       = (quint8)get_bits_unchecked(p, 7, 4, 4);
+    out.route_hops_left     = (quint8)get_bits_unchecked(p, 8, 0, 4);   // 路由跳数(表3 byte8 bit0-3)
+    out.broadcast_direction = (quint8)get_bits_unchecked(p, 8, 4, 4);
+    out.msdu_send_type      = (int)get_bits_unchecked(p, 9, 0, 3);
+    out.msdu_seq            = (quint16)get_bits_unchecked(p, 10, 0, 16);
 
     const int mac_hdr_len = (mac_head_flag == static_cast<quint8>(NW_2026_MacHeadFlag::LONG_HEAD)) ? 32 : 12;
 
@@ -1826,10 +1826,10 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
         // MSDU_LONGHEAD(18B):原始目的/源 MAC 48b + VLAN 32b + MSDU 类型 16b
         if (msdu_body.size() >= 18) {
             const quint8* q = reinterpret_cast<const quint8*>(msdu_body.constData());
-            out.msdu_dst_mac = get_bits(q, 0, 0, 48);
-            out.msdu_src_mac = get_bits(q, 6, 0, 48);
-            out.vlan_tag     = (quint32)get_bits(q, 12, 0, 32);
-            out.msdu_type    = (quint16)get_bits(q, 16, 0, 16);
+            out.msdu_dst_mac = get_bits_unchecked(q, 0, 0, 48);
+            out.msdu_src_mac = get_bits_unchecked(q, 6, 0, 48);
+            out.vlan_tag     = (quint32)get_bits_unchecked(q, 12, 0, 32);
+            out.msdu_type    = (quint16)get_bits_unchecked(q, 16, 0, 16);
             // MSDU 长帧头前段字段(表1/表41:原始目的/源地址 + VLAN 标签;此前仅入标量、树上缺失)
             {
                 MsduFieldNode dm;
@@ -2222,7 +2222,7 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
                         .arg(bm_cnt)
                         .arg(bmproxy_tei ? QString::number(bmproxy_tei) : QStringLiteral("-"));
                 }
-                // 帧内链路类型(SPLC 表111:byte139 bit0):仅 Result=0(成功)时用;尾段需存在才可读(get_bits 无越界检查)
+                // 帧内链路类型(SPLC 表111:byte139 bit0):仅 Result=0(成功)时用;尾段需存在才可读(get_bits_unchecked 无越界检查)
                 if (bm_ok && mme.size() > 145)
                     out.topo_event.link_type = (int)get_bits(mme, 145, 0, 1);   // spec byte139 为相对 MMe 体,含 6B 头 → mme[145]
             }
@@ -2713,8 +2713,8 @@ MsduInfo NW_2026_MsduParser::parse(const QByteArray& body) {
         // MSDU_SHORTHEAD(2B):VLAN 8b + MSDU 类型 8b(短帧头只携带应用层报文)
         if (msdu_body.size() >= 2) {
             const quint8* q = reinterpret_cast<const quint8*>(msdu_body.constData());
-            out.vlan_tag  = (quint32)get_bits(q, 0, 0, 8);
-            out.msdu_type = (quint16)get_bits(q, 1, 0, 8);
+            out.vlan_tag  = (quint32)get_bits_unchecked(q, 0, 0, 8);
+            out.msdu_type = (quint16)get_bits_unchecked(q, 1, 0, 8);
             {
                 MsduFieldNode vt;
                 vt.name = QStringLiteral("VLAN Tag [8b]");

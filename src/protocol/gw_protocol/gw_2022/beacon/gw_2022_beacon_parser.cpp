@@ -218,7 +218,7 @@ MsduInfo GW_2022_BeaconParser::parse_beacon(const QByteArray& payload) {
     out.present = false;
     if (payload.size() < 40) return out;  // 16 FCH + 载荷头
     const quint8* p = reinterpret_cast<const quint8*>(payload.constData());
-    quint8 tmi = (quint8)get_bits(p, 9, 4, 4);   // BEACON TMI 在 FCH b9 高 4bit
+    quint8 tmi = (quint8)get_bits_unchecked(p, 9, 4, 4);   // BEACON TMI 在 FCH b9 高 4bit
     int pbsize = gw_2022_pb_size(tmi);
     if (pbsize <= 0 || payload.size() < 16 + pbsize) return out;
 

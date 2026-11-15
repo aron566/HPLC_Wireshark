@@ -191,12 +191,12 @@ bool GW_2026_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QSt
         return false;
     }
 
-    info.frame_type = (quint8)get_bits(p, 0, 0, 3);
-    info.net_type   = (quint8)get_bits(p, 0, 3, 5);
+    info.frame_type = (quint8)get_bits_unchecked(p, 0, 0, 3);
+    info.net_type   = (quint8)get_bits_unchecked(p, 0, 3, 5);
     // HDC 2.0(表4):网络标识缩为 16bit(byte1-2,有效值 1-65535),
     // byte3 整字节改为保留(HDC 1.0 为 24bit NID)
-    info.net_id     = (quint32)get_bits(p, 1, 0, 16);
-    info.version    = (quint8)get_bits(p, 12, 4, 4);
+    info.net_id     = (quint32)get_bits_unchecked(p, 1, 0, 16);
+    info.version    = (quint8)get_bits_unchecked(p, 12, 4, 4);
     return true;
 }
 
@@ -311,28 +311,28 @@ GW_2026_Parser::Result GW_2026_Parser::parse_inner(const BplcFrame& in, MsduStat
         }
     } else if (ft == GW_2026_FrameType::BEACON) {
         // BEACON:FCH 摘要 + 载荷区解析(beacon 模块)
-        r.mpdu.beacon_timestamp = (quint32)get_bits(p, 4, 0, 32);
-        r.mpdu.src_tei          = (quint16)get_bits(p, 8, 0, 12);
+        r.mpdu.beacon_timestamp = (quint32)get_bits_unchecked(p, 4, 0, 32);
+        r.mpdu.src_tei          = (quint16)get_bits_unchecked(p, 8, 0, 12);
         if (r.meta.is_rf) {
             // 无线信标(表18):(9,4,4) 为 MCS、(10,0,4) 为载荷 PB 大小码,
             // 其余 (10,4,4)+(11,0,8)+(12,0,4) 为保留,无符号数/相线字段
-            r.mpdu.mcs          = (quint8) get_bits(p, 9, 4, 4);
-            r.mpdu.pb_num_field = (quint8) get_bits(p, 10, 0, 4);   // 载荷 PB 大小码
+            r.mpdu.mcs          = (quint8) get_bits_unchecked(p, 9, 4, 4);
+            r.mpdu.pb_num_field = (quint8) get_bits_unchecked(p, 10, 0, 4);   // 载荷 PB 大小码
             const int sz = gw_2026_rf_pb_size(r.mpdu.pb_num_field);
             r.mpdu.pb_size    = (quint16)(sz > 0 ? sz : 0);
             r.mpdu.symbol_num = 0;
             r.mpdu.beacon_line = 0;
-            r.mpdu.beacon_rsv = (quint16)get_bits(p, 10, 4, 16);    // 保留原始值(供字段树呈现)
+            r.mpdu.beacon_rsv = (quint16)get_bits_unchecked(p, 10, 4, 16);    // 保留原始值(供字段树呈现)
         } else {
             // 载波信标(表5):PB 大小由分集拷贝模式(tmi)查表;
             // 无效 TMI 不再把 -1 铸成 65535;FCH符号数(11,3,2) 跨字节
-            r.mpdu.tmi          = (quint8) get_bits(p, 9, 4, 4);
+            r.mpdu.tmi          = (quint8) get_bits_unchecked(p, 9, 4, 4);
             const int sz = gw_2026_pb_size(r.mpdu.tmi);
             r.mpdu.pb_size    = (quint16)(sz > 0 ? sz : 0);  // 单块帧块长
-            r.mpdu.symbol_num = (quint16)get_bits(p, 10, 0, 9);
-            r.mpdu.beacon_fch_sym = (quint8)((get_bits(p, 11, 3, 2)));
-            r.mpdu.beacon_line = (quint8) get_bits(p, 11, 1, 2);
-            r.mpdu.beacon_rsv = (quint16)get_bits(p, 11, 5, 7);     // 保留原始值(供字段树呈现)
+            r.mpdu.symbol_num = (quint16)get_bits_unchecked(p, 10, 0, 9);
+            r.mpdu.beacon_fch_sym = (quint8)((get_bits_unchecked(p, 11, 3, 2)));
+            r.mpdu.beacon_line = (quint8) get_bits_unchecked(p, 11, 1, 2);
+            r.mpdu.beacon_rsv = (quint16)get_bits_unchecked(p, 11, 5, 7);     // 保留原始值(供字段树呈现)
         }
         r.beacon = GW_2026_BeaconParser::parse_beacon(r.payload_for_log, r.meta.is_rf);
         if (r.beacon.present) {

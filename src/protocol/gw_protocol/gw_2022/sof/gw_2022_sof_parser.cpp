@@ -41,30 +41,30 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
 
     // FCH 业务字段(相对 FCH 起点)
-    info.src_tei      = (quint16)get_bits(p, 4, 0, 12);
-    info.dst_tei      = (quint16)get_bits(p, 5, 4, 12);
-    info.link_id      = (quint8) get_bits(p, 7, 0, 8);
-    info.frame_len    = (quint16)get_bits(p, 8, 0, 12);
-    info.pb_num_field = (quint8) get_bits(p, 9, 4, 4);
-    info.bc_flag      = (bool)   get_bits(p, 11, 1, 1);
-    info.re_send_flag = (bool)   get_bits(p, 11, 2, 1);
-    info.encryp_flag  = (bool)   get_bits(p, 11, 3, 1);
+    info.src_tei      = (quint16)get_bits_unchecked(p, 4, 0, 12);
+    info.dst_tei      = (quint16)get_bits_unchecked(p, 5, 4, 12);
+    info.link_id      = (quint8) get_bits_unchecked(p, 7, 0, 8);
+    info.frame_len    = (quint16)get_bits_unchecked(p, 8, 0, 12);
+    info.pb_num_field = (quint8) get_bits_unchecked(p, 9, 4, 4);
+    info.bc_flag      = (bool)   get_bits_unchecked(p, 11, 1, 1);
+    info.re_send_flag = (bool)   get_bits_unchecked(p, 11, 2, 1);
+    info.encryp_flag  = (bool)   get_bits_unchecked(p, 11, 3, 1);
     int pb_size;
     if (is_rf) {
         // 无线 SOF(表30):无物理块个数字段,固定 1 块;字节9 bit4-7 为载荷PB大小(表29),
         // 字节10-11 bit0 与字节12 bit0-3 为保留(存原始值供呈现,不参与解析);
         // 字节11 bit4-7 为 MCS(表28)
-        info.mcs         = (quint8) get_bits(p, 11, 4, 4);
+        info.mcs         = (quint8) get_bits_unchecked(p, 11, 4, 4);
         info.pb_num     = 1;
-        info.symbol_num = (quint16)get_bits(p, 10, 0, 9);   // 保留(原始值)
-        info.tmi_ext    = (quint8) get_bits(p, 12, 0, 4);   // 保留(原始值)
+        info.symbol_num = (quint16)get_bits_unchecked(p, 10, 0, 9);   // 保留(原始值)
+        info.tmi_ext    = (quint8) get_bits_unchecked(p, 12, 0, 4);   // 保留(原始值)
         pb_size         = sof_rf_pb_size(info.pb_num_field);
     } else {
         // 载波 SOF(表19):物理块个数/符号数/分集拷贝基本模式/扩展模式
-        info.tmi         = (quint8) get_bits(p, 11, 4, 4);
+        info.tmi         = (quint8) get_bits_unchecked(p, 11, 4, 4);
         info.pb_num     = info.pb_num_field;
-        info.symbol_num = (quint16)get_bits(p, 10, 0, 9);
-        info.tmi_ext    = (quint8) get_bits(p, 12, 0, 4);
+        info.symbol_num = (quint16)get_bits_unchecked(p, 10, 0, 9);
+        info.tmi_ext    = (quint8) get_bits_unchecked(p, 12, 0, 4);
         pb_size         = sof_pb_size(info.tmi, info.tmi_ext);
     }
 

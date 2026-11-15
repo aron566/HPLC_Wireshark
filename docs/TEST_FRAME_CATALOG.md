@@ -36,7 +36,7 @@
 
 ### 位序约定（本次建帧实测）
 
-- 解析器 `get_bits(p, byteIdx, bitOff, nbits)` = **LSB-first**（bit0 = 该字节最低位）。
+- 解析器 `get_bits_unchecked(p, byteIdx, bitOff, nbits)` = **LSB-first**（bit0 = 该字节最低位）。
 - **字节对齐**的 12 比特跨字节字段：`value = byteN | ((byteN+1 & 0x0F) << 8)`
 - **非字节对齐**的 12 比特字段（如 HDC2.0 表63 代理TEI = byte1 bit4-7 + byte2）：`value = (byte1 >> 4) | (byte2 << 4)` —— **方向相反**
 - 单比特字段（链路类型 / 载波频段 / 角色 / 层级）不受位序影响。

@@ -217,7 +217,7 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     fch_sym_txt(e.mpdu.sof_fch_sym_num), 9, 4, 2);
                 // 训练序列频段标识(表9 (9,6,3) 跨字节 9,6-7+10,0)
                 tree_add_bit_field(sof, "Training Seq Band",
-                    band_txt((quint8)get_bits(raw, 9, 6, 3)), 9, 6, 3);
+                    band_txt((quint8)get_bits_unchecked(raw, 9, 6, 3)), 9, 6, 3);
                 // 信道探测训练序列符号数(表9 (10,1,7)):(v+1)*2
                 const quint8 ts = (rsz > 10) ? (quint8)((raw[10] >> 1) & 0x7F) : 0;
                 tree_add_bit_field(sof, "Training Seq Symbol Num",
@@ -239,44 +239,44 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     fch_sym_txt(e.mpdu.sof_fch_sym_num), 9, 4, 2);
                 // 数据载荷符号数(表10 (9,6,9) 跨字节,多站点取最大值)
                 tree_add_bit_field(sof, "Payload Symbol Num",
-                    QString::number((quint16)get_bits(raw, 9, 6, 9)), 9, 6, 9);
+                    QString::number((quint16)get_bits_unchecked(raw, 9, 6, 9)), 9, 6, 9);
                 // 扩展帧控制符号数(表10 (10,7,3) 跨 11,0-1):0:2/1:4/2:8/3:12/4:16 符号
-                const quint8 ec = (quint8)get_bits(raw, 10, 7, 3);
+                const quint8 ec = (quint8)get_bits_unchecked(raw, 10, 7, 3);
                 tree_add_bit_field(sof, "eFC Symbol Num",
                     (ec <= 4) ? QStringLiteral("%1 - %2 symbols").arg(ec).arg(kEfcSym[ec])
                               : QStringLiteral("%1 - Reserved").arg(ec), 10, 7, 3);
                 // 站点0物理块个数(表10 (11,2,1)):0/1→1/2 块
                 tree_add_bit_field(sof, "Sta0 PB Num",
-                    QString::number((quint8)get_bits(raw, 11, 2, 1) + 1), 11, 2, 1);
+                    QString::number((quint8)get_bits_unchecked(raw, 11, 2, 1) + 1), 11, 2, 1);
                 // 站点0分集拷贝模式(表10 (11,3,5))
                 tree_add_bit_field(sof, "Sta0 DivCopy",
-                    QString::number((quint8)get_bits(raw, 11, 3, 5)), 11, 3, 5);
+                    QString::number((quint8)get_bits_unchecked(raw, 11, 3, 5)), 11, 3, 5);
                 // 站点0RU(表10 (12,0,4));(12,4-7) 表10 该区间行提取缺失→RSV
                 tree_add_bit_field(sof, "Sta0 RU",
-                    QString::number((quint8)get_bits(raw, 12, 0, 4)), 12, 0, 4);
+                    QString::number((quint8)get_bits_unchecked(raw, 12, 0, 4)), 12, 0, 4);
                 tree_add_bit_field(sof, "RSV",
-                    QStringLiteral("0x%1").arg((quint8)get_bits(raw, 12, 4, 4), 1, 16, QChar('0')),
+                    QStringLiteral("0x%1").arg((quint8)get_bits_unchecked(raw, 12, 4, 4), 1, 16, QChar('0')),
                     12, 4, 4);
                 // eFC(表11,自 byte16):站点1-3 ×[TEI 12b/RU 4b/分集拷贝 5b/PB个数 1b/RSV 2b],每站 3B,
                 // 站点数由 FCH 站点数字段决定;其后加密标志位(eFC (9,0))+保留至 (12,0-7)
                 // eFC(表11,固定 16B,内部字节 0-15,其中 13-15 为帧控制校验) ⇒ PB 自 byte32 起
                 // 帧长不足 32B 时 eFC 不存在,本站循环跳过(新 H1 纵深防御;截断帧
-                // 已由 assemble() 拒收,这里只防 get_bits(raw, 16..27) 越界读),并标注截断。
+                // 已由 assemble() 拒收,这里只防 get_bits_unchecked(raw, 16..27) 越界读),并标注截断。
                 const int n_efc = (rsz >= 32 && sn >= 1 && sn <= 3) ? sn : 0;
                 if (rsz < 32 && sn >= 1 && sn <= 3)
                     tree_add_item(sof, "eFC", trl::L("截断(帧长 %1B < 32B)").arg(rsz));
                 for (int s = 1; s <= n_efc; ++s) {
                     const int b = 16 + (s - 1) * 3;
                     tree_add_bit_field(sof, QString("eFC Sta%1 DstTEI").arg(s),
-                        QString::number((quint16)get_bits(raw, b, 0, 12)), b, 0, 12);
+                        QString::number((quint16)get_bits_unchecked(raw, b, 0, 12)), b, 0, 12);
                     tree_add_bit_field(sof, QString("eFC Sta%1 RU").arg(s),
-                        QString::number((quint8)get_bits(raw, b + 1, 4, 4)), b + 1, 4, 4);
+                        QString::number((quint8)get_bits_unchecked(raw, b + 1, 4, 4)), b + 1, 4, 4);
                     tree_add_bit_field(sof, QString("eFC Sta%1 DivCopy").arg(s),
-                        QString::number((quint8)get_bits(raw, b + 2, 0, 5)), b + 2, 0, 5);
+                        QString::number((quint8)get_bits_unchecked(raw, b + 2, 0, 5)), b + 2, 0, 5);
                     tree_add_bit_field(sof, QString("eFC Sta%1 PBNum").arg(s),
-                        QString::number((quint8)get_bits(raw, b + 2, 5, 1) + 1), b + 2, 5, 1);
+                        QString::number((quint8)get_bits_unchecked(raw, b + 2, 5, 1) + 1), b + 2, 5, 1);
                     tree_add_bit_field(sof, QString("eFC Sta%1 RSV").arg(s),
-                        QStringLiteral("0x%1").arg((quint8)get_bits(raw, b + 2, 6, 2), 1, 16, QChar('0')),
+                        QStringLiteral("0x%1").arg((quint8)get_bits_unchecked(raw, b + 2, 6, 2), 1, 16, QChar('0')),
                         b + 2, 6, 2);
                 }
                 break;
@@ -291,50 +291,50 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     fch_sym_txt(e.mpdu.sof_fch_sym_num), 9, 4, 2);
                 // 站点0数据载荷符号数(表12 (9,6,9) 跨字节)
                 tree_add_bit_field(sof, "Sta0 Payload Symbol Num",
-                    QString::number((quint16)get_bits(raw, 9, 6, 9)), 9, 6, 9);
+                    QString::number((quint16)get_bits_unchecked(raw, 9, 6, 9)), 9, 6, 9);
                 // 扩展帧控制符号数(表12 (10,7,3) 跨 11,0-1):0:2/1:4/2:8/3:12/4:16 符号
-                const quint8 ec = (quint8)get_bits(raw, 10, 7, 3);
+                const quint8 ec = (quint8)get_bits_unchecked(raw, 10, 7, 3);
                 tree_add_bit_field(sof, "eFC Symbol Num",
                     (ec <= 4) ? QStringLiteral("%1 - %2 symbols").arg(ec).arg(kEfcSym[ec])
                               : QStringLiteral("%1 - Reserved").arg(ec), 10, 7, 3);
                 // 加密标志位(表12 (11,2,1)):预留信息段
                 tree_add_bit_field(sof, "Encrypted (TDA)",
-                    QStringLiteral("%1 (%2)").arg((quint8)get_bits(raw, 11, 2, 1))
+                    QStringLiteral("%1 (%2)").arg((quint8)get_bits_unchecked(raw, 11, 2, 1))
                         .arg(trl::L("预留信息段")), 11, 2, 1);
                 // 站点0分集拷贝模式(表12 (11,3,5))
                 tree_add_bit_field(sof, "Sta0 DivCopy",
-                    QString::number((quint8)get_bits(raw, 11, 3, 5)), 11, 3, 5);
+                    QString::number((quint8)get_bits_unchecked(raw, 11, 3, 5)), 11, 3, 5);
                 // 站点0TF和数据载荷频段标识(表12 (12,0,3))
                 tree_add_bit_field(sof, "Sta0 TF & Payload Band",
-                    band_txt((quint8)get_bits(raw, 12, 0, 3)), 12, 0, 3);
+                    band_txt((quint8)get_bits_unchecked(raw, 12, 0, 3)), 12, 0, 3);
                 // 站点0TF标识(表12 (12,3,1)):0=携带 1=不携带(帧长不含站点0 TF 传输时间)
-                const quint8 tfi = (quint8)get_bits(raw, 12, 3, 1);
+                const quint8 tfi = (quint8)get_bits_unchecked(raw, 12, 3, 1);
                 tree_add_bit_field(sof, "Sta0 TF Flag",
                     (tfi == 0) ? QStringLiteral("0 - Carried")
                                : QStringLiteral("1 - Not carried"), 12, 3, 1);
                 tree_add_bit_field(sof, "RSV",
-                    QStringLiteral("0x%1").arg((quint8)get_bits(raw, 12, 4, 4), 1, 16, QChar('0')),
+                    QStringLiteral("0x%1").arg((quint8)get_bits_unchecked(raw, 12, 4, 4), 1, 16, QChar('0')),
                     12, 4, 4);
                 // eFC(表13,自 byte16):每站 4B×(站点数-1):
                 //   TEI(b,0,12)/数据载荷符号数(b+1,4,9)/TF与数据载荷频段(b+2,5,3)/分集拷贝(b+3,0,5)/RSV(b+3,5,3)
                 //   eFC(表13,固定 16B) ⇒ PB 自 byte32 起
                 // 帧长不足 32B 时 eFC 不存在,本站循环跳过(新 H1 纵深防御;截断帧
-                // 已由 assemble() 拒收,这里只防 get_bits(raw, 16..27) 越界读),并标注截断。
+                // 已由 assemble() 拒收,这里只防 get_bits_unchecked(raw, 16..27) 越界读),并标注截断。
                 const int n_efc = (rsz >= 32 && sn >= 1 && sn <= 3) ? sn : 0;
                 if (rsz < 32 && sn >= 1 && sn <= 3)
                     tree_add_item(sof, "eFC", trl::L("截断(帧长 %1B < 32B)").arg(rsz));
                 for (int s = 1; s <= n_efc; ++s) {
                     const int b = 16 + (s - 1) * 4;
                     tree_add_bit_field(sof, QString("eFC Sta%1 DstTEI").arg(s),
-                        QString::number((quint16)get_bits(raw, b, 0, 12)), b, 0, 12);
+                        QString::number((quint16)get_bits_unchecked(raw, b, 0, 12)), b, 0, 12);
                     tree_add_bit_field(sof, QString("eFC Sta%1 Payload Symbol Num").arg(s),
-                        QString::number((quint16)get_bits(raw, b + 1, 4, 9)), b + 1, 4, 9);
+                        QString::number((quint16)get_bits_unchecked(raw, b + 1, 4, 9)), b + 1, 4, 9);
                     tree_add_bit_field(sof, QString("eFC Sta%1 Band").arg(s),
-                        band_txt((quint8)get_bits(raw, b + 2, 5, 3)), b + 2, 5, 3);
+                        band_txt((quint8)get_bits_unchecked(raw, b + 2, 5, 3)), b + 2, 5, 3);
                     tree_add_bit_field(sof, QString("eFC Sta%1 DivCopy").arg(s),
-                        QString::number((quint8)get_bits(raw, b + 3, 0, 5)), b + 3, 0, 5);
+                        QString::number((quint8)get_bits_unchecked(raw, b + 3, 0, 5)), b + 3, 0, 5);
                     tree_add_bit_field(sof, QString("eFC Sta%1 RSV").arg(s),
-                        QStringLiteral("0x%1").arg((quint8)get_bits(raw, b + 3, 5, 3), 1, 16, QChar('0')),
+                        QStringLiteral("0x%1").arg((quint8)get_bits_unchecked(raw, b + 3, 5, 3), 1, 16, QChar('0')),
                         b + 3, 5, 3);
                 }
                 break;
@@ -583,7 +583,7 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 //   (以表15 行内定义为准——表16 档位表文档提取错位,数值不自洽,不采用)
                 const quint8* d = reinterpret_cast<const quint8*>(e.raw_bytes.constData());
                 for (int i = 0; i < 8; ++i) {
-                    const quint8 v = (quint8)get_bits(d, 8 + i / 2, (i % 2) * 4, 4);
+                    const quint8 v = (quint8)get_bits_unchecked(d, 8 + i / 2, (i % 2) * 4, 4);
                     const QString desc = (v == 0)
                         ? QStringLiteral("0 - Invalid")
                         : QStringLiteral("%1 (SNR %2~%3dB)")

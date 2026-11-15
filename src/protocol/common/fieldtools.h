@@ -11,7 +11,10 @@
 #include "mac_format.h"  // 48-bit MAC 格式化唯一实现(src/common)
 
 /// 取位域值(LSB 位序)
-inline quint64 get_bits(const quint8* d, int start_byte, int start_bit, int bit_len) {
+/// @warning 裸指针版,不做边界检查:调用方须自行保证
+///          [start_byte,start_bit) 起 bit_len 位全在缓冲区内,否则越界读。
+///          需要边界检查时用 QByteArray 版 get_bits(越界返回 0)。
+inline quint64 get_bits_unchecked(const quint8* d, int start_byte, int start_bit, int bit_len) {
     quint64 v = 0;
     int total = start_byte * 8 + start_bit;
     for (int i = 0; i < bit_len; ++i) {
@@ -24,8 +27,8 @@ inline quint64 get_bits(const quint8* d, int start_byte, int start_bit, int bit_
 
 inline quint64 get_bits(const QByteArray& d, int start_byte, int start_bit, int bit_len) {
     // 集中边界检查(新 H1):越界返回 0,不读出缓冲区;bit_len>64 顺带挡住
-    // 1ULL<<i 的移位 UB(M2 的 QByteArray 路径)。裸指针版不改,调用方如需
-    // 区分"真 0"与"越界"须自行先查长度。
+    // 1ULL<<i 的移位 UB(M2 的 QByteArray 路径)。裸指针版
+    // get_bits_unchecked 不做检查,调用方如需区分"真 0"与"越界"须自行先查长度。
     // last_byte 用 qint64 算:int 加法在 start_byte=INT_MAX-2 时会溢出回绕成
     // 负数、绕过检查(UBSan 已复现),改 64 位后超大偏移直接返 0。
     if (start_byte < 0 || start_bit < 0 || bit_len <= 0 || bit_len > 64)
@@ -34,7 +37,7 @@ inline quint64 get_bits(const QByteArray& d, int start_byte, int start_bit, int 
     if (last_byte >= d.size())
         return 0;   // 越界:返回 0,由调用方的长度检查决定是否标记"截断"
 
-    return get_bits(reinterpret_cast<const quint8*>(d.constData()),
+    return get_bits_unchecked(reinterpret_cast<const quint8*>(d.constData()),
                     start_byte, start_bit, bit_len);
 }
 

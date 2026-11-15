@@ -43,8 +43,8 @@ int main(int argc, char* argv[]) {
         // Parse using FieldSpec directly
         // kZeroCrossCollectSpec is static in gw_2022_msdu_parser.cpp, so we replicate:
         // {"STATEI", 0, 0, 12, DEC}, {"RSV0", 1, 4, 4, DEC}
-        quint64 tei_val = get_bits(reinterpret_cast<const quint8*>(mme_body.constData()), 0, 0, 12);
-        quint64 rsv_val = get_bits(reinterpret_cast<const quint8*>(mme_body.constData()), 1, 4, 4);
+        quint64 tei_val = get_bits_unchecked(reinterpret_cast<const quint8*>(mme_body.constData()), 0, 0, 12);
+        quint64 rsv_val = get_bits_unchecked(reinterpret_cast<const quint8*>(mme_body.constData()), 1, 4, 4);
         
         printf("    Raw bytes: %02X %02X\n", (unsigned)mme_body[0], (unsigned)mme_body[1]);
         printf("    Parsed: STATEI=%llu (0x%llX), RSV0=%llu (0x%llX)\n", 
@@ -61,8 +61,8 @@ int main(int argc, char* argv[]) {
         mme_body[0] = 0xFF; // TEI bits 0-7 = 0xFF
         mme_body[1] = 0xFF; // TEI bits 8-11 = 0xF + RSV0 = 0xF
         
-        quint64 tei_val = get_bits(reinterpret_cast<const quint8*>(mme_body.constData()), 0, 0, 12);
-        quint64 rsv_val = get_bits(reinterpret_cast<const quint8*>(mme_body.constData()), 1, 4, 4);
+        quint64 tei_val = get_bits_unchecked(reinterpret_cast<const quint8*>(mme_body.constData()), 0, 0, 12);
+        quint64 rsv_val = get_bits_unchecked(reinterpret_cast<const quint8*>(mme_body.constData()), 1, 4, 4);
         
         printf("    Raw bytes: %02X %02X\n", (unsigned)mme_body[0], (unsigned)mme_body[1]);
         printf("    Parsed: STATEI=%llu (0x%llX), RSV0=%llu (0x%llX)\n",
@@ -79,8 +79,8 @@ int main(int argc, char* argv[]) {
         mme_body[0] = 0x00;
         mme_body[1] = 0x00;
         
-        quint64 tei_val = get_bits(reinterpret_cast<const quint8*>(mme_body.constData()), 0, 0, 12);
-        quint64 rsv_val = get_bits(reinterpret_cast<const quint8*>(mme_body.constData()), 1, 4, 4);
+        quint64 tei_val = get_bits_unchecked(reinterpret_cast<const quint8*>(mme_body.constData()), 0, 0, 12);
+        quint64 rsv_val = get_bits_unchecked(reinterpret_cast<const quint8*>(mme_body.constData()), 1, 4, 4);
         
         check(tei_val == 0x000, "STATEI should be 0x000");
         check(rsv_val == 0x0, "RSV0 should be 0x0");
@@ -93,8 +93,8 @@ int main(int argc, char* argv[]) {
         mme_body[0] = 0x23;
         mme_body[1] = 0x51;
         
-        quint64 tei_12bit = get_bits(reinterpret_cast<const quint8*>(mme_body.constData()), 0, 0, 12);
-        quint64 tei_16bit = get_bits(reinterpret_cast<const quint8*>(mme_body.constData()), 0, 0, 16);
+        quint64 tei_12bit = get_bits_unchecked(reinterpret_cast<const quint8*>(mme_body.constData()), 0, 0, 12);
+        quint64 tei_16bit = get_bits_unchecked(reinterpret_cast<const quint8*>(mme_body.constData()), 0, 0, 16);
         
         printf("    12bit TEI = %llu (0x%llX)\n", tei_12bit, tei_12bit);
         printf("    16bit TEI = %llu (0x%llX)\n", tei_16bit, tei_16bit);

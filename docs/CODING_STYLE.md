@@ -32,7 +32,7 @@
 
 ```cpp
 // ✅ 正确
-quint32 get_bits(const quint8* p, int byte_idx, int bit_off, int width);
+quint32 get_bits_unchecked(const quint8* p, int byte_idx, int bit_off, int width);
 bool tree_add_bit_field(...);
 void assemble_pb_blocks(...);
 QString app_type_name(quint8 t);
@@ -477,10 +477,10 @@ static const FieldSpec kMMeChangeProxyCnfSpec[] = {
 
 ```cpp
 // ✅ 好
-const quint8 ofdma_type = (quint8)get_bits(p, 4, 1, 2);   // 表26:byte4 bit1-2
+const quint8 ofdma_type = (quint8)get_bits_unchecked(p, 4, 1, 2);   // 表26:byte4 bit1-2
 
 // ❌ 差
-const quint8 ofdma_type = (quint8)get_bits(p, 4, 1, 2);
+const quint8 ofdma_type = (quint8)get_bits_unchecked(p, 4, 1, 2);
 ```
 
 ---
@@ -491,7 +491,7 @@ const quint8 ofdma_type = (quint8)get_bits(p, 4, 1, 2);
 
 ```cpp
 // ✅ 好：查表得含义，直接硬编码
-const quint8 train_type = (quint8)get_bits(p, 5, 0, 1);   // 表24:0=MIMO 1=Bitloading
+const quint8 train_type = (quint8)get_bits_unchecked(p, 5, 0, 1);   // 表24:0=MIMO 1=Bitloading
 r.msdu.summary = (train_type == 1)
     ? trl::L("训练帧（Bitloading训练帧）")
     : trl::L("训练帧（MIMO训练帧）");

@@ -268,10 +268,10 @@ MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_r
         // 无线信标:(10,0,4) 为载荷 PB 大小码(表18),0-5=16/40/72/136/264/520;
         // 信标载荷仅支持 40/72/136/264/520(码 1-5),码 0(16B)装不下精简头+CRC32,
         // 由后 gb<24 门拒收;(9,4,4) 为 MCS,不是 TMI,不可查载波表
-        const quint8 code = (quint8)get_bits(p, 10, 0, 4);
+        const quint8 code = (quint8)get_bits_unchecked(p, 10, 0, 4);
         pbsize = gw_2026_rf_pb_size(code);
     } else {
-        const quint8 tmi = (quint8)get_bits(p, 9, 4, 4);   // BEACON TMI 在 FCH b9 高 4bit
+        const quint8 tmi = (quint8)get_bits_unchecked(p, 9, 4, 4);   // BEACON TMI 在 FCH b9 高 4bit
         pbsize = gw_2026_pb_size(tmi);
     }
     if (pbsize <= 0 || payload.size() < 16 + pbsize) return out;
