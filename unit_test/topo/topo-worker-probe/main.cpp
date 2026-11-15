@@ -519,7 +519,8 @@ int main(int argc, char** argv) {
             });
         QObject::connect(rebuild_worker, &TopoReplayWorker::worker_error, &app,
             [&](const QString& message) {
-                rebuild_failure_triggered = message.contains(QStringLiteral("persist topology anomalies"));
+                // L14:重建失败的 UI 文案是统一的"拓扑历史读取失败",细节只写日志
+                rebuild_failure_triggered = message == QStringLiteral("拓扑历史读取失败");
                 if (!rebuild_failure_triggered) {
                     ++failures;
                     std::fprintf(stderr, "unexpected rebuild test worker error: %s\n", qPrintable(message));
@@ -587,7 +588,8 @@ int main(int argc, char** argv) {
         });
         QObject::connect(worker, &TopoReplayWorker::worker_error, &app,
             [worker](const QString& message) {
-                if (message.contains(QStringLiteral("Cannot open topology SQLite store"))) {
+                // L14:开库失败的 UI 文案是统一的"拓扑历史读取失败",细节只写日志
+                if (message == QStringLiteral("拓扑历史读取失败")) {
                     QMetaObject::invokeMethod(worker, [worker] {
                         worker->request_history(9201, 42, 4200, true);
                     }, Qt::QueuedConnection);
@@ -603,7 +605,7 @@ int main(int argc, char** argv) {
                 const QString& message) {
                 open_history_failure_reported = request_id == 9201 && target_frame == 42
                     && target_ms == 4200 && active
-                    && message.contains(QStringLiteral("Cannot open topology SQLite store"));
+                    && message == QStringLiteral("拓扑历史读取失败");
                 loop.quit();
             }, Qt::QueuedConnection);
         thread.start();
@@ -683,7 +685,7 @@ int main(int argc, char** argv) {
                 const QString& message) {
                 if (request_id != 9203) return;
                 reconstruction_history_failure_reported = target_frame == 1 && target_ms == 1001
-                    && active && message.contains(QStringLiteral("read topology frames"));
+                    && active && message == QStringLiteral("拓扑历史读取失败");
                 loop.quit();
             }, Qt::QueuedConnection);
         thread.start();
@@ -796,8 +798,9 @@ int main(int argc, char** argv) {
         CHECK("store-fail: failed frame insert still advances live topology",
               trig && changes_after_first > 0 && changes_after_fail1 > changes_after_first
               && live_changes > changes_after_fail1);
+        // L14 反向验证:连续两次入库失败只上报一次,且 UI 文案是统一的"拓扑历史读取失败"
         CHECK("store-fail: consecutive insert failures reported once",
-              errors.size() == 1 && errors.value(0).contains(QStringLiteral("insert topology frame")));
+              errors.size() == 1 && errors.value(0) == QStringLiteral("拓扑历史读取失败"));
         bool hist_ok = false, hist_failed = false;
         QObject::connect(&worker, &TopoReplayWorker::history_ready, &app,
             [&](quint64 id, qint64, qint64, bool, const TopoStateMap&) { hist_ok = id == 7301; }, Qt::DirectConnection);
@@ -828,7 +831,7 @@ int main(int argc, char** argv) {
         worker.clear();
         CHECK("store-fail: failed clear is reported and still resets the live view",
               trig2 && resets == 1 && errors.size() == 1
-              && errors.value(0).contains(QStringLiteral("clear topology store")));
+              && errors.value(0) == QStringLiteral("拓扑历史读取失败"));
         hist_failed = false;
         QObject::connect(&worker, &TopoReplayWorker::history_failed, &app,
             [&](quint64 id, qint64, qint64, bool, const QString&) { if (id == 7302) hist_failed = true; }, Qt::DirectConnection);
@@ -881,8 +884,7 @@ int main(int argc, char** argv) {
             unopened_worker.initialize();
             CHECK("store-fail: open failure on a path under a file is reported",
                   unopened_errors.size() == 1
-                  && unopened_errors.value(0).contains(
-                      QStringLiteral("Cannot open topology SQLite store")));
+                  && unopened_errors.value(0) == QStringLiteral("拓扑历史读取失败"));
             // 挪开挡路的文件,库路径重新可达;clear() 后重新入库应成功,不再被旧标志挡住
             QFile::remove(blocker_path);
             QDir().mkpath(unopened_dir.filePath(QStringLiteral("blocker")));
