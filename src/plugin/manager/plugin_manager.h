@@ -85,6 +85,13 @@ struct PluginRuntime {
                                       ///< 管理器析构才释放(见 stop_all)
     QString       disable_reason;     ///< 仅 GUI 线程读写
     std::atomic<qint64> last_pong_ms{0};
+    /// @brief 最近一次活动(墙钟 ms):解析/图形请求或握手完成(L9 空闲退避时钟)
+    /// @details Pong 本身不算活动(否则每次 Ping 都会复位空闲,退避永不生效)
+    std::atomic<qint64> last_activity_ms{0};
+    /// @brief 最近一次 Ping 发出(墙钟 ms;供空闲节奏门控)
+    std::atomic<qint64> last_ping_ms{0};
+    /// @brief 已发 Ping 数(测试/诊断用)
+    std::atomic<quint64> ping_count{0};
 };
 
 /// @brief 插件管理器(单例,主线程)
@@ -130,6 +137,12 @@ public:
                                       const GraphicsEvent& e,
                                       QObject* context = nullptr,
                                       EventCallback cb = {});
+    /// @brief 当前心跳配置(毫秒;读 config.ini [plugin] 段,改配置无需重启)
+    int heartbeat_interval_ms() const;        ///< 活动间隔
+    int heartbeat_idle_interval_ms() const;   ///< 空闲间隔
+    int heartbeat_timeout_ms() const;         ///< 超时
+    /// @brief 该插件已发 Ping 数(测试/诊断用;无此插件返回 0)
+    quint64 ping_count(const QString& protocol_id) const;
     /// @brief 当前登记中的异步请求数(全部插件;测试/诊断用)
     int pending_async_requests() const;
     /// @brief 注册图形视图(收 RequestRedraw 时通知重绘)
