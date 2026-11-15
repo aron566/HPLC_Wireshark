@@ -539,6 +539,7 @@ QVariant PacketListModel::data(const QModelIndex& idx, int role) const {
                     const quint8 proto = quint8(e.protocol & 0x7F);
                     const bool is_gw = (proto == kProtocolGw2022 || proto == kProtocolGw2026);
                     const bool is_multi = is_gw && !e.meta.is_rf
+                                          && e.raw_bytes.size() > 5
                                           && !e.mpdu.sof_stations.isEmpty();
                     if (is_multi) {
                         const quint8 ofdma_type = (quint8(e.raw_bytes.at(4)) >> 1) & 0x03;
