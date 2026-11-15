@@ -9,7 +9,7 @@ Wireshark Lua 插件（`wireshark_support_plugins/packet-{gw_2022,gw_2026,nw_202
 - Windows：`%APPDATA%\Wireshark\language`（无 `APPDATA` 时尝试 Wireshark API，再取不到返回 nil）；
 - 其他平台：`Dir.personal_config_path("language")`（pcall 包住，存在才用）→ `$XDG_CONFIG_HOME/wireshark/language`
   → `$HOME/.config/wireshark/language`（macOS 相同）→ nil；
-- nil 时不打开文件，回退系统语言；`HPLC_RF_LANG` / `NW_2021_LANG` 环境变量覆盖仍最优先。
+- nil 时不打开文件，回退系统语言；`HPLC_RF_LANG` / `NW_2021_LANG` / `NW_2026_LANG` 环境变量覆盖仍最优先。
 
 回退系统语言的 `system_is_chinese()`（四个插件逐字一致）：
 
