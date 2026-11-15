@@ -8,9 +8,24 @@
 
 #include "bplcframe.h"
 #include "fieldtools.h"
+#include "i18n.h"
 #include <QByteArray>
 #include <QString>
 #include <QVector>
+
+namespace fieldspec_detail {
+
+/// @brief i18n 中→英注册(只执行一次;文案与 trl::L 同在本文件,成对维护)
+inline void ensure_i18n() {
+    static const bool kOnce = [] {
+        trl::register_en("(字段截断)", "(Field Truncated)");
+        trl::register_en("期望至少 %1 字节，实际 %2 字节", "Expected at Least %1 Bytes, Got %2");
+        return true;
+    }();
+    (void)kOnce;
+}
+
+}  // namespace fieldspec_detail
 
 /// 一个位域字段说明:名 / 相对字节 / 位偏移 / 位长 / 格式化
 enum class Fmt { DEC, HEX6, HEX8, HEX12, HEX4, MAC, BOOL_Y };
@@ -39,12 +54,23 @@ inline QString fmt_val(Fmt f, quint64 v) {
 /// 按 FieldSpec 表批量生成字段节点;rel 坐标相对 rel_base(供 UI 高亮换算)
 inline void add_fields(QVector<MsduFieldNode>& out, const QByteArray& d, int base,
                        const FieldSpec* specs, int n, int rel_base = 0) {
+    fieldspec_detail::ensure_i18n();
     for (int i = 0; i < n; ++i) {
         const FieldSpec& s = specs[i];
         const int start_byte = base + s.byte;
         const int end_byte   = start_byte + (s.bit + s.len - 1) / 8;
-        // 越界保护:数据不足时停止(错位/跨协议解析避免 get_bits 越界读)
-        if (start_byte < 0 || end_byte >= d.size()) break;
+        // 越界保护:数据不足时停止(错位/跨协议解析避免 get_bits 越界读),并追加
+        // 截断标记节点——不再静默丢弃剩余字段。形态与 gw 两版 msdu 解析器的
+        // add_truncated_node 一致(节点名+期望/实际字节数),同属 H1 线
+        // “截断帧保留并标注”:已读字段照常保留,尾部截断处留痕。
+        if (start_byte < 0 || end_byte >= d.size()) {
+            MsduFieldNode tn;
+            tn.name = trl::L("(字段截断)");
+            tn.value = trl::L("期望至少 %1 字节，实际 %2 字节")
+                           .arg(end_byte + 1).arg(d.size());
+            out.append(tn);
+            break;
+        }
         MsduFieldNode node;
         node.name = QStringLiteral("%1 [%2b]").arg(QLatin1String(s.name)).arg(s.len);
         // 宽字段(len>64)不走 get_bits:1ULL<<i 在 i>=64 时移位 UB,分支守卫又会
