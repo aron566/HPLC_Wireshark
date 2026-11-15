@@ -158,6 +158,8 @@ void JsWatchdog::run() {
         });
         if (!ended && m_armed && m_gen == gen && !m_fired) {
             m_fired = true;
+            // L13:跨线程调 setInterrupted 是 Qt 文档明确允许的用法(见
+            // js_backend.h 的 JsWatchdog 说明),不要改成排队到引擎线程。
             m_engine->setInterrupted(true);
         }
         // 已打断:等本次调用 disarm(或下一次 arm)再继续
