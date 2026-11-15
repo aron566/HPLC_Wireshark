@@ -85,6 +85,9 @@ private:
     bool emit_frame(const BplcFrame& frame);
     void emit_drop_frame(const QByteArray& wire, const QString& reason,
                          qint64 arrival_us, const QByteArray& data = QByteArray());
+    /// @brief 超长帧 DROP:限速(1 秒最多 1 条),被抑制的仍计入 m_frame_count,
+    ///        抑制数汇总进下一条实际发出的原因文本;wire 用 m_drop_wire 复用
+    void emit_overlong_drop(const QString& reason);
     void process_raw_hex_line(const QByteArray& line);
     /// @brief 解析裸 hex 文本头行时间(TIME: / ISO 文本),失败返回 -1
     qint64 parse_time_header(const QByteArray& line);
@@ -121,6 +124,9 @@ private:
     qint64       m_file_size;     ///< 回放文件总大小(字节,算进度用)
     int          m_last_progress; ///< 上次上报的进度百分比(节流,避免重复刷)
     qint64       m_frame_count;   ///< 本次回放已切出的帧数(日志统计用)
+    QByteArray   m_drop_wire;     ///< 超长 DROP 的 raw_wire 复用缓冲(0x3C+4KB+0x3E)
+    qint64       m_last_overlong_drop_us;  ///< 上次发出的超长 DROP 的单调时刻(µs)
+    int          m_overlong_drop_suppressed;  ///< 上次发出后被限速抑制的超长帧数
     ReaderConfig m_cfg;
 };
 
