@@ -44,6 +44,11 @@ local checks = {
   {function() return loadfile("/etc/hostname") == nil end, "loadfile-abs-allowed"},
   {function() return loadfile("../outside.lua") == nil end, "loadfile-dotdot-allowed"},
   {function() return bad_dofile("../outside.lua") end, "dofile-outside-allowed"},
+  -- L12:dofile/require 一个目录:luaL_loadfilex 失败走 lua_error/luaL_error,
+  -- 旧实现此时栈上有待析构的 QString/QByteArray(longjmp 跳过析构);
+  -- 之后 load/require 仍须通过,证明后端未损坏。
+  {function() return bad_dofile("subdir") end, "dofile-dir-allowed"},
+  {function() return not pcall(require, "badmod") end, "require-dir-allowed"},
   {function() return load("return 7")() == 7 end, "load-text-broken"},
   {function() local env = {x = 5}; return load("return x", "c", "t", env)() == 5 end, "load-env-broken"},
   {function() return load(string.dump(function() return 1 end)) == nil end, "load-bytecode-allowed"},
@@ -70,6 +75,8 @@ static void test_sandbox(const QString& root) {
     QDir().mkpath(dir);
     write_file(parent + QStringLiteral("/outside.lua"), "return {v = 666}");
     write_file(dir + QStringLiteral("/helper.lua"), "return {v = 42}");
+    QDir().mkpath(dir + QStringLiteral("/subdir"));       // L12:dofile(目录)
+    QDir().mkpath(dir + QStringLiteral("/badmod.lua"));   // L12:require(目录)
     write_file(dir + QStringLiteral("/main.lua"),
                QByteArray("PARENT = [[") + parent.toUtf8() + "]]\n" + kProbeScript);
     write_file(dir + QStringLiteral("/plugin.json"),

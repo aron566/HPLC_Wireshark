@@ -467,12 +467,20 @@ int l_sandbox_loadfile(lua_State* L) {
 int l_sandbox_dofile(lua_State* L) {
     return call_guarded(L, [&] {
         const char* fname = luaL_checkstring(L, 1);
-        const QString path = sandbox_plugin_path(L, fname);
-        if (path.isEmpty())
+        // L12:路径解析与判空只在内层作用域做,QString 在 luaL_error 之前已
+        // 析构(longjmp 会跳过栈上 C++ 对象的析构)。
+        if ([&] { return sandbox_plugin_path(L, fname).isEmpty(); }())
             return luaL_error(L, "dofile: '%s' is outside the plugin directory", fname);
         lua_settop(L, 1);
-        const QByteArray p = path.toUtf8();  // 与入口脚本加载同口径
-        if (luaL_loadfilex(L, p.constData(), "t") != LUA_OK) return lua_error(L);
+        // 路径串压进 Lua 栈由 Lua 持有,后续加载/调用抛错 longjmp 时栈上
+        // 无待析构的 C++ 对象;加载完弹出,不进入返回值。
+        {
+            const QByteArray p = sandbox_plugin_path(L, fname).toUtf8();
+            lua_pushlstring(L, p.constData(), (size_t)p.size());
+        }
+        const char* path_c = lua_tostring(L, -1);
+        if (luaL_loadfilex(L, path_c, "t") != LUA_OK) return lua_error(L);
+        lua_remove(L, -2);  // 弹出路径串,栈恢复为 [fname, chunk]
         lua_call(L, 0, LUA_MULTRET);
         return lua_gettop(L) - 1;
     });
@@ -508,15 +516,21 @@ int l_sandbox_lua_searcher(lua_State* L) {
             return 1;
         }
         const char* fname = lua_tostring(L, 3);
-        const QString path = sandbox_plugin_path(L, fname);
-        if (path.isEmpty()) {
+        // L12:路径解析与判空在内层作用域做,越界时 QString 已析构;路径串
+        // 压进 Lua 栈由 Lua 持有,后续 luaL_error longjmp 不跳过 C++ 析构。
+        if ([&] { return sandbox_plugin_path(L, fname).isEmpty(); }()) {
             lua_pushfstring(L, "\n\tmodule file '%s' is outside the plugin directory", fname);
             return 1;
         }
-        const QByteArray p = path.toUtf8();  // 与入口脚本加载同口径
-        if (luaL_loadfilex(L, p.constData(), "t") != LUA_OK)
+        {
+            const QByteArray p = sandbox_plugin_path(L, fname).toUtf8();
+            lua_pushlstring(L, p.constData(), (size_t)p.size());
+        }
+        const char* path_c = lua_tostring(L, -1);
+        if (luaL_loadfilex(L, path_c, "t") != LUA_OK)
             return luaL_error(L, "error loading module '%s' from file '%s':\n\t%s",
                               name, fname, lua_tostring(L, -1));
+        lua_remove(L, -2);  // 弹出路径串,栈恢复为 [.., chunk]
         lua_pushvalue(L, 3);  // 第二返回值:文件名(传给模块)
         return 2;
     });
