@@ -101,8 +101,10 @@ private:
     bool state_at(qint64 target_frame, TopoStateMap& states);
     QByteArray encode_frame(const TopoFrameInput& frame) const;
     bool decode_frame(const QByteArray& bytes, TopoFrameInput& frame) const;
-    void report_store_error(const QString& message);
-    void report_db_error(const QString& operation, const QString& detail);
+    // L14:detail 只写日志,UI 只见统一文案"拓扑历史读取失败";首次 emit 后去重
+    void report_store_error(const QString& detail);
+    // L14:SQLite 失败统一构造(返回详情串,供分页 error 携带);内部走 report_store_error
+    QString fail_db(const QString& operation, const QString& detail);
 
     QString m_requested_db_path;
     QString m_database_path;
