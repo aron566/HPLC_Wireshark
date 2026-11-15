@@ -41,9 +41,9 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
 
     // FCH 业务字段(相对 FCH 起点;载波/无线共用前段:源/目的 TEI + 帧长)
-    info.src_tei      = (quint16)get_bits(p, 4, 0, 12);
-    info.dst_tei      = (quint16)get_bits(p, 5, 4, 12);
-    info.frame_len    = (quint16)get_bits(p, 8, 0, 12);
+    info.src_tei      = (quint16)get_bits_unchecked(p, 4, 0, 12);
+    info.dst_tei      = (quint16)get_bits_unchecked(p, 5, 4, 12);
+    info.frame_len    = (quint16)get_bits_unchecked(p, 8, 0, 12);
     // 链路标识符(HDC 2.0 移至 MAC 帧头 byte15,表2;FCH 内不再有此字段)
     info.link_id      = 0;
 
@@ -51,19 +51,19 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
     if (is_rf) {
         // 无线 SOF(HDC2.0 4-2 表19,布局同 HDC 1.0 表30):固定 1 块;字节9 bit4-7 为
         // 载荷PB大小(表19),字节11 bit4-7 为 MCS(表18),其余保留(存原始值)
-        info.pb_num_field = (quint8) get_bits(p, 9, 4, 4);
-        info.bc_flag      = (bool)   get_bits(p, 11, 1, 1);
-        info.re_send_flag = (bool)   get_bits(p, 11, 2, 1);
-        info.encryp_flag  = (bool)   get_bits(p, 11, 3, 1);
-        info.mcs          = (quint8) get_bits(p, 11, 4, 4);
+        info.pb_num_field = (quint8) get_bits_unchecked(p, 9, 4, 4);
+        info.bc_flag      = (bool)   get_bits_unchecked(p, 11, 1, 1);
+        info.re_send_flag = (bool)   get_bits_unchecked(p, 11, 2, 1);
+        info.encryp_flag  = (bool)   get_bits_unchecked(p, 11, 3, 1);
+        info.mcs          = (quint8) get_bits_unchecked(p, 11, 4, 4);
         info.pb_num       = 1;
-        info.symbol_num = (quint16)get_bits(p, 10, 0, 9);   // 保留(原始值)
-        info.tmi_ext    = (quint8) get_bits(p, 12, 0, 4);   // 保留(原始值)
+        info.symbol_num = (quint16)get_bits_unchecked(p, 10, 0, 9);   // 保留(原始值)
+        info.tmi_ext    = (quint8) get_bits_unchecked(p, 12, 0, 4);   // 保留(原始值)
         pb_size         = sof_rf_pb_size(info.pb_num_field);
     } else {
         // 载波 SOF(表7 数据帧):帧子类型/TF描述/帧长后为 FCH 符号数(跨字节)/
         // 调制方式与参数/2b 编码 PB 个数/广播·加密·重传/频段标识/增益/加载表ID
-        info.sof_data_type     = (quint8) get_bits(p, 7, 0, 3);
+        info.sof_data_type     = (quint8) get_bits_unchecked(p, 7, 0, 3);
         // 载波 SOF 按帧子类型分派(表7 (7,0,3)):
         //   0=数据帧(表7) 1=信道探测帧(表9) 2=OFDMA下行(表10/11) 3=TDA下行(表12/13)
         const quint8 sof_dt = info.sof_data_type;
@@ -97,7 +97,7 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
             }
             const bool is_ofdma = (sof_dt == 2);
             // 站点数(表10 (7,3,2) / 表12 (7,3,2)):0=保留 1=2站 2=3站 3=4站
-            const quint8 sn_code = (quint8)get_bits(p, 7, 3, 2);
+            const quint8 sn_code = (quint8)get_bits_unchecked(p, 7, 3, 2);
             const int n_sites = (sn_code >= 1 && sn_code <= 3) ? (sn_code + 1) : 0;
             if (n_sites == 0) {
                 info.pb_num = 0; info.pb_size = 0; info.sof_stations.clear();
@@ -112,15 +112,15 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
                 quint8 st_pb_num = 1;
                 if (si == 0) {
                     st.tei = info.dst_tei;                 // 表10 (5,4,12) 站点0 TEI = 目的 TEI
-                    copy_mode = (quint8)get_bits(p, 11, 3, 5);           // 表10 (11,3,5)
-                    if (is_ofdma) st_pb_num = (quint8)(get_bits(p, 11, 2, 1) + 1);  // 表10 (11,2,1):0→1块 1→2块
+                    copy_mode = (quint8)get_bits_unchecked(p, 11, 3, 5);           // 表10 (11,3,5)
+                    if (is_ofdma) st_pb_num = (quint8)(get_bits_unchecked(p, 11, 2, 1) + 1);  // 表10 (11,2,1):0→1块 1→2块
                 } else {
                     const int b = is_ofdma ? (16 + (si - 1) * 3) : (16 + (si - 1) * 4);
-                    st.tei = (quint16)get_bits(p, b, 0, 12);             // 表11/13 各站 TEI (b,0,12)
+                    st.tei = (quint16)get_bits_unchecked(p, b, 0, 12);             // 表11/13 各站 TEI (b,0,12)
                     copy_mode = is_ofdma
-                                ? (quint8)get_bits(p, b + 2, 0, 5)       // 表11 (b+2,0,5)
-                                : (quint8)get_bits(p, b + 3, 0, 5);      // 表13 (b+3,0,5)
-                    if (is_ofdma) st_pb_num = (quint8)(get_bits(p, b + 2, 5, 1) + 1);  // 表11 (b+2,5,1)
+                                ? (quint8)get_bits_unchecked(p, b + 2, 0, 5)       // 表11 (b+2,0,5)
+                                : (quint8)get_bits_unchecked(p, b + 3, 0, 5);      // 表13 (b+3,0,5)
+                    if (is_ofdma) st_pb_num = (quint8)(get_bits_unchecked(p, b + 2, 5, 1) + 1);  // 表11 (b+2,5,1)
                 }
                 st.copy_mode = copy_mode;
                 st.pb_num    = st_pb_num;
@@ -210,26 +210,26 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
             return trl::L("帧子类型为保留值(表7 仅定义 0-3)");
         }
 
-        info.sof_tf_symbol_pos = (quint8) get_bits(p, 7, 3, 2);
-        info.sof_tf_symbol_num = (quint8) get_bits(p, 7, 5, 3);
+        info.sof_tf_symbol_pos = (quint8) get_bits_unchecked(p, 7, 3, 2);
+        info.sof_tf_symbol_num = (quint8) get_bits_unchecked(p, 7, 5, 3);
         // FCH符号数(9,7,2) 跨字节:byte9 bit7 + byte10 bit0(表7)
-        info.sof_fch_sym_num   = (quint8)((get_bits(p, 9, 7, 1))
-                                       | (get_bits(p, 10, 0, 1) << 1));
-        info.sof_mod_mode      = (quint8) get_bits(p, 10, 1, 1);
-        info.sof_mod_param     = (quint8) get_bits(p, 10, 2, 5);
+        info.sof_fch_sym_num   = (quint8)((get_bits_unchecked(p, 9, 7, 1))
+                                       | (get_bits_unchecked(p, 10, 0, 1) << 1));
+        info.sof_mod_mode      = (quint8) get_bits_unchecked(p, 10, 1, 1);
+        info.sof_mod_param     = (quint8) get_bits_unchecked(p, 10, 2, 5);
         // PB 个数 2b 编码:(10,7)+(11,0) 跨字节 → 0-3 = 1-4 块
         // (68-bit 位流连续排布:…参数(10,2-6)|PB个数(10,7)+(11,0)|广播(11,1)…)
-        const quint8 pb_code   = (quint8)((get_bits(p, 10, 7, 1))
-                                       | (get_bits(p, 11, 0, 1) << 1));
+        const quint8 pb_code   = (quint8)((get_bits_unchecked(p, 10, 7, 1))
+                                       | (get_bits_unchecked(p, 11, 0, 1) << 1));
         info.pb_num_field      = pb_code;
         info.pb_num            = sof_pb_num_decode(pb_code);
-        info.bc_flag           = (bool)   get_bits(p, 11, 1, 1);
-        info.encryp_flag       = (bool)   get_bits(p, 11, 2, 1);
-        info.re_send_flag      = (bool)   get_bits(p, 11, 3, 1);
-        info.sof_band          = (quint8) get_bits(p, 11, 4, 3);
-        info.sof_gain          = (quint8)((get_bits(p, 11, 7, 1))
-                                       | (get_bits(p, 12, 0, 3) << 1));
-        info.sof_load_table_id = (quint8) get_bits(p, 12, 3, 1);
+        info.bc_flag           = (bool)   get_bits_unchecked(p, 11, 1, 1);
+        info.encryp_flag       = (bool)   get_bits_unchecked(p, 11, 2, 1);
+        info.re_send_flag      = (bool)   get_bits_unchecked(p, 11, 3, 1);
+        info.sof_band          = (quint8) get_bits_unchecked(p, 11, 4, 3);
+        info.sof_gain          = (quint8)((get_bits_unchecked(p, 11, 7, 1))
+                                       | (get_bits_unchecked(p, 12, 0, 3) << 1));
+        info.sof_load_table_id = (quint8) get_bits_unchecked(p, 12, 3, 1);
         info.symbol_num = 0;
         info.tmi = info.sof_mod_param;   // 分集拷贝模式编号 = 调制参数(表7 byte10 bit2-6)
         // HDC 2.0 无 TMI_EXT:载波不填扩展字段,info.tmi_ext 保持默认 0,不再参与查表。

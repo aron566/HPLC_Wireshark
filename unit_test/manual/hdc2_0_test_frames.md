@@ -35,7 +35,7 @@
 生成脚本：`unit_test/manual/hdc2_0_build_frames.py`（`py unit_test/manual/hdc2_0_build_frames.py` 可复现并自校验）
 消费方：`unit_test/manual/gw_rfdl_probe.cpp`（HDC1.0 → `GW_2022_MsduParser::parse`）/ `unit_test/manual/gw26_rfdl_probe.cpp`（HDC2.0 → `GW_2026_MsduParser::parse`），body = 单跳/标准 MSDU 载荷（hex）
 
-> **位序前提**：解析器 `get_bits(p, byteIdx, bitOff, nbits)` = **LSB-first**（bit0 = 该字节最低位）。
+> **位序前提**：解析器 `get_bits_unchecked(p, byteIdx, bitOff, nbits)` = **LSB-first**（bit0 = 该字节最低位）。
 > **本版所有 12 比特跨字节字段均按 LSB-first 拼接**（第 3 版已按此重出）。
 
 ## 源表核验（基线 260823_193255 vs 新转件 261023_152656）

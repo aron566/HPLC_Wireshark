@@ -121,7 +121,7 @@ static int scan(const QString& path, bool time_tag) {
             if (r.payload_for_log.size() > 11) {
                 int new_bit = (p[7] >> 5) & 1, old_bit = (p[10] >> 6) & 1;
                 if (new_bit != old_bit) ++resend_diff;
-                int old_sym = (int)get_bits(p, 10, 7, 9);
+                int old_sym = (int)get_bits_unchecked(p, 10, 7, 9);
                 if (old_sym != 0) ++sym_nonzero_old;
             }
         }
