@@ -8,8 +8,10 @@
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <algorithm>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -33,6 +35,10 @@ struct I18nRegPluginMarket {
                          "No Write Permission for %1, and pkexec Not Found; Run as Root or Install to a Writable Location");
         trl::register_en("提权安装失败",
                          "Privileged Install Failed");
+        trl::register_en("提权安装校验失败：暂存目录内容在提权前被改动",
+                         "Privileged Install Verification Failed: Staged Content Changed Before Elevation");
+        trl::register_en("无法校验暂存目录：%1",
+                         "Cannot Verify Staged Directory: %1");
         trl::register_en("无写权限，且未找到 pkexec",
                          "No Write Permission, and pkexec Not Found");
         trl::register_en("提权卸载失败",
@@ -126,10 +132,14 @@ bool pkexec_available() {
     return !QStandardPaths::findExecutable(QStringLiteral("pkexec")).isEmpty();
 }
 
-/// 以提权方式部署插件: mkdir -p base && rm -rf dest && mv staged dest
-/// 路径均以 sh 位置参数传递,避免 shell 注入
+/// 以提权方式部署插件:先在 root 侧重算暂存目录摘要并与提权前算好的比对
+/// (防提权前暂存目录在 /tmp 被替换),通过才 mkdir -p base && rm -rf dest && mv staged dest。
+/// 路径与摘要均以 sh 位置参数传递,避免 shell 注入;摘要不一致脚本退 2。
+/// 摘要算法须与 staged_dir_digest 逐字节一致(条目行 "<相对路径>\0<内容 sha256 |
+/// link:<目标>|(目录)>\n",相对路径 "./" 开头、按字节序排)。
 bool pkexec_deploy(const QString& base_dir, const QString& dest_dir,
-                   const QString& staged_dir, QString* err) {
+                   const QString& staged_dir, const QString& staged_digest,
+                   QString* err) {
     if (!pkexec_available()) {
         if (err)
             *err = trl::L("无写权限：%1，且未找到 pkexec；请以 root 运行或安装到可写位置")
@@ -141,15 +151,23 @@ bool pkexec_deploy(const QString& base_dir, const QString& dest_dir,
         QStringLiteral("pkexec"),
         QStringList()
             << QStringLiteral("sh") << QStringLiteral("-c")
-            << QStringLiteral("mkdir -p \"$0\" && rm -rf \"$1\" && mv \"$2\" \"$1\"")
-            << base_dir << dest_dir << staged_dir);
+            << QStringLiteral(
+                   "cd \"$2\" || exit 1\n"
+                   "actual=$(find . \\( -type f -o -type l -o -type d \\) -print0 | LC_ALL=C sort -z | tr \"\\0\" \"\\n\" | while IFS= read -r f; do if [ -L \"$f\" ]; then printf \"%s\\000link:%s\\n\" \"$f\" \"$(readlink \"$f\")\"; elif [ -d \"$f\" ]; then printf \"%s/\\000\\n\" \"$f\"; else printf \"%s\\000\" \"$f\"; sha256sum \"$f\" | cut -d\" \" -f1; fi; done | sha256sum | cut -d\" \" -f1)\n"
+                   "[ \"$actual\" = \"$3\" ] || { echo staged digest mismatch >&2; exit 2; }\n"
+                   "mkdir -p \"$0\" && rm -rf \"$1\" && mv \"$2\" \"$1\"")
+            << base_dir << dest_dir << staged_dir << staged_digest);
     proc.waitForFinished(180000);  // 等用户完成鉴权,给足时间
     if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0) {
         if (err) {
-            const QString se =
-                QString::fromLocal8Bit(proc.readAllStandardError()).trimmed();
-            *err = trl::L("提权安装失败") +
-                   (se.isEmpty() ? QString() : QStringLiteral(": ") + se);
+            if (proc.exitCode() == 2) {
+                *err = trl::L("提权安装校验失败：暂存目录内容在提权前被改动");
+            } else {
+                const QString se =
+                    QString::fromLocal8Bit(proc.readAllStandardError()).trimmed();
+                *err = trl::L("提权安装失败") +
+                       (se.isEmpty() ? QString() : QStringLiteral(": ") + se);
+            }
         }
         return false;
     }
@@ -589,7 +607,13 @@ bool PluginMarket::deploy_staged(const QString& staged_dir,
         emit install_progress(
             trl::L("正在请求管理员权限..."));
         if (unload_cb) unload_cb();
-        if (!pkexec_deploy(base, dest, staged_dir, err)) return fail_and_reload();
+        // 提权前算好暂存摘要,提权脚本在 root 侧重算比对(防提权前暂存被替换)
+        const QString digest = staged_dir_digest(staged_dir);
+        if (digest.isEmpty()) {
+            if (err) *err = trl::L("无法校验暂存目录：%1").arg(staged_dir);
+            return fail_and_reload();
+        }
+        if (!pkexec_deploy(base, dest, staged_dir, digest, err)) return fail_and_reload();
         return true;
 #else
         if (err)
@@ -723,6 +747,61 @@ bool PluginMarket::is_sha256_hex(const QString& s) {
         if (!hex) return false;
     }
     return true;
+}
+
+/// @brief 暂存目录内容摘要:相对路径 "./" 开头、按字节序排,每条目一行
+///        "<相对路径>\0<内容 sha256 hex | link:<目标> | (目录)>\n";
+///        与 pkexec_deploy 内嵌脚本逐字节一致(脚本侧见其注释)。
+QString PluginMarket::staged_dir_digest(const QString& staged_dir) {
+    struct Entry {
+        QByteArray rel;
+        bool is_dir = false;
+        bool is_link = false;
+        QByteArray target;
+        QByteArray file_hex;
+    };
+    QList<Entry> entries;
+    entries.append({QByteArrayLiteral("."), true, false, {}, {}});
+    const QDir base(staged_dir);
+    QDirIterator it(staged_dir,
+                    QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden,
+                    QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        const QString p = it.next();
+        const QFileInfo fi = it.fileInfo();
+        const QByteArray rel =
+            QByteArrayLiteral("./") + base.relativeFilePath(p).toUtf8();
+        if (fi.isSymLink()) {
+            entries.append({rel, false, true, fi.symLinkTarget().toUtf8(), {}});
+        } else if (fi.isDir()) {
+            entries.append({rel, true, false, {}, {}});
+        } else if (fi.isFile()) {
+            QFile f(p);
+            if (!f.open(QIODevice::ReadOnly)) return {};
+            QCryptographicHash h(QCryptographicHash::Sha256);
+            if (!h.addData(&f)) return {};
+            entries.append({rel, false, false, {}, h.result().toHex()});
+        }
+        // 其余类型(fifo/socket 等)两边都不计入摘要
+    }
+    std::sort(entries.begin(), entries.end(),
+              [](const Entry& a, const Entry& b) { return a.rel < b.rel; });
+    QCryptographicHash outer(QCryptographicHash::Sha256);
+    for (const Entry& e : entries) {
+        outer.addData(e.rel);
+        if (e.is_link) {
+            outer.addData(QByteArray("\0link:", 6));
+            outer.addData(e.target);
+            outer.addData(QByteArray("\n", 1));
+        } else if (e.is_dir) {
+            outer.addData(QByteArray("/\0\n", 3));
+        } else {
+            outer.addData(QByteArray("\0", 1));
+            outer.addData(e.file_hex);
+            outer.addData(QByteArray("\n", 1));
+        }
+    }
+    return QString::fromLatin1(outer.result().toHex());
 }
 
 bool PluginMarket::verify_sha256(const QString& file_path,
