@@ -3,6 +3,8 @@
 #include "topo_input.h"
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QEventLoop>
 #include <QSqlDatabase>
@@ -859,6 +861,43 @@ int main(int argc, char** argv) {
         worker.request_frame_page(3, 0, 50);
         CHECK("store-fail: ok page carries ok=true and no error",
               frame_page.ok && frame_page.error.isEmpty() && frame_page.total == 2);
+
+        // 5) 从未成功开库:initialize() 失败置位 m_store_failed;此后 clear() 必须复位
+        //    标志,否则 insert_frame 永远直接返回,历史回放永久不可用,只能重启恢复
+        {
+            QTemporaryDir unopened_dir;
+            const QString blocker_path = unopened_dir.filePath(QStringLiteral("blocker"));
+            {
+                QFile blocker(blocker_path);
+                blocker.open(QIODevice::WriteOnly);
+                blocker.write("x");
+            }
+            const QString unopened_db =
+                unopened_dir.filePath(QStringLiteral("blocker/history.sqlite3"));
+            TopoReplayWorker unopened_worker(unopened_db, 2, 4);
+            QStringList unopened_errors;
+            QObject::connect(&unopened_worker, &TopoReplayWorker::worker_error, &app,
+                [&](const QString& m) { unopened_errors << m; }, Qt::DirectConnection);
+            unopened_worker.initialize();
+            CHECK("store-fail: open failure on a path under a file is reported",
+                  unopened_errors.size() == 1
+                  && unopened_errors.value(0).contains(
+                      QStringLiteral("Cannot open topology SQLite store")));
+            // 挪开挡路的文件,库路径重新可达;clear() 后重新入库应成功,不再被旧标志挡住
+            QFile::remove(blocker_path);
+            QDir().mkpath(unopened_dir.filePath(QStringLiteral("blocker")));
+            unopened_worker.clear();
+            TopoFramePage unopened_page; bool unopened_page_seen = false;
+            QObject::connect(&unopened_worker, &TopoReplayWorker::frame_page_ready, &app,
+                [&](const TopoFramePage& p) { unopened_page = p; unopened_page_seen = true; },
+                Qt::DirectConnection);
+            unopened_worker.submit_frame(association_frame(1, kMac));
+            unopened_worker.submit_frame(association_frame_for(2, 6, kMac + 1));
+            unopened_worker.request_frame_page(11, 0, 50);
+            CHECK("store-fail: clear after a never-opened store lets later inserts succeed",
+                  unopened_page_seen && unopened_page.ok && unopened_page.total == 2);
+            unopened_worker.shutdown();
+        }
         worker.shutdown();
     }
 
