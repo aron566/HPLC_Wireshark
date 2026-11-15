@@ -629,19 +629,19 @@ static const int kMsduBaseSSpecN = int(sizeof(kMsduBaseSSpec) / sizeof(kMsduBase
 // 参考:§5.1.1.4 单跳MAC帧头(表11) / §5.13.23 无线发现列表报文(表123-137)。
 
 /// 邻居节点信道信息组合类型字段位宽(表129 非位图版 / 表137 位图版)
-struct RfdlChCombo {
+struct Gw2022RfdlChCombo {
     quint8 rcv;   ///< 接收率位宽(0/6/8)
     quint8 snr;   ///< 平均信噪比位宽(0/4/6)
     quint8 rssi;  ///< 信号强度位宽(0/4/6/8)
 };
 
 // 表129:非位图版(每条固定含 TEI 12b)
-static const RfdlChCombo kRfdlNonBitmap[] = {
+static const Gw2022RfdlChCombo kRfdlNonBitmap[] = {
     {8,0,0}, {0,4,0}, {0,0,8}, {0,0,4}, {8,4,0},
     {6,0,6}, {0,6,6}, {8,6,6}, {0,4,4}, {8,0,4},
 };
 // 表137:位图版(无 TEI,由位图索引定位)
-static const RfdlChCombo kRfdlBitmap[] = {
+static const Gw2022RfdlChCombo kRfdlBitmap[] = {
     {8,0,0}, {0,4,0}, {0,0,8}, {0,0,4}, {8,4,0},
     {8,0,8}, {0,6,6}, {8,6,6}, {8,4,4}, {0,4,4}, {8,0,4},
 };
@@ -693,7 +693,7 @@ static void rfdl_bit_field(MsduFieldNode& parent, const char* name,
 
 /// 渲染一条邻居信道信息(位流内,自 bitpos 起),返回下一条起始位
 static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
-                               int bitpos, const RfdlChCombo& cb,
+                               int bitpos, const Gw2022RfdlChCombo& cb,
                                int cbase_abs, bool has_tei,
                                quint16 tei = 0,
                                QVector<QPair<quint16, int>>* rssi_out = nullptr,
@@ -901,7 +901,7 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
                 g.value = QString(content.toHex(' '));
                 break;
             }
-            const RfdlChCombo& cb = kRfdlNonBitmap[combo];
+            const Gw2022RfdlChCombo& cb = kRfdlNonBitmap[combo];
             const int entry_bits = 12 + cb.rcv + cb.snr + cb.rssi;
             // 表128/129 头:信道信息组合类型(0,0-3,4b)+保留(0,4-7,4b)——此前整字节跳过未渲染
             {
@@ -942,7 +942,7 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
                 g.value = QString(content.toHex(' '));
                 break;
             }
-            const RfdlChCombo& cb = kRfdlBitmap[combo];
+            const Gw2022RfdlChCombo& cb = kRfdlBitmap[combo];
             const int entry_bits = cb.rcv + cb.snr + cb.rssi;
             const int total_bits = content.size() * 8;  // 越界防护基准(与 gw_2026 P1 同)
             // 表136/137 头:信道信息组合类型(0,0-3,4b)+保留(0,4-7,4b)——此前整字节跳过未渲染
