@@ -8,7 +8,7 @@ TEMPLATE = app
 
 REPO = $$PWD/../../..
 DEFINES += BPLC_REPO_DIR=\\\"$$REPO\\\"
-INCLUDEPATH += $$REPO/src $$REPO/src/plugin $$REPO/src/common $$REPO/src/protocol $$REPO/src/protocol/common
+INCLUDEPATH += $$REPO/src $$REPO/src/plugin $$REPO/src/common $$REPO/src/protocol $$REPO/src/protocol/common $$REPO/src/app
 include($$REPO/src/plugin/plugin.pri)
 
 SOURCES += ipc_decode_probe.cpp \

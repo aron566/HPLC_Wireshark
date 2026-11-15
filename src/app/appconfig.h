@@ -207,7 +207,15 @@ inline void ensure_default_file() {
         "; Sentry DSN(backend=sentry 时上报用);留空则只本地落盘不上报\n"
         "dsn=\n"
         "; 本地 dump 目录(留空=exe 同目录 crashpad_db)\n"
-        "db_path=\n";
+        "db_path=\n"
+        "\n"
+        "[plugin]\n"
+        "; 插件心跳活动间隔(毫秒):有解析/图形活动时发 Ping 的间隔\n"
+        "heartbeat_interval_ms=5000\n"
+        "; 插件心跳空闲间隔(毫秒):超过该时长无活动则按此间隔发 Ping\n"
+        "heartbeat_idle_ms=30000\n"
+        "; 插件心跳超时(毫秒):超过该时长未收到 Pong 则禁用插件\n"
+        "heartbeat_timeout_ms=15000\n";
     QFile f(path);
     if (f.open(QIODevice::WriteOnly)) f.write(tmpl);
 }
@@ -312,6 +320,38 @@ inline QString crash_dsn() {
 }
 inline QString crash_db_path() {
     return settings().value(QStringLiteral("crash/db_path")).toString().trimmed();
+}
+
+// ---- plugin ----
+/// @brief 插件心跳活动间隔(ms):有解析/图形活动时 Ping 的间隔(默认 5000)
+inline int plugin_heartbeat_interval_ms() {
+    ensure_default_file();
+    return qBound(500, settings().value(QStringLiteral("plugin/heartbeat_interval_ms"),
+                                        5000).toInt(), 3600000);
+}
+inline void set_plugin_heartbeat_interval_ms(int v) {
+    settings().setValue(QStringLiteral("plugin/heartbeat_interval_ms"), v);
+}
+
+/// @brief 插件心跳空闲间隔(ms):超过该时长无活动则按此间隔 Ping(默认 30000)
+inline int plugin_heartbeat_idle_ms() {
+    ensure_default_file();
+    const int v = settings().value(QStringLiteral("plugin/heartbeat_idle_ms"),
+                                   30000).toInt();
+    return qBound(plugin_heartbeat_interval_ms(), v, 3600000);
+}
+inline void set_plugin_heartbeat_idle_ms(int v) {
+    settings().setValue(QStringLiteral("plugin/heartbeat_idle_ms"), v);
+}
+
+/// @brief 插件心跳超时(ms):超过该时长未收到 Pong 则禁用插件(默认 15000)
+inline int plugin_heartbeat_timeout_ms() {
+    ensure_default_file();
+    return qBound(1000, settings().value(QStringLiteral("plugin/heartbeat_timeout_ms"),
+                                         15000).toInt(), 3600000);
+}
+inline void set_plugin_heartbeat_timeout_ms(int v) {
+    settings().setValue(QStringLiteral("plugin/heartbeat_timeout_ms"), v);
 }
 
 inline void set_reader(int mode, const QString& com, int baud,
