@@ -254,6 +254,57 @@ static void test_staged_digest(const QString& root) {
     check("digest: removed empty dir detected", shell_staged_digest(staged) != digest);
 }
 
+// ── L5:递归复制保持权限位、拒绝符号链接 ──
+static void test_copy_dir_recursive(const QString& root) {
+    const QString src = root + QStringLiteral("/copy_src");
+    const QString dst = root + QStringLiteral("/copy_dst");
+    QDir().mkpath(src + QStringLiteral("/sub"));
+    check("copy: fixture",
+          write_file(src + QStringLiteral("/sub/x.sh"), "#!/bin/sh\n") &&
+              write_file(src + QStringLiteral("/sub/a.txt"), "a") &&
+              write_file(src + QStringLiteral("/plain.txt"), "p") &&
+              QFile::setPermissions(
+                  src + QStringLiteral("/sub/x.sh"),
+                  QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner |
+                      QFile::ReadGroup | QFile::ExeGroup | QFile::ReadOther |
+                      QFile::ExeOther) &&
+              QFile::setPermissions(src + QStringLiteral("/plain.txt"),
+                                    QFile::ReadOwner | QFile::WriteOwner));
+    QString err;
+    check("copy: clean tree ok", PluginMarket::copy_dir_recursive(src, dst, &err));
+    check("copy: exec bit kept",
+          QFile::permissions(dst + QStringLiteral("/sub/x.sh")) ==
+              QFile::permissions(src + QStringLiteral("/sub/x.sh")));
+    check("copy: 0600 kept",
+          QFile::permissions(dst + QStringLiteral("/plain.txt")) ==
+              QFile::permissions(src + QStringLiteral("/plain.txt")));
+    check("copy: 0644 kept",
+          QFile::permissions(dst + QStringLiteral("/sub/a.txt")) ==
+              QFile::permissions(src + QStringLiteral("/sub/a.txt")));
+    // 反向用例:符号链接一律拒装(旧实现会跟随复制,连目录外的目标内容也照抄)
+    const QString outside = root + QStringLiteral("/outside.txt");
+    write_file(outside, "SECRET");
+    const std::vector<std::tuple<QString, QString, const char*>> link_cases = {
+        {QStringLiteral("link_file"), src + QStringLiteral("/plain.txt"),
+         "copy: symlink file refused"},
+        {QStringLiteral("link_dir"), src + QStringLiteral("/sub"),
+         "copy: symlink dir refused"},
+        {QStringLiteral("escape"), outside, "copy: escaping symlink refused"},
+    };
+    for (const auto& [link, target, what] : link_cases) {
+        const QString link_path = src + QStringLiteral("/") + link;
+        QFile::remove(link_path);
+        check(qPrintable(QStringLiteral("copy: link fixture %1").arg(link)),
+              QFile::link(target, link_path));
+        err.clear();
+        const QString d2 = dst + QStringLiteral("_") + link;
+        check(what, !PluginMarket::copy_dir_recursive(src, d2, &err) &&
+                        (err.contains(QStringLiteral("符号链接")) ||
+                         err.contains(QStringLiteral("Symlink"))));
+        QFile::remove(link_path);
+    }
+}
+
 // ── H3:zip 条目名校验 + 解包上限 ──
 static void test_zip_entry_names(const QString& root) {
     const QString dest = root + QStringLiteral("/x/staged");
@@ -493,6 +544,7 @@ int main(int argc, char** argv) {
     test_market_sha256(tmp.path());
     test_install_context(tmp.path());
     test_staged_digest(tmp.path());
+    test_copy_dir_recursive(tmp.path());
     QDir(PluginMarket::default_install_dir()).removeRecursively();
     std::printf("\nRESULT: %s (%d failures)\n", g_fails ? "FAILURES" : "ALL PASS", g_fails);
     return g_fails ? 1 : 0;

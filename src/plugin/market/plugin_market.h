@@ -143,6 +143,10 @@ public:
     ///          link:<目标>|(目录)>\n",相对路径 "./" 开头、按字节序排;算法须与
     ///          pkexec_deploy 内嵌脚本逐字节一致。读失败返回空串(调用方拒装)。
     static QString staged_dir_digest(const QString& staged_dir);
+    /// @brief 递归复制目录:复制后保持源文件权限位;符号链接不跟随复制,直接拒装。
+    /// @return 成功 true;失败时 err 置错误信息
+    static bool copy_dir_recursive(const QString& src, const QString& dst,
+                                   QString* err);
     /// @brief 解包到 dest_dir:拒绝不安全条目名(见 safe_extract_path),
     ///        限制单条目 64 MB / 总量 256 MB / 条目数 4096
     static bool unzip_to_dir(const QString& zip_path, const QString& dest_dir,

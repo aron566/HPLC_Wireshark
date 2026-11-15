@@ -50,6 +50,10 @@ struct I18nRegPluginMarket {
                          "Cannot Create Directory: %1");
         trl::register_en("复制失败：%1",
                          "Copy Failed: %1");
+        trl::register_en("暂存目录含符号链接：%1",
+                         "Staged Directory Contains a Symlink: %1");
+        trl::register_en("无法设置文件权限：%1",
+                         "Cannot Set File Permissions: %1");
         trl::register_en("插件列表超出大小上限",
                          "Plugin Feed Exceeds the Size Limit");
         trl::register_en("文本超出大小上限",
@@ -217,30 +221,45 @@ bool pkexec_write_file(const QString& path, const QByteArray& data,
 }
 #endif  // Q_OS_LINUX
 
-bool copy_dir_recursive(const QString& src, const QString& dst, QString* err) {
+}  // namespace
+
+bool PluginMarket::copy_dir_recursive(const QString& src, const QString& dst,
+                                      QString* err) {
     QDir s(src);
     if (!QDir().mkpath(dst)) {
         if (err) *err = trl::L("无法创建目录：%1").arg(dst);
         return false;
     }
     for (const QString& e : s.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
-        if (!copy_dir_recursive(s.absoluteFilePath(e),
-                                QDir(dst).absoluteFilePath(e), err))
+        const QString from = s.absoluteFilePath(e);
+        // L5:符号链接不跟随复制(链接目标可能在目录外),直接拒装
+        if (QFileInfo(from).isSymLink()) {
+            if (err) *err = trl::L("暂存目录含符号链接：%1").arg(from);
+            return false;
+        }
+        if (!copy_dir_recursive(from, QDir(dst).absoluteFilePath(e), err))
             return false;
     }
     for (const QString& e : s.entryList(QDir::Files)) {
         const QString from = s.absoluteFilePath(e);
+        if (QFileInfo(from).isSymLink()) {
+            if (err) *err = trl::L("暂存目录含符号链接：%1").arg(from);
+            return false;
+        }
         const QString to = QDir(dst).absoluteFilePath(e);
         QFile::remove(to);
         if (!QFile::copy(from, to)) {
             if (err) *err = trl::L("复制失败：%1").arg(from);
             return false;
         }
+        // L5:保持源文件权限位(QFile::copy 只按 umask 建 0666)
+        if (!QFile::setPermissions(to, QFile::permissions(from))) {
+            if (err) *err = trl::L("无法设置文件权限：%1").arg(to);
+            return false;
+        }
     }
     return true;
 }
-
-}  // namespace
 
 PluginMarket::PluginMarket(QObject* parent) : QObject(parent) {
     m_nam = new QNetworkAccessManager(this);
