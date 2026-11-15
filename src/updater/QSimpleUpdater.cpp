@@ -508,6 +508,8 @@ Updater* QSimpleUpdater::getUpdater(const QString& url) const
 
     connect(updater, &Updater::checkingFinished, this, &QSimpleUpdater::checkingFinished);
     connect(updater, &Updater::downloadFinished, this, &QSimpleUpdater::downloadFinished);
+    // Local extension (M6):重命名失败一路转发到主程序
+    connect(updater, &Updater::downloadFailed, this, &QSimpleUpdater::downloadFailed);
     connect(updater, &Updater::appcastDownloaded, this, &QSimpleUpdater::appcastDownloaded);
   }
 
