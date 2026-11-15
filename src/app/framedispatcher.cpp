@@ -111,17 +111,29 @@ FrameDispatcher::FrameDispatcher(QObject* parent)
 }
 
 FrameDispatcher::~FrameDispatcher() {
+    bool thread_stuck = false;
     if (m_thread) {
         // 不用 terminate():线程可能正持有 pa::mutex/分配器锁,强杀后退出时死锁或堆损坏。
         // 置停止标志后积压帧直接跳过,quit 在当前这一帧解析完即返回(内置解析器 µs 级,
-        // 插件解析受 IPC 超时约束),因此无超时等待是有界的。
+        // 插件解析受 IPC 超时约束);但解析线程真卡住(如插件死循环/宿主无响应)时
+        // quit 永远等不到,故等待必须有界(N1):两次各 5000 ms,超时即放弃。
         if (m_worker) m_worker->request_stop();
         m_thread->quit();
         if (!m_thread->wait(5000)) {
-            // 有界首等:超时只告警不放弃(强杀/析构仍在跑的 QThread 都更糟),随后继续等到退出
             qWarning() << "FrameDispatcher: thread still running after 5000 ms, waiting for it to finish";
-            m_thread->wait();
+            if (!m_thread->wait(5000)) {
+                // 第二次仍超时:解析线程真卡住,放弃等待继续析构。此时不能删 worker
+                // (on_frame 还在它身上跑,删了即释放后使用),也不能让 QObject 析构
+                // 删运行中的 QThread(实测 abort:"QThread: Destroyed while thread
+                // is still running");两者都脱钩随进程退出回收,避免退出永久挂起。
+                qWarning() << "FrameDispatcher: parse thread still stuck after 10000 ms, abandoning wait";
+                thread_stuck = true;
+            }
         }
+    }
+    if (thread_stuck) {
+        if (m_thread) m_thread->setParent(nullptr);  // 免得 QObject 析构再删运行中的线程
+        return;  // worker 与线程对象都泄漏(仅卡住的退出路径,随进程退出回收)
     }
     // 线程已退出(或从未创建):在 GUI 线程直接销毁 worker,未处理的投递事件随之移除
     delete m_worker;
