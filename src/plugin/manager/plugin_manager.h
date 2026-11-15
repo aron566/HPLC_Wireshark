@@ -95,6 +95,22 @@ public:
 
     /// @brief 扫描并启动 plugins_dir 下所有插件
     void load_all(const QString& plugins_dir);
+    /// @brief 重启插件 host 子进程(供插件市场对话框的重启按钮调用,GUI 线程)
+    /// @details 运行中的插件:先走 disable_plugin 异步杀进程并退役旧运行时,
+    ///          再用登记的清单重建;已禁用插件:直接用登记的清单重建。
+    ///          清单在 start_plugin 成功时登记(见 m_known_manifests)。
+    ///          重建走 start_plugin 全新运行时:握手完成后 ready 置真、
+    ///          解析器重新注册,走现有路径。
+    /// @return true=新 host 已启动(握手随后异步完成),false=未知协议 id /
+    ///         插件目录已不存在 / 重建失败
+    bool restart_plugin(const QString& protocol_id);
+    /// @brief 一键重加载全部已知插件(串行,GUI 线程)
+    /// @details 对登记的清单快照逐个调 restart_plugin:运行中的先停旧进程
+    ///          再重建,已禁用的直接重建。逐个重建是串行的,start_plugin 的
+    ///          waitForStarted(5000) 是上限不是每家必等 5 秒;不为并行改动
+    ///          IPC/进程模型。
+    /// @return 成功重建的插件数
+    int restart_all();
     /// @brief 停掉全部插件 host 子进程并注销其解析器(退役式两遍处理,
     ///        见实现注释)。供应用退出与插件市场删除/更新旧版前调用——
     ///        host 进程映射着插件 DLL,不停机则 Windows 下删不掉旧目录。
@@ -103,6 +119,11 @@ public:
     QStringList plugin_protocol_ids() const;
     /// @brief 协议 id 是否来自插件
     bool is_plugin_protocol(const QString& protocol_id) const;
+    /// @brief 插件是否处于需重启状态(已禁用或已退役:清单已知但无运行中运行时)
+    /// @details 供插件市场对话框在已安装列表显示“插件需要重启”徽标。
+    ///          运行时存在时看 disabled 标志;运行时已退役则看清单是否登记过
+    ///          (登记过 = 曾经启动成功,现已停用);从未启动过的返回 false。
+    bool plugin_needs_restart(const QString& protocol_id) const;
 
     /// @brief 经插件解析一帧(阻塞,worker 线程调用)
     /// @return ok=false 时 result.accept=false 且 reject_reason 置错误信息
@@ -160,6 +181,12 @@ private:
     void on_process_finished(const QString& plugin_id, int code);
     void on_process_error(const QString& plugin_id);
     void disable_plugin(const QString& plugin_id, const QString& reason);
+    /// @brief 停掉单个插件的运行时:从 m_plugins 摘除并退役本体,IPC 线程发
+    ///        Shutdown 并释放 socket/server,GUI 线程异步杀 host 进程
+    ///        (terminate,2 s 后仍在跑则 kill,收尸后释放 QProcess 对象)。
+    ///        调用方:GUI 线程;rt 须仍在 m_plugins 中且未退役。
+    ///        本体转入 m_retired,留待管理器析构释放(防在途请求线程 UAF)。
+    void shutdown_runtime(PluginRuntime* rt);
     /// @brief 非响应消息处理(GUI 线程;frame 含类型字节)
     void handle_message(const QString& plugin_id, const QByteArray& frame);
     /// @brief 直接写 socket(仅 IPC 线程)
@@ -188,8 +215,9 @@ private:
     PluginRuntime* find_runtime(const QString& protocol_id) const;
     void check_heartbeats();
 
-    mutable QReadWriteLock m_plugins_lock;    ///< 保护 m_plugins(GUI 增删,worker 查找)
+    mutable QReadWriteLock m_plugins_lock;    ///< 保护 m_plugins 与 m_known_manifests(GUI 增删,worker 查找)
     QMap<QString, PluginRuntime*> m_plugins;  ///< key: protocol_id
+    QMap<QString, PluginManifest> m_known_manifests;  ///< protocol_id → 清单(供 restart_plugin 重建;start_plugin 成功时登记)
     QList<PluginRuntime*> m_retired;  ///< stop_all 退役的运行时本体:重对象
                                       ///< (进程/socket)已在 stop_all 内释放,
                                       ///< 本体留置此处待管理器析构统一 delete,
