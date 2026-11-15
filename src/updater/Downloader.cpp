@@ -55,6 +55,8 @@ struct I18nRegDownloader {
                          "Update Package Rejected");
         trl::register_en("更新错误",
                          "Update Error");
+        trl::register_en("重命名更新包失败（%1 → %2）",
+                         "Failed to Rename the Update Package (%1 → %2)");
         trl::register_en("找不到已下载的更新包",
                          "Cannot Find the Downloaded Update");
     }
@@ -232,7 +234,9 @@ void Downloader::setUserAgentString(const QString& agent)
  * @brief Called when the download finishes.
  *
  * Renames the partial file, emits @c downloadFinished(), and triggers the
- * install flow.
+ * install flow. If the rename fails, emits @c downloadFailed() instead and
+ * returns without installing (M6; the old code ignored the rename result
+ * and installed a missing or stale file).
  */
 void Downloader::finished()
 {
@@ -262,11 +266,25 @@ void Downloader::finished()
   }
 
   // Rename file
-  QFile::rename(m_downloadDir.filePath(m_fileName + PARTIAL_DOWN),
-                m_downloadDir.filePath(m_fileName));
+  const QString part_path = m_downloadDir.filePath(m_fileName + PARTIAL_DOWN);
+  const QString final_path = m_downloadDir.filePath(m_fileName);
+  if (!QFile::rename(part_path, final_path)) {
+    // Local extension (M6):重命名失败不能当成功装下去——旧代码忽略返回值,随后
+    // 照常发 downloadFinished 并打开安装器,装的却是缺失/旧文件。失败即报出并返回。
+    const QString msg = trl::L("重命名更新包失败（%1 → %2）").arg(part_path, final_path);
+    m_ui->stopButton->setText(tr("Close"));
+    m_ui->downloadLabel->setText(trl::L("更新包已拒收"));
+    m_ui->timeLabel->setText(msg);
+    QMessageBox::critical(this, trl::L("更新错误"), msg, QMessageBox::Close);
+    QFile::remove(part_path);
+    emit downloadFailed(m_url, msg);
+    m_reply->deleteLater();
+    m_reply = nullptr;
+    return;
+  }
 
   // Notify application
-  emit downloadFinished(m_url, m_downloadDir.filePath(m_fileName));
+  emit downloadFinished(m_url, final_path);
 
   // Install the update
   m_reply->deleteLater();
