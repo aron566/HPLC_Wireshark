@@ -87,8 +87,8 @@ local SCEN = {
     { name = "windows: 无 LANG ⇒ 查注册表 LocaleName=en-US ⇒ 英文",
       env = { APPDATA = "C:\\A" }, win = true, reg = "    LocaleName    REG_SZ    en-US\r\n",
       files = {}, expect_path = "C:\\A\\Wireshark\\language", expect_english = true, expect_reg = true },
-    { name = "环境变量覆盖仍优先(HPLC_RF_LANG / NW_2021_LANG = zh), 不读文件",
-      env = { HPLC_RF_LANG = "zh", NW_2021_LANG = "zh", HOME = "/home/u" },
+    { name = "环境变量覆盖仍优先(HPLC_RF_LANG / NW_2021_LANG / NW_2026_LANG = zh), 不读文件",
+      env = { HPLC_RF_LANG = "zh", NW_2021_LANG = "zh", NW_2026_LANG = "zh", HOME = "/home/u" },
       files = { ["/home/u/.config/wireshark/language"] = "language: en\n" },
       expect_path = nil, expect_english = false },
 }
