@@ -43,6 +43,11 @@ local checks = {
   {function() return loadfile("helper.lua") ~= nil end, "loadfile-in-dir-broken"},
   {function() return loadfile("/etc/hostname") == nil end, "loadfile-abs-allowed"},
   {function() return loadfile("../outside.lua") == nil end, "loadfile-dotdot-allowed"},
+  -- L11:不存在 ≠ 越界——不存在的文件报 does not exist,不得报 outside;
+  -- 真实越界文件仍报 outside the plugin directory。
+  {function() local _, err = loadfile("missing.lua"); return err and err:find("does not exist", 1, true) and not err:find("outside", 1, true) end, "loadfile-missing-says-outside"},
+  {function() local _, err = loadfile("../outside.lua"); return err and err:find("outside the plugin directory", 1, true) end, "loadfile-outside-msg"},
+  {function() local ok, err = pcall(dofile, "missing.lua"); return not ok and err:find("does not exist", 1, true) and not err:find("outside", 1, true) end, "dofile-missing-says-outside"},
   {function() return bad_dofile("../outside.lua") end, "dofile-outside-allowed"},
   -- L12:dofile/require 一个目录:luaL_loadfilex 失败走 lua_error/luaL_error,
   -- 旧实现此时栈上有待析构的 QString/QByteArray(longjmp 跳过析构);
