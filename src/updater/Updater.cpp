@@ -24,11 +24,15 @@
 
 #include <QApplication>
 #include <QDesktopServices>
+#include <QDir>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QMessageBox>
 #include <QNetworkReply>
+#include <QRegularExpression>
+#include <QUrl>
 
 #include "Downloader.h"
 
@@ -52,6 +56,22 @@ QString clipped_changelog(const QString& html, int limit = 100) {
     out += QStringLiteral("<br/>… ");
     out += trl::L("完整更新说明见仓库 Releases 页面");
     return out;
+}
+
+// 本地修改:安装包文件名取自 URL 路径的纯文件名并净化,防 "../" 穿越到下载目录外
+// 与 Windows 非法字符落盘失败;downloadUrl() 可能带镜像前缀,仍以其 path 为准。
+QString sanitized_download_file_name(const QString& download_url) {
+    QString name = QDir::cleanPath(QFileInfo(QUrl(download_url).path()).fileName());
+    if (name.isEmpty() || name == QStringLiteral(".") || name == QStringLiteral(".."))
+        return QStringLiteral("update.bin");
+    // 非法字符(Windows:< > : " / \ | ? * 与控制字符)一律换 '_'
+    static const QRegularExpression kBadChars(QStringLiteral("[<>:\"/\\\\|?*\\x00-\\x1f]"));
+    name.replace(kBadChars, QStringLiteral("_"));
+    // Windows 忽略行尾 '.'/' ',先去掉,免得落盘后名字被系统改写
+    while (name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char(' ')))
+        name.chop(1);
+    if (name.isEmpty()) return QStringLiteral("update.bin");
+    return name;
 }
 }  // namespace
 
@@ -572,7 +592,8 @@ void Updater::setUpdateAvailable(const bool available)
 
       else if (downloaderEnabled()) {
         m_downloader->setUrlId(url());
-        m_downloader->setFileName(downloadUrl().split("/").last());
+        // 本地修改:文件名经 sanitized_download_file_name 净化,防路径穿越/非法字符
+        m_downloader->setFileName(sanitized_download_file_name(downloadUrl()));
         m_downloader->setMandatoryUpdate(m_mandatoryUpdate);
         auto download_url = QUrl(downloadUrl());
         download_url.setUserName(m_downloadUserName);
