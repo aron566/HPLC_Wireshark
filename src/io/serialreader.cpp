@@ -19,7 +19,7 @@ ReaderWorker::ReaderWorker(QObject* parent) : QObject(parent),
     m_raw_base_ms(-1),
     m_hex_seg_first(false), m_hex_seg_base_ts(0), m_hex_seg_base_us(0),
     m_last_local_ms(0), m_pending_seg_start(false), m_file_size(0), m_last_progress(-1),
-    m_frame_count(0) {}
+    m_frame_count(0), m_last_overlong_drop_us(0), m_overlong_drop_suppressed(0) {}
 
 ReaderWorker::~ReaderWorker() {
     stop_reading();
@@ -97,6 +97,8 @@ void ReaderWorker::start_session(const ReaderConfig& cfg, quint64 session) {
         QElapsedTimer replay_t;
         replay_t.start();
         m_frame_count = 0;
+        m_last_overlong_drop_us = 0;
+        m_overlong_drop_suppressed = 0;
         // 一次性读完整文件(不用 timer,快速回放);每块 1MB,切帧即时 emit
         while (!m_file->atEnd()) {
             if (aborted()) break;   // 立即响应 stop()(切协议重建等)
@@ -169,6 +171,9 @@ namespace {
 // 帧体最多 4 KiB:本分支新增的安全上限,防损坏/恶意输入使串口缓冲持续增长。
 // 合规单帧 ≤4 PB×520B ≈ 2.1KB,4KB 不影响合规帧。
 constexpr int kMaxFrameBodyBytes = 4 * 1024;
+
+// 超长 DROP 限速:1 秒最多 1 条,其余只计数并汇总进下一条原因文本
+constexpr qint64 kOverlongDropMinIntervalUs = 1000 * 1000;
 
 // 单调高精度时钟(µs):帧起始分节符 0x3C 到达打点
 qint64 steady_us() {
@@ -251,6 +256,28 @@ void ReaderWorker::emit_drop_frame(const QByteArray& wire, const QString& reason
     drop.error_reason = reason;
     ++m_frame_count;
     emit_frame(drop);
+}
+
+void ReaderWorker::emit_overlong_drop(const QString& reason) {
+    // L10:超长 DROP 限速(1 秒最多 1 条):1 秒内的后续超长帧不发 DROP 行,
+    // 只计入 m_frame_count(计数口径不变)并累进抑制数,下一条发出时把数
+    // 字汇总进原因文本;wire 用成员缓冲复用,避免逐帧重复分配 4KB+2B
+    const qint64 now = steady_us();
+    if (now - m_last_overlong_drop_us < kOverlongDropMinIntervalUs) {
+        ++m_frame_count;
+        ++m_overlong_drop_suppressed;
+        return;
+    }
+    m_drop_wire.clear();
+    m_drop_wire.append(char(0x3C));
+    m_drop_wire.append(m_in_buf.constData(), kMaxFrameBodyBytes);
+    m_drop_wire.append(char(0x3E));
+    QString shown = reason;
+    if (m_overlong_drop_suppressed > 0)
+        shown += trl::L("（另有 %1 帧超长被抑制）").arg(m_overlong_drop_suppressed);
+    m_last_overlong_drop_us = now;
+    m_overlong_drop_suppressed = 0;
+    emit_drop_frame(m_drop_wire, shown, m_frame_rx_us);
 }
 
 void ReaderWorker::try_extract_frame() {
@@ -351,19 +378,13 @@ void ReaderWorker::try_extract_frame() {
         const int boundary = next_is_start ? idx3c : idx3e;
         if (boundary < 0) {
             if (m_in_buf.size() <= kMaxFrameBodyBytes) return;
-            QByteArray drop_wire(1, char(0x3C));
-            drop_wire.append(m_in_buf.left(kMaxFrameBodyBytes));
-            drop_wire.append(char(0x3E));
-            emit_drop_frame(drop_wire, trl::L("DROP:未闭合帧超过最大长度"), m_frame_rx_us);
+            emit_overlong_drop(trl::L("DROP:未闭合帧超过最大长度"));
             m_in_buf.clear();
             m_get3c = false;
             continue;
         }
         if (boundary > kMaxFrameBodyBytes) {
-            QByteArray drop_wire(1, char(0x3C));
-            drop_wire.append(m_in_buf.left(kMaxFrameBodyBytes));
-            drop_wire.append(char(0x3E));
-            emit_drop_frame(drop_wire, trl::L("DROP:帧超过最大长度"), m_frame_rx_us);
+            emit_overlong_drop(trl::L("DROP:帧超过最大长度"));
             if (next_is_start)
                 m_in_buf.remove(0, idx3c);  // 保留下一个裸 0x3C 作为重同步起点
             else
@@ -724,6 +745,7 @@ struct I18nRegSerialReader {
                          "Unescape Lenient: %1 invalid 0x3D treated as plain data");
         trl::register_en("DROP:未闭合帧超过最大长度", "DROP: unterminated frame exceeds maximum size");
         trl::register_en("DROP:帧超过最大长度", "DROP: frame exceeds maximum size");
+        trl::register_en("（另有 %1 帧超长被抑制）", "(%1 additional overlong frames suppressed)");
     }
 };
 const I18nRegSerialReader g_i18n_reg_serialreader;

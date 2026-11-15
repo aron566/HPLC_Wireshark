@@ -7,6 +7,7 @@
 #include <QRandomGenerator>
 #include <QTemporaryDir>
 #include <QThread>
+#include <QVector>
 #include <cstdio>
 #include "serialreader.h"
 
@@ -14,6 +15,14 @@ static int g_fail = 0;
 static void check(bool ok, const char* what) {
     std::printf("%s %s\n", ok ? "PASS" : "FAIL", what);
     if (!ok) ++g_fail;
+}
+
+/// 一段超长帧:0x3C + 5000×0x41 [+ 0x3E];每段在 :362(闭合)/:353(未闭合) 产生一条超长 DROP
+static QByteArray overlong_block(bool closed = true) {
+    QByteArray b(1, char(0x3C));
+    b.append(QByteArray(5000, char(0x41)));
+    if (closed) b.append(char(0x3E));
+    return b;
 }
 
 /// 随机垃圾(无 0x3C);no_bcd=true 时每字节高半字节 ≥ 0xA,保证其中不会偶然出现合法 BCD 标注
@@ -65,7 +74,35 @@ public:
         r.retained = w.m_in_buf.size();
         return r;
     }
-    /// 在线程里回放,主线程 delay_ms 后 abort,返回 abort→返回 的耗时
+    /// 同一 worker 分批喂超长块,批间可隔 gap_ms;返回发出的 DROP 数、逐条原因与计数
+    struct Burst {
+        int drops = 0;
+        QStringList reasons;
+        QByteArray last_wire;
+        qint64 frame_count = 0;
+    };
+    static Burst overlong_bursts(const QVector<int>& counts, int gap_ms = 0,
+                                 bool closed = true) {
+        ReaderWorker w;
+        w.m_cfg.mode = ReaderMode::SerialPort;
+        Burst b;
+        QObject::connect(&w, &ReaderWorker::frame_ready, [&](const BplcFrame& fr) {
+            if (!fr.accepted) {
+                ++b.drops;
+                b.reasons << fr.error_reason;
+                b.last_wire = fr.raw_wire;
+            }
+        });
+        for (int i = 0; i < counts.size(); ++i) {
+            for (int k = 0; k < counts[i]; ++k) {
+                w.m_in_buf = overlong_block(closed);
+                w.try_extract_frame();
+            }
+            if (gap_ms > 0 && i + 1 < counts.size()) QThread::msleep(gap_ms);
+        }
+        b.frame_count = w.m_frame_count;
+        return b;
+    }
     static qint64 abort_latency(const QByteArray& input, int delay_ms, int* frames_out) {
         QTemporaryDir dir;
         QFile f(dir.filePath("in.bin"));
@@ -133,6 +170,47 @@ int main(int argc, char** argv) {
     {
         const A::Run r = A::serial(garbage(2 * 1024 * 1024, 4));
         check(r.ms < 2000 && r.retained == 0 && r.frames == 0, "serial garbage dropped at once");
+    }
+
+    // ⑦ L10:超长帧 DROP 限速 1 秒 1 条,抑制数汇总进下一条,计数口径不变
+    {
+        // 一批 5 个超长块:只发 1 条 DROP,其余 4 条只计数不刷屏
+        const A::Burst b = A::overlong_bursts({5});
+        std::printf("  overlong burst: %d drops, frame_count=%lld, reason=%s\n",
+                    b.drops, (long long)b.frame_count,
+                    qPrintable(b.reasons.value(0)));
+        check(b.drops == 1, "overlong burst emits at most 1 DROP per second");
+        check(b.frame_count == 5, "suppressed overlong frames still counted");
+        check(b.reasons.size() == 1 &&
+                  (b.reasons[0].contains(QStringLiteral("帧超过最大长度")) ||
+                   b.reasons[0].contains(QStringLiteral("exceeds maximum size"))),
+              "first DROP keeps original reason");
+        check(b.last_wire.size() == 4098 && b.last_wire.startsWith(char(0x3C)) &&
+                  b.last_wire.endsWith(char(0x3E)) &&
+                  b.last_wire.mid(1, 4096) == QByteArray(4096, char(0x41)),
+              "DROP wire is 0x3C + first 4 KiB + 0x3E");
+        // 5 块 → 隔 1.1 s → 1 块 → 再隔 1.1 s → 1 块:共 3 条,第 2 条带“另有 4 帧”,第 3 条无后缀
+        const A::Burst b2 = A::overlong_bursts({5, 1, 1}, 1100);
+        std::printf("  overlong spaced: %d drops, frame_count=%lld\n",
+                    b2.drops, (long long)b2.frame_count);
+        check(b2.drops == 3, "spaced bursts each emit one DROP");
+        check(b2.frame_count == 7, "spaced bursts keep full count");
+        check(b2.reasons.size() == 3 &&
+                  (b2.reasons[1].contains(QStringLiteral("另有 4 帧")) ||
+                   b2.reasons[1].contains(QStringLiteral("4 additional"))),
+              "second DROP merges suppressed count");
+        check(b2.reasons.size() == 3 &&
+                  !b2.reasons[2].contains(QStringLiteral("另有")) &&
+                  !b2.reasons[2].contains(QStringLiteral("suppressed")),
+              "suppressed count resets after being merged");
+        // 未闭合超长帧(:353):连喂 2 段只发 1 条,计数仍为 2
+        const A::Burst b3 = A::overlong_bursts({2}, 0, false);
+        check(b3.drops == 1 && b3.frame_count == 2,
+              "unterminated overlong frames rate-limited too");
+        check(b3.reasons.size() == 1 &&
+                  (b3.reasons[0].contains(QStringLiteral("未闭合帧超过最大长度")) ||
+                   b3.reasons[0].contains(QStringLiteral("unterminated frame"))),
+              "unterminated DROP keeps its own reason");
     }
 
     // ④ abort 在块内生效(20 份样本 ≈ 4.7 MB 帧数据)
