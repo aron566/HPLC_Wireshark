@@ -10,6 +10,7 @@
 #include <QGuiApplication>
 #include <QTemporaryDir>
 #include <cstdio>
+#include <stdexcept>
 
 #include "lua_backend.h"
 
@@ -95,6 +96,34 @@ static void test_sandbox(const QString& root) {
               err.contains(QStringLiteral("attempt to load a binary chunk")));
 }
 
+// N2:宿主回调抛出的 C++ 异常不能穿过 lua_pcall(未定义行为)。脚本 parse() 里
+// 调 request_redraw(),回调抛 std::runtime_error;protected_entry 应接住转成
+// Lua 错误,parse() 正常返回拒收、后端仍可用。旧实现异常穿出即崩溃(terminate)。
+static void test_cpp_exception(const QString& root) {
+    const QString dir = root + QStringLiteral("/lua-throw");
+    QDir().mkpath(dir);
+    write_file(dir + QStringLiteral("/main.lua"),
+               "function get_info() return {protocolId = \"THROW_OK\", displayName = \"throw\"} end\n"
+               "function parse(frame) request_redraw() return {accept = true} end\n");
+    write_file(dir + QStringLiteral("/plugin.json"),
+               R"({"name":"lua-throw","version":"1.0.0","runtime":"lua","entry":"main.lua",)"
+               R"("api_version":1,"protocol_id":"THROW_OK"})");
+    LuaBackend b;
+    QString err;
+    check("N2: throwing backend initializes", b.initialize(read_plugin_manifest(dir), &err));
+    b.set_redraw_callback([]() { throw std::runtime_error("redraw boom"); });
+    BplcFrame frame;
+    MsduState msdu;
+    ParseFilter filter;
+    const ParseResult r = b.parse(frame, msdu, filter, &err);
+    check("N2: C++ exception becomes Lua error, no crash",
+          !r.accept && r.reject_reason.contains(QStringLiteral("redraw boom")));
+    // 后端仍可用:回调不再抛错后同一脚本正常解析
+    b.set_redraw_callback([]() {});
+    const ParseResult r2 = b.parse(frame, msdu, filter, &err);
+    check("N2: backend still usable after the exception", r2.accept);
+}
+
 static void test_bundled_examples() {
     const QDir ex(QStringLiteral(BPLC_REPO_DIR "/src/plugin/examples"));
     int n = 0;
@@ -115,6 +144,7 @@ int main(int argc, char** argv) {
     QTemporaryDir tmp;
     if (!tmp.isValid()) return 2;
     test_sandbox(QDir(tmp.path()).canonicalPath());
+    test_cpp_exception(QDir(tmp.path()).canonicalPath());
     test_bundled_examples();
     std::printf("\nRESULT: %s (%d failures)\n", g_fails ? "FAILURES" : "ALL PASS", g_fails);
     return g_fails ? 1 : 0;
