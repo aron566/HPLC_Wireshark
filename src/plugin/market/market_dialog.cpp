@@ -58,6 +58,12 @@ struct I18nRegMarket {
         trl::register_en("插件已重启", "Plugin Restarted");
         trl::register_en("插件重启失败", "Failed to Restart Plugin");
         trl::register_en("部分插件重启失败", "Some Plugins Failed to Restart");
+        trl::register_en("已跳过 %1 个已禁用插件", "Skipped %1 Disabled Plugins");
+        trl::register_en("，已跳过 %1 个已禁用插件", ", Skipped %1 Disabled Plugins");
+        trl::register_en("已禁用，下次重加载时将停止并保持禁用。",
+                         "Disabled. It will stop and stay disabled on the next reload.");
+        trl::register_en("已启用，下次重加载时将重新启动。",
+                         "Enabled. It will restart on the next reload.");
         trl::register_en("启用", "Enabled");
         trl::register_en("从文件安装...", "Install from file...");
         trl::register_en("刷新", "Refresh");
@@ -82,8 +88,6 @@ struct I18nRegMarket {
         trl::register_en("安装成功", "Installed successfully");
         trl::register_en("安装失败", "Install failed");
         trl::register_en("确定卸载该插件吗?", "Uninstall this plugin?");
-        trl::register_en("需要重启插件加载才能生效(重新选择插件目录或重启程序)。",
-                         "Takes effect after plugins are reloaded (reselect the plugin dir or restart).");
         trl::register_en("未选择插件", "No plugin selected");
         trl::register_en("更新时间", "Updated");
         trl::register_en("来源", "Source");
@@ -903,24 +907,37 @@ void PluginMarketDialog::on_restart_clicked() {
     // 用标志位兜底;做完再刷新列表与状态。
     m_restarting = true;
     update_restart_button();
-    const int total = m_installed.size();
-    const int restarted = PluginManager::instance().restart_all();
+    const PluginRestartAllResult r = PluginManager::instance().restart_all();
     m_restarting = false;
     refresh_installed();
     rebuild_list();
-    if (restarted >= total)
-        m_status->setText(trl::L("插件已重启"));
-    else if (restarted > 0)
-        m_status->setText(trl::L("部分插件重启失败"));
-    else
-        m_status->setText(trl::L("插件重启失败"));
+    // 三档只按尝试重启的启用插件计(attempted):全部成功 / 部分失败 / 全部失败。
+    // 已禁用插件只跳过、不算失败,有跳过时追加提示;全部已禁用(attempted==0)
+    // 时只报跳过数。
+    QString msg;
+    if (r.attempted == 0) {
+        msg = r.skipped_disabled > 0
+                  ? trl::L("已跳过 %1 个已禁用插件").arg(r.skipped_disabled)
+                  : trl::L("插件重启失败");
+    } else if (r.ok >= r.attempted) {
+        msg = trl::L("插件已重启");
+    } else if (r.ok > 0) {
+        msg = trl::L("部分插件重启失败");
+    } else {
+        msg = trl::L("插件重启失败");
+    }
+    if (r.attempted > 0 && r.skipped_disabled > 0)
+        msg += trl::L("，已跳过 %1 个已禁用插件").arg(r.skipped_disabled);
+    m_status->setText(msg);
 }
 
 void PluginMarketDialog::on_enabled_toggled(bool on) {
     if (m_current_name.isEmpty()) return;
     if (m_market->set_enabled(m_current_name, on)) {
-        m_status->setText(
-            trl::L("需要重启插件加载才能生效(重新选择插件目录或重启程序)。"));
+        // 只写 meta.json,不立即停掉已运行实例:开关在下次重加载时生效
+        // (禁用 → 停止并保持禁用;启用 → 重新启动)。
+        m_status->setText(on ? trl::L("已启用，下次重加载时将重新启动。")
+                             : trl::L("已禁用，下次重加载时将停止并保持禁用。"));
         refresh_installed();
         rebuild_list();
     }

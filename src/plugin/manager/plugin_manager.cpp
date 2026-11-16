@@ -185,6 +185,9 @@ void PluginManager::load_all(const QString& plugins_dir) {
     for (const QString& sub : d.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
         const PluginManifest m = read_plugin_manifest(d.filePath(sub));
         if (!m.valid) continue;  // 无效清单跳过(可日志)
+        if (!m.enabled) continue;  // 市场层已禁用(meta.json enabled=false):
+                                   // 用户主动禁用,加载/重加载都不恢复
+                                   // (start_plugin 入口还有同一道 gate)
         if (m.runtime != QStringLiteral("native")
             && m.runtime != QStringLiteral("js")
             && m.runtime != QStringLiteral("lua")) continue;  // Phase2: native/js/lua
@@ -217,6 +220,11 @@ static QString host_binary_path() {
 }
 
 bool PluginManager::start_plugin(const PluginManifest& m) {
+    // 最后一道防线:市场层已禁用(meta.json enabled=false)的插件不启动,
+    // 也不登记进 m_known_manifests(否则随后的 restart_all 会复活它)。
+    // 注意:只 gate 清单/市场层的 enabled,绝不 gate 运行时内部的
+    // PluginRuntime::disabled(崩溃/断连置位,重启应复活,见 R1)。
+    if (!m.enabled) return false;
     ensure_ipc_thread();
     auto* rt = new PluginRuntime;
     rt->manifest = m;
@@ -678,7 +686,6 @@ bool PluginManager::restart_plugin(const QString& protocol_id) {
         PluginRuntime* rt = find_runtime(protocol_id);
         if (rt) {
             m = rt->manifest;
-            disable_plugin(protocol_id, QStringLiteral("restart requested"));
         } else {
             QReadLocker rl(&m_plugins_lock);
             const auto it = m_known_manifests.find(protocol_id);
@@ -686,23 +693,70 @@ bool PluginManager::restart_plugin(const QString& protocol_id) {
             m = it.value();
         }
     }
-    if (!QDir(m.dir_path).exists()) return false;  // 卸载后目录已不存在
+    if (!QDir(m.dir_path).exists()) {
+        // 卸载后目录已不存在:先停掉还在跑的旧运行时(与改动前一致),
+        // 再摘除登记,下次 restart_all 不再尝试它
+        if (find_runtime(protocol_id))
+            disable_plugin(protocol_id, QStringLiteral("restart requested"));
+        QWriteLocker wl(&m_plugins_lock);
+        m_known_manifests.remove(protocol_id);
+        return false;
+    }
+    // 启用状态以磁盘最新 meta.json 为准:用户可能在插件启动后于市场
+    // 对话框改动开关,运行中清单/登记的清单都可能已过期,故重读。
+    // 重读失败(清单已损坏)时沿用旧清单,交给 start_plugin/host 去失败。
+    const PluginManifest fresh = read_plugin_manifest(m.dir_path);
+    if (fresh.valid) m = fresh;
+    if (!m.enabled) {
+        // 市场层已禁用:运行中的先停掉,然后返回 true 表示"跳过",
+        // 不是失败(调用方 restart_all 另行计数 skipped_disabled)。
+        if (find_runtime(protocol_id))
+            disable_plugin(protocol_id, QStringLiteral("disabled in meta.json"));
+        QWriteLocker wl(&m_plugins_lock);
+        if (m_known_manifests.contains(protocol_id))
+            m_known_manifests[protocol_id] = m;  // 登记保持与磁盘一致
+        return true;
+    }
+    if (find_runtime(protocol_id))
+        disable_plugin(protocol_id, QStringLiteral("restart requested"));
     return start_plugin(m);
 }
 
-int PluginManager::restart_all() {
+PluginRestartAllResult PluginManager::restart_all() {
     // 调用方:GUI 线程。先快照登记的清单(重建中途新增的插件不在本轮内),
-    // 再逐个重建。
+    // 再逐个重建。启用状态以磁盘最新 meta.json 为准(登记的清单可能过期):
+    // 已禁用的跳过(运行中的先停掉),不计入 attempted/ok,只计 skipped_disabled。
     QStringList ids;
     {
         QReadLocker rl(&m_plugins_lock);
         ids = m_known_manifests.keys();
     }
-    int ok = 0;
+    PluginRestartAllResult res;
     for (const QString& id : ids) {
-        if (restart_plugin(id)) ++ok;
+        PluginManifest m;
+        {
+            QReadLocker rl(&m_plugins_lock);
+            const auto it = m_known_manifests.find(id);
+            if (it == m_known_manifests.end()) continue;
+            m = it.value();
+        }
+        const PluginManifest fresh = read_plugin_manifest(m.dir_path);
+        if (fresh.valid) m = fresh;
+        if (!m.enabled) {
+            if (find_runtime(id))
+                disable_plugin(id, QStringLiteral("disabled in meta.json"));
+            QWriteLocker wl(&m_plugins_lock);
+            if (m_known_manifests.contains(id))
+                m_known_manifests[id] = m;  // 登记保持与磁盘一致
+            ++res.skipped_disabled;
+            continue;
+        }
+        ++res.attempted;
+        // 注:restart_plugin 内部还会再读一次 meta.json(两读之间开关被改动
+        // 是竞态,极小:最坏把一次跳过计为成功,不影响"禁用不复活"本身)。
+        if (restart_plugin(id)) ++res.ok;
     }
-    return ok;
+    return res;
 }
 
 void PluginManager::check_heartbeats() {

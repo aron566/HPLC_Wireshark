@@ -903,10 +903,8 @@ bool PluginMarket::app_version_ok(const QString& min_app_version) {
 }
 
 bool PluginMarket::plugin_dir_enabled(const QString& plugin_dir) {
-    QFile mf(meta_path(plugin_dir));
-    if (!mf.open(QIODevice::ReadOnly)) return true;  // 无 meta.json=启用
-    const QJsonObject o = QJsonDocument::fromJson(mf.readAll()).object();
-    return o.value(QStringLiteral("enabled")).toBool(true);
+    // 与 read_plugin_manifest 共用同一实现(见 plugin_manifest.h)
+    return plugin_meta_enabled(plugin_dir);
 }
 
 QString PluginMarket::current_platform() {

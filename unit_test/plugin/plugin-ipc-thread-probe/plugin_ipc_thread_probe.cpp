@@ -25,6 +25,12 @@
 ///   随后重启可恢复。禁用期间 plugin_needs_restart() 为真,恢复后为假。
 ///   R4 一键重加载全部插件:restart_all() 串行重启全部 3 个已知插件并返回
 ///   成功数,随后三者都可再解析。
+///   R5 重加载跳过已禁用插件:其中一个写 meta.json {"enabled": false} 后
+///   restart_all() 不复活它(不计 attempted/ok,只计 skipped_disabled=1,
+///   运行中的 host 先停掉)、其余两个正常重启可解析;改回 enabled 后
+///   restart_plugin() 可再重启恢复。注意这里的"禁用"是市场层 meta.json
+///   开关(用户主动禁用),与 R1 的 PluginRuntime::disabled(崩溃/断连置位)
+///   不是一回事:R1 断言 restart_plugin 在 meta 默认启用时返回 true,必须继续通过。
 ///   bplc-plugin-host 须与探针同目录;可用 --host <path> 指定,探针会复制过来。
 ///   预期输出 `RESULT: ALL PASS (0 failures)`,exit 0。
 #include <QApplication>
@@ -734,8 +740,9 @@ bench:
 
     // R4 一键重加载全部插件:restart_all 串行重启全部已知插件(echo/gfx/gnf)
     {
-        const int n = pm.restart_all();
-        check("restart all: all known plugins restarted", n == 3);
+        const PluginRestartAllResult r4 = pm.restart_all();
+        check("restart all: all known plugins restarted",
+              r4.attempted == 3 && r4.ok == 3 && r4.skipped_disabled == 0);
         spin_until([&] { return pm.is_plugin_protocol(echo) && pm.is_plugin_protocol(gfx) &&
                                 pm.is_plugin_protocol(gnf); }, 15000);
         check("restart all: all plugins handshaked again",
@@ -744,6 +751,50 @@ bench:
         int gok = 0, gtot = 0;
         const int okr = parse_in_worker(echo, 200, nullptr, &gok, &gtot);
         check("restart all: parses answered after restart", okr == 200);
+    }
+
+    // R5 重加载跳过已禁用插件(lua_graphics 写 meta.json {"enabled": false}):
+    //   不复活、不计入 attempted/ok,只计 skipped_disabled;运行中的 host 先停掉;
+    //   其余两个正常重启、可解析;改回 enabled 后 restart_plugin() 可再重启恢复。
+    //   写 meta 的范例见 src/plugin/tests/market_test.cpp 的 plugin_dir_enabled
+    //   用例(直接写 meta.json 再读回)。
+    {
+        auto write_meta_enabled = [&](bool on) {
+            QFile mf(plugins + QStringLiteral("/lua_graphics/meta.json"));
+            if (!mf.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+            mf.write(QJsonDocument(QJsonObject{
+                                       {QStringLiteral("enabled"), on}})
+                       .toJson());
+            return true;
+        };
+        check("restart all skips disabled: meta.json written", write_meta_enabled(false));
+        const PluginRestartAllResult r5 = pm.restart_all();
+        check("restart all skips disabled: counts exclude disabled plugin",
+              r5.attempted == 2 && r5.ok == 2 && r5.skipped_disabled == 1);
+        check("restart all skips disabled: disabled plugin not running",
+              !pm.is_plugin_protocol(gfx));
+        QList<qint64> pids5;
+        spin_until([&] {
+            pids5 = host_pids(QStringLiteral("lua_graphics"));
+            return pids5.isEmpty();
+        }, 10000);
+        check("restart all skips disabled: disabled host process gone", pids5.isEmpty());
+        spin_until([&] { return pm.is_plugin_protocol(echo) && pm.is_plugin_protocol(gnf); }, 15000);
+        check("restart all skips disabled: other plugins handshaked again",
+              pm.is_plugin_protocol(echo) && pm.is_plugin_protocol(gnf));
+        int gok = 0, gtot = 0;
+        const int ok5a = parse_in_worker(echo, 200, nullptr, &gok, &gtot);
+        check("restart all skips disabled: echo parses answered after restart", ok5a == 200);
+        const int ok5b = parse_in_worker(gnf, 200, nullptr, &gok, &gtot);
+        check("restart all skips disabled: gnf parses answered after restart", ok5b == 200);
+        // 改回启用:restart_plugin 可再重启恢复
+        check("restart re-enabled plugin: meta.json re-enabled", write_meta_enabled(true));
+        check("restart re-enabled plugin: restart_plugin returns true",
+              pm.restart_plugin(gfx));
+        spin_until([&] { return pm.is_plugin_protocol(gfx); }, 15000);
+        check("restart re-enabled plugin: handshaked again", pm.is_plugin_protocol(gfx));
+        const int ok5c = parse_in_worker(gfx, 200, nullptr, &gok, &gtot);
+        check("restart re-enabled plugin: parses answered after restart", ok5c == 200);
     }
 #endif
 

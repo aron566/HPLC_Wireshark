@@ -87,6 +87,16 @@ struct PluginRuntime {
     std::atomic<qint64> last_pong_ms{0};
 };
 
+/// @brief restart_all() 的返回:一键重加载的计数口径
+/// @details 只统计 meta.json 启用的插件(attempted):已禁用插件跳过,
+///          不计入 attempted 也不计入 ok,只计 skipped_disabled(运行中
+///          的先停掉)。ok < attempted 即有启用插件重启失败。
+struct PluginRestartAllResult {
+    int attempted = 0;        ///< 尝试重启的启用插件数
+    int ok = 0;               ///< 其中成功重启数
+    int skipped_disabled = 0; ///< 跳过的已禁用插件数(不算失败)
+};
+
 /// @brief 插件管理器(单例,主线程)
 class PluginManager : public QObject {
     Q_OBJECT
@@ -94,6 +104,8 @@ public:
     static PluginManager& instance();
 
     /// @brief 扫描并启动 plugins_dir 下所有插件
+    /// @details meta.json enabled=false 的插件跳过(用户主动禁用,重启
+    ///          也不恢复);见 start_plugin 的 gate 注释。
     void load_all(const QString& plugins_dir);
     /// @brief 重启插件 host 子进程(供插件市场对话框的重启按钮调用,GUI 线程)
     /// @details 运行中的插件:先走 disable_plugin 异步杀进程并退役旧运行时,
@@ -101,16 +113,26 @@ public:
     ///          清单在 start_plugin 成功时登记(见 m_known_manifests)。
     ///          重建走 start_plugin 全新运行时:握手完成后 ready 置真、
     ///          解析器重新注册,走现有路径。
-    /// @return true=新 host 已启动(握手随后异步完成),false=未知协议 id /
-    ///         插件目录已不存在 / 重建失败
+    ///          启用状态以磁盘最新 meta.json 为准(启动后用户可能在市场
+    ///          对话框改动开关,登记的清单/运行中清单都可能已过期,故重读):
+    ///          已禁用(meta.json enabled=false)的若在运行先停掉,然后
+    ///          返回 true 表示"跳过",不是失败;true 也不代表握手已完成
+    ///          (start_plugin 只等到进程启动,握手随后异步完成)。
+    ///          注意两种 disabled 的区别:这里 gate 的是市场层开关
+    ///          (PluginManifest::enabled);崩溃/断连置位的内部状态
+    ///          (PluginRuntime::disabled)不在此 gate,重启应复活它。
+    /// @return true=新 host 已启动(握手随后异步完成)或已禁用而跳过,
+    ///         false=未知协议 id / 插件目录已不存在 / 重建失败
     bool restart_plugin(const QString& protocol_id);
     /// @brief 一键重加载全部已知插件(串行,GUI 线程)
     /// @details 对登记的清单快照逐个调 restart_plugin:运行中的先停旧进程
     ///          再重建,已禁用的直接重建。逐个重建是串行的,start_plugin 的
     ///          waitForStarted(5000) 是上限不是每家必等 5 秒;不为并行改动
-    ///          IPC/进程模型。
-    /// @return 成功重建的插件数
-    int restart_all();
+    ///          IPC/进程模型。只遍历 meta.json 启用的条目(以磁盘最新状态
+    ///          为准,见 restart_plugin):已禁用的跳过(运行中的先停掉),
+    ///          不计入 attempted/ok,只计 skipped_disabled。
+    /// @return 计数见 PluginRestartAllResult
+    PluginRestartAllResult restart_all();
     /// @brief 停掉全部插件 host 子进程并注销其解析器(退役式两遍处理,
     ///        见实现注释)。供应用退出与插件市场删除/更新旧版前调用——
     ///        host 进程映射着插件 DLL,不停机则 Windows 下删不掉旧目录。
