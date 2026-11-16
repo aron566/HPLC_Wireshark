@@ -374,6 +374,9 @@ void MainWindow::build_ui() {
     // 注意:不用 Qt::UniqueConnection + lambda(Qt6 断言要求成员函数指针)。
     connect(QSimpleUpdater::getInstance(), &QSimpleUpdater::checkingFinished,
             this, &MainWindow::on_check_finished);
+    // 下载失败(目前仅安装包重命名失败一路):状态栏留痕 + 日志,供用户重试。
+    connect(QSimpleUpdater::getInstance(), &QSimpleUpdater::downloadFailed,
+            this, &MainWindow::on_download_failed);
     auto* act_about = menu_help->addAction(trl::L("关于(&A)"));
     connect(act_about, &QAction::triggered, this, [this]() {
         // 关于:作者/作者邮箱/版本(如需打开仓库等外链请自行在浏览器访问)
@@ -884,6 +887,15 @@ void MainWindow::on_check_finished(const QString& url) {
               : trl::L("检查更新完成:暂无可更新版本(若网络不可达请检查连接)"));
 }
 
+void MainWindow::on_download_failed(const QString& url, const QString& error) {
+    const QString key = m_last_check_url.isEmpty() ? appcfg::update_url() : m_last_check_url;
+    if (url != key) return;
+    // Downloader 侧已弹过错误对话框;这里在状态栏留持久痕迹并记日志,避免
+    // 对话框关掉后无从查证。更新仍可用,"立即更新"按钮保持可见,用户可重试。
+    qWarning().noquote() << "Update download failed:" << error;
+    m_status_left->setText(trl::L("更新下载失败: ") + error);
+}
+
 void MainWindow::on_status_message(const QString& s) {
     m_status_left->setText(trl::L("[状态] ") + s);
 }
@@ -983,6 +995,7 @@ struct I18nRegMainWindow {
         trl::register_en("发现新版本,点击下载安装", "New version available, click to download");
         trl::register_en("发现新版本,请点击右上角\"立即更新\"下载",
                          "New version found, click [Update Now] at top-right to download");
+        trl::register_en("更新下载失败: ", "Update download failed: ");
         trl::register_en("协议已更改", "Protocol changed");
         trl::register_en("协议已更改,重启后生效。若点击「开始」则立即生效。",
                          "Protocol changed. Takes effect after restart, or click [Start] to apply immediately.");

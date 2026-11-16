@@ -106,6 +106,8 @@ Updater::Updater()
     QString("%1/%2 (Qt; QSimpleUpdater)").arg(qApp->applicationName(), qApp->applicationVersion()));
 
   connect(m_downloader, &Downloader::downloadFinished, this, &Updater::downloadFinished);
+  // Local extension (M6):重命名失败一路转发,见 Downloader::finished()
+  connect(m_downloader, &Downloader::downloadFailed, this, &Updater::downloadFailed);
   connect(m_manager, &QNetworkAccessManager::finished, this, &Updater::onReply);
 }
 

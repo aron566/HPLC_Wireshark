@@ -722,6 +722,7 @@ jobs:
           plugin/ipc-decode-probe
           common/i18n-concurrency-probe
           app/frame-dispatcher-lifetime-probe
+          app/downloader-rename-probe
 
       # mirror-probe 解析真实 update.json 并查出口地区(raw.githubusercontent / cloudflare trace /
       # country.is / ipwho.is 等外部服务)。构建是门禁(下一步);运行依赖外部服务,偶发不可用

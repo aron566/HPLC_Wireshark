@@ -62,6 +62,9 @@ signals:
   void checkingFinished(const QString& url);
   void appcastDownloaded(const QString& url, const QByteArray& data);
   void downloadFinished(const QString& url, const QString& filepath);
+  /// @brief Local extension (M6):安装包下载失败(目前仅重命名失败一路),
+  ///        由 Updater 自 Downloader 转发;见 Downloader::finished()。
+  void downloadFailed(const QString& url, const QString& error);
 
 public:
   static QSimpleUpdater* getInstance();

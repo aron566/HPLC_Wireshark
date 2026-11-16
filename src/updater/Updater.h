@@ -42,6 +42,9 @@ class QSU_DECL Updater : public QObject {
 signals:
   void checkingFinished(const QString& url);
   void downloadFinished(const QString& url, const QString& filepath);
+  /// @brief Local extension (M6):转发 Downloader 的同名信号,下载的安装包
+  ///        重命名失败时发出(替代 downloadFinished)。
+  void downloadFailed(const QString& url, const QString& error);
   void appcastDownloaded(const QString& url, const QByteArray& data);
 
 public:
