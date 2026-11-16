@@ -233,7 +233,10 @@ inline QString plugin_contained_entry_path(const QString& plugin_dir,
 ///          '.'/' ')。COM10/LPT10 这类两位数不在保留名之列,不要误杀。
 inline bool plugin_name_is_reserved(const QString& name) {
     QString stem = name;
-    const int dot = stem.lastIndexOf(QLatin1Char('.'));
+    // 按第一个点拆分:Windows 保留名判定看的是主名,而主名是第一个点之前的部分。
+    // 用 lastIndexOf 会把 "CON.foo.txt" 的主名当成 "CON.foo"、"com1.a.b" 当成
+    // "com1.a",于是这些名字被误判为安全,在 Windows 上建目录/写文件时失败。
+    const int dot = stem.indexOf(QLatin1Char('.'));
     if (dot > 0) stem.truncate(dot);
     while (!stem.isEmpty() &&
            (stem.endsWith(QLatin1Char('.')) || stem.endsWith(QLatin1Char(' '))))

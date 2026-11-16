@@ -167,7 +167,10 @@ bool pkexec_deploy(const QString& base_dir, const QString& dest_dir,
                    "staging=$(mktemp -d) || exit 1\n"
                    "trap 'rm -rf \"$staging\"' EXIT\n"
                    "cp -a \"$2/.\" \"$staging/\" || exit 1\n"
-                   "chmod -R a-s \"$staging\" || exit 1\n"
+                   // a-s 只清 setuid/setgid/sticky,不会去掉 group/other 写权限:
+                   // 源目录里 0666/0777 的文件拷进来后仍是组/其他可写,提权安装
+                   // 到系统目录后任何本地用户都能改插件代码。go-w 一并去掉。
+                   "chmod -R a-s,go-w \"$staging\" || exit 1\n"
                    "[ -z \"$(find \"$staging\" \\( -type b -o -type c \\) -print -quit)\" ] || { echo staged device node rejected >&2; exit 3; }\n"
                    "cd \"$staging\" || exit 1\n"
                    "actual=$(find . \\( -type f -o -type l -o -type d \\) -print0 | LC_ALL=C sort -z | tr \"\\0\" \"\\n\" | while IFS= read -r f; do if [ -L \"$f\" ]; then printf \"%s\\000link:%s\\n\" \"$f\" \"$(readlink \"$f\")\"; elif [ -d \"$f\" ]; then printf \"%s/\\000\\n\" \"$f\"; else printf \"%s\\000\" \"$f\"; sha256sum \"$f\" | cut -d\" \" -f1; fi; done | sha256sum | cut -d\" \" -f1)\n"

@@ -35,13 +35,13 @@ constexpr int kGraphicsTimeoutMs = 5000;     ///< 异步图形请求超时
 constexpr int kAsyncSweepIntervalMs = 50;    ///< 超时扫描粒度
 /// 记一次插件活动(解析/图形请求/握手完成):心跳空闲退避的时钟。
 /// Pong 回包不记(否则每次 Ping 都会复位空闲,退避永不生效)。
-void touch_activity(PluginRuntime* rt) {
-    rt->last_activity_ms = QDateTime::currentMSecsSinceEpoch();
-}
-/// 单调时钟(ms),用于异步请求截止时刻
+/// 单调时钟(ms),用于异步请求截止时刻与心跳计时
 qint64 steady_ms() {
     static QElapsedTimer t = [] { QElapsedTimer e; e.start(); return e; }();
     return t.elapsed();
+}
+void touch_activity(PluginRuntime* rt) {
+    rt->last_activity_ms = steady_ms();
 }
 /// 当前线程是否 GUI(主)线程
 bool on_gui_thread() {
@@ -56,9 +56,12 @@ PluginManager& PluginManager::instance() {
 }
 
 PluginManager::PluginManager(QObject* parent) : QObject(parent) {
-    // 初始 tick 按活动间隔;之后每轮 check_heartbeats 重读配置并自适应
-    // (配置改小/改大都无需重启,下一轮即生效)
-    m_hb_timer.setInterval(appcfg::plugin_heartbeat_interval_ms());
+    // 心跳参数启动时读一次,之后不再每轮 tick 重读 QSettings。
+    // (运行中改 config.ini 需重启生效)
+    m_hb_interval_ms = appcfg::plugin_heartbeat_interval_ms();
+    m_hb_idle_ms = appcfg::plugin_heartbeat_idle_ms();
+    m_hb_timeout_ms = appcfg::plugin_heartbeat_timeout_ms();
+    m_hb_timer.setInterval(m_hb_interval_ms);
     connect(&m_hb_timer, &QTimer::timeout, this, &PluginManager::check_heartbeats);
     m_hb_timer.start();
     m_async_timer.setInterval(kAsyncSweepIntervalMs);
@@ -368,7 +371,10 @@ void PluginManager::on_host_ready_read(PluginRuntime* rt) {
             continue;
         }
         if (mt == plugin_ipc::MsgType::Pong) {
-            rt->last_pong_ms = QDateTime::currentMSecsSinceEpoch();
+            rt->last_pong_ms = steady_ms();
+            // 收到 Pong = 之前所有在飞 Ping 都已被应答(IPC 是 FIFO 单连接),
+            // 清掉"首枚未应答 Ping"起点,下一枚 Ping 重新起算。
+            rt->first_unanswered_ping_ms = 0;
             continue;
         }
         to_gui.append(frame);
@@ -423,7 +429,8 @@ void PluginManager::handle_message(const QString& plugin_id,
         // 排队到 IPC 线程写出;之后的请求同样排队,FIFO 保证 HelloAck 先发
         post_message(rt, static_cast<quint8>(plugin_ipc::MsgType::HelloAck), p);
         if (ok && !rt->disabled.load()) {
-            rt->last_pong_ms = QDateTime::currentMSecsSinceEpoch();
+            rt->last_pong_ms = steady_ms();
+            rt->first_unanswered_ping_ms = 0;
             touch_activity(rt);   // 刚握手算活动:新插件前 idle_ms 内仍按活动间隔 Ping
             rt->ready = true;
             // 注册到协议注册表(协议 id → 代理;显示名取自 plugin.json,供界面协议列表)
@@ -605,11 +612,11 @@ void PluginManager::disable_plugin(const QString& plugin_id,
 }
 
 void PluginManager::check_heartbeats() {
-    const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    // 每轮重读配置:改 config.ini [plugin] 段无需重启,下一轮即生效
-    const int interval_ms = appcfg::plugin_heartbeat_interval_ms();
-    const int idle_ms = appcfg::plugin_heartbeat_idle_ms();
-    const int timeout_ms = appcfg::plugin_heartbeat_timeout_ms();
+    const qint64 now = steady_ms();
+    // 心跳参数已在构造时读一次(m_hb_*),此处不再每轮重读 QSettings。
+    const int interval_ms = m_hb_interval_ms;
+    const int idle_ms = m_hb_idle_ms;
+    const int timeout_ms = m_hb_timeout_ms;
     // 定时器按最小间隔走,保证配置改小后 Ping 节奏能跟上
     const int tick_ms = qBound(200, qMin(interval_ms, idle_ms), 60000);
     if (m_hb_timer.interval() != tick_ms) m_hb_timer.setInterval(tick_ms);
@@ -637,11 +644,15 @@ void PluginManager::check_heartbeats() {
             post_message(rt, static_cast<quint8>(plugin_ipc::MsgType::Ping), p);
             rt->last_ping_ms = now;
             ++rt->ping_count;
+            // 记下"首枚未应答 Ping"的发出时刻:超时从它起算。
+            // 已有未应答 Ping 时不覆盖——否则每发一枚就重置起点,卡死的 host
+            // 永远等不到超时(旧实现用 last_pong 做起点,同样有这个毛病)。
+            qint64 expected = 0;
+            rt->first_unanswered_ping_ms.compare_exchange_strong(expected, now);
         }
-        // 超时按实际 Ping 节奏放宽:空闲插件两次 Ping 之间不判死刑,
-        // 卡死检测最迟约 2 个空闲间隔(默认 60 s);活动插件与原来一致(15 s)
-        const int effective_timeout_ms = qMax(timeout_ms, 2 * cadence_ms);
-        if (now - rt->last_pong_ms > effective_timeout_ms) {
+        // 超时从第一枚未应答 Ping 起算;没有在飞 Ping 时不可能超时。
+        const qint64 pending_since = rt->first_unanswered_ping_ms.load();
+        if (pending_since > 0 && now - pending_since > timeout_ms) {
             disable_plugin(it.key(), QStringLiteral("heartbeat timeout"));
         }
     }
