@@ -88,6 +88,10 @@ private:
     /// @brief 超长帧 DROP:限速(1 秒最多 1 条),被抑制的仍计入 m_frame_count,
     ///        抑制数汇总进下一条实际发出的原因文本;wire 用 m_drop_wire 复用
     void emit_overlong_drop(const QString& reason);
+    /// @brief 把被限速抑制的超长帧计数补发成一条 DROP 行
+    /// @details stop_reading() 与回放 EOF 调用:否则这些帧只计入 m_frame_count,
+    ///          用户永远看不到"另有 N 帧超长被抑制"。
+    void flush_suppressed_overlong_drop();
     void process_raw_hex_line(const QByteArray& line);
     /// @brief 解析裸 hex 文本头行时间(TIME: / ISO 文本),失败返回 -1
     qint64 parse_time_header(const QByteArray& line);

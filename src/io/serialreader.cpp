@@ -55,6 +55,11 @@ void ReaderWorker::start_session(const ReaderConfig& cfg, quint64 session) {
     m_active.store(true);   // 采集/回放开始(串口/文件/裸hex 均计入)
     m_in_buf.clear();
     m_get3c = false;
+    // 限流状态每次启动都重置:旧实现只在 FilePlayback 分支里清,
+    // 串口/RawHex 会话会带着上一会话的 m_last_overlong_drop_us 与抑制计数,
+    // 新会话头一秒的 DROP 会被误抑制(计数串到上一会话)。
+    m_last_overlong_drop_us = 0;
+    m_overlong_drop_suppressed = 0;
     m_last_local_ms = 0;   // 每次启动重置断段判断基准
     m_pending_seg_start = true;   // 新采集段首帧标 seg_start(含停止→恢复)
 
@@ -118,6 +123,8 @@ void ReaderWorker::start_session(const ReaderConfig& cfg, quint64 session) {
         m_file->close();
         delete m_file;
         m_file = nullptr;
+        // 回放 EOF:把最后一段被抑制的计数补发出去,再报结束
+        flush_suppressed_overlong_drop();
         QLOG_INFO() << "replay end:" << m_frame_count << "frames, read+split elapsed"
                     << replay_t.elapsed() << "ms";
         emit progress_percent(100);
@@ -162,6 +169,9 @@ void ReaderWorker::stop_reading() {
     // 不能把新会话取消(取消由 GUI 线程 stop() 直接 abort() 完成)
     m_running = false;
     m_active.store(false);
+    // 停止前把被抑制的计数汇入最后一条 DROP 行:否则这些帧只计入了
+    // m_frame_count,用户永远看不到"另有 N 帧超长被抑制"。
+    flush_suppressed_overlong_drop();
     if (m_serial)   { m_serial->close(); m_serial->deleteLater(); m_serial = nullptr; }
     if (m_file)     { m_file->close(); m_file->deleteLater(); m_file = nullptr; }
     emit finished();
@@ -256,6 +266,22 @@ void ReaderWorker::emit_drop_frame(const QByteArray& wire, const QString& reason
     drop.error_reason = reason;
     ++m_frame_count;
     emit_frame(drop);
+}
+
+void ReaderWorker::flush_suppressed_overlong_drop() {
+    // 把被限速抑制的计数补发成一条 DROP 行(停止/回放 EOF 时调用)。
+    // 没有抑制计数时什么都不做,不产生多余行。
+    if (m_overlong_drop_suppressed <= 0) return;
+    if (m_in_buf.size() < kMaxFrameBodyBytes) return;   // 缓冲已清,无法构造 wire
+    m_drop_wire.clear();
+    m_drop_wire.append(char(0x3C));
+    m_drop_wire.append(m_in_buf.constData(), kMaxFrameBodyBytes);
+    m_drop_wire.append(char(0x3E));
+    const QString shown = trl::L("超长帧被丢弃")
+        + trl::L("（另有 %1 帧超长被抑制）").arg(m_overlong_drop_suppressed);
+    m_overlong_drop_suppressed = 0;
+    m_last_overlong_drop_us = 0;
+    emit_drop_frame(m_drop_wire, shown, m_frame_rx_us);
 }
 
 void ReaderWorker::emit_overlong_drop(const QString& reason) {

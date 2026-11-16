@@ -135,10 +135,14 @@ int main(int argc, char** argv) {
     bool history4_online = false;
     bool restart_only_nid_survives_checkpoint = false;
     bool temp_database_created = false;
+    QString temp_db_path;   ///< 临时库路径:shutdown 后断言其目录已回收
     std::atomic<bool> signal_emitted_on_worker{false};
 
     QObject::connect(worker, &TopoReplayWorker::storage_ready, &app,
-        [&](const QString& path) { temp_database_created = !path.isEmpty() && QFileInfo::exists(path); },
+        [&](const QString& path) {
+            temp_database_created = !path.isEmpty() && QFileInfo::exists(path);
+            temp_db_path = path;
+        },
         Qt::QueuedConnection);
     QObject::connect(worker, &TopoReplayWorker::live_state_changed, &app,
         [&] { signal_emitted_on_worker.store(QThread::currentThread() == &worker_thread); },
@@ -200,6 +204,15 @@ int main(int argc, char** argv) {
     worker_thread.quit();
     worker_thread.wait();
     delete worker;
+
+    // 临时目录回收回归:shutdown 后临时库文件与其目录都必须消失。
+    // 旧探针只断言"创建成功",没有"已回收"的断言——清理代码存在但无人验证,
+    // 一旦 delete m_temp_dir 被删/被提前 return 绕过,泄漏不会被发现。
+    CHECK("shutdown removed the temporary SQLite database file",
+          !temp_db_path.isEmpty() && !QFileInfo::exists(temp_db_path));
+    CHECK("shutdown removed the temporary database directory",
+          !temp_db_path.isEmpty()
+          && !QFileInfo::exists(QFileInfo(temp_db_path).absolutePath()));
 
 
     // Exercise the service API without a MainWindow: it owns its worker and publishes
@@ -519,8 +532,8 @@ int main(int argc, char** argv) {
             });
         QObject::connect(rebuild_worker, &TopoReplayWorker::worker_error, &app,
             [&](const QString& message) {
-                // L14:重建失败的 UI 文案是统一的"拓扑历史读取失败",细节只写日志
-                rebuild_failure_triggered = message == QStringLiteral("拓扑历史读取失败");
+                // L14:重建失败的 UI 文案是统一的"拓扑存储不可用",细节只写日志
+                rebuild_failure_triggered = message == QStringLiteral("拓扑存储不可用");
                 if (!rebuild_failure_triggered) {
                     ++failures;
                     std::fprintf(stderr, "unexpected rebuild test worker error: %s\n", qPrintable(message));
@@ -588,8 +601,8 @@ int main(int argc, char** argv) {
         });
         QObject::connect(worker, &TopoReplayWorker::worker_error, &app,
             [worker](const QString& message) {
-                // L14:开库失败的 UI 文案是统一的"拓扑历史读取失败",细节只写日志
-                if (message == QStringLiteral("拓扑历史读取失败")) {
+                // L14:开库失败的 UI 文案是统一的"拓扑存储不可用",细节只写日志
+                if (message == QStringLiteral("拓扑存储不可用")) {
                     QMetaObject::invokeMethod(worker, [worker] {
                         worker->request_history(9201, 42, 4200, true);
                     }, Qt::QueuedConnection);
@@ -605,7 +618,7 @@ int main(int argc, char** argv) {
                 const QString& message) {
                 open_history_failure_reported = request_id == 9201 && target_frame == 42
                     && target_ms == 4200 && active
-                    && message == QStringLiteral("拓扑历史读取失败");
+                    && message == QStringLiteral("拓扑存储不可用");
                 loop.quit();
             }, Qt::QueuedConnection);
         thread.start();
@@ -685,7 +698,7 @@ int main(int argc, char** argv) {
                 const QString& message) {
                 if (request_id != 9203) return;
                 reconstruction_history_failure_reported = target_frame == 1 && target_ms == 1001
-                    && active && message == QStringLiteral("拓扑历史读取失败");
+                    && active && message == QStringLiteral("拓扑存储不可用");
                 loop.quit();
             }, Qt::QueuedConnection);
         thread.start();
@@ -798,9 +811,9 @@ int main(int argc, char** argv) {
         CHECK("store-fail: failed frame insert still advances live topology",
               trig && changes_after_first > 0 && changes_after_fail1 > changes_after_first
               && live_changes > changes_after_fail1);
-        // L14 反向验证:连续两次入库失败只上报一次,且 UI 文案是统一的"拓扑历史读取失败"
+        // L14 反向验证:连续两次入库失败只上报一次,且 UI 文案是统一的"拓扑存储不可用"
         CHECK("store-fail: consecutive insert failures reported once",
-              errors.size() == 1 && errors.value(0) == QStringLiteral("拓扑历史读取失败"));
+              errors.size() == 1 && errors.value(0) == QStringLiteral("拓扑存储不可用"));
         bool hist_ok = false, hist_failed = false;
         QObject::connect(&worker, &TopoReplayWorker::history_ready, &app,
             [&](quint64 id, qint64, qint64, bool, const TopoStateMap&) { hist_ok = id == 7301; }, Qt::DirectConnection);
@@ -831,7 +844,7 @@ int main(int argc, char** argv) {
         worker.clear();
         CHECK("store-fail: failed clear is reported and still resets the live view",
               trig2 && resets == 1 && errors.size() == 1
-              && errors.value(0) == QStringLiteral("拓扑历史读取失败"));
+              && errors.value(0) == QStringLiteral("拓扑存储不可用"));
         hist_failed = false;
         QObject::connect(&worker, &TopoReplayWorker::history_failed, &app,
             [&](quint64 id, qint64, qint64, bool, const QString&) { if (id == 7302) hist_failed = true; }, Qt::DirectConnection);
@@ -857,7 +870,7 @@ int main(int argc, char** argv) {
         worker.request_anomaly_page(2, kNid, 0, 50);
         CHECK("store-fail: anomaly page error is flagged, not an empty page",
               dropped && anomaly_page_seen && !anomaly_page.ok
-              && anomaly_page.error == QStringLiteral("拓扑历史读取失败")
+              && anomaly_page.error == QStringLiteral("拓扑存储不可用")
               && anomaly_page.items.isEmpty());
 
         // 4) 正常清库仍然有效(重建表后)
@@ -885,7 +898,7 @@ int main(int argc, char** argv) {
             unopened_worker.initialize();
             CHECK("store-fail: open failure on a path under a file is reported",
                   unopened_errors.size() == 1
-                  && unopened_errors.value(0) == QStringLiteral("拓扑历史读取失败"));
+                  && unopened_errors.value(0) == QStringLiteral("拓扑存储不可用"));
             // 挪开挡路的文件,库路径重新可达;clear() 后重新入库应成功,不再被旧标志挡住
             QFile::remove(blocker_path);
             QDir().mkpath(unopened_dir.filePath(QStringLiteral("blocker")));
@@ -911,7 +924,7 @@ int main(int argc, char** argv) {
         worker.request_frame_page(4, 0, 50);
         CHECK("store-fail: frame page COUNT failure carries only the unified message",
               dropped_frames && frame_page_seen && !frame_page.ok
-              && frame_page.error == QStringLiteral("拓扑历史读取失败")
+              && frame_page.error == QStringLiteral("拓扑存储不可用")
               && frame_page.items.isEmpty());
         // 6b) prepare 失败:COUNT(*) 仍过(表在、无 payload 列),SELECT payload 备语句失败
         const bool recreated_no_payload = side_exec(QStringLiteral(
@@ -921,7 +934,7 @@ int main(int argc, char** argv) {
         worker.request_frame_page(5, 0, 50);
         CHECK("store-fail: frame page prepare failure carries only the unified message",
               recreated_no_payload && frame_page_seen && !frame_page.ok
-              && frame_page.error == QStringLiteral("拓扑历史读取失败")
+              && frame_page.error == QStringLiteral("拓扑存储不可用")
               && frame_page.items.isEmpty());
         // 6c) 损坏帧:空 payload 行走 report_store_error + 统一文案分支
         const bool recreated_corrupt = side_exec(QStringLiteral("DROP TABLE topo_frames"))
@@ -934,7 +947,7 @@ int main(int argc, char** argv) {
         worker.request_frame_page(6, 0, 50);
         CHECK("store-fail: corrupt frame in page query carries only the unified message",
               recreated_corrupt && frame_page_seen && !frame_page.ok
-              && frame_page.error == QStringLiteral("拓扑历史读取失败")
+              && frame_page.error == QStringLiteral("拓扑存储不可用")
               && frame_page.items.isEmpty());
 
         worker.shutdown();

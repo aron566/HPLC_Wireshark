@@ -618,7 +618,7 @@ void TopoReplayWorker::shutdown() {
 void TopoReplayWorker::report_store_error(const QString& detail) {
     m_store_failed = true;
     // UI 侧(worker_error/history_failed/分页 open 失败)只见统一文案;详情只写日志
-    m_store_error_message = trl::L("拓扑历史读取失败");
+    m_store_error_message = trl::L("拓扑存储不可用");
     qWarning().noquote() << detail;
     if (m_store_error_reported) return;
     m_store_error_reported = true;
