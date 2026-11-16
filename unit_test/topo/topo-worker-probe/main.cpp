@@ -851,12 +851,13 @@ int main(int argc, char** argv) {
         CHECK("store-fail: store recovers after the next successful clear",
               resets == 2 && frame_page_seen && frame_page.ok && frame_page.total == 2);
 
-        // 3) 分页查询出错:ok=false + error,不是空结果
+        // 3) 分页查询出错:ok=false + error,不是空结果;error 只带统一文案,不带 SQLite 详情
         const bool dropped = side_exec(QStringLiteral("DROP TABLE topo_anomalies"));
         anomaly_page_seen = false;
         worker.request_anomaly_page(2, kNid, 0, 50);
         CHECK("store-fail: anomaly page error is flagged, not an empty page",
-              dropped && anomaly_page_seen && !anomaly_page.ok && !anomaly_page.error.isEmpty()
+              dropped && anomaly_page_seen && !anomaly_page.ok
+              && anomaly_page.error == QStringLiteral("拓扑历史读取失败")
               && anomaly_page.items.isEmpty());
 
         // 4) 正常清库仍然有效(重建表后)
@@ -900,6 +901,42 @@ int main(int argc, char** argv) {
                   unopened_page_seen && unopened_page.ok && unopened_page.total == 2);
             unopened_worker.shutdown();
         }
+
+        // 6) 帧页的其余 fail_db 收敛路径:error 只带统一文案,不带 SQLite 详情。
+        //    注意:迭代中途出错(query.next() 失败)单线程无法注入,仅代码评审覆盖,
+        //    探针不覆盖(见 fail_db 返回值本身已被本节三条路径断言)。
+        // 6a) COUNT 失败:表被删,SELECT COUNT(*) 直接失败
+        frame_page_seen = false;
+        const bool dropped_frames = side_exec(QStringLiteral("DROP TABLE topo_frames"));
+        worker.request_frame_page(4, 0, 50);
+        CHECK("store-fail: frame page COUNT failure carries only the unified message",
+              dropped_frames && frame_page_seen && !frame_page.ok
+              && frame_page.error == QStringLiteral("拓扑历史读取失败")
+              && frame_page.items.isEmpty());
+        // 6b) prepare 失败:COUNT(*) 仍过(表在、无 payload 列),SELECT payload 备语句失败
+        const bool recreated_no_payload = side_exec(QStringLiteral(
+            "CREATE TABLE topo_frames (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "frame_index INTEGER NOT NULL)"));
+        frame_page_seen = false;
+        worker.request_frame_page(5, 0, 50);
+        CHECK("store-fail: frame page prepare failure carries only the unified message",
+              recreated_no_payload && frame_page_seen && !frame_page.ok
+              && frame_page.error == QStringLiteral("拓扑历史读取失败")
+              && frame_page.items.isEmpty());
+        // 6c) 损坏帧:空 payload 行走 report_store_error + 统一文案分支
+        const bool recreated_corrupt = side_exec(QStringLiteral("DROP TABLE topo_frames"))
+            && side_exec(QStringLiteral(
+                "CREATE TABLE topo_frames (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                "frame_index INTEGER NOT NULL, payload BLOB NOT NULL)"))
+            && side_exec(QStringLiteral(
+                "INSERT INTO topo_frames(frame_index,payload) VALUES(1, X'')"));
+        frame_page_seen = false;
+        worker.request_frame_page(6, 0, 50);
+        CHECK("store-fail: corrupt frame in page query carries only the unified message",
+              recreated_corrupt && frame_page_seen && !frame_page.ok
+              && frame_page.error == QStringLiteral("拓扑历史读取失败")
+              && frame_page.items.isEmpty());
+
         worker.shutdown();
     }
 

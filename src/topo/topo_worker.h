@@ -103,7 +103,8 @@ private:
     bool decode_frame(const QByteArray& bytes, TopoFrameInput& frame) const;
     // L14:detail 只写日志,UI 只见统一文案"拓扑历史读取失败";首次 emit 后去重
     void report_store_error(const QString& detail);
-    // L14:SQLite 失败统一构造(返回详情串,供分页 error 携带);内部走 report_store_error
+    // L14:SQLite 失败统一构造(返回统一 UI 文案,供分页 error 携带);
+    //      详情只写日志,内部走 report_store_error
     QString fail_db(const QString& operation, const QString& detail);
 
     QString m_requested_db_path;

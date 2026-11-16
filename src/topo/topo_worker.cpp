@@ -41,7 +41,8 @@ bool decode_event(const QByteArray& bytes, TopoEvent& event) {
 }
 
 /// @brief L14:SQLite 失败详情的唯一构造点(操作名 + 驱动返回的细节)。
-///        详情只写日志,不直接发给 UI;UI 侧只见统一文案"拓扑历史读取失败"。
+///        返回值仅供日志使用,不得作为 page.error / worker_error 文案;
+///        UI 侧只见统一文案"拓扑历史读取失败"(见 fail_db)。
 QString db_failure_message(const QString& operation, const QString& detail) {
     return QStringLiteral("Topology SQLite %1 failed: %2").arg(operation, detail);
 }
@@ -467,14 +468,14 @@ void TopoReplayWorker::request_frame_page(quint64 request_id, qint64 offset, int
     }
     query.bindValue(0, limit); query.bindValue(1, page.offset);
     if (!query.exec()) {
-        fail(fail_db(QStringLiteral("prepare topology frame page"), query.lastError().text())); return;
+        fail(fail_db(QStringLiteral("execute topology frame page"), query.lastError().text())); return;
     }
     while (query.next()) {
         const QByteArray data = query.value(0).toByteArray();
         TopoFrameInput frame;
         if (data.isEmpty() || !decode_frame(data, frame)) {
             report_store_error(QStringLiteral("Corrupt topology frame in page query"));
-            fail(QStringLiteral("Corrupt topology frame in page query")); return;
+            fail(m_store_error_message); return;
         }
         page.items.append(std::move(frame));
     }
@@ -514,7 +515,7 @@ void TopoReplayWorker::request_anomaly_page(quint64 request_id, quint32 nid, qin
     }
     query.bindValue(0, nid); query.bindValue(1, limit); query.bindValue(2, page.offset);
     if (!query.exec()) {
-        fail(fail_db(QStringLiteral("prepare topology anomaly page"), query.lastError().text())); return;
+        fail(fail_db(QStringLiteral("execute topology anomaly page"), query.lastError().text())); return;
     }
     while (query.next()) {
         TopoAnomaly a;
@@ -625,7 +626,7 @@ void TopoReplayWorker::report_store_error(const QString& detail) {
 }
 
 QString TopoReplayWorker::fail_db(const QString& operation, const QString& detail) {
-    const QString message = db_failure_message(operation, detail);
-    report_store_error(message);
-    return message;
+    report_store_error(db_failure_message(operation, detail));
+    // 详情只写日志;返回统一 UI 文案,供分页 error 携带,不得带操作名/SQLite 细节
+    return m_store_error_message;
 }
