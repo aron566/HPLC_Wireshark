@@ -64,6 +64,19 @@ local checks = {
      local ok = pcall(require, "outside")
      return not ok
    end, "require-outside-allowed"},
+  -- L14:package.searchpath 只做文件存在性检查、不经 sandbox_plugin_path 越界判定,
+  -- 留着它插件脚本就能拿它探任意路径;沙箱里必须为 nil。
+  {function() return package.searchpath == nil end, "package.searchpath-present"},
+  -- L14:带 __gc 的元表必须被 setmetatable 拒绝(GC 回调可能落在宿主拆状态/切线程时刻)
+  {function()
+     local ok = pcall(setmetatable, {}, {__gc = function() end})
+     return not ok
+   end, "setmetatable-__gc-allowed"},
+  -- 不带 __gc 的元表仍须可用,证明包装没有把 setmetatable 整体废掉
+  {function()
+     local t = setmetatable({}, {__index = function() return 9 end})
+     return t.anything == 9
+   end, "setmetatable-plain-broken"},
 }
 local fail = nil
 for _, c in ipairs(checks) do

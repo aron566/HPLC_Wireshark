@@ -647,6 +647,10 @@ void open_sandboxed_libs(lua_State* L, const QString& plugin_dir) {
     lua_getglobal(L, "load");
     lua_pushcclosure(L, l_sandbox_load, 1);
     lua_setglobal(L, "load");
+    // base:setmetatable 拒绝带 __gc 的元表(GC 回调可能落在宿主拆状态/切线程的时刻)
+    lua_getglobal(L, "setmetatable");
+    lua_pushcclosure(L, l_sandbox_setmetatable, 1);
+    lua_setglobal(L, "setmetatable");
 }
 }  // namespace
 
