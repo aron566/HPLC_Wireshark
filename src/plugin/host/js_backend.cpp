@@ -96,13 +96,16 @@ static QJSValue build_topo_event_object(QJSEngine& eng, const TopoEvent& e);
 
 bool JsBackend::check_error(const QJSValue& v, QString* err,
                             const QString& ctx) const {
+    // 先判返回值,再判 interrupted:脚本在超时边界上正常返回时,
+    // m_engine.isInterrupted() 可能仍为 true(看门狗刚置位、引擎尚未复位),
+    // 先判 interrupted 会把一个合法结果误报成"超时"。
+    if (v.isError()) {
+        *err = QStringLiteral("%1: %2").arg(ctx, v.toString());
+        return false;
+    }
     if (m_engine.isInterrupted()) {
         *err = QStringLiteral("%1: script exceeded %2 ms time limit, interrupted")
                    .arg(ctx).arg(m_watchdog.timeout_ms());
-        return false;
-    }
-    if (v.isError()) {
-        *err = QStringLiteral("%1: %2").arg(ctx, v.toString());
         return false;
     }
     return true;
@@ -298,6 +301,10 @@ QImage JsBackend::render_graphics(int w, int h, QString* err) {
     QPainter painter(&img);
     painter.setRenderHint(QPainter::Antialiasing);
     ScriptPainter bridge(&painter);
+    // bridge 是栈对象,而 newQObject() 默认把 JS 引擎当作它的 owner:
+    // 引擎析构/GC 时会 delete 一个栈地址 → 堆栈破坏。显式声明 CppOwnership,
+    // 让引擎只持有引用、不负责释放。
+    QJSEngine::setObjectOwnership(&bridge, QJSEngine::CppOwnership);
     QJSValue js_painter = m_engine.newQObject(&bridge);
     const QJSValue r = m_render_fn.call(
         QJSValueList{js_painter, QJSValue(w), QJSValue(h)});

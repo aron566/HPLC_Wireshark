@@ -12,6 +12,8 @@
 #include <cstring>
 #include <exception>
 
+#include <atomic>
+
 #include "plugin_env.h"
 #include "script_painter.h"
 
@@ -522,45 +524,66 @@ int l_sandbox_load(lua_State* L) {
     });
 }
 
+/// setmetatable 的沙箱包装:拒绝带 __gc 的元表
+/// @details __gc 会在 GC 时回调任意 Lua 函数,而 GC 可能发生在宿主正在
+///          拆状态/切线程的时刻;沙箱里没有理由需要它,直接拒。
+int l_sandbox_setmetatable(lua_State* L) {
+    return call_guarded(L, [&] {
+        if (lua_gettop(L) >= 2 && lua_istable(L, 2)) {
+            lua_getfield(L, 2, "__gc");
+            const bool has_gc = !lua_isnil(L, -1);
+            lua_pop(L, 1);
+            if (has_gc)
+                return luaL_error(L, "sandbox: metatable with __gc is not allowed");
+        }
+        lua_pushvalue(L, lua_upvalueindex(1));   // 原 setmetatable
+        lua_insert(L, 1);
+        lua_call(L, lua_gettop(L) - 1, LUA_MULTRET);
+        return lua_gettop(L);
+    });
+}
+
 /// require 的 Lua 文件搜索器:按 package.path 查找,但只加载插件目录内的文本 chunk
 int l_sandbox_lua_searcher(lua_State* L) {
     return call_guarded(L, [&] {
         const char* name = luaL_checkstring(L, 1);
         lua_settop(L, 1);
+        // 自己按 package.path 找文件,不再调 package.searchpath:
+        // searchpath 是 package 库的公开函数,沙箱里已置 nil(见 open_sandboxed_libs),
+        // 这里若还依赖它,要么被 nil 打断,要么就得把它留着给插件脚本用。
         lua_getglobal(L, LUA_LOADLIBNAME);   // 2
-        lua_getfield(L, 2, "searchpath");    // 3
-        lua_pushstring(L, name);
-        lua_getfield(L, 2, "path");
-        lua_call(L, 2, 2);                   // 3: filename | nil, 4: 未找到说明
-        if (lua_isnil(L, 3)) {
-            lua_pushvalue(L, 4);
+        lua_getfield(L, 2, "path");          // 3
+        const char* path_tmpl = lua_tostring(L, 3);
+        QString mod = QString::fromUtf8(name);
+        mod.replace(QLatin1Char('.'), QLatin1Char('/'));
+        QString found;
+        if (path_tmpl) {
+            const QStringList tmpls =
+                QString::fromUtf8(path_tmpl).split(QLatin1Char(';'));
+            for (const QString& t : tmpls) {
+                if (t.isEmpty()) continue;
+                QString cand = t;
+                cand.replace(QStringLiteral("?"), mod);
+                const QByteArray cand_u8 = cand.toUtf8();
+                const SandboxPath sp = sandbox_plugin_path(L, cand_u8.constData());
+                if (sp.status == SandboxPathStatus::Ok) { found = sp.path; break; }
+            }
+        }
+        lua_pop(L, 2);   // 弹掉 path 与 package 表,栈回到 [name]
+        if (found.isEmpty()) {
+            lua_pushfstring(L, "\n\tno file for module '%s' in package.path", name);
             return 1;
         }
-        const char* fname = lua_tostring(L, 3);
-        // L12:路径只解析一次(两次解析之间换 symlink 可越界,TOCTOU)。
-        // 状态与路径串在同一内层作用域取:路径串压进 Lua 栈由 Lua 持有,
-        // QString/QByteArray 在 luaL_error 之前已析构(longjmp 会跳过栈上
-        // C++ 对象的析构)。
-        // L11:不存在与越界分开报。
-        const SandboxPathStatus resolved_status = [&] {
-            const SandboxPath resolved = sandbox_plugin_path(L, fname);
-            if (resolved.status != SandboxPathStatus::Ok) return resolved.status;
-            const QByteArray p = resolved.path.toUtf8();
-            lua_pushlstring(L, p.constData(), (size_t)p.size());
-            return SandboxPathStatus::Ok;
-        }();
-        if (resolved_status != SandboxPathStatus::Ok) {
-            lua_pushfstring(L, resolved_status == SandboxPathStatus::NotFound
-                ? "\n\tmodule file '%s' does not exist"
-                : "\n\tmodule file '%s' is outside the plugin directory", fname);
-            return 1;
-        }
+        const QByteArray found_u8 = found.toUtf8();
+        lua_pushlstring(L, found_u8.constData(), (size_t)found_u8.size());  // 2: 路径串
+        const char* fname = lua_tostring(L, 2);
+        // 路径已在上面经 sandbox_plugin_path 解析并校验过一次(TOCTOU 窗口内不再重解析)。
         const char* path_c = lua_tostring(L, -1);
         if (luaL_loadfilex(L, path_c, "t") != LUA_OK)
             return luaL_error(L, "error loading module '%s' from file '%s':\n\t%s",
                               name, fname, lua_tostring(L, -1));
         lua_remove(L, -2);  // 弹出路径串,栈恢复为 [.., chunk]
-        lua_pushvalue(L, 3);  // 第二返回值:文件名(传给模块)
+        lua_pushstring(L, fname);  // 第二返回值:文件名(传给模块)
         return 2;
     });
 }
