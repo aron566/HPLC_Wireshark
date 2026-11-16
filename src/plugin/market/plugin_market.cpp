@@ -39,6 +39,8 @@ struct I18nRegPluginMarket {
                          "Privileged Install Failed");
         trl::register_en("提权安装校验失败：暂存目录内容在提权前被改动",
                          "Privileged Install Verification Failed: Staged Content Changed Before Elevation");
+        trl::register_en("提权安装校验失败：暂存目录含设备节点",
+                         "Privileged Install Verification Failed: Staged Directory Contains a Device Node");
         trl::register_en("无法校验暂存目录：%1",
                          "Cannot Verify Staged Directory: %1");
         trl::register_en("无写权限，且未找到 pkexec",
@@ -138,9 +140,11 @@ bool pkexec_available() {
     return !QStandardPaths::findExecutable(QStringLiteral("pkexec")).isEmpty();
 }
 
-/// 以提权方式部署插件:先在 root 侧重算暂存目录摘要并与提权前算好的比对
-/// (防提权前暂存目录在 /tmp 被替换),通过才 mkdir -p base && rm -rf dest && mv staged dest。
-/// 路径与摘要均以 sh 位置参数传递,避免 shell 注入;摘要不一致脚本退 2。
+/// 以提权方式部署插件:root 侧先把暂存目录复制到 mktemp -d 的 root 专属暂存区
+/// (去 suid/sgid 位、拒设备节点),再对该副本重算摘要并与提权前算好的比对,
+/// 通过才 mkdir -p base && rm -rf dest && mv staging dest——校验对象与移动对象
+/// 是同一棵 root 所有、攻击者不可写的树,堵住"校验后、移动前"暂存被替换的窗口。
+/// 路径与摘要均以 sh 位置参数传递,避免 shell 注入;摘要不一致脚本退 2,设备节点退 3。
 /// 摘要算法须与 staged_dir_digest 逐字节一致(条目行 "<相对路径>\0<内容 sha256 |
 /// link:<目标>|(目录)>\n",相对路径 "./" 开头、按字节序排)。
 bool pkexec_deploy(const QString& base_dir, const QString& dest_dir,
@@ -158,16 +162,23 @@ bool pkexec_deploy(const QString& base_dir, const QString& dest_dir,
         QStringList()
             << QStringLiteral("sh") << QStringLiteral("-c")
             << QStringLiteral(
-                   "cd \"$2\" || exit 1\n"
+                   "staging=$(mktemp -d) || exit 1\n"
+                   "trap 'rm -rf \"$staging\"' EXIT\n"
+                   "cp -a \"$2/.\" \"$staging/\" || exit 1\n"
+                   "chmod -R a-s \"$staging\" || exit 1\n"
+                   "[ -z \"$(find \"$staging\" \\( -type b -o -type c \\) -print -quit)\" ] || { echo staged device node rejected >&2; exit 3; }\n"
+                   "cd \"$staging\" || exit 1\n"
                    "actual=$(find . \\( -type f -o -type l -o -type d \\) -print0 | LC_ALL=C sort -z | tr \"\\0\" \"\\n\" | while IFS= read -r f; do if [ -L \"$f\" ]; then printf \"%s\\000link:%s\\n\" \"$f\" \"$(readlink \"$f\")\"; elif [ -d \"$f\" ]; then printf \"%s/\\000\\n\" \"$f\"; else printf \"%s\\000\" \"$f\"; sha256sum \"$f\" | cut -d\" \" -f1; fi; done | sha256sum | cut -d\" \" -f1)\n"
                    "[ \"$actual\" = \"$3\" ] || { echo staged digest mismatch >&2; exit 2; }\n"
-                   "mkdir -p \"$0\" && rm -rf \"$1\" && mv \"$2\" \"$1\"")
+                   "mkdir -p \"$0\" && rm -rf \"$1\" && mv \"$staging\" \"$1\"")
             << base_dir << dest_dir << staged_dir << staged_digest);
     proc.waitForFinished(180000);  // 等用户完成鉴权,给足时间
     if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0) {
         if (err) {
             if (proc.exitCode() == 2) {
                 *err = trl::L("提权安装校验失败：暂存目录内容在提权前被改动");
+            } else if (proc.exitCode() == 3) {
+                *err = trl::L("提权安装校验失败：暂存目录含设备节点");
             } else {
                 const QString se =
                     QString::fromLocal8Bit(proc.readAllStandardError()).trimmed();
