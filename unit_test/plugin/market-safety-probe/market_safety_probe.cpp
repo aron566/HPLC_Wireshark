@@ -526,9 +526,22 @@ static void test_install_context(const QString& root) {
 
 #ifndef Q_OS_WIN
     // 卸载后删旧版失败(目录不可写):必须 reload_cb 恢复加载
+    // 夹具说明:本检查依赖“0500 目录删不掉”。非 root 用户下 0500 本来就删
+    // 不掉;但本 VM 以 root 跑在 overlayfs 上,root 删 0500 目录内文件时,
+    // 目录组为 root 则成功、组为 nogroup 则 EACCES。直接在 ctx-a 下 mkpath
+    // 会随 ctx-a 的组变化(P2-2 修复后 ctx-a 不再继承 setgid,组变 root),
+    // 所以先在 setgid 父目录(安装目录 base,组 nogroup)下建好 locked/,
+    // 再 rename 进 ctx-a,使其组与 ctx-a 自身的模式无关;rename 只移动
+    // inode,组与模式原样保留。注意顺序:必须先 rename、后 chmod 0500——
+    // 同一环境下 rename 一个含文件的 0500 目录会 EACCES,先在可写状态下
+    // 移入 ctx-a 再就地收权限。
+    const QString lockedStage = base + QStringLiteral("/.locked-stage");
+    const QString lockedStaged = lockedStage + QStringLiteral("/locked");
+    QDir().mkpath(lockedStaged);
+    write_file(lockedStaged + QStringLiteral("/f.txt"), "x");
     const QString locked = base + QStringLiteral("/ctx-a/locked");
-    QDir().mkpath(locked);
-    write_file(locked + QStringLiteral("/f.txt"), "x");
+    QDir().rename(lockedStaged, locked);
+    QDir().rmdir(lockedStage);
     QFile::setPermissions(locked, QFileDevice::ReadOwner | QFileDevice::ExeOwner);
     unloads = reloads = 0;
     fin = true;
