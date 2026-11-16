@@ -161,6 +161,36 @@ static void test_install_traversal(const QString& root) {
     check("uninstall: valid ok", mk.uninstall(QStringLiteral("ok-name")));
 }
 
+/// 离线安装只解包一次:install_from_file 解包读清单后把 staged 目录传给
+/// finish_install_from_zip 复用(修前两者各解一次,共两次);安装结果与修前一致
+static void test_offline_install_single_unzip(const QString& root) {
+    const QString zip = root + QStringLiteral("/once.zip");
+    check("single-unzip: build package",
+          make_zip(zip, {{"plugin.json", manifest_json("once-pkg")}, {"x.js", "1"}}));
+    PluginMarket mk;
+    PluginMarket::reset_unzip_call_count();
+    bool fin_ok = false;
+    QString fin_name;
+    QObject::connect(&mk, &PluginMarket::install_finished,
+                     [&](bool ok, const QString&, const QString& name) {
+                         fin_ok = ok; fin_name = name;
+                     });
+    mk.install_from_file(zip);
+    const QString base = PluginMarket::default_install_dir();
+    check("single-unzip: offline install ok",
+          fin_ok && fin_name == QStringLiteral("once-pkg"));
+    check("single-unzip: unzipped exactly once",
+          PluginMarket::unzip_call_count() == 1);
+    QFile installed(base + QStringLiteral("/once-pkg/x.js"));
+    check("single-unzip: installed file content intact",
+          installed.open(QIODevice::ReadOnly) && installed.readAll() == QByteArray("1"));
+    QFile meta(base + QStringLiteral("/once-pkg/meta.json"));
+    check("single-unzip: meta.json source=file",
+          meta.open(QIODevice::ReadOnly) &&
+              meta.readAll().contains(QByteArray("\"source\": \"file\"")));
+    mk.uninstall(QStringLiteral("once-pkg"));
+}
+
 // ── H3:zip 条目名校验 + 解包上限 ──
 static void test_zip_entry_names(const QString& root) {
     const QString dest = root + QStringLiteral("/x/staged");
@@ -292,9 +322,12 @@ static void test_market_sha256(const QString& root) {
     check("market: mismatch message localized (zh UI)",
           !run(QString(64, QLatin1Char('0')), &err) && err.contains(QStringLiteral("SHA-256 不匹配")));
     trl::set_enabled(true);
+    PluginMarket::reset_unzip_call_count();
     const bool good = run(good_sha, &err);
     if (!good) std::printf("  err: %s\n", qPrintable(err));
     check("market: correct sha256 installs", good);
+    check("market: install unzipped exactly once (online path unaffected)",
+          PluginMarket::unzip_call_count() == 1);
 }
 
 // ── L6:并发安装上下文隔离 + unload_cb 推迟到拷贝前、失败时 reload_cb ──
@@ -391,6 +424,7 @@ int main(int argc, char** argv) {
     test_plugin_dir_path(tmp.path());
     test_manifest_name(tmp.path());
     test_install_traversal(tmp.path());
+    test_offline_install_single_unzip(tmp.path());
     test_zip_entry_names(tmp.path());
     test_zip_limits(tmp.path());
     test_market_sha256(tmp.path());

@@ -19,6 +19,7 @@
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QUrl>
+#include <memory>
 
 #include "i18n.h"
 #include "miniz.h"  // 3rdparty/miniz, public domain, zip 解包
@@ -478,7 +479,8 @@ void PluginMarket::install_from_file(const QString& zip_path) {
     ctx.source = QStringLiteral("file");
     ctx.updated_at =
         QFileInfo(zip_path).lastModified().toUTC().toString(Qt::ISODate);
-    // 先解包读清单拿到插件名(离线包无 feed,不做 sha256 校验)
+    // 先解包读清单拿到插件名(离线包无 feed,不做 sha256 校验);解好的目录
+    // 直接传给 finish_install_from_zip 复用,不再二次解包
     QTemporaryDir tmp;
     if (!tmp.isValid()) {
         emit install_finished(false, trl::L("无法创建临时目录"), QString());
@@ -496,11 +498,12 @@ void PluginMarket::install_from_file(const QString& zip_path) {
         return;
     }
     ctx.name = m.name;
-    finish_install_from_zip(zip_path, ctx);
+    finish_install_from_zip(zip_path, ctx, staged);
 }
 
 void PluginMarket::finish_install_from_zip(const QString& zip_path,
-                                           const InstallContext& ctx) {
+                                           const InstallContext& ctx,
+                                           const QString& staged_dir) {
     const QString& name = ctx.name;
     const QString& expected_sha256 = ctx.sha256;
     // 市场安装已在 install_market_plugin 保证 expected_sha256 非空;
@@ -512,16 +515,24 @@ void PluginMarket::finish_install_from_zip(const QString& zip_path,
                               name);
         return;
     }
-    QTemporaryDir tmp;
-    if (!tmp.isValid()) {
-        emit install_finished(false, trl::L("无法创建临时目录"), name);
-        return;
-    }
-    const QString staged = tmp.path() + QStringLiteral("/staged");
+    // 调用方已解包时直接复用(离线安装:install_from_file 已解过一次),
+    // 不再新建临时目录二次解包;否则自行建临时目录解包
+    std::unique_ptr<QTemporaryDir> tmp;
+    QString staged;
     QString err;
-    if (!unzip_to_dir(zip_path, staged, &err)) {
-        emit install_finished(false, err, name);
-        return;
+    if (staged_dir.isEmpty()) {
+        tmp.reset(new QTemporaryDir);
+        if (!tmp->isValid()) {
+            emit install_finished(false, trl::L("无法创建临时目录"), name);
+            return;
+        }
+        staged = tmp->path() + QStringLiteral("/staged");
+        if (!unzip_to_dir(zip_path, staged, &err)) {
+            emit install_finished(false, err, name);
+            return;
+        }
+    } else {
+        staged = staged_dir;
     }
     const PluginManifest m = read_plugin_manifest(staged);
     if (!m.valid) {
@@ -758,6 +769,9 @@ constexpr mz_uint64 kZipMaxEntryBytes = 64ull * 1024 * 1024;
 constexpr mz_uint64 kZipMaxTotalBytes = 256ull * 1024 * 1024;
 constexpr mz_uint kZipMaxEntries = 4096;
 
+/// unzip_to_dir 累计调用次数(仅探针用:验证离线安装只解包一次)
+int g_unzip_call_count = 0;
+
 /// 解压写回调:实际写出字节数不得超过中央目录声明的大小(防声明值作假)
 struct CappedFileWriter {
     QFile* file;
@@ -783,6 +797,7 @@ bool real_dir_inside(const QString& dir, const QString& canonical_root) {
 
 bool PluginMarket::unzip_to_dir(const QString& zip_path,
                                 const QString& dest_dir, QString* err) {
+    ++g_unzip_call_count;
     mz_zip_archive zip;
     memset(&zip, 0, sizeof(zip));
     const QByteArray zp = zip_path.toLocal8Bit();
@@ -864,6 +879,10 @@ bool PluginMarket::unzip_to_dir(const QString& zip_path,
         *err = trl::L("压缩包读取错误");
     return ok;
 }
+
+int PluginMarket::unzip_call_count() { return g_unzip_call_count; }
+
+void PluginMarket::reset_unzip_call_count() { g_unzip_call_count = 0; }
 
 int PluginMarket::compare_version(const QString& a, const QString& b) {
     const auto pa = a.split(QLatin1Char('.'));

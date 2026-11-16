@@ -142,6 +142,10 @@ public:
     ///        限制单条目 64 MB / 总量 256 MB / 条目数 4096
     static bool unzip_to_dir(const QString& zip_path, const QString& dest_dir,
                              QString* err);
+    /// @brief unzip_to_dir 累计调用次数(仅探针用:验证离线安装只解包一次)
+    static int unzip_call_count();
+    /// @brief 复位 unzip_call_count(仅探针用)
+    static void reset_unzip_call_count();
     /// @brief zip 条目在 dest_dir 下的落盘路径;绝对路径、盘符、UNC、反斜杠、
     ///        ".." 组件或规范化后不在 dest_dir 内时返回空串
     static QString safe_extract_path(const QString& dest_dir,
@@ -175,7 +179,11 @@ private:
         QString source;      ///< 来源(feed URL / file)
         QString updated_at;  ///< 版本更新时间(可空)
     };
-    void finish_install_from_zip(const QString& zip_path, const InstallContext& ctx);
+    /// @brief 完成一次安装:先校验 sha256(市场安装),再解包、读清单、比对名称、部署
+    /// @param staged_dir 调用方已解包的目录(离线安装复用 install_from_file
+    ///        已解好的目录):非空时跳过新建临时目录与二次解包;空=自行解包
+    void finish_install_from_zip(const QString& zip_path, const InstallContext& ctx,
+                                 const QString& staged_dir = QString());
     bool deploy_staged(const QString& staged_dir, const QString& plugin_name,
                        const InstallContext& ctx, QString* err);
     /// 写插件目录下的 meta.json(默认启用,记录来源与版本更新时间)
