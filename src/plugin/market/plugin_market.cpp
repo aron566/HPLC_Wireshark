@@ -57,6 +57,8 @@ struct I18nRegPluginMarket {
                          "Staged Directory Contains a Symlink: %1");
         trl::register_en("无法设置文件权限：%1",
                          "Cannot Set File Permissions: %1");
+        trl::register_en("无法设置目录权限：%1",
+                         "Cannot Set Directory Permissions: %1");
         trl::register_en("插件列表超出大小上限",
                          "Plugin Feed Exceeds the Size Limit");
         trl::register_en("文本超出大小上限",
@@ -240,6 +242,11 @@ bool PluginMarket::copy_dir_recursive(const QString& src, const QString& dst,
     QDir s(src);
     if (!QDir().mkpath(dst)) {
         if (err) *err = trl::L("无法创建目录：%1").arg(dst);
+        return false;
+    }
+    // P2-2:保持源目录权限位(QDir::mkpath 只按 umask 建目录,不继承源权限)
+    if (!QFile::setPermissions(dst, QFile::permissions(src))) {
+        if (err) *err = trl::L("无法设置目录权限：%1").arg(dst);
         return false;
     }
     for (const QString& e : s.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {

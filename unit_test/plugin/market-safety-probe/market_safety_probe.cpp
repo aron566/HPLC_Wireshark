@@ -270,6 +270,19 @@ static void test_copy_dir_recursive(const QString& root) {
                       QFile::ExeOther) &&
               QFile::setPermissions(src + QStringLiteral("/plain.txt"),
                                     QFile::ReadOwner | QFile::WriteOwner));
+#ifndef Q_OS_WIN
+    // P2-2:目录权限也要保持(旧实现只同步文件权限位,目录一律按 umask 落盘)。
+    // 注意:QFile::permissions() 总是上报 ReadUser|WriteUser(目录还带 ExeUser),
+    // 经 setPermissions 回写会强制属主可读写,故 0550 这类去写位的源目录无法用
+    // QFile API 原样复现(会变 0750);夹具用 0750,旧实现按 umask 落盘仍能验出。
+    check("copy: dir fixture",
+          QFile::setPermissions(src, QFile::ReadOwner | QFile::WriteOwner |
+                                        QFile::ExeOwner) &&
+              QFile::setPermissions(src + QStringLiteral("/sub"),
+                                    QFile::ReadOwner | QFile::WriteOwner |
+                                        QFile::ExeOwner | QFile::ReadGroup |
+                                        QFile::ExeGroup));
+#endif
     QString err;
     check("copy: clean tree ok", PluginMarket::copy_dir_recursive(src, dst, &err));
     check("copy: exec bit kept",
@@ -281,6 +294,13 @@ static void test_copy_dir_recursive(const QString& root) {
     check("copy: 0644 kept",
           QFile::permissions(dst + QStringLiteral("/sub/a.txt")) ==
               QFile::permissions(src + QStringLiteral("/sub/a.txt")));
+#ifndef Q_OS_WIN
+    check("copy: dir 0700 kept",
+          QFile::permissions(dst) == QFile::permissions(src));
+    check("copy: subdir 0750 kept",
+          QFile::permissions(dst + QStringLiteral("/sub")) ==
+              QFile::permissions(src + QStringLiteral("/sub")));
+#endif
     // 反向用例:符号链接一律拒装(旧实现会跟随复制,连目录外的目标内容也照抄)
     const QString outside = root + QStringLiteral("/outside.txt");
     write_file(outside, "SECRET");
