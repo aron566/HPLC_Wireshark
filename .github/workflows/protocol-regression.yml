@@ -630,6 +630,11 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq clang libclang-rt-18-dev
           clang++ --version
 
+      # ubuntu-24.04 runner 内核 vm.mmap_rnd_bits=32,AddressSanitizer 运行时可能启动失败
+      # (同 runtime-probes-linux 的 TSan job 一样的 mmap 熵问题);调回 28 再跑 fuzz
+      - name: Allow sanitizer runtime (vm.mmap_rnd_bits=28)
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
       - name: Build and run libFuzzer short run (unit_test/fuzz, 30 s)
         env:
           QT_QPA_PLATFORM: offscreen
