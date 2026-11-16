@@ -781,6 +781,7 @@ jobs:
           plugin/plugin-ipc-thread-probe
           plugin/ipc-decode-probe
           common/i18n-concurrency-probe
+          app/updater-filename-probe
           app/frame-dispatcher-lifetime-probe
           app/downloader-rename-probe
 
