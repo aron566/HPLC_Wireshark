@@ -72,6 +72,7 @@ for _, c in ipairs(checks) do
 end
 function get_info() return {protocolId = fail or "SANDBOX_OK", displayName = "sandbox"} end
 function parse(frame) return {accept = false} end
+function dofile_once() return tostring(dofile("helper.lua").v) end
 )LUA";
 
 static void test_sandbox(const QString& root) {
@@ -94,6 +95,13 @@ static void test_sandbox(const QString& root) {
     const bool ok = b.initialize(m, &err);
     if (!ok) std::printf("  err: %s\n", qPrintable(err));
     check("sandbox: all in-script checks pass", ok);
+
+    // P1(TOCTOU, fix A):一次 dofile 只解析沙箱路径一次(两次解析之间换
+    // symlink 可越界)。黑盒并发换链测试写不出确定性的,故只做结构断言。
+    LuaBackend::reset_sandbox_path_resolve_count();
+    const QString v = b.call_text_function("dofile_once", &err);
+    check("dofile resolves sandbox path exactly once",
+          v == QStringLiteral("42") && LuaBackend::sandbox_path_resolve_count() == 1);
 
     // 入口脚本为字节码时拒绝加载
     const QString bdir = parent + QStringLiteral("/lua-bytecode");

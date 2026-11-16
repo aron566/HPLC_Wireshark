@@ -429,7 +429,10 @@ struct SandboxPath {
     SandboxPathStatus status = SandboxPathStatus::NotFound;
     QString path;
 };
+/// @brief sandbox_plugin_path 调用次数(仅探针用:断言单次解析)
+int g_sandbox_path_resolve_count = 0;
 SandboxPath sandbox_plugin_path(lua_State* L, const char* fname) {
+    ++g_sandbox_path_resolve_count;
     const QString dir = QString::fromUtf8(lua_tostring(L, lua_upvalueindex(1)));
     const QString root = QFileInfo(dir).canonicalFilePath();
     const QString path = QDir(dir).absoluteFilePath(QString::fromUtf8(fname));
@@ -477,22 +480,25 @@ int l_sandbox_loadfile(lua_State* L) {
 int l_sandbox_dofile(lua_State* L) {
     return call_guarded(L, [&] {
         const char* fname = luaL_checkstring(L, 1);
-        // L12:路径解析与判空只在内层作用域做,QString 在 luaL_error 之前已
-        // 析构(longjmp 会跳过栈上 C++ 对象的析构)。
+        // L12:路径只解析一次(两次解析之间换 symlink 可越界,TOCTOU)。
+        // 状态与路径串在同一内层作用域取:路径串压进 Lua 栈由 Lua 持有,
+        // QString/QByteArray 在 luaL_error 之前已析构(longjmp 会跳过栈上
+        // C++ 对象的析构)。
         // L11:不存在与越界分开报——状态只在内层作用域取,结构体随之析构。
-        const SandboxPathStatus resolved_status =
-            [&] { return sandbox_plugin_path(L, fname).status; }();
+        const SandboxPathStatus resolved_status = [&] {
+            const SandboxPath resolved = sandbox_plugin_path(L, fname);
+            if (resolved.status != SandboxPathStatus::Ok) return resolved.status;
+            lua_settop(L, 1);
+            const QByteArray p = resolved.path.toUtf8();
+            lua_pushlstring(L, p.constData(), (size_t)p.size());
+            return SandboxPathStatus::Ok;
+        }();
         if (resolved_status != SandboxPathStatus::Ok)
             return luaL_error(L, resolved_status == SandboxPathStatus::NotFound
                 ? "dofile: '%s' does not exist"
                 : "dofile: '%s' is outside the plugin directory", fname);
-        lua_settop(L, 1);
-        // 路径串压进 Lua 栈由 Lua 持有,后续加载/调用抛错 longjmp 时栈上
-        // 无待析构的 C++ 对象;加载完弹出,不进入返回值。
-        {
-            const QByteArray p = sandbox_plugin_path(L, fname).path.toUtf8();
-            lua_pushlstring(L, p.constData(), (size_t)p.size());
-        }
+        // 路径串在 Lua 栈上,后续加载/调用抛错 longjmp 时栈上无待析构的
+        // C++ 对象;加载完弹出,不进入返回值。
         const char* path_c = lua_tostring(L, -1);
         if (luaL_loadfilex(L, path_c, "t") != LUA_OK) return lua_error(L);
         lua_remove(L, -2);  // 弹出路径串,栈恢复为 [fname, chunk]
@@ -531,20 +537,23 @@ int l_sandbox_lua_searcher(lua_State* L) {
             return 1;
         }
         const char* fname = lua_tostring(L, 3);
-        // L12:路径解析与判空在内层作用域做,越界时 QString 已析构;路径串
-        // 压进 Lua 栈由 Lua 持有,后续 luaL_error longjmp 不跳过 C++ 析构。
+        // L12:路径只解析一次(两次解析之间换 symlink 可越界,TOCTOU)。
+        // 状态与路径串在同一内层作用域取:路径串压进 Lua 栈由 Lua 持有,
+        // QString/QByteArray 在 luaL_error 之前已析构(longjmp 会跳过栈上
+        // C++ 对象的析构)。
         // L11:不存在与越界分开报。
-        const SandboxPathStatus resolved_status =
-            [&] { return sandbox_plugin_path(L, fname).status; }();
+        const SandboxPathStatus resolved_status = [&] {
+            const SandboxPath resolved = sandbox_plugin_path(L, fname);
+            if (resolved.status != SandboxPathStatus::Ok) return resolved.status;
+            const QByteArray p = resolved.path.toUtf8();
+            lua_pushlstring(L, p.constData(), (size_t)p.size());
+            return SandboxPathStatus::Ok;
+        }();
         if (resolved_status != SandboxPathStatus::Ok) {
             lua_pushfstring(L, resolved_status == SandboxPathStatus::NotFound
                 ? "\n\tmodule file '%s' does not exist"
                 : "\n\tmodule file '%s' is outside the plugin directory", fname);
             return 1;
-        }
-        {
-            const QByteArray p = sandbox_plugin_path(L, fname).path.toUtf8();
-            lua_pushlstring(L, p.constData(), (size_t)p.size());
         }
         const char* path_c = lua_tostring(L, -1);
         if (luaL_loadfilex(L, path_c, "t") != LUA_OK)
@@ -616,6 +625,10 @@ LuaBackend::LuaBackend() = default;
 LuaBackend::~LuaBackend() {
     shutdown();
 }
+
+int LuaBackend::sandbox_path_resolve_count() { return g_sandbox_path_resolve_count; }
+
+void LuaBackend::reset_sandbox_path_resolve_count() { g_sandbox_path_resolve_count = 0; }
 
 bool LuaBackend::initialize(const PluginManifest& m, QString* err) {
     if (m.api_version != 1) {

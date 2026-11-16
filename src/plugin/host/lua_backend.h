@@ -68,6 +68,11 @@ public:
     // ---- 脚本函数调用 ----
     QString call_text_function(const char* name, QString* err) override;
 
+    /// @brief sandbox_plugin_path 调用次数(仅探针用:断言单次解析)
+    static int sandbox_path_resolve_count();
+    /// @brief 复位 sandbox_path_resolve_count(仅探针用)
+    static void reset_sandbox_path_resolve_count();
+
     // ---- 主界面 → 插件通知 ----
     /// @brief 调用脚本全局函数 on_frame_selected(frameIndex, forceHistory)
     void notify_frame_selected(qint64 frameIndex, bool force_history) override;
