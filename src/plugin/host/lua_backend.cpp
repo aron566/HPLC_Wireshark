@@ -432,7 +432,9 @@ struct SandboxPath {
     QString path;
 };
 /// @brief sandbox_plugin_path 调用次数(仅探针用:断言单次解析)
-int g_sandbox_path_resolve_count = 0;
+/// @details 探针在工作线程里跑脚本、主线程读计数,普通 int 的 ++ 与读是数据竞争
+///          (UB,TSAN 会报)。同 PR 的 g_unzip_call_count 已改 atomic,这里对齐。
+std::atomic<int> g_sandbox_path_resolve_count{0};
 SandboxPath sandbox_plugin_path(lua_State* L, const char* fname) {
     ++g_sandbox_path_resolve_count;
     const QString dir = QString::fromUtf8(lua_tostring(L, lua_upvalueindex(1)));
@@ -618,6 +620,11 @@ void open_sandboxed_libs(lua_State* L, const QString& plugin_dir) {
     lua_setfield(L, -2, "cpath");
     lua_pushnil(L);
     lua_setfield(L, -2, "loadlib");
+    // searchpath 是 package 库的公开函数:留着它,插件脚本就能拿它探任意路径
+    // (它只做文件存在性检查,不经过 sandbox_plugin_path 的越界判定)。
+    // 沙箱自己的 searcher 已改为直接读 package.path,不再依赖它。
+    lua_pushnil(L);
+    lua_setfield(L, -2, "searchpath");
     lua_getfield(L, -1, "searchers");  // {preload, Lua, C, Croot} → preload + 受限 Lua 搜索器
     if (lua_istable(L, -1)) {
         for (lua_Integer i = luaL_len(L, -1); i > 2; --i) {
@@ -649,9 +656,9 @@ LuaBackend::~LuaBackend() {
     shutdown();
 }
 
-int LuaBackend::sandbox_path_resolve_count() { return g_sandbox_path_resolve_count; }
+int LuaBackend::sandbox_path_resolve_count() { return g_sandbox_path_resolve_count.load(); }
 
-void LuaBackend::reset_sandbox_path_resolve_count() { g_sandbox_path_resolve_count = 0; }
+void LuaBackend::reset_sandbox_path_resolve_count() { g_sandbox_path_resolve_count.store(0); }
 
 bool LuaBackend::initialize(const PluginManifest& m, QString* err) {
     if (m.api_version != 1) {
