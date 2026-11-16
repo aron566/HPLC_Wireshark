@@ -565,7 +565,7 @@ bool TopoReplayWorker::clear_store() {
         // 每次清库失败都要让用户知道:不走 report_store_error 的"只报一次"去重,
         // 否则一次入库失败后此后的清库失败都会被吞掉;详情记日志,UI 只见统一文案
         qWarning().noquote() << db_failure_message(QStringLiteral("clear topology store"), detail);
-        emit worker_error(trl::L("拓扑历史读取失败"));
+        emit worker_error(trl::L("拓扑存储不可用"));
         return false;
     };
     if (!query.exec(QStringLiteral("BEGIN IMMEDIATE"))) return fail(query.lastError().text());
@@ -587,7 +587,7 @@ void TopoReplayWorker::clear() {
     m_last_applied_frame = -1;
     if (!cleared) {
         m_store_failed = true;
-        m_store_error_message = trl::L("拓扑历史读取失败");
+        m_store_error_message = trl::L("拓扑存储不可用");
         m_store_error_reported = true;   // clear_store 已上报具体原因
     } else {
         // 库已清空(或库从未打开、clear_store 直接返回成功)、实时状态随之重置,
