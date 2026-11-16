@@ -19,6 +19,8 @@
 // (m) 截断帧保留并标注(d17/d18):ChangeProxyReq 体不足 14B 与 LeaveInd
 // 固定头不足 16B / MAC 列表不足 16+6n 时仍记一条事件(只进事件表,不改
 // 拓扑),说明写截断原因、摘要加后缀、字段树末尾加"(消息截断)"节点。
+// (n) L3: add_fields 截断(d19):spec 表数据不足时已读字段保留,末尾追
+// 加"(字段截断)"标记节点(期望/实际字节数),不再静默丢弃剩余字段。
 // 另渲染一帧截断 OFDMA 帧的字段树,验证 gw_2026_tree.cpp 的 eFC 循环
 // 在 rsz<32 时被跳过(纵深防御)。
 // 用法:./build.sh (构建 + 运行;构建时 qmake 传 SANITIZERS=address)。
@@ -918,6 +920,37 @@ int main(int argc, char* argv[]) {
         };
         run_partial_mark(GW_2022_MsduParser::parse, "gw2022-leaveind-partial-mark");
         run_partial_mark(GW_2026_MsduParser::parse, "gw2026-leaveind-partial-mark");
+    }
+
+    // --- (d19) L3: add_fields 数据不足追加截断标记, 不再静默丢弃 ---
+    // spec 需 4B(A@0/B@1/C@3); 只给 2B 时 A/B 照常保留, 末尾追加
+    // "(字段截断)" 节点并注明期望 4B/实际 2B; 数据足够时不加标记。
+    {
+        static const FieldSpec kTruncSpec[] = {
+            {"A", 0, 0, 8, Fmt::DEC},
+            {"B", 1, 0, 8, Fmt::DEC},
+            {"C", 3, 0, 8, Fmt::DEC},
+        };
+        QVector<MsduFieldNode> nodes;
+        add_fields(nodes, QByteArray("AB", 2), 0, kTruncSpec, 3);
+        check("addfields-trunc-mark",
+              nodes.size() == 3
+                  && nodes[0].name.startsWith(QStringLiteral("A"))
+                  && nodes[1].name.startsWith(QStringLiteral("B"))
+                  && nodes[2].name == QStringLiteral("(字段截断)")
+                  && nodes[2].value == QStringLiteral("期望至少 4 字节，实际 2 字节"),
+              QStringLiteral("n=%1 last=%2/%3")
+                  .arg(nodes.size())
+                  .arg(nodes.size() > 2 ? nodes[2].name : QStringLiteral("-"))
+                  .arg(nodes.size() > 2 ? nodes[2].value : QStringLiteral("-")));
+        QVector<MsduFieldNode> full;
+        add_fields(full, QByteArray("ABCD", 4), 0, kTruncSpec, 3);
+        check("addfields-full-no-mark",
+              full.size() == 3
+                  && full[2].name.startsWith(QStringLiteral("C")),
+              QStringLiteral("n=%1 last=%2")
+                  .arg(full.size())
+                  .arg(full.size() > 2 ? full[2].name : QStringLiteral("-")));
     }
 
     std::printf("RESULT: %d PASS, %d FAIL\n", g_passes, g_fails);

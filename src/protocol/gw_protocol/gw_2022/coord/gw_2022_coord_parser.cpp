@@ -11,11 +11,11 @@
 namespace gw_2022_coordp {
 
 void parse_fch(const quint8* p, MpduInfo& m) {
-    m.coord_duration      = (quint16)get_bits(p, 4, 0, 16);
-    m.coord_shift         = (quint16)get_bits(p, 6, 0, 16);
-    m.coord_neighbour_nid = (quint32)get_bits(p, 8, 0, 24);
-    m.coord_rf_channel    = (quint8)get_bits(p, 11, 0, 8);
-    m.coord_rsv0          = (quint8)get_bits(p, 12, 0, 4);
+    m.coord_duration      = (quint16)get_bits_unchecked(p, 4, 0, 16);
+    m.coord_shift         = (quint16)get_bits_unchecked(p, 6, 0, 16);
+    m.coord_neighbour_nid = (quint32)get_bits_unchecked(p, 8, 0, 24);
+    m.coord_rf_channel    = (quint8)get_bits_unchecked(p, 11, 0, 8);
+    m.coord_rsv0          = (quint8)get_bits_unchecked(p, 12, 0, 4);
 }
 
 }  // namespace gw_2022_coordp

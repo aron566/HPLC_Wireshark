@@ -128,7 +128,7 @@ How it works: Wireshark 4.x stores the UI language in `%APPDATA%\Wireshark\langu
 (content `language: en`); the dissector reads it at load time to choose field names.
 
 > Env vars override (take priority over the UI language): SGCC `HPLC_RF_LANG=en` / `=zh`,
-> CSG `NW_2021_LANG=en` / `=zh`.
+> CSG `NW_2021_LANG=en` / `=zh` (2021 plugin), `NW_2026_LANG=en` / `=zh` (2026 plugin).
 
 ## Updating the installed plugins (avoiding dissector divergence)
 

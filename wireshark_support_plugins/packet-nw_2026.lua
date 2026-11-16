@@ -177,8 +177,8 @@ local function wireshark_language_file()
 end
 
 local function detect_english()
-    -- 1) 环境变量覆盖 (NW_2021_LANG=en/zh)
-    local env = os.getenv("NW_2021_LANG")
+    -- 1) 环境变量覆盖 (NW_2026_LANG=en/zh)
+    local env = os.getenv("NW_2026_LANG")
     if env == "en" then return true end
     if env == "zh" then return false end
     -- 2) 读 Wireshark language 文件

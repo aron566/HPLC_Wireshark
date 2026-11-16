@@ -629,19 +629,19 @@ static const int kMsduBaseSSpecN = int(sizeof(kMsduBaseSSpec) / sizeof(kMsduBase
 // 参考:§5.1.1.4 单跳MAC帧头(表11) / §5.13.23 无线发现列表报文(表123-137)。
 
 /// 邻居节点信道信息组合类型字段位宽(表129 非位图版 / 表137 位图版)
-struct RfdlChCombo {
+struct Gw2022RfdlChCombo {
     quint8 rcv;   ///< 接收率位宽(0/6/8)
     quint8 snr;   ///< 平均信噪比位宽(0/4/6)
     quint8 rssi;  ///< 信号强度位宽(0/4/6/8)
 };
 
 // 表129:非位图版(每条固定含 TEI 12b)
-static const RfdlChCombo kRfdlNonBitmap[] = {
+static const Gw2022RfdlChCombo kRfdlNonBitmap[] = {
     {8,0,0}, {0,4,0}, {0,0,8}, {0,0,4}, {8,4,0},
     {6,0,6}, {0,6,6}, {8,6,6}, {0,4,4}, {8,0,4},
 };
 // 表137:位图版(无 TEI,由位图索引定位)
-static const RfdlChCombo kRfdlBitmap[] = {
+static const Gw2022RfdlChCombo kRfdlBitmap[] = {
     {8,0,0}, {0,4,0}, {0,0,8}, {0,0,4}, {8,4,0},
     {8,0,8}, {0,6,6}, {8,6,6}, {8,4,4}, {0,4,4}, {8,0,4},
 };
@@ -693,7 +693,7 @@ static void rfdl_bit_field(MsduFieldNode& parent, const char* name,
 
 /// 渲染一条邻居信道信息(位流内,自 bitpos 起),返回下一条起始位
 static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
-                               int bitpos, const RfdlChCombo& cb,
+                               int bitpos, const Gw2022RfdlChCombo& cb,
                                int cbase_abs, bool has_tei,
                                quint16 tei = 0,
                                QVector<QPair<quint16, int>>* rssi_out = nullptr,
@@ -901,7 +901,7 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
                 g.value = QString(content.toHex(' '));
                 break;
             }
-            const RfdlChCombo& cb = kRfdlNonBitmap[combo];
+            const Gw2022RfdlChCombo& cb = kRfdlNonBitmap[combo];
             const int entry_bits = 12 + cb.rcv + cb.snr + cb.rssi;
             // 表128/129 头:信道信息组合类型(0,0-3,4b)+保留(0,4-7,4b)——此前整字节跳过未渲染
             {
@@ -942,7 +942,7 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base) {
                 g.value = QString(content.toHex(' '));
                 break;
             }
-            const RfdlChCombo& cb = kRfdlBitmap[combo];
+            const Gw2022RfdlChCombo& cb = kRfdlBitmap[combo];
             const int entry_bits = cb.rcv + cb.snr + cb.rssi;
             const int total_bits = content.size() * 8;  // 越界防护基准(与 gw_2026 P1 同)
             // 表136/137 头:信道信息组合类型(0,0-3,4b)+保留(0,4-7,4b)——此前整字节跳过未渲染
@@ -1086,8 +1086,8 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
             {128, QStringLiteral("Application Level Message")},
             {129, QStringLiteral("IPv4 Message")},
         });
-        quint8 msdu_type = (quint8)get_bits(p, 1, 0, 8);
-        int   msdu_len   = (int)get_bits(p, 2, 0, 11);
+        quint8 msdu_type = (quint8)get_bits_unchecked(p, 1, 0, 8);
+        int   msdu_len   = (int)get_bits_unchecked(p, 2, 0, 11);
         if (msdu_len > body.size() - 4) msdu_len = body.size() - 4;  // 防声明长度越界
         QByteArray msdu_body = body.mid(4, msdu_len);
         if (static_cast<GW_2022_MsduSType>(msdu_type) == GW_2022_MsduSType::DISCOVERY_LIST) {
@@ -1131,24 +1131,24 @@ MsduInfo GW_2022_MsduParser::parse(const QByteArray& body) {
     if (body.size() < 16) { pa::warn("gw_2022:content_short", QStringLiteral("body %1B<16B").arg(body.size())); return out; }
     add_fields(out.tree, body, 0, kMsduBaseSpec, kMsduBaseSpecN);
     annotate_msdu_base(out.tree);   // 标志/枚举字段加数值解释
-    out.msdu_seq = (quint16)get_bits(p, 5, 0, 16);   // MSDU Seq(MSDUIndex)
+    out.msdu_seq = (quint16)get_bits_unchecked(p, 5, 0, 16);   // MSDU Seq(MSDUIndex)
     // 原始发起/终点 TEI(长头 MSDU_BASE;供列表 Orig 列与方向判定)
-    out.msdu_src_tei  = (int)get_bits(p, 0, 4, 12);
-    out.msdu_dst_tei  = (int)get_bits(p, 2, 0, 12);
-    out.msdu_send_type = (int)get_bits(p, 3, 4, 4);   // 广播类型判定
-    out.route_hops_left     = (quint8)get_bits(p, 10, 4, 4); // 路由剩余跳数(表4 byte10 bit4-7)
-    out.broadcast_direction = (quint8)get_bits(p, 11, 0, 2); // 广播方向(国网表7:0双向/1下行/2上行)
-    out.restart_count  = (quint8)get_bits(p, 9, 3, 4); // RestartCount(国网 MSDU 头 byte9 bits3-6,发送方重启次数)
-    quint8 msdu_type   = (quint8)get_bits(p, 7, 0, 8);
-    int    msdu_len    = (int)get_bits(p, 8, 0, 11);
-    bool   mac_flag    = get_bits(p, 11, 3, 1) != 0;
+    out.msdu_src_tei  = (int)get_bits_unchecked(p, 0, 4, 12);
+    out.msdu_dst_tei  = (int)get_bits_unchecked(p, 2, 0, 12);
+    out.msdu_send_type = (int)get_bits_unchecked(p, 3, 4, 4);   // 广播类型判定
+    out.route_hops_left     = (quint8)get_bits_unchecked(p, 10, 4, 4); // 路由剩余跳数(表4 byte10 bit4-7)
+    out.broadcast_direction = (quint8)get_bits_unchecked(p, 11, 0, 2); // 广播方向(国网表7:0双向/1下行/2上行)
+    out.restart_count  = (quint8)get_bits_unchecked(p, 9, 3, 4); // RestartCount(国网 MSDU 头 byte9 bits3-6,发送方重启次数)
+    quint8 msdu_type   = (quint8)get_bits_unchecked(p, 7, 0, 8);
+    int    msdu_len    = (int)get_bits_unchecked(p, 8, 0, 11);
+    bool   mac_flag    = get_bits_unchecked(p, 11, 3, 1) != 0;
     int    head_size   = mac_flag ? 28 : 16;
 
     if (mac_flag && body.size() >= 28) {
         add_fields(out.tree, body, 0, kMsduMacSpec, 2);
         // 提取源/目的 MAC(48-bit),供 TEI→MAC 映射表与列表地址显示
-        out.msdu_src_mac = get_bits(p, 16, 0, 48);
-        out.msdu_dst_mac = get_bits(p, 22, 0, 48);
+        out.msdu_src_mac = get_bits_unchecked(p, 16, 0, 48);
+        out.msdu_dst_mac = get_bits_unchecked(p, 22, 0, 48);
     }
 
     // MSDU 数据区从 head_size 起;头不完整(mac_flag 但 body<28)时无法解析,直接放弃

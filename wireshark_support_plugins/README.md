@@ -137,7 +137,7 @@ MSDU 跨多个物理块时（块尾 CRC24 与下块 PB 头夹在 MAC 帧中间�
 实现原理：Wireshark 4.x 把界面语言存在 `%APPDATA%\Wireshark\language` 文件（内容 `language: en`），
 dissector 加载时读取该文件决定字段名。
 
-> 环境变量可强制覆盖（优先于界面语言）：国网 `HPLC_RF_LANG=en` / `=zh`，南网 `NW_2021_LANG=en` / `=zh`。
+> 环境变量可强制覆盖（优先于界面语言）：国网 `HPLC_RF_LANG=en` / `=zh`，南网 `NW_2021_LANG=en` / `=zh`（2021 插件）、`NW_2026_LANG=en` / `=zh`（2026 插件）。
 
 ## 更新已安装的插件（避免解析器分叉）
 

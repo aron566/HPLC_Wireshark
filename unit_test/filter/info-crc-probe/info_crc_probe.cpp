@@ -39,6 +39,21 @@ static PacketEntry sof_entry(int pb_num, QVector<bool> oks, bool pb_crc_ok,
     return e;
 }
 
+/// 合成多站 SOF 条目:raw_size 字节的 raw_bytes,1 个站点(pb_size=16,msdu 首字节 0)。
+/// raw_size>5 时 raw4 落在 raw_bytes[4](ofdma_type=1 → DL-SACK 判据);
+/// raw_size<=5 时无 raw_bytes[4],走默认分支(不得读 at(4),L1)。
+static PacketEntry multi_entry(int raw_size, quint8 raw4) {
+    PacketEntry e = sof_entry(0, {}, false, 1, 0x00);
+    SofStationPb st;
+    st.tei = 2;
+    st.pb_size = 16;
+    st.msdu = QByteArray(1, char(0));
+    e.mpdu.sof_stations.append(st);
+    e.raw_bytes = QByteArray(raw_size, 0);
+    if (raw_size > 5) e.raw_bytes[4] = (char)raw4;
+    return e;
+}
+
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     PacketListModel model;
@@ -50,6 +65,8 @@ int main(int argc, char** argv) {
         sof_entry(2, {true, true}, false, 1, 0x00),  // 4: PB 序号乱序/重组失败
         sof_entry(2, {true}, false, 2, 0x02),        // 5: 训练分支截断
         sof_entry(2, {true}, true, 2, 0x02),         // 6: 训练分支完整
+        multi_entry(16, 0x02),                       // 7: 多站 DL-SACK(正常多站)
+        multi_entry(4, 0x00),                        // 8: L1 多站截断(raw 4B)
     });
     model.set_display_filter(QString());
     const auto info = [&](int row) {
@@ -70,6 +87,11 @@ int main(int argc, char** argv) {
               && !info(5).contains(QStringLiteral("CRC OK")),
           "info training branch truncated reports incomplete");
     check(info(6).contains(QStringLiteral("CRC OK")), "info training branch complete CRC OK");
+    check(info(7).contains(QStringLiteral("DL-OFDMA SACK")),
+          "info multi-station DL-SACK unchanged by length guard");
+    check(info(8).contains(QStringLiteral("NetID=0x000001")) &&
+              !info(8).contains(QStringLiteral("DL-OFDMA")),
+          "L1 truncated multi-station frame falls back, no raw_bytes.at(4) read");
 
     std::printf("RESULT: %s (%d failures)\n", g_fails == 0 ? "ALL PASS" : "FAIL", g_fails);
     return g_fails == 0 ? 0 : 1;
