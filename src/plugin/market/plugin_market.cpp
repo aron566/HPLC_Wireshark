@@ -21,6 +21,7 @@
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QUrl>
+#include <atomic>
 #include <memory>
 
 #include "i18n.h"
@@ -868,7 +869,8 @@ constexpr mz_uint64 kZipMaxTotalBytes = 256ull * 1024 * 1024;
 constexpr mz_uint kZipMaxEntries = 4096;
 
 /// unzip_to_dir 累计调用次数(仅探针用:验证离线安装只解包一次)
-int g_unzip_call_count = 0;
+/// 原子计数:安装路径与探针读数可分属不同线程,普通 int 有数据竞争。
+std::atomic<int> g_unzip_call_count{0};
 
 /// 解压写回调:实际写出字节数不得超过中央目录声明的大小(防声明值作假)
 struct CappedFileWriter {
