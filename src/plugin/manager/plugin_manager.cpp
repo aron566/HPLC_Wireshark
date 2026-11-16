@@ -10,6 +10,7 @@
 #include <QDeadlineTimer>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QFileInfo>
 #include <QImage>
 #include <QLocalServer>
 #include <QLocalSocket>
@@ -179,19 +180,58 @@ void PluginManager::wake_waiters(PluginRuntime* rt) {
     rt->resp_cv.wakeAll();
 }
 
-void PluginManager::load_all(const QString& plugins_dir) {
+/// @brief 扫描插件根目录,返回去重后的有效清单
+/// @details 去重两个维度:
+///   1) 目录 canonicalFilePath —— 符号链接/相对路径/大小写(Windows)指向同一
+///      插件目录时只取一次。不去重会让同一插件被 start_plugin 两次,
+///      m_plugins.insert 覆盖旧 Runtime,而旧 Runtime 的 QProcess/QLocalServer
+///      无人释放(泄漏 + 两个 host 抢同一 socket)。
+///   2) protocol_id —— 两个不同目录声明同一协议 id 时先到先得,避免解析器重复注册。
+QList<PluginManifest> PluginManager::scan_manifests(const QString& plugins_dir) {
+    QList<PluginManifest> out;
     const QDir d(plugins_dir);
-    if (!d.exists()) return;
-    for (const QString& sub : d.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
-        const PluginManifest m = read_plugin_manifest(d.filePath(sub));
+    if (!d.exists()) return out;
+    QSet<QString> seen_dirs;
+    QSet<QString> seen_pids;
+    const QStringList subs =
+        d.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    for (const QString& sub : subs) {
+        const QString pdir = d.absoluteFilePath(sub);
+        QString canon = QFileInfo(pdir).canonicalFilePath();
+        if (canon.isEmpty()) canon = QDir::cleanPath(pdir);  // 不可解析时退回清理后的绝对路径
+#ifdef Q_OS_WIN
+        canon = canon.toLower();
+#endif
+        if (seen_dirs.contains(canon)) continue;
+        seen_dirs.insert(canon);
+        const PluginManifest m = read_plugin_manifest(pdir);
         if (!m.valid) continue;  // 无效清单跳过(可日志)
-        if (!m.enabled) continue;  // 市场层已禁用(meta.json enabled=false):
-                                   // 用户主动禁用,加载/重加载都不恢复
-                                   // (start_plugin 入口还有同一道 gate)
         if (m.runtime != QStringLiteral("native")
             && m.runtime != QStringLiteral("js")
             && m.runtime != QStringLiteral("lua")) continue;  // Phase2: native/js/lua
-        if (find_runtime(m.protocol_id)) continue;            // 重复协议 id
+        if (seen_pids.contains(m.protocol_id)) continue;
+        seen_pids.insert(m.protocol_id);
+        out.append(m);
+    }
+    return out;
+}
+
+void PluginManager::load_all(const QString& plugins_dir) {
+    m_plugins_dir = plugins_dir;   // 记下根目录:restart_all 要按它重扫
+    const QList<PluginManifest> manifests = scan_manifests(plugins_dir);
+    for (const PluginManifest& m : manifests) {
+        if (!m.enabled) {
+            // 市场层已禁用(meta.json enabled=false):不只是"不重新拉起",
+            // 已在跑的必须真正停掉——旧实现只 continue,用户关掉开关后
+            // 运行中的实例仍在解析帧,直到下次重启进程。
+            if (find_runtime(m.protocol_id))
+                disable_plugin(m.protocol_id,
+                               QStringLiteral("disabled in meta.json"));
+            QWriteLocker wl(&m_plugins_lock);
+            m_known_manifests.remove(m.protocol_id);  // 不登记,restart_all 不再复活它
+            continue;
+        }
+        if (find_runtime(m.protocol_id)) continue;    // 已在运行
         start_plugin(m);
     }
 }
@@ -228,7 +268,7 @@ bool PluginManager::start_plugin(const PluginManifest& m) {
     ensure_ipc_thread();
     auto* rt = new PluginRuntime;
     rt->manifest = m;
-    const QString sock_name = plugin_ipc::socket_name(m.name);
+    const QString sock_name = plugin_ipc::socket_name(m.name, ++m_socket_seq);
     const QString pid = m.protocol_id;
 
     // server 在 IPC 线程创建(父对象 = 住在 IPC 线程的 ctx)并监听;
@@ -723,38 +763,37 @@ bool PluginManager::restart_plugin(const QString& protocol_id) {
 }
 
 PluginRestartAllResult PluginManager::restart_all() {
-    // 调用方:GUI 线程。先快照登记的清单(重建中途新增的插件不在本轮内),
-    // 再逐个重建。启用状态以磁盘最新 meta.json 为准(登记的清单可能过期):
-    // 已禁用的跳过(运行中的先停掉),不计入 attempted/ok,只计 skipped_disabled。
-    QStringList ids;
-    {
+    // 以磁盘为准重扫:只遍历 m_known_manifests 会漏掉"装好但从未启动过"或
+    // "刚拷进目录还没 load_all" 的插件,一键重载对它们完全无效。
+    QList<PluginManifest> manifests;
+    if (!m_plugins_dir.isEmpty()) manifests = scan_manifests(m_plugins_dir);
+    if (manifests.isEmpty()) {
+        // 没有记录根目录(或目录已空):退回登记清单,保持旧行为
         QReadLocker rl(&m_plugins_lock);
-        ids = m_known_manifests.keys();
+        for (auto it = m_known_manifests.cbegin(); it != m_known_manifests.cend(); ++it)
+            manifests.append(it.value());
     }
     PluginRestartAllResult res;
-    for (const QString& id : ids) {
-        PluginManifest m;
-        {
-            QReadLocker rl(&m_plugins_lock);
-            const auto it = m_known_manifests.find(id);
-            if (it == m_known_manifests.end()) continue;
-            m = it.value();
-        }
+    for (const PluginManifest& scanned : manifests) {
+        PluginManifest m = scanned;
+        // 启用状态以磁盘最新 meta.json 为准(启动后用户可能在市场对话框改开关)
         const PluginManifest fresh = read_plugin_manifest(m.dir_path);
         if (fresh.valid) m = fresh;
         if (!m.enabled) {
-            if (find_runtime(id))
-                disable_plugin(id, QStringLiteral("disabled in meta.json"));
+            if (find_runtime(m.protocol_id))
+                disable_plugin(m.protocol_id,
+                               QStringLiteral("disabled in meta.json"));
             QWriteLocker wl(&m_plugins_lock);
-            if (m_known_manifests.contains(id))
-                m_known_manifests[id] = m;  // 登记保持与磁盘一致
+            m_known_manifests.remove(m.protocol_id);
             ++res.skipped_disabled;
             continue;
         }
         ++res.attempted;
-        // 注:restart_plugin 内部还会再读一次 meta.json(两读之间开关被改动
-        // 是竞态,极小:最坏把一次跳过计为成功,不影响"禁用不复活"本身)。
-        if (restart_plugin(id)) ++res.ok;
+        // 先停旧运行时再重建。旧 host 的退出是异步的(terminate + 2s 兜底 kill),
+        // 新 host 用递增序号的 socket 名,重启窗口内新旧不会撞名。
+        if (find_runtime(m.protocol_id))
+            disable_plugin(m.protocol_id, QStringLiteral("restart requested"));
+        if (start_plugin(m)) ++res.ok;
     }
     return res;
 }

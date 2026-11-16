@@ -84,6 +84,9 @@ private:
     QList<MarketPlugin>    m_feed;
     QList<InstalledPlugin> m_installed;
     QList<RowEntry>        m_rows;
+    /// @brief 已安装插件的状态徽标(plugin name / protocol_id → QLabel)
+    /// @details 状态变化时只改这个 label 的文字,不重建整个列表。
+    QMap<QString, QLabel*> m_badge_labels;
     QString                m_current_name;
 
     QLineEdit*   m_search = nullptr;

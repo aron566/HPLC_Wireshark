@@ -4,9 +4,11 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMetaType>
+#include <QSet>
 #include <QThread>
 #include <QTimer>
 
@@ -67,8 +69,20 @@ void PluginWorker::start_load(const QString& dir) {
     const QDir d(dir);
     const QStringList sub = d.entryList(QDir::Dirs | QDir::NoDotAndDotDot,
                                         QDir::Name);
+    // 目录去重:符号链接/相对路径/大小写(Windows)指向同一插件目录时只加载一次。
+    // 不去重会让同一插件被加载两次,m_plugins.insert(m.name, rt) 直接覆盖旧
+    // Runtime —— 旧 Runtime 的 backend 既不 shutdown 也不 delete,是真实泄漏
+    // (native 后端还会一直占着 DLL 文件锁)。
+    QSet<QString> seen_dirs;
     for (const QString& name : sub) {
         const QString pdir = d.absoluteFilePath(name);
+        QString canon = QFileInfo(pdir).canonicalFilePath();
+        if (canon.isEmpty()) canon = QDir::cleanPath(pdir);
+#ifdef Q_OS_WIN
+        canon = canon.toLower();
+#endif
+        if (seen_dirs.contains(canon)) continue;
+        seen_dirs.insert(canon);
         // meta.json enabled=false 的插件跳过(静默,不报错)
         {
             QFile mf(QDir(pdir).filePath(QStringLiteral("meta.json")));
@@ -159,6 +173,16 @@ void PluginWorker::start_load(const QString& dir) {
                                           const QList<QStringList>& rows) {
             emit host_show_table(title, columns, rows);
         });
+        // 同名插件已在表里(重复目录/重名 manifest):先彻底释放旧 Runtime,
+        // 再插入新的。直接 insert 会覆盖指针并泄漏旧 backend。
+        if (auto* old = m_plugins.value(m.name, nullptr)) {
+            if (old->backend) {
+                old->backend->shutdown();
+                delete old->backend;
+            }
+            delete old;
+            m_plugins.remove(m.name);
+        }
         m_plugins.insert(m.name, rt);
         info.ok = true;
         emit plugin_loaded(info);

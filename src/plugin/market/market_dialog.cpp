@@ -167,12 +167,24 @@ PluginMarketDialog::PluginMarketDialog(QWidget* parent)
             &PluginMarketDialog::on_install_progress);
     connect(m_market, &PluginMarket::install_finished, this,
             &PluginMarketDialog::on_install_finished);
-    // 插件运行状态变化(就绪/禁用)即刷新列表,使“插件需要重启”徽标实时更新
+    // 插件运行状态变化(就绪/禁用)只更新该行的状态徽标,不重建列表。
+    // rebuild_list() 第一句就是 m_list->clear(),会销毁并重建全部卡片:
+    // 心跳/崩溃/就绪事件可能很频繁,重建会丢选中行与滚动位置并明显闪烁。
     connect(&PluginManager::instance(),
             &PluginManager::plugin_status_changed, this,
-            [this](const QString&, const QString&) {
-                refresh_installed();
-                rebuild_list();
+            [this](const QString& plugin_id, const QString& status) {
+                QLabel* lbl = m_badge_labels.value(plugin_id, nullptr);
+                if (!lbl) {
+                    // 该行当前没有徽标(之前是就绪态):需要新增一个,
+                    // 只能走一次重建;之后的状态变化都走上面的快路径。
+                    refresh_installed();
+                    rebuild_list();
+                    return;
+                }
+                const bool needs_restart = status != QLatin1String("ready");
+                lbl->setText(needs_restart ? trl::L("插件需要重启")
+                                           : QString());
+                lbl->setVisible(needs_restart);
             });
     refresh_installed();
     on_refresh();
@@ -390,7 +402,8 @@ bool PluginMarketDialog::row_matches(const RowEntry& e) const {
 QWidget* make_card(const QString& icon_key, const QString& title,
                    const QString& sub, const QString& desc,
                    const QString& badge, bool badge_update = false,
-                   QPushButton** update_btn_out = nullptr) {
+                   QPushButton** update_btn_out = nullptr,
+                   QLabel** badge_out = nullptr) {
     auto* w = new QWidget();
     auto* h = new QHBoxLayout(w);
     h->setContentsMargins(6, 6, 6, 6);
@@ -433,6 +446,7 @@ QWidget* make_card(const QString& icon_key, const QString& title,
             "border-radius: 9px; padding: 2px 8px; "
             "font-weight: bold; font-size: 11px; }"));
         h->addWidget(b, 0, Qt::AlignVCenter);
+        if (badge_out) *badge_out = b;
     }
     return w;
 }
@@ -440,6 +454,7 @@ QWidget* make_card(const QString& icon_key, const QString& title,
 void PluginMarketDialog::rebuild_list() {
     m_list->clear();
     m_rows.clear();
+    m_badge_labels.clear();
     const bool en = trl::enabled();
 
     auto add_header = [this](const QString& text) {
@@ -477,13 +492,21 @@ void PluginMarketDialog::rebuild_list() {
                 badge = trl::L("插件需要重启");
             }
             QPushButton* upd_btn = nullptr;
+            QLabel* badge_lbl = nullptr;
             auto* card = make_card(
                 ip.manifest.name,
                 plugin_display_name(ip.manifest, en),
                 trl::L("作者") + ": " + ip.manifest.author + "  " +
                     trl::L("版本") + ": " + ip.manifest.version,
                 plugin_description(ip.manifest, en), badge, badge_update,
-                &upd_btn);
+                &upd_btn, &badge_lbl);
+            if (badge_lbl) {
+                // 同时按 name 与 protocol_id 登记:plugin_status_changed 发的是
+                // protocol_id,而列表行以 manifest.name 为键。
+                m_badge_labels.insert(ip.manifest.name, badge_lbl);
+                if (!ip.manifest.protocol_id.isEmpty())
+                    m_badge_labels.insert(ip.manifest.protocol_id, badge_lbl);
+            }
             if (upd_btn) {
                 const QString name = ip.manifest.name;
                 connect(upd_btn, &QPushButton::clicked, this,

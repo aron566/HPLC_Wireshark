@@ -80,12 +80,19 @@ inline FrameTake try_take_frame(QByteArray& buf, QByteArray& out) {
     return FrameTake::Ok;
 }
 
-/// @brief 本机 socket 名(主程序按插件 id 生成唯一名)
+/// @brief 本机 socket 名(主程序按插件 id + 进程号 + 序号生成唯一名)
+/// @details 只带 plugin_id + PID 时,同一插件在"旧 host 尚未退出、新 host 已启动"的
+///          重启窗口内会算出同一个名字:start_plugin 先 removeServer 再 listen,
+///          旧 host 仍连着旧 server,新 host 连到新 server,两边同名 → 旧连接被
+///          误判/新连接被拒。加一个单调递增的序号,每次 start_plugin 都得到新名字,
+///          重启窗口内新旧 socket 互不覆盖。
 /// @param plugin_id 插件 id
-inline QString socket_name(const QString& plugin_id) {
-    return QStringLiteral("bplc_plugin_%1_%2")
+/// @param seq 本次启动的序号(PluginManager 单调递增;0 = 兼容旧调用)
+inline QString socket_name(const QString& plugin_id, quint64 seq = 0) {
+    return QStringLiteral("bplc_plugin_%1_%2_%3")
         .arg(plugin_id)
-        .arg(QCoreApplication::applicationPid());
+        .arg(QCoreApplication::applicationPid())
+        .arg(seq);
 }
 
 } // namespace plugin_ipc
