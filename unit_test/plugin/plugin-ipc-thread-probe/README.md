@@ -12,6 +12,10 @@
 4. （Unix）解析途中 SIGKILL lua_echo 的 host：在途请求须 < 1 s 返回，GUI 线程收到 `disabled: ...` 状态；
 5. `stop_all()` 之后的迟到请求必须立即失败返回；随后重新 `load_all` 可再次解析（插件市场更新流程）；
 6. 走 `aboutToQuit` 正常退出路径（停插件、在 IPC 线程关 socket、停 IPC 线程）。
+7. R1–R3（重启/M4）：R1 重启已禁用插件（被杀后禁用）可恢复解析；R2 重启运行中的插件，
+   旧 host 进程被杀（只剩 1 个新 pid）；R3 host 卡死（SIGSTOP）时心跳超时禁用，
+   2 s 兜底 kill 须让进程消失，随后重启可恢复；禁用期间 `plugin_needs_restart()` 为真，恢复后为假。
+8. R4 一键重加载全部插件：`restart_all()` 串行重启全部 3 个已知插件并返回成功数，随后三者都可再解析。
 7. （异步图形 API，Unix）原版 `lua_graphics`（`set_font`/`draw_text`）经真实 host 渲染出图，
    host 不崩、插件仍启用（host 为 QGuiApplication + offscreen 平台）；
    另生成 `lua_gfx_nofont`（lua_graphics 去掉画字、换协议 id），用真实 `PluginGraphicsView` 做异步渲染往返：

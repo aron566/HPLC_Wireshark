@@ -98,6 +98,10 @@ struct PluginManifest {
     QString panel_function;  ///< 文本类面板调用的脚本函数名(可选,如 get_replay_data)
     QList<PluginSetting> settings; ///< 插件独立可配置项(可选,见 PluginSetting)
     QString dir_path;      ///< 插件目录绝对路径(解析时填充)
+    /// 市场层启用开关:同目录 meta.json 的 enabled,缺失默认 true。
+    /// 注意:这是用户主动禁用的开关,重启/加载时以它为准;不要与
+    /// PluginRuntime::disabled(崩溃/断连后内部置位,重启应复活)混淆。
+    bool    enabled = true;
     bool    valid = false;
     QString error;         ///< valid=false 时的原因
 };
@@ -274,6 +278,18 @@ inline bool plugin_name_is_safe(const QString& name) {
     return true;
 }
 
+/// @brief 读插件目录下 meta.json 的 enabled(市场层启用开关)
+/// @details 无 meta.json / 解析失败 / 无 enabled 键都按启用处理,
+///          与 PluginMarket::plugin_dir_enabled 语义一致(后者直接调本函数)。
+///          注意:这是用户主动禁用的市场层开关,不要与
+///          PluginRuntime::disabled(崩溃/断连置位)混淆。
+inline bool plugin_meta_enabled(const QString& plugin_dir) {
+    QFile mf(QDir(plugin_dir).filePath(QStringLiteral("meta.json")));
+    if (!mf.open(QIODevice::ReadOnly)) return true;  // 无 meta.json=启用
+    const QJsonObject o = QJsonDocument::fromJson(mf.readAll()).object();
+    return o.value(QStringLiteral("enabled")).toBool(true);
+}
+
 /// @brief 从插件目录读取并校验 plugin.json
 inline PluginManifest read_plugin_manifest(const QString& plugin_dir) {
     PluginManifest m;
@@ -358,6 +374,10 @@ inline PluginManifest read_plugin_manifest(const QString& plugin_dir) {
         m.error = QStringLiteral("entry file not found or outside plugin dir: %1").arg(m.entry);
         return m;
     }
+    // 市场层启用开关:同目录 meta.json 的 enabled,缺失默认 true。
+    // 放在有效性校验之后读也可以(无效清单调用方直接跳过),这里顺带读出,
+    // 供 PluginManager::load_all/start_plugin/restart_all 做 gate。
+    m.enabled = plugin_meta_enabled(plugin_dir);
     m.valid = true;
     return m;
 }

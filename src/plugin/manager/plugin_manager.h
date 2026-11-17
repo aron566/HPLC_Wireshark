@@ -103,6 +103,16 @@ struct PluginRuntime {
     std::atomic<quint64> ping_count{0};
 };
 
+/// @brief restart_all() 的返回:一键重加载的计数口径
+/// @details 只统计 meta.json 启用的插件(attempted):已禁用插件跳过,
+///          不计入 attempted 也不计入 ok,只计 skipped_disabled(运行中
+///          的先停掉)。ok < attempted 即有启用插件重启失败。
+struct PluginRestartAllResult {
+    int attempted = 0;        ///< 尝试重启的启用插件数
+    int ok = 0;               ///< 其中成功重启数
+    int skipped_disabled = 0; ///< 跳过的已禁用插件数(不算失败)
+};
+
 /// @brief 插件管理器(单例,主线程)
 class PluginManager : public QObject {
     Q_OBJECT
@@ -110,7 +120,38 @@ public:
     static PluginManager& instance();
 
     /// @brief 扫描并启动 plugins_dir 下所有插件
+    /// @details meta.json enabled=false 的插件跳过(用户主动禁用,重启
+    ///          也不恢复);见 start_plugin 的 gate 注释。
+    ///          已在运行的禁用插件会被真正停掉(不只是不重新拉起)。
+    ///          目录按 canonicalFilePath 去重:符号链接/相对路径指向同一
+    ///          插件目录时只加载一次,不会覆盖并泄漏旧 Runtime。
     void load_all(const QString& plugins_dir);
+    /// @brief 重启插件 host 子进程(供插件市场对话框的重启按钮调用,GUI 线程)
+    /// @details 运行中的插件:先走 disable_plugin 异步杀进程并退役旧运行时,
+    ///          再用登记的清单重建;已禁用插件:直接用登记的清单重建。
+    ///          清单在 start_plugin 成功时登记(见 m_known_manifests)。
+    ///          重建走 start_plugin 全新运行时:握手完成后 ready 置真、
+    ///          解析器重新注册,走现有路径。
+    ///          启用状态以磁盘最新 meta.json 为准(启动后用户可能在市场
+    ///          对话框改动开关,登记的清单/运行中清单都可能已过期,故重读):
+    ///          已禁用(meta.json enabled=false)的若在运行先停掉,然后
+    ///          返回 true 表示"跳过",不是失败;true 也不代表握手已完成
+    ///          (start_plugin 只等到进程启动,握手随后异步完成)。
+    ///          注意两种 disabled 的区别:这里 gate 的是市场层开关
+    ///          (PluginManifest::enabled);崩溃/断连置位的内部状态
+    ///          (PluginRuntime::disabled)不在此 gate,重启应复活它。
+    /// @return true=新 host 已启动(握手随后异步完成)或已禁用而跳过,
+    ///         false=未知协议 id / 插件目录已不存在 / 重建失败
+    bool restart_plugin(const QString& protocol_id);
+    /// @brief 一键重加载全部已知插件(串行,GUI 线程)
+    /// @details 对登记的清单快照逐个调 restart_plugin:运行中的先停旧进程
+    ///          再重建,已禁用的直接重建。逐个重建是串行的,start_plugin 的
+    ///          waitForStarted(5000) 是上限不是每家必等 5 秒;不为并行改动
+    ///          IPC/进程模型。只遍历 meta.json 启用的条目(以磁盘最新状态
+    ///          为准,见 restart_plugin):已禁用的跳过(运行中的先停掉),
+    ///          不计入 attempted/ok,只计 skipped_disabled。
+    /// @return 计数见 PluginRestartAllResult
+    PluginRestartAllResult restart_all();
     /// @brief 停掉全部插件 host 子进程并注销其解析器(退役式两遍处理,
     ///        见实现注释)。供应用退出与插件市场删除/更新旧版前调用——
     ///        host 进程映射着插件 DLL,不停机则 Windows 下删不掉旧目录。
@@ -119,6 +160,11 @@ public:
     QStringList plugin_protocol_ids() const;
     /// @brief 协议 id 是否来自插件
     bool is_plugin_protocol(const QString& protocol_id) const;
+    /// @brief 插件是否处于需重启状态(已禁用或已退役:清单已知但无运行中运行时)
+    /// @details 供插件市场对话框在已安装列表显示“插件需要重启”徽标。
+    ///          运行时存在时看 disabled 标志;运行时已退役则看清单是否登记过
+    ///          (登记过 = 曾经启动成功,现已停用);从未启动过的返回 false。
+    bool plugin_needs_restart(const QString& protocol_id) const;
 
     /// @brief 经插件解析一帧(阻塞,worker 线程调用)
     /// @return ok=false 时 result.accept=false 且 reject_reason 置错误信息
@@ -182,6 +228,12 @@ private:
     void on_process_finished(const QString& plugin_id, int code);
     void on_process_error(const QString& plugin_id);
     void disable_plugin(const QString& plugin_id, const QString& reason);
+    /// @brief 停掉单个插件的运行时:从 m_plugins 摘除并退役本体,IPC 线程发
+    ///        Shutdown 并释放 socket/server,GUI 线程异步杀 host 进程
+    ///        (terminate,2 s 后仍在跑则 kill,收尸后释放 QProcess 对象)。
+    ///        调用方:GUI 线程;rt 须仍在 m_plugins 中且未退役。
+    ///        本体转入 m_retired,留待管理器析构释放(防在途请求线程 UAF)。
+    void shutdown_runtime(PluginRuntime* rt);
     /// @brief 非响应消息处理(GUI 线程;frame 含类型字节)
     void handle_message(const QString& plugin_id, const QByteArray& frame);
     /// @brief 直接写 socket(仅 IPC 线程)
@@ -209,9 +261,16 @@ private:
     void sweep_async_timeouts();
     PluginRuntime* find_runtime(const QString& protocol_id) const;
     void check_heartbeats();
+    /// @brief 扫描目录得到去重后的清单列表(canonical 目录去重 + 协议 id 去重)
+    /// @details load_all / restart_all 共用:两者都必须以磁盘为准,
+    ///          只遍历 m_known_manifests 会漏掉新装/新拷贝进来的插件。
+    static QList<PluginManifest> scan_manifests(const QString& plugins_dir);
 
-    mutable QReadWriteLock m_plugins_lock;    ///< 保护 m_plugins(GUI 增删,worker 查找)
+    mutable QReadWriteLock m_plugins_lock;    ///< 保护 m_plugins 与 m_known_manifests(GUI 增删,worker 查找)
     QMap<QString, PluginRuntime*> m_plugins;  ///< key: protocol_id
+    QMap<QString, PluginManifest> m_known_manifests;  ///< protocol_id → 清单(供 restart_plugin 重建;start_plugin 成功时登记)
+    QString m_plugins_dir;            ///< 最近一次 load_all 的插件根目录(restart_all 重扫用)
+    std::atomic<quint64> m_socket_seq{0};  ///< socket 名序号:每次 start_plugin 递增,重启窗口内新旧不撞名
     QList<PluginRuntime*> m_retired;  ///< stop_all 退役的运行时本体:重对象
                                       ///< (进程/socket)已在 stop_all 内释放,
                                       ///< 本体留置此处待管理器析构统一 delete,

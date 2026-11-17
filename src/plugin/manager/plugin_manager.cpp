@@ -10,6 +10,7 @@
 #include <QDeadlineTimer>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QFileInfo>
 #include <QImage>
 #include <QLocalServer>
 #include <QLocalSocket>
@@ -32,6 +33,7 @@ namespace {
 constexpr int kHandshakeTimeoutMs = 10000;
 constexpr int kParseTimeoutMs = 5000;
 constexpr int kGraphicsTimeoutMs = 5000;     ///< 异步图形请求超时
+constexpr int kDisableKillTimeoutMs = 2000;  ///< disable 后 host 未退出的兜底 kill 等待
 constexpr int kAsyncSweepIntervalMs = 50;    ///< 超时扫描粒度
 /// 记一次插件活动(解析/图形请求/握手完成):心跳空闲退避的时钟。
 /// Pong 回包不记(否则每次 Ping 都会复位空闲,退避永不生效)。
@@ -170,6 +172,9 @@ void PluginManager::stop_all() {
                 rt->process->kill();
                 rt->process->waitForFinished(1000);
             }
+            // 同步 delete 在此安全:上面已 disconnect(this),本函数也不会从 QProcess
+            // 自己的信号里调进来(调用方:析构 / aboutToQuit / 市场删除前),且退出
+            // 路径上可能已无事件循环执行 deleteLater。
             delete rt->process;
             rt->process = nullptr;
         }
@@ -187,16 +192,58 @@ void PluginManager::wake_waiters(PluginRuntime* rt) {
     rt->resp_cv.wakeAll();
 }
 
-void PluginManager::load_all(const QString& plugins_dir) {
+/// @brief 扫描插件根目录,返回去重后的有效清单
+/// @details 去重两个维度:
+///   1) 目录 canonicalFilePath —— 符号链接/相对路径/大小写(Windows)指向同一
+///      插件目录时只取一次。不去重会让同一插件被 start_plugin 两次,
+///      m_plugins.insert 覆盖旧 Runtime,而旧 Runtime 的 QProcess/QLocalServer
+///      无人释放(泄漏 + 两个 host 抢同一 socket)。
+///   2) protocol_id —— 两个不同目录声明同一协议 id 时先到先得,避免解析器重复注册。
+QList<PluginManifest> PluginManager::scan_manifests(const QString& plugins_dir) {
+    QList<PluginManifest> out;
     const QDir d(plugins_dir);
-    if (!d.exists()) return;
-    for (const QString& sub : d.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
-        const PluginManifest m = read_plugin_manifest(d.filePath(sub));
+    if (!d.exists()) return out;
+    QSet<QString> seen_dirs;
+    QSet<QString> seen_pids;
+    const QStringList subs =
+        d.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    for (const QString& sub : subs) {
+        const QString pdir = d.absoluteFilePath(sub);
+        QString canon = QFileInfo(pdir).canonicalFilePath();
+        if (canon.isEmpty()) canon = QDir::cleanPath(pdir);  // 不可解析时退回清理后的绝对路径
+#ifdef Q_OS_WIN
+        canon = canon.toLower();
+#endif
+        if (seen_dirs.contains(canon)) continue;
+        seen_dirs.insert(canon);
+        const PluginManifest m = read_plugin_manifest(pdir);
         if (!m.valid) continue;  // 无效清单跳过(可日志)
         if (m.runtime != QStringLiteral("native")
             && m.runtime != QStringLiteral("js")
             && m.runtime != QStringLiteral("lua")) continue;  // Phase2: native/js/lua
-        if (find_runtime(m.protocol_id)) continue;            // 重复协议 id
+        if (seen_pids.contains(m.protocol_id)) continue;
+        seen_pids.insert(m.protocol_id);
+        out.append(m);
+    }
+    return out;
+}
+
+void PluginManager::load_all(const QString& plugins_dir) {
+    m_plugins_dir = plugins_dir;   // 记下根目录:restart_all 要按它重扫
+    const QList<PluginManifest> manifests = scan_manifests(plugins_dir);
+    for (const PluginManifest& m : manifests) {
+        if (!m.enabled) {
+            // 市场层已禁用(meta.json enabled=false):不只是"不重新拉起",
+            // 已在跑的必须真正停掉——旧实现只 continue,用户关掉开关后
+            // 运行中的实例仍在解析帧,直到下次重启进程。
+            if (find_runtime(m.protocol_id))
+                disable_plugin(m.protocol_id,
+                               QStringLiteral("disabled in meta.json"));
+            QWriteLocker wl(&m_plugins_lock);
+            m_known_manifests.remove(m.protocol_id);  // 不登记,restart_all 不再复活它
+            continue;
+        }
+        if (find_runtime(m.protocol_id)) continue;    // 已在运行
         start_plugin(m);
     }
 }
@@ -211,6 +258,13 @@ bool PluginManager::is_plugin_protocol(const QString& protocol_id) const {
     return rt && rt->ready && !rt->disabled;
 }
 
+bool PluginManager::plugin_needs_restart(const QString& protocol_id) const {
+    const PluginRuntime* rt = find_runtime(protocol_id);
+    if (rt) return rt->disabled.load();
+    QReadLocker rl(&m_plugins_lock);
+    return m_known_manifests.contains(protocol_id);
+}
+
 static QString host_binary_path() {
     // bplc-plugin-host 与主程序同目录
     return QCoreApplication::applicationDirPath()
@@ -218,10 +272,15 @@ static QString host_binary_path() {
 }
 
 bool PluginManager::start_plugin(const PluginManifest& m) {
+    // 最后一道防线:市场层已禁用(meta.json enabled=false)的插件不启动,
+    // 也不登记进 m_known_manifests(否则随后的 restart_all 会复活它)。
+    // 注意:只 gate 清单/市场层的 enabled,绝不 gate 运行时内部的
+    // PluginRuntime::disabled(崩溃/断连置位,重启应复活,见 R1)。
+    if (!m.enabled) return false;
     ensure_ipc_thread();
     auto* rt = new PluginRuntime;
     rt->manifest = m;
-    const QString sock_name = plugin_ipc::socket_name(m.name);
+    const QString sock_name = plugin_ipc::socket_name(m.name, ++m_socket_seq);
     const QString pid = m.protocol_id;
 
     // server 在 IPC 线程创建(父对象 = 住在 IPC 线程的 ctx)并监听;
@@ -262,6 +321,8 @@ bool PluginManager::start_plugin(const PluginManifest& m) {
          QStringLiteral("--plugin"), m.dir_path});
     if (!rt->process->waitForStarted(5000)) {
         release_server();
+        // 此处同步 delete 安全:已从 waitForStarted 返回、不在 QProcess 信号发射中
+        // (启动失败的 errorOccurred 回调里 find_runtime 找不到尚未登记的 rt,不会走 shutdown_runtime)
         delete rt->process;
         delete rt;
         return false;
@@ -269,6 +330,7 @@ bool PluginManager::start_plugin(const PluginManifest& m) {
     {
         QWriteLocker wl(&m_plugins_lock);
         m_plugins.insert(pid, rt);
+        m_known_manifests.insert(pid, m);   // 供 restart_plugin 重建
     }
     return true;
 }
@@ -564,7 +626,11 @@ bool PluginManager::parse_via_plugin(const QString& protocol_id,
         if (rt->retired.load()) return false;   // stop_all 主动停机,不算超时
         if (rt->disabled.load() || !rt->connected.load()) return false;  // 已停用/断线:状态已另行上报
         // 超时很可能意味着 host 挂了;响应损坏说明插件不守协议:都禁用插件
-        // 注意:不能在 worker 线程直接调 disable_plugin(涉及信号),标记即可
+        // 注意:不能在 worker 线程直接调 disable_plugin(涉及信号),标记即可;
+        // 排队的 GUI 部分再收尾:除注销协议/发状态外,还要退役运行时并异步杀
+        // 进程(见 shutdown_runtime)。状态字符串保持原样(ipc-decode-probe
+        // 断言了 "timeout-disabled" / "protocol-error-disabled"),不要改成
+        // disable_plugin 的 "disabled: ..." 形式。
         if (rt->disabled.exchange(true)) return false;
         rt->ready = false;
         wake_waiters(rt);   // 同插件其他等待者立即返回
@@ -576,6 +642,7 @@ bool PluginManager::parse_via_plugin(const QString& protocol_id,
             unregister_parser(rt->manifest.protocol_id);
             emit plugin_status_changed(protocol_id, corrupt ? QStringLiteral("protocol-error-disabled")
                                                             : QStringLiteral("timeout-disabled"));
+            shutdown_runtime(rt);
         }, Qt::QueuedConnection);
         return false;
     }
@@ -600,8 +667,10 @@ void PluginManager::on_process_error(const QString& plugin_id) {
 
 void PluginManager::disable_plugin(const QString& plugin_id,
                                   const QString& reason) {
+    // 调用方:GUI 线程。幂等条件是 retired(不是 disabled):解析超时路径的
+    // worker 线程会先原子置 disabled 再排队到 GUI,排队部分也要能走到收尾。
     PluginRuntime* rt = find_runtime(plugin_id);
-    if (!rt || rt->disabled) return;
+    if (!rt || rt->retired.load()) return;
     rt->disabled = true;
     rt->disable_reason = reason;
     rt->ready = false;
@@ -609,6 +678,165 @@ void PluginManager::disable_plugin(const QString& plugin_id,
     fail_async(rt);     // 在途异步图形请求排队失败回调(不在本调用内重入回调)
     unregister_parser(rt->manifest.protocol_id);
     emit plugin_status_changed(plugin_id, QStringLiteral("disabled: ") + reason);
+    shutdown_runtime(rt);
+}
+
+void PluginManager::shutdown_runtime(PluginRuntime* rt) {
+    // 调用方:GUI 线程。先退役(防迟到的排队回调/请求线程再碰到它),再清 IPC,
+    // 最后异步杀进程——terminate 不阻塞 GUI,2 s 兜底 kill。
+    const QString pid = rt->manifest.protocol_id;
+    rt->retired.store(true);
+    {
+        QWriteLocker wl(&m_plugins_lock);
+        if (m_plugins.value(pid) == rt) m_plugins.remove(pid);
+    }
+    m_retired.append(rt);
+    // IPC 线程:发 Shutdown、断开并释放 socket/server(同 stop_all 第二遍)。
+    run_on_ipc_blocking([this, rt]() {
+        if (rt->socket) {
+            QObject::disconnect(rt->socket, nullptr, m_ipc_ctx, nullptr);
+            QByteArray p;
+            send_message(rt, static_cast<quint8>(plugin_ipc::MsgType::Shutdown), p);
+            rt->socket->flush();
+            rt->socket->disconnectFromServer();
+        }
+        rt->connected = false;
+        delete rt->server;      // socket 是 server 的子对象,一并销毁
+        rt->server = nullptr;
+        rt->socket = nullptr;
+        rt->rx_buf.clear();
+    });
+    // GUI 线程:关停 host 进程。已退出的释放对象;还在跑的先断开旧的
+    // finished/error 回调(免得重入 disable),terminate 后挂 2 s 定时器兜底 kill。
+    QProcess* proc = rt->process;
+    if (!proc) return;
+    proc->disconnect(this);
+    if (proc->state() == QProcess::NotRunning) {
+        // 不能 delete:本函数常经 on_process_finished/on_process_error → disable_plugin
+        // 从该 QProcess 自己的 finished/errorOccurred 信号里调进来,信号返回后
+        // QProcessPrivate 还会继续 emit(errorOccurred(Crashed) 之后还有
+        // readChannelFinished/finished)⇒ 同步 delete 即释放后使用。延迟到事件循环释放。
+        rt->process = nullptr;
+        proc->deleteLater();
+        return;
+    }
+    // 正常退出时收尸:释放 QProcess 对象
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [rt](int, QProcess::ExitStatus) {
+                if (rt->process) {
+                    rt->process->deleteLater();
+                    rt->process = nullptr;
+                }
+            });
+    proc->terminate();
+    // 定时器挂在管理器上:管理器销毁时自动失效,不会对已析构对象操作
+    QTimer::singleShot(kDisableKillTimeoutMs, this, [rt]() {
+        QProcess* p = rt->process;
+        if (!p) return;
+        if (p->state() != QProcess::NotRunning) p->kill();
+        // kill 后 finished 信号会触发上面的收尸;已退出则直接释放
+        if (p->state() == QProcess::NotRunning) {
+            p->deleteLater();
+            rt->process = nullptr;
+        }
+    });
+}
+
+bool PluginManager::restart_plugin(const QString& protocol_id) {
+    // 调用方:GUI 线程(起 QProcess + 动 m_plugins)。先停旧运行时(若有),
+    // 再用登记的清单走 start_plugin 重建全新运行时。
+    PluginManifest m;
+    bool found = false;
+    {
+        PluginRuntime* rt = find_runtime(protocol_id);
+        if (rt) {
+            m = rt->manifest;
+            found = true;
+        } else {
+            QReadLocker rl(&m_plugins_lock);
+            const auto it = m_known_manifests.find(protocol_id);
+            if (it != m_known_manifests.end()) {
+                m = it.value();
+                found = true;
+            }
+        }
+    }
+    if (!found && !m_plugins_dir.isEmpty()) {
+        // 未登记:restart_all 会把 meta.json 禁用的插件摘出登记(徽标语义:
+        // 不算"需重启")。用户之后在市场改回启用再单独重启时,按磁盘重扫找回
+        // 清单,否则 restart_plugin 永远返回 false、插件无法恢复。
+        for (const PluginManifest& sm : scan_manifests(m_plugins_dir)) {
+            if (sm.protocol_id == protocol_id) {
+                m = sm;
+                found = true;
+                break;
+            }
+        }
+    }
+    if (!found) return false;
+    if (!QDir(m.dir_path).exists()) {
+        // 卸载后目录已不存在:先停掉还在跑的旧运行时(与改动前一致),
+        // 再摘除登记,下次 restart_all 不再尝试它
+        if (find_runtime(protocol_id))
+            disable_plugin(protocol_id, QStringLiteral("restart requested"));
+        QWriteLocker wl(&m_plugins_lock);
+        m_known_manifests.remove(protocol_id);
+        return false;
+    }
+    // 启用状态以磁盘最新 meta.json 为准:用户可能在插件启动后于市场
+    // 对话框改动开关,运行中清单/登记的清单都可能已过期,故重读。
+    // 重读失败(清单已损坏)时沿用旧清单,交给 start_plugin/host 去失败。
+    const PluginManifest fresh = read_plugin_manifest(m.dir_path);
+    if (fresh.valid) m = fresh;
+    if (!m.enabled) {
+        // 市场层已禁用:运行中的先停掉,然后返回 true 表示"跳过",
+        // 不是失败(调用方 restart_all 另行计数 skipped_disabled)。
+        if (find_runtime(protocol_id))
+            disable_plugin(protocol_id, QStringLiteral("disabled in meta.json"));
+        QWriteLocker wl(&m_plugins_lock);
+        if (m_known_manifests.contains(protocol_id))
+            m_known_manifests[protocol_id] = m;  // 登记保持与磁盘一致
+        return true;
+    }
+    if (find_runtime(protocol_id))
+        disable_plugin(protocol_id, QStringLiteral("restart requested"));
+    return start_plugin(m);
+}
+
+PluginRestartAllResult PluginManager::restart_all() {
+    // 以磁盘为准重扫:只遍历 m_known_manifests 会漏掉"装好但从未启动过"或
+    // "刚拷进目录还没 load_all" 的插件,一键重载对它们完全无效。
+    QList<PluginManifest> manifests;
+    if (!m_plugins_dir.isEmpty()) manifests = scan_manifests(m_plugins_dir);
+    if (manifests.isEmpty()) {
+        // 没有记录根目录(或目录已空):退回登记清单,保持旧行为
+        QReadLocker rl(&m_plugins_lock);
+        for (auto it = m_known_manifests.cbegin(); it != m_known_manifests.cend(); ++it)
+            manifests.append(it.value());
+    }
+    PluginRestartAllResult res;
+    for (const PluginManifest& scanned : manifests) {
+        PluginManifest m = scanned;
+        // 启用状态以磁盘最新 meta.json 为准(启动后用户可能在市场对话框改开关)
+        const PluginManifest fresh = read_plugin_manifest(m.dir_path);
+        if (fresh.valid) m = fresh;
+        if (!m.enabled) {
+            if (find_runtime(m.protocol_id))
+                disable_plugin(m.protocol_id,
+                               QStringLiteral("disabled in meta.json"));
+            QWriteLocker wl(&m_plugins_lock);
+            m_known_manifests.remove(m.protocol_id);
+            ++res.skipped_disabled;
+            continue;
+        }
+        ++res.attempted;
+        // 先停旧运行时再重建。旧 host 的退出是异步的(terminate + 2s 兜底 kill),
+        // 新 host 用递增序号的 socket 名,重启窗口内新旧不会撞名。
+        if (find_runtime(m.protocol_id))
+            disable_plugin(m.protocol_id, QStringLiteral("restart requested"));
+        if (start_plugin(m)) ++res.ok;
+    }
+    return res;
 }
 
 void PluginManager::check_heartbeats() {

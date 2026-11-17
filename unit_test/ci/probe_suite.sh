@@ -269,6 +269,15 @@ p_plugin_ipc_decode_probe() {   # 插件 IPC 反序列化防护(M2 深度/节点
     (cd "$d" && run ipc-decode 180 ./ipc_decode_probe) && OUT="$LOGD/ipc-decode.out" \
         && has "RESULT: ALL PASS (0 failures)" "e2e hugecount: parse refused" && lacks " FAIL"
 }
+p_plugin_host_exit_uaf_probe() {   # 宿主退出/崩溃时 QProcess 在自身信号里被 delete(UAF),ASan+UBSan + 释放填充
+    build plugin/host-exit-uaf-probe || return 1
+    local d; d=$(rundir host-exit-uaf)
+    cp "$UT/plugin/host-exit-uaf-probe/build/host_exit_uaf_probe/host_exit_uaf_probe" "$d/" || return 1
+    # free_fill_byte:越界读发生在未插桩的 Qt 内部,不填充则旧代码读到完好旧数据不崩
+    (cd "$d" && ASAN_OPTIONS=detect_leaks=0:halt_on_error=1:max_free_fill_size=4096:free_fill_byte=190 \
+        UBSAN_OPTIONS=halt_on_error=1 run host-exit-uaf 180 ./host_exit_uaf_probe) && OUT="$LOGD/host-exit-uaf.out" \
+        && has "asan=1" "RESULT: ALL PASS (0 failures)" && lacks "ERROR: AddressSanitizer" && lacks "runtime error:"
+}
 p_common_i18n_concurrency_probe() {   # i18n 词典并发(M6),ThreadSanitizer
     local d; d=$(rundir i18n-tsan) f=0
     # ① TSan 自检:故意有数据竞争的程序必须被报出来,证明本 runner 上 TSan 真的生效

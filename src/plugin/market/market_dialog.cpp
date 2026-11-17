@@ -35,6 +35,7 @@
 #include <climits>
 
 #include "../../common/i18n.h"
+#include "../manager/plugin_manager.h"
 #include "../plugin_api/plugin_env.h"
 
 namespace {
@@ -53,6 +54,19 @@ struct I18nRegMarket {
         trl::register_en("安装", "Install");
         trl::register_en("更新", "Update");
         trl::register_en("卸载", "Uninstall");
+        trl::register_en("重加载", "Reload");
+        trl::register_en("插件需要重启", "Plugin Needs Restart");
+        trl::register_en("重加载全部已安装插件",
+                         "Reload All Installed Plugins");
+        trl::register_en("插件已重启", "Plugin Restarted");
+        trl::register_en("插件重启失败", "Failed to Restart Plugin");
+        trl::register_en("部分插件重启失败", "Some Plugins Failed to Restart");
+        trl::register_en("已跳过 %1 个已禁用插件", "Skipped %1 Disabled Plugins");
+        trl::register_en("，已跳过 %1 个已禁用插件", ", Skipped %1 Disabled Plugins");
+        trl::register_en("已禁用，下次重加载时将停止并保持禁用。",
+                         "Disabled. It will stop and stay disabled on the next reload.");
+        trl::register_en("已启用，下次重加载时将重新启动。",
+                         "Enabled. It will restart on the next reload.");
         trl::register_en("启用", "Enabled");
         trl::register_en("从文件安装...", "Install from file...");
         trl::register_en("刷新", "Refresh");
@@ -77,8 +91,6 @@ struct I18nRegMarket {
         trl::register_en("安装成功", "Installed successfully");
         trl::register_en("安装失败", "Install failed");
         trl::register_en("确定卸载该插件吗?", "Uninstall this plugin?");
-        trl::register_en("需要重启插件加载才能生效(重新选择插件目录或重启程序)。",
-                         "Takes effect after plugins are reloaded (reselect the plugin dir or restart).");
         trl::register_en("未选择插件", "No plugin selected");
         trl::register_en("更新时间", "Updated");
         trl::register_en("来源", "Source");
@@ -195,6 +207,25 @@ PluginMarketDialog::PluginMarketDialog(QWidget* parent)
             &PluginMarketDialog::on_install_progress);
     connect(m_market, &PluginMarket::install_finished, this,
             &PluginMarketDialog::on_install_finished);
+    // 插件运行状态变化(就绪/禁用)只更新该行的状态徽标,不重建列表。
+    // rebuild_list() 第一句就是 m_list->clear(),会销毁并重建全部卡片:
+    // 心跳/崩溃/就绪事件可能很频繁,重建会丢选中行与滚动位置并明显闪烁。
+    connect(&PluginManager::instance(),
+            &PluginManager::plugin_status_changed, this,
+            [this](const QString& plugin_id, const QString& status) {
+                QLabel* lbl = m_badge_labels.value(plugin_id, nullptr);
+                if (!lbl) {
+                    // 该行当前没有徽标(之前是就绪态):需要新增一个,
+                    // 只能走一次重建;之后的状态变化都走上面的快路径。
+                    refresh_installed();
+                    rebuild_list();
+                    return;
+                }
+                const bool needs_restart = status != QLatin1String("ready");
+                lbl->setText(needs_restart ? trl::L("插件需要重启")
+                                           : QString());
+                lbl->setVisible(needs_restart);
+            });
     refresh_installed();
     on_refresh();
     rebuild_list();
@@ -242,16 +273,32 @@ void PluginMarketDialog::setup_ui() {
     top->addWidget(m_filter);
     root->addLayout(top);
 
-    // 主体:左列表 + 右详情
+    // 主体:左列表(顶部重加载按钮 + 列表) + 右详情
     auto* split = new QSplitter(Qt::Horizontal, this);
-    m_list = new QListWidget(split);
+    auto* left = new QWidget(split);
+    auto* lv = new QVBoxLayout(left);
+    lv->setContentsMargins(0, 0, 0, 0);
+    lv->setSpacing(4);
+    {
+        auto* row_top = new QHBoxLayout();
+        m_btn_restart = new QPushButton(trl::L("重加载"), left);
+        m_btn_restart->setToolTip(trl::L("重加载全部已安装插件"));
+        m_btn_restart->setEnabled(false);   // 无已安装插件时置灰(不依赖选中行)
+        connect(m_btn_restart, &QPushButton::clicked, this,
+                &PluginMarketDialog::on_restart_clicked);
+        row_top->addWidget(m_btn_restart);
+        row_top->addStretch(1);
+        lv->addLayout(row_top);
+    }
+    m_list = new QListWidget(left);
     m_list->setUniformItemSizes(false);
     m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     connect(m_list, &QListWidget::currentItemChanged, this,
             [this](QListWidgetItem*, QListWidgetItem*) {
                 on_selection_changed();
             });
-    split->addWidget(m_list);
+    lv->addWidget(m_list, 1);
+    split->addWidget(left);
 
     auto* detail = new QWidget(split);
     auto* dl = new QVBoxLayout(detail);
@@ -410,7 +457,8 @@ bool PluginMarketDialog::row_matches(const RowEntry& e) const {
 QWidget* make_card(const QString& icon_key, const QString& title,
                    const QString& sub, const QString& desc,
                    const QString& badge, bool badge_update = false,
-                   QPushButton** update_btn_out = nullptr) {
+                   QPushButton** update_btn_out = nullptr,
+                   QLabel** badge_out = nullptr) {
     auto* w = new QWidget();
     auto* h = new QHBoxLayout(w);
     h->setContentsMargins(6, 6, 6, 6);
@@ -453,6 +501,7 @@ QWidget* make_card(const QString& icon_key, const QString& title,
             "border-radius: 9px; padding: 2px 8px; "
             "font-weight: bold; font-size: 11px; }"));
         h->addWidget(b, 0, Qt::AlignVCenter);
+        if (badge_out) *badge_out = b;
     }
     return w;
 }
@@ -460,6 +509,7 @@ QWidget* make_card(const QString& icon_key, const QString& title,
 void PluginMarketDialog::rebuild_list() {
     m_list->clear();
     m_rows.clear();
+    m_badge_labels.clear();
     const bool en = trl::enabled();
 
     auto add_header = [this](const QString& text) {
@@ -492,15 +542,26 @@ void PluginMarketDialog::rebuild_list() {
                 badge_update = true;  // 左侧直接显示「更新」按钮
             } else if (!ip.enabled) {
                 badge = trl::L("已禁用");
+            } else if (PluginManager::instance().plugin_needs_restart(
+                           ip.manifest.protocol_id)) {
+                badge = trl::L("插件需要重启");
             }
             QPushButton* upd_btn = nullptr;
+            QLabel* badge_lbl = nullptr;
             auto* card = make_card(
                 ip.manifest.name,
                 plugin_display_name(ip.manifest, en),
                 trl::L("作者") + ": " + ip.manifest.author + "  " +
                     trl::L("版本") + ": " + ip.manifest.version,
                 plugin_description(ip.manifest, en), badge, badge_update,
-                &upd_btn);
+                &upd_btn, &badge_lbl);
+            if (badge_lbl) {
+                // 同时按 name 与 protocol_id 登记:plugin_status_changed 发的是
+                // protocol_id,而列表行以 manifest.name 为键。
+                m_badge_labels.insert(ip.manifest.name, badge_lbl);
+                if (!ip.manifest.protocol_id.isEmpty())
+                    m_badge_labels.insert(ip.manifest.protocol_id, badge_lbl);
+            }
             if (upd_btn) {
                 const QString name = ip.manifest.name;
                 connect(upd_btn, &QPushButton::clicked, this,
@@ -805,6 +866,7 @@ void PluginMarketDialog::rebuild_env_tab(const InstalledPlugin* ip) {
 }
 
 void PluginMarketDialog::update_detail() {
+    update_restart_button();
     const bool en = trl::enabled();
     QListWidgetItem* cur = m_list->currentItem();
     const bool has_sel =
@@ -927,11 +989,49 @@ void PluginMarketDialog::on_uninstall_clicked() {
     }
 }
 
+void PluginMarketDialog::update_restart_button() {
+    // 一键重加载全部已安装插件:不依赖选中行;没有已安装插件时置灰。
+    if (m_btn_restart)
+        m_btn_restart->setEnabled(!m_restarting && !m_installed.isEmpty());
+}
+
+void PluginMarketDialog::on_restart_clicked() {
+    if (m_restarting || m_installed.isEmpty()) return;
+    // 串行重建阻塞 GUI 线程期间用户的再次点击会排队进来,光靠按钮置灰拦不住,
+    // 用标志位兜底;做完再刷新列表与状态。
+    m_restarting = true;
+    update_restart_button();
+    const PluginRestartAllResult r = PluginManager::instance().restart_all();
+    m_restarting = false;
+    refresh_installed();
+    rebuild_list();
+    // 三档只按尝试重启的启用插件计(attempted):全部成功 / 部分失败 / 全部失败。
+    // 已禁用插件只跳过、不算失败,有跳过时追加提示;全部已禁用(attempted==0)
+    // 时只报跳过数。
+    QString msg;
+    if (r.attempted == 0) {
+        msg = r.skipped_disabled > 0
+                  ? trl::L("已跳过 %1 个已禁用插件").arg(r.skipped_disabled)
+                  : trl::L("插件重启失败");
+    } else if (r.ok >= r.attempted) {
+        msg = trl::L("插件已重启");
+    } else if (r.ok > 0) {
+        msg = trl::L("部分插件重启失败");
+    } else {
+        msg = trl::L("插件重启失败");
+    }
+    if (r.attempted > 0 && r.skipped_disabled > 0)
+        msg += trl::L("，已跳过 %1 个已禁用插件").arg(r.skipped_disabled);
+    m_status->setText(msg);
+}
+
 void PluginMarketDialog::on_enabled_toggled(bool on) {
     if (m_current_name.isEmpty()) return;
     if (m_market->set_enabled(m_current_name, on)) {
-        m_status->setText(
-            trl::L("需要重启插件加载才能生效(重新选择插件目录或重启程序)。"));
+        // 只写 meta.json,不立即停掉已运行实例:开关在下次重加载时生效
+        // (禁用 → 停止并保持禁用;启用 → 重新启动)。
+        m_status->setText(on ? trl::L("已启用，下次重加载时将重新启动。")
+                             : trl::L("已禁用，下次重加载时将停止并保持禁用。"));
         refresh_installed();
         rebuild_list();
     }

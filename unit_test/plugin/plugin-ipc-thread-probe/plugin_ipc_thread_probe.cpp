@@ -19,6 +19,18 @@
 ///   --bench-only 只跑握手 + ③(三方对比用)。
 ///   要求:全部请求拿到响应、插件不被禁用、无 timeout-disabled 状态;
 ///   全程不得出现 Qt 跨线程告警("another thread"/"different thread")。
+///   R1 重启已禁用插件(lua_echo 被杀后禁用):restart_plugin 恢复、可再解析;
+///   R2 重启运行中的插件:旧 host 进程被杀(只剩 1 个新 pid)、解析恢复;
+///   R3 host 卡死(SIGSTOP)时心跳超时禁用:2 s 兜底 kill 须让进程消失,
+///   随后重启可恢复。禁用期间 plugin_needs_restart() 为真,恢复后为假。
+///   R4 一键重加载全部插件:restart_all() 串行重启全部 3 个已知插件并返回
+///   成功数,随后三者都可再解析。
+///   R5 重加载跳过已禁用插件:其中一个写 meta.json {"enabled": false} 后
+///   restart_all() 不复活它(不计 attempted/ok,只计 skipped_disabled=1,
+///   运行中的 host 先停掉)、其余两个正常重启可解析;改回 enabled 后
+///   restart_plugin() 可再重启恢复。注意这里的"禁用"是市场层 meta.json
+///   开关(用户主动禁用),与 R1 的 PluginRuntime::disabled(崩溃/断连置位)
+///   不是一回事:R1 断言 restart_plugin 在 meta 默认启用时返回 true,必须继续通过。
 ///   bplc-plugin-host 须与探针同目录;可用 --host <path> 指定,探针会复制过来。
 ///   预期输出 `RESULT: ALL PASS (0 failures)`,exit 0。
 #include <QApplication>
@@ -303,6 +315,21 @@ static qint64 host_pid(const QString& plugin_dir_tag) {
     pg.waitForFinished(3000);
     const QList<QByteArray> ls = pg.readAllStandardOutput().trimmed().split('\n');
     return ls.isEmpty() ? -1 : ls.first().toLongLong();
+}
+
+/// 加载 plugin_dir_tag 的全部 host 进程 pid(重启后旧进程须消失,只能剩 1 个)
+static QList<qint64> host_pids(const QString& plugin_dir_tag) {
+    QProcess pg;
+    pg.start(QStringLiteral("pgrep"), {QStringLiteral("-f"),
+                                       QStringLiteral("bplc-plugin-host.*") + plugin_dir_tag});
+    pg.waitForFinished(3000);
+    QList<qint64> out;
+    for (const QByteArray& l : pg.readAllStandardOutput().trimmed().split('\n')) {
+        if (l.isEmpty()) continue;
+        const qint64 v = l.toLongLong();
+        if (v > 0) out << v;
+    }
+    return out;
 }
 #endif
 
@@ -656,6 +683,131 @@ bench:
         check("host kill: plugin disabled, status reported on GUI",
               !pm.is_plugin_protocol(echo) && !st_after_kill.isEmpty() &&
               st_after_kill.first().startsWith(QStringLiteral("disabled")));
+        check("host kill: plugin reports needs-restart",
+              pm.plugin_needs_restart(echo));
+    }
+
+    // R1 重启已禁用插件(lu_echo 在上段被杀后禁用):新 host 起来、解析恢复
+    {
+        check("restart disabled plugin: restart_plugin returns true",
+              pm.restart_plugin(echo));
+        spin_until([&] { return pm.is_plugin_protocol(echo); }, 15000);
+        check("restart disabled plugin: handshaked again", pm.is_plugin_protocol(echo));
+        check("restart disabled plugin: no longer needs restart",
+              !pm.plugin_needs_restart(echo));
+        check("restart disabled plugin: new host process running",
+              host_pid(QStringLiteral("lua_echo")) > 0);
+        int gok = 0, gtot = 0;
+        const int okr = parse_in_worker(echo, 200, nullptr, &gok, &gtot);
+        check("restart disabled plugin: parses answered after restart", okr == 200);
+    }
+
+    // R2 重启运行中的插件:旧进程被杀(只能剩 1 个新 pid)、解析恢复
+    {
+        const qint64 pid_old = host_pid(QStringLiteral("lua_echo"));
+        check("restart running plugin: old host found", pid_old > 0);
+        check("restart running plugin: restart_plugin returns true",
+              pm.restart_plugin(echo));
+        QList<qint64> pids;
+        spin_until([&] {
+            pids = host_pids(QStringLiteral("lua_echo"));
+            return pids.size() == 1 && pids.first() != pid_old;
+        }, 10000);
+        std::printf("  restart running: old pid %lld, now %lld host(s)\n",
+                    (long long)pid_old,
+                    (long long)(pids.isEmpty() ? -1 : pids.first()));
+        check("restart running plugin: old host gone, exactly one new host",
+              pids.size() == 1 && pids.first() != pid_old);
+        spin_until([&] { return pm.is_plugin_protocol(echo); }, 15000);
+        check("restart running plugin: handshaked again", pm.is_plugin_protocol(echo));
+        int gok = 0, gtot = 0;
+        const int okr = parse_in_worker(echo, 200, nullptr, &gok, &gtot);
+        check("restart running plugin: parses answered after restart", okr == 200);
+    }
+
+    // R3 disable 杀进程:host 卡死(SIGSTOP)时心跳超时禁用,2 s 兜底 kill
+    //     须让进程消失(terminate 对停住的进程无效),随后重启可恢复
+    {
+        const qint64 pid_gfx = host_pid(QStringLiteral("lua_graphics"));
+        check("disable kills hung host: gfx host found", pid_gfx > 0);
+        ::kill(pid_t(pid_gfx), SIGSTOP);
+        spin_until([&] { return !pm.is_plugin_protocol(gfx); }, 30000);
+        check("disable kills hung host: plugin disabled by heartbeat timeout",
+              !pm.is_plugin_protocol(gfx));
+        check("disable kills hung host: plugin reports needs-restart",
+              pm.plugin_needs_restart(gfx));
+        QList<qint64> pids;
+        spin_until([&] {
+            pids = host_pids(QStringLiteral("lua_graphics"));
+            return pids.isEmpty();
+        }, 10000);
+        check("disable kills hung host: host process gone after disable", pids.isEmpty());
+        check("restart after heartbeat-disable: restart_plugin returns true",
+              pm.restart_plugin(gfx));
+        spin_until([&] { return pm.is_plugin_protocol(gfx); }, 15000);
+        check("restart after heartbeat-disable: handshaked again", pm.is_plugin_protocol(gfx));
+        int gok = 0, gtot = 0;
+        const int ok7 = parse_in_worker(gfx, 200, nullptr, &gok, &gtot);
+        check("restart after heartbeat-disable: parses answered", ok7 == 200);
+    }
+
+    // R4 一键重加载全部插件:restart_all 串行重启全部已知插件(echo/gfx/gnf)
+    {
+        const PluginRestartAllResult r4 = pm.restart_all();
+        check("restart all: all known plugins restarted",
+              r4.attempted == 3 && r4.ok == 3 && r4.skipped_disabled == 0);
+        spin_until([&] { return pm.is_plugin_protocol(echo) && pm.is_plugin_protocol(gfx) &&
+                                pm.is_plugin_protocol(gnf); }, 15000);
+        check("restart all: all plugins handshaked again",
+              pm.is_plugin_protocol(echo) && pm.is_plugin_protocol(gfx) &&
+                  pm.is_plugin_protocol(gnf));
+        int gok = 0, gtot = 0;
+        const int okr = parse_in_worker(echo, 200, nullptr, &gok, &gtot);
+        check("restart all: parses answered after restart", okr == 200);
+    }
+
+    // R5 重加载跳过已禁用插件(lua_graphics 写 meta.json {"enabled": false}):
+    //   不复活、不计入 attempted/ok,只计 skipped_disabled;运行中的 host 先停掉;
+    //   其余两个正常重启、可解析;改回 enabled 后 restart_plugin() 可再重启恢复。
+    //   写 meta 的范例见 src/plugin/tests/market_test.cpp 的 plugin_dir_enabled
+    //   用例(直接写 meta.json 再读回)。
+    {
+        auto write_meta_enabled = [&](bool on) {
+            QFile mf(plugins + QStringLiteral("/lua_graphics/meta.json"));
+            if (!mf.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+            mf.write(QJsonDocument(QJsonObject{
+                                       {QStringLiteral("enabled"), on}})
+                       .toJson());
+            return true;
+        };
+        check("restart all skips disabled: meta.json written", write_meta_enabled(false));
+        const PluginRestartAllResult r5 = pm.restart_all();
+        check("restart all skips disabled: counts exclude disabled plugin",
+              r5.attempted == 2 && r5.ok == 2 && r5.skipped_disabled == 1);
+        check("restart all skips disabled: disabled plugin not running",
+              !pm.is_plugin_protocol(gfx));
+        QList<qint64> pids5;
+        spin_until([&] {
+            pids5 = host_pids(QStringLiteral("lua_graphics"));
+            return pids5.isEmpty();
+        }, 10000);
+        check("restart all skips disabled: disabled host process gone", pids5.isEmpty());
+        spin_until([&] { return pm.is_plugin_protocol(echo) && pm.is_plugin_protocol(gnf); }, 15000);
+        check("restart all skips disabled: other plugins handshaked again",
+              pm.is_plugin_protocol(echo) && pm.is_plugin_protocol(gnf));
+        int gok = 0, gtot = 0;
+        const int ok5a = parse_in_worker(echo, 200, nullptr, &gok, &gtot);
+        check("restart all skips disabled: echo parses answered after restart", ok5a == 200);
+        const int ok5b = parse_in_worker(gnf, 200, nullptr, &gok, &gtot);
+        check("restart all skips disabled: gnf parses answered after restart", ok5b == 200);
+        // 改回启用:restart_plugin 可再重启恢复
+        check("restart re-enabled plugin: meta.json re-enabled", write_meta_enabled(true));
+        check("restart re-enabled plugin: restart_plugin returns true",
+              pm.restart_plugin(gfx));
+        spin_until([&] { return pm.is_plugin_protocol(gfx); }, 15000);
+        check("restart re-enabled plugin: handshaked again", pm.is_plugin_protocol(gfx));
+        const int ok5c = parse_in_worker(gfx, 200, nullptr, &gok, &gtot);
+        check("restart re-enabled plugin: parses answered after restart", ok5c == 200);
     }
 #endif
 

@@ -56,6 +56,7 @@ private slots:
     void on_install_from_file();
     void on_install_clicked();
     void on_uninstall_clicked();
+    void on_restart_clicked();
     void on_enabled_toggled(bool on);
     void on_settings_save();
 
@@ -73,6 +74,8 @@ private:
     QString source_label(const QString& source) const;
     bool    row_matches(const RowEntry& e) const;
     void    update_detail();
+    /// @brief 刷新顶部重加载按钮可用状态:有已安装插件且不在重加载中时可点
+    void    update_restart_button();
     void    update_readme_tab(const InstalledPlugin* ip,
                               const MarketPlugin* mp);
     void    rebuild_settings_tab(const InstalledPlugin* ip);
@@ -83,6 +86,9 @@ private:
     QList<MarketPlugin>    m_feed;
     QList<InstalledPlugin> m_installed;
     QList<RowEntry>        m_rows;
+    /// @brief 已安装插件的状态徽标(plugin name / protocol_id → QLabel)
+    /// @details 状态变化时只改这个 label 的文字,不重建整个列表。
+    QMap<QString, QLabel*> m_badge_labels;
     QString                m_current_name;
 
     QLineEdit*   m_search = nullptr;
@@ -98,6 +104,10 @@ private:
     void set_versions_text(const QString& t);
     QPushButton* m_btn_install = nullptr;
     QPushButton* m_btn_uninstall = nullptr;
+    /// @brief 列表顶部重加载按钮:一键重加载全部已安装插件
+    QPushButton* m_btn_restart = nullptr;
+    /// @brief 重加载进行中(防重复点击:串行重建阻塞 GUI 线程期间的点击会排队)
+    bool m_restarting = false;
     QCheckBox*   m_chk_enabled = nullptr;
     // detail tabs: README / 设置 / 环境变量
     QTabWidget*   m_tabs = nullptr;

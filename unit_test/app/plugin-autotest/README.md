@@ -5,6 +5,20 @@
 
 ## 构建
 
+独立入口(推荐,不必记参数):
+
+```bash
+mkdir -p build-autotest && cd build-autotest
+qmake <repo>/plugin_autotest.pro
+make -j2
+```
+
+`<repo>/plugin_autotest.pro` 只是把「主程序 + `CONFIG+=plugin_autotest`」固定下来。
+入口必须放在仓库根:`BPLC_STA_Monitor.pro` 内部用相对路径引用 `main.cpp` /
+`BPLC_STA_Monitor.qrc` / `src/...`,qmake 按顶层 `.pro` 所在目录解析它们。
+
+等价的手工方式:
+
 ```bash
 qmake BPLC_STA_Monitor.pro CONFIG+=release CONFIG+=crash_no_default CONFIG+=plugin_autotest
 make -j2
