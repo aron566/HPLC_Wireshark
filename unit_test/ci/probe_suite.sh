@@ -216,7 +216,15 @@ p_protocol_nw_trunc_stats_probe() {   # 3 个 .pro 共用 TARGET,各自 build/<n
     done
     return $f
 }
-
+# ---- topology ----
+p_topo_topo_asof_mac_fallback_probe() {   # as-of TEI→MAC 回退唯一性与 NID 隔离
+    build topo/topo-asof-mac-fallback-probe || return 1
+    local d; d=$(rundir topo-asof-mac-fallback)
+    cp "$UT/topo/topo-asof-mac-fallback-probe/build/asof_mac_fallback_probe" "$d/" || return 1
+    (cd "$d" && run topo-asof-mac-fallback 60 ./asof_mac_fallback_probe) \
+        && OUT="$LOGD/topo-asof-mac-fallback.out" \
+        && has "ALL PASS" && lacks "FAIL:"
+}
 # ---- storage ----
 p_storage_golden() {   # 盘块序列化:无损往返 + 与入库 v<block_version> golden 内容一致
     build storage/golden || return 1

@@ -8,9 +8,12 @@
 从不进渲染用的时点映射 asof，故路由表里 TEI=1 显示“未知”。
 修法：asof 查不到时回退查 `mac_to_tei`，查到写回 asof 一次。
 
-覆盖（见 main.cpp 注释 T0–T6）：逐帧学习只进反向表不建 nodes、
+覆盖（见 main.cpp 注释 T0–T8）：逐帧学习只进反向表不建 nodes、
 回退显示 MAC、写回 asof、未知仍显示未知、帧内直带优先、
-写回条目参与后续 leaves 反查、st 为空不崩溃。
+写回条目参与后续 leaves 反查、st 为空不崩溃；同一 NID 下同一 TEI
+对应多个 MAC 时返回未知且结果稳定、不同 NID 隔离、唯一映射仍可回退。
+该探针已注册到 `unit_test/ci/probe_suite.sh`，并由
+`.github/workflows/protocol-regression.yml` 的 `frames-gw-storage` job 执行。
 修前代码跑本探针时 T1 失败（反向验证见提交说明）。
 
 用法：

@@ -661,6 +661,7 @@ jobs:
               protocol-gw/gw-rsv-harness
               protocol-gw/gw-topo-merge-probe
               protocol-gw/gw2026-tree-probe
+              topo/topo-asof-mac-fallback-probe
               storage/golden
           - group: nw
             probes: >-
