@@ -2,7 +2,7 @@
 
 BPLC/HRF(HPLC) 协议 STA 报文监控上位机(Windows,Qt 6 / C++17)。
 
-原为 Python 版 `BPLCMonitor`,本项目为 Qt6/C++ 重写版:解析 STA 固件经调试串口
+本项目解析 STA 固件经调试串口
 输出的 `0x3C … 0x3E` 封装帧,并以字段树 + 十六进制字节联动高亮展示各层协议
 结构。
 
