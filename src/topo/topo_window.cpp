@@ -1226,13 +1226,32 @@ bool TopoWindow::eventFilter(QObject* watched, QEvent* event) {
 }
 
 namespace {
+/// @brief 在状态的实时映射表里反查 TEI→MAC:mac_to_tei 是 (NID, MAC)→TEI,按事件 NID + TEI 反向找 MAC
+/// @details 逐帧/信标路径只往 mac_to_tei 里学映射,从不进 asof;节点表 nodes 里可能还没有该 TEI
+///          (无事件帧创建过节点),故不能用 nodes/mac_of() 反查,必须扫反向表。
+///          同一 TEI 正常只对应一个 MAC(index_mac 换 MAC 时清旧键);无节点时旧键可能残留,取首个命中。
+/// @return 查到的 MAC,查不到返回 0
+quint64 mac_from_state_index(const TopoState* st, quint32 nid, quint16 tei) {
+    if (!st || !nid || !tei) return 0;
+    for (auto it = st->mac_to_tei.constBegin(); it != st->mac_to_tei.constEnd(); ++it) {
+        if (it.key().nid == nid && it.value() == tei) return it.key().mac;
+    }
+    return 0;
+}
+
 /// @brief 事件行的 MAC 文本:帧内自带 MAC 优先,其余 TEI 用"截至该事件前"的时点映射解析
-/// @param asof 该事件**之前**累积的 TEI→MAC(调用方保证不含本事件)
+/// @param st 该 NID 的实时状态(回退查 mac_to_tei 用;为空时不回退)
+/// @param asof 该事件**之前**累积的 TEI→MAC(调用方保证不含本事件);
+///        回退查到的条目会写回 asof,供同一渲染过程后续行直接用
 /// @details 为什么不能直接用最终映射:事件表是历史追溯。STA 换 TEI 后,早期事件里的旧 TEI
 ///          在最终映射里已经不存在(或已被改成别的 MAC),用最终映射回填会把"当时"的信息
 ///          篡改成"现在"的信息。故一律以时点映射解析;帧内自带的 MAC(关联请求/确认的
 ///          nodes、离线指示的 leaves)是直接证据,优先级最高。
-QString event_mac_text(const TopoEvent& e, const QHash<quint16, quint64>& asof) {
+///          只有 asof 里查不到的 TEI 才回退查实时映射表(信标/逐帧学习到的 TEI→MAC 从不进 asof,
+///          不回退就只能显示"未知");回退结果只补缺口,不覆盖时点映射已有的值,后续事件自带的
+///          映射仍由 advance_mac_asof 覆盖 asof。
+QString event_mac_text(const TopoEvent& e, const TopoState* st,
+                       QHash<quint16, quint64>& asof) {
     QHash<quint16, quint64> tei_mac;   // TEI → MAC(0=未知)
     QList<quint64> orphan_macs;        // 帧内直带但 TEI 未知(如离线指示只给 MAC)
     for (const TeiMacPair& p : e.nodes) {
@@ -1269,7 +1288,14 @@ QString event_mac_text(const TopoEvent& e, const QHash<quint16, quint64>& asof) 
     if (e.discover_src_tei) teis << e.discover_src_tei;
     for (quint16 t : teis) {
         if (tei_mac.contains(t)) continue;      // 帧内直带优先
-        tei_mac.insert(t, asof.value(t, 0));    // 0 = 此时点未知
+        quint64 mac = asof.value(t, 0);
+        if (!mac && st) {
+            // asof 查不到时回退查实时映射表,查到的结果写回 asof,供同一渲染过程
+            // 后续行(含 leaves 反查)直接用,不再重复回退
+            mac = mac_from_state_index(st, e.nid, t);
+            if (mac) asof.insert(t, mac);
+        }
+        tei_mac.insert(t, mac);    // 0 = 此时点未知
     }
     QStringList parts;
     QList<quint16> keys = tei_mac.keys();
@@ -1299,7 +1325,7 @@ void TopoWindow::append_routes_rows(const TopoState* st, const QString& filter,
     for (int i = from; i < to; ++i) {  // 时间正序,最新在底部(与主界面一致)
         const TopoEvent& e = st->events[i];
         // MAC 先按"截至本事件前"的时点映射解析,再把本事件的 TEI→MAC 并入
-        const QString mac = event_mac_text(e, m_routes_mac_asof);
+        const QString mac = event_mac_text(e, st, m_routes_mac_asof);
         advance_mac_asof(m_routes_mac_asof, e);
         const QString time = format_time(e.epoch_ms);
         const QString kind = event_kind_name(e.kind);
