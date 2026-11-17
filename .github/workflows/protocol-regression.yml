@@ -768,6 +768,8 @@ jobs:
       #   不再负载敏感 ⇒ 不加重试;probe_suite.sh 里 300 s 超时只防挂死。
       # ipc-decode:插件 IPC 反序列化防护(M2 字段树深度/节点数 + 容器计数不按流中计数 reserve);
       #   探针把自己复制成 bplc-plugin-host 充当恶意宿主,PluginManager 真实收包,损坏响应 ⇒ 停用插件、不崩
+      # host-exit-uaf:宿主崩溃/退出时 QProcess 不得在自身 finished/errorOccurred 信号里被 delete(UAF),
+      #   ASan+UBSan 构建 + free_fill_byte;并验证 restart_all 复活崩溃停用的、跳过 meta.json 手动禁用的
       # frame-dispatcher-lifetime:FrameDispatcher 构造→shutdown→析构 50 轮,ASan+UBSan 构建(77b89dc 释放后使用回归)
       # i18n-concurrency:CONFIG+=tsan(-fsanitize=thread)构建,TSAN_OPTIONS=halt_on_error=1;
       #   先跑一个故意数据竞争的自检程序确认 TSan 真的生效,再确认探针二进制带 TSan 运行时
@@ -780,6 +782,7 @@ jobs:
           ui/paging-race-probe
           plugin/plugin-ipc-thread-probe
           plugin/ipc-decode-probe
+          plugin/host-exit-uaf-probe
           common/i18n-concurrency-probe
           app/frame-dispatcher-lifetime-probe
           app/downloader-rename-probe

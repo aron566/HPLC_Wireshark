@@ -163,6 +163,9 @@ void PluginManager::stop_all() {
                 rt->process->kill();
                 rt->process->waitForFinished(1000);
             }
+            // 同步 delete 在此安全:上面已 disconnect(this),本函数也不会从 QProcess
+            // 自己的信号里调进来(调用方:析构 / aboutToQuit / 市场删除前),且退出
+            // 路径上可能已无事件循环执行 deleteLater。
             delete rt->process;
             rt->process = nullptr;
         }
@@ -309,6 +312,8 @@ bool PluginManager::start_plugin(const PluginManifest& m) {
          QStringLiteral("--plugin"), m.dir_path});
     if (!rt->process->waitForStarted(5000)) {
         release_server();
+        // 此处同步 delete 安全:已从 waitForStarted 返回、不在 QProcess 信号发射中
+        // (启动失败的 errorOccurred 回调里 find_runtime 找不到尚未登记的 rt,不会走 shutdown_runtime)
         delete rt->process;
         delete rt;
         return false;
@@ -686,14 +691,18 @@ void PluginManager::shutdown_runtime(PluginRuntime* rt) {
         rt->socket = nullptr;
         rt->rx_buf.clear();
     });
-    // GUI 线程:关停 host 进程。已退出的直接释放对象;还在跑的先断开旧的
+    // GUI 线程:关停 host 进程。已退出的释放对象;还在跑的先断开旧的
     // finished/error 回调(免得重入 disable),terminate 后挂 2 s 定时器兜底 kill。
     QProcess* proc = rt->process;
     if (!proc) return;
     proc->disconnect(this);
     if (proc->state() == QProcess::NotRunning) {
-        delete proc;
+        // 不能 delete:本函数常经 on_process_finished/on_process_error → disable_plugin
+        // 从该 QProcess 自己的 finished/errorOccurred 信号里调进来,信号返回后
+        // QProcessPrivate 还会继续 emit(errorOccurred(Crashed) 之后还有
+        // readChannelFinished/finished)⇒ 同步 delete 即释放后使用。延迟到事件循环释放。
         rt->process = nullptr;
+        proc->deleteLater();
         return;
     }
     // 正常退出时收尸:释放 QProcess 对象
