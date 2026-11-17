@@ -713,6 +713,14 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: bash unit_test/ci/probe_suite.sh ${{ matrix.probes }}
 
+      - name: Upload probe logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: protocol-probes-logs-${{ matrix.group }}
+          path: ${{ runner.temp }}/probe-suite/logs
+          if-no-files-found: ignore
+
   runtime-probes-linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -788,6 +796,14 @@ jobs:
           app/frame-dispatcher-lifetime-probe
           app/downloader-rename-probe
 
+      - name: Upload probe logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-probes-logs
+          path: ${{ runner.temp }}/probe-suite/logs
+          if-no-files-found: ignore
+
       # mirror-probe 解析真实 update.json 并查出口地区(raw.githubusercontent / cloudflare trace /
       # country.is / ipwho.is 等外部服务)。构建是门禁(下一步);运行依赖外部服务,偶发不可用
       # 不应挡合并 ⇒ 运行步 continue-on-error(失败在汇总里显示为警告),脚本内失败重试一次
@@ -840,6 +856,14 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: bash unit_test/ci/probe_suite.sh app/plugin-autotest
+
+      - name: Upload plugin autotest logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-autotest-logs
+          path: ${{ runner.temp }}/probe-suite/logs
+          if-no-files-found: ignore
 
       - name: Upload plugin autotest screenshots
         if: always()
