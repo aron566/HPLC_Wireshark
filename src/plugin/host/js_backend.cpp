@@ -98,14 +98,16 @@ bool JsBackend::check_error(const QJSValue& v, QString* err,
                             const QString& ctx) const {
     // 先判返回值,再判 interrupted:脚本在超时边界上正常返回时,
     // m_engine.isInterrupted() 可能仍为 true(看门狗刚置位、引擎尚未复位),
-    // 先判 interrupted 会把一个合法结果误报成"超时"。
+    // 先判 interrupted 会把一个合法结果误报成"超时"——所以非错误返回值一律放行。
+    // 但被看门狗打断时,引擎返回的本身就是一个 Error("Error: Interrupted"),
+    // 这时必须报成超时(调用方/探针按 "time limit" 识别),不能当普通脚本错误。
     if (v.isError()) {
-        *err = QStringLiteral("%1: %2").arg(ctx, v.toString());
-        return false;
-    }
-    if (m_engine.isInterrupted()) {
-        *err = QStringLiteral("%1: script exceeded %2 ms time limit, interrupted")
-                   .arg(ctx).arg(m_watchdog.timeout_ms());
+        if (m_engine.isInterrupted()) {
+            *err = QStringLiteral("%1: script exceeded %2 ms time limit, interrupted")
+                       .arg(ctx).arg(m_watchdog.timeout_ms());
+        } else {
+            *err = QStringLiteral("%1: %2").arg(ctx, v.toString());
+        }
         return false;
     }
     return true;
