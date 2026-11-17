@@ -266,11 +266,17 @@ void PluginMarketDialog::setup_ui() {
         m_d_name->setFont(f);
     }
     m_d_name->setWordWrap(true);
+    // 名称/元信息/版本文本来自市场 feed 或插件清单(不可信):按纯文本显示,
+    // 不解析 HTML,也就不会出现可点击链接
+    m_d_name->setTextFormat(Qt::PlainText);
+    m_d_name->setOpenExternalLinks(false);
     head->addWidget(m_d_icon);
     head->addWidget(m_d_name, 1);
     dl->addLayout(head);
     m_d_meta = new QLabel(detail);
     m_d_meta->setWordWrap(true);
+    m_d_meta->setTextFormat(Qt::PlainText);
+    m_d_meta->setOpenExternalLinks(false);
     dl->addWidget(m_d_meta);
     auto* btns = new QHBoxLayout();
     m_btn_install = new QPushButton(trl::L("安装"), detail);
@@ -290,7 +296,11 @@ void PluginMarketDialog::setup_ui() {
     // 详情 tab: README(md) / 设置 / 环境变量
     m_tabs = new QTabWidget(detail);
     m_readme = new QTextBrowser(m_tabs);
-    // L7:不自动打开外部链接,点击走 on_readme_anchor_clicked(只放行 http/https 且弹确认)
+    // L7:README 来自市场/插件包,不可信。setOpenExternalLinks(false) 只管外部协议;
+    // openLinks 默认 true 时,file:、qrc:、相对路径等链接会被 QTextBrowser 自己 setSource
+    // 导航进来(可把本地任意文件读进视图)。两者都关掉,所有点击只发 anchorClicked,
+    // 由 on_readme_anchor_clicked 处理(只放行带主机名的 http/https,且弹确认)。
+    m_readme->setOpenLinks(false);
     m_readme->setOpenExternalLinks(false);
     connect(m_readme, &QTextBrowser::anchorClicked, this,
             &PluginMarketDialog::on_readme_anchor_clicked);
@@ -310,6 +320,8 @@ void PluginMarketDialog::setup_ui() {
     dl->addWidget(m_tabs, 1);
     m_d_versions = new QLabel(detail);
     m_d_versions->setWordWrap(true);
+    m_d_versions->setTextFormat(Qt::PlainText);
+    m_d_versions->setOpenExternalLinks(false);
     m_d_versions->setVisible(false);  // 为空时隐藏,不在布局里留空白行
     dl->addWidget(m_d_versions);
     split->addWidget(detail);
@@ -598,10 +610,13 @@ void PluginMarketDialog::on_text_ready(const QString& url,
     }
 }
 
-/// @brief README 里的链接点击:只放行 http/https,且先弹确认;其他协议直接忽略。
+/// @brief README 里的链接点击:只放行带主机名的 http/https,且先弹确认;
+///        file:/qrc:/相对路径/锚点等其他链接一律忽略(openLinks 已关,视图不会自行导航)。
 void PluginMarketDialog::on_readme_anchor_clicked(const QUrl& url) {
-    if (url.scheme() != QStringLiteral("http") &&
-        url.scheme() != QStringLiteral("https"))
+    if (!url.isValid() || url.isRelative() || url.host().isEmpty())
+        return;
+    const QString scheme = url.scheme().toLower();
+    if (scheme != QStringLiteral("http") && scheme != QStringLiteral("https"))
         return;
     if (QMessageBox::question(
             this, trl::L("打开外部链接"),

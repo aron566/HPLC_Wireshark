@@ -146,7 +146,8 @@ bool pkexec_available() {
 /// (去 suid/sgid 位、拒设备节点),再对该副本重算摘要并与提权前算好的比对,
 /// 通过才 mkdir -p base && rm -rf dest && mv staging dest——校验对象与移动对象
 /// 是同一棵 root 所有、攻击者不可写的树,堵住"校验后、移动前"暂存被替换的窗口。
-/// 路径与摘要均以 sh 位置参数传递,避免 shell 注入;摘要不一致脚本退 2,设备节点退 3。
+/// 路径与摘要均以 sh 位置参数传递,避免 shell 注入;摘要不一致脚本退 2,设备节点退 3,
+/// 暂存副本属主不是部署用户退 4(脚本正文见 PluginMarket::privileged_deploy_script)。
 /// 摘要算法须与 staged_dir_digest 逐字节一致(条目行 "<相对路径>\0<内容 sha256 |
 /// link:<目标>|(目录)>\n",相对路径 "./" 开头、按字节序排)。
 bool pkexec_deploy(const QString& base_dir, const QString& dest_dir,
@@ -163,19 +164,7 @@ bool pkexec_deploy(const QString& base_dir, const QString& dest_dir,
         QStringLiteral("pkexec"),
         QStringList()
             << QStringLiteral("sh") << QStringLiteral("-c")
-            << QStringLiteral(
-                   "staging=$(mktemp -d) || exit 1\n"
-                   "trap 'rm -rf \"$staging\"' EXIT\n"
-                   "cp -a \"$2/.\" \"$staging/\" || exit 1\n"
-                   // a-s 只清 setuid/setgid/sticky,不会去掉 group/other 写权限:
-                   // 源目录里 0666/0777 的文件拷进来后仍是组/其他可写,提权安装
-                   // 到系统目录后任何本地用户都能改插件代码。go-w 一并去掉。
-                   "chmod -R a-s,go-w \"$staging\" || exit 1\n"
-                   "[ -z \"$(find \"$staging\" \\( -type b -o -type c \\) -print -quit)\" ] || { echo staged device node rejected >&2; exit 3; }\n"
-                   "cd \"$staging\" || exit 1\n"
-                   "actual=$(find . \\( -type f -o -type l -o -type d \\) -print0 | LC_ALL=C sort -z | tr \"\\0\" \"\\n\" | while IFS= read -r f; do if [ -L \"$f\" ]; then printf \"%s\\000link:%s\\n\" \"$f\" \"$(readlink \"$f\")\"; elif [ -d \"$f\" ]; then printf \"%s/\\000\\n\" \"$f\"; else printf \"%s\\000\" \"$f\"; sha256sum \"$f\" | cut -d\" \" -f1; fi; done | sha256sum | cut -d\" \" -f1)\n"
-                   "[ \"$actual\" = \"$3\" ] || { echo staged digest mismatch >&2; exit 2; }\n"
-                   "mkdir -p \"$0\" && rm -rf \"$1\" && mv \"$staging\" \"$1\"")
+            << PluginMarket::privileged_deploy_script()
             << base_dir << dest_dir << staged_dir << staged_digest);
     proc.waitForFinished(180000);  // 等用户完成鉴权,给足时间
     if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0) {
@@ -184,6 +173,8 @@ bool pkexec_deploy(const QString& base_dir, const QString& dest_dir,
                 *err = trl::L("提权安装校验失败：暂存目录内容在提权前被改动");
             } else if (proc.exitCode() == 3) {
                 *err = trl::L("提权安装校验失败：暂存目录含设备节点");
+            } else if (proc.exitCode() == 4) {
+                *err = trl::L("提权安装校验失败：暂存副本属主不是部署用户");
             } else {
                 const QString se =
                     QString::fromLocal8Bit(proc.readAllStandardError()).trimmed();
@@ -799,6 +790,35 @@ bool PluginMarket::is_sha256_hex(const QString& s) {
         if (!hex) return false;
     }
     return true;
+}
+
+/// @brief pkexec_deploy 以 root 执行的部署脚本(sh -c 正文;$0=base $1=dest $2=staged $3=digest)。
+/// @details 关键点:复制用 cp -RP 而**不是** cp -a。cp -a 保留源属主,而源暂存目录归调用者
+///          (非 root)所有,副本仍归调用者 ⇒ 调用者可在"校验后、mv 前"改写副本里的文件,
+///          "在 root 专属副本上复核摘要"的 TOCTOU 修复就失效了。cp -RP 新建的条目归执行者
+///          (root)所有;-P 不跟随符号链接(链接本身照搬,摘要里按 link:<目标> 计入)。
+///          权限显式处理:umask 022 保证新建条目不带组/其他写位;mktemp -d 建的暂存根是 0700,
+///          cp 不改已存在目录的权限,故单独 chmod 755(否则装好的插件目录普通用户读不了);
+///          随后 chmod -R a-s,go-w 去掉 suid/sgid/sticky 与组/其他写位。最后用 find ! -user
+///          断言整棵副本(含符号链接本身)都归执行者,否则退 4。
+QString PluginMarket::privileged_deploy_script() {
+    return QStringLiteral(
+        "umask 022\n"
+        "staging=$(mktemp -d) || exit 1\n"
+        "trap 'rm -rf \"$staging\"' EXIT\n"
+        // 不保留属主/时间戳:副本归执行者(root)所有,源属主无法再改写它
+        "cp -RP \"$2/.\" \"$staging/\" || exit 1\n"
+        "chmod 755 \"$staging\" || exit 1\n"
+        // a-s 只清 setuid/setgid/sticky,不会去掉 group/other 写权限:
+        // 源目录里 0666/0777 的文件拷进来后仍是组/其他可写,提权安装
+        // 到系统目录后任何本地用户都能改插件代码。go-w 一并去掉。
+        "chmod -R a-s,go-w \"$staging\" || exit 1\n"
+        "[ -z \"$(find \"$staging\" ! -user \"$(id -u)\" -print -quit)\" ] || { echo staged copy not owned by deploying user >&2; exit 4; }\n"
+        "[ -z \"$(find \"$staging\" \\( -type b -o -type c \\) -print -quit)\" ] || { echo staged device node rejected >&2; exit 3; }\n"
+        "cd \"$staging\" || exit 1\n"
+        "actual=$(find . \\( -type f -o -type l -o -type d \\) -print0 | LC_ALL=C sort -z | tr \"\\0\" \"\\n\" | while IFS= read -r f; do if [ -L \"$f\" ]; then printf \"%s\\000link:%s\\n\" \"$f\" \"$(readlink \"$f\")\"; elif [ -d \"$f\" ]; then printf \"%s/\\000\\n\" \"$f\"; else printf \"%s\\000\" \"$f\"; sha256sum \"$f\" | cut -d\" \" -f1; fi; done | sha256sum | cut -d\" \" -f1)\n"
+        "[ \"$actual\" = \"$3\" ] || { echo staged digest mismatch >&2; exit 2; }\n"
+        "mkdir -p \"$0\" && rm -rf \"$1\" && mv \"$staging\" \"$1\"");
 }
 
 /// @brief 暂存目录内容摘要:相对路径 "./" 开头、按字节序排,每条目一行

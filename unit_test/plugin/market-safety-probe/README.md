@@ -32,3 +32,12 @@ QT_ROOT=/path/to/Qt/6.11.3/gcc_64 bash build.sh
   复用，不再二次解包（修前两者各解一次）；在线安装路径不受影响，仍只解一次。
 - 探针用 `PluginMarket::unzip_call_count()`（仅探针用计数器）断言两种路径
   各只解包一次，并核对离线安装后的文件内容与 `meta.json` 的 `source=file`。
+
+## 提权部署脚本属主（fix/pr16-market-hardening）
+
+- 直接以当前用户跑 `PluginMarket::privileged_deploy_script()`（不经 pkexec）：
+  摘要不符退 2 且不落盘；部署成功后整棵副本（含符号链接本身）归执行者，根目录 0755，
+  0666 文件去掉组/其他写位，suid 被清、可执行位保留，部署树摘要与暂存一致。
+- 复制不得用 `cp -a`/`-p`：它保留源属主，root 侧"校验 root 专属副本"的 TOCTOU 修复失效。
+  非 root（CI runner）无法区分属主，改以"不保留 mtime"作行为代理；以 root 运行时额外把源文件
+  chown 给 65534，断言副本仍归 root（脚本内 `find ! -user` 不符退 4）。

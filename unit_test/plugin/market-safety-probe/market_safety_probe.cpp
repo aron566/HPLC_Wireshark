@@ -12,6 +12,8 @@
 #include <QTimer>
 #include <QUrl>
 #include <QDir>
+#include <QDirIterator>
+#include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
 #include <QTemporaryDir>
@@ -22,6 +24,11 @@
 #include "i18n.h"
 #include "miniz.h"
 #include "plugin_market.h"
+
+#ifdef Q_OS_LINUX
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 static int g_fails = 0;
 static void check(const char* name, bool ok) {
@@ -253,6 +260,109 @@ static void test_staged_digest(const QString& root) {
     QDir(staged + QStringLiteral("/sub")).rmdir(QStringLiteral("empty"));
     check("digest: removed empty dir detected", shell_staged_digest(staged) != digest);
 }
+
+#ifdef Q_OS_LINUX
+// ── 提权部署脚本:副本必须归执行者所有(cp -a 会保留源属主,TOCTOU 修复失效) ──
+/// 以当前用户直接跑 PluginMarket::privileged_deploy_script()(不经 pkexec)。
+/// 非 root(CI runner)时:属主恒为自己,无法区分 cp -a / cp -R,改用"不保留时间戳"
+/// 作行为代理(cp -a/-p 会把 2001 年的 mtime 带过去);root 时额外把源文件 chown 给
+/// 65534,断言副本仍归 root——这正是 cp -a 下会失败的那条。
+static int run_deploy_script(const QString& base, const QString& dest,
+                             const QString& staged, const QString& digest) {
+    QProcess proc;
+    proc.start(QStringLiteral("sh"),
+               QStringList() << QStringLiteral("-c")
+                             << PluginMarket::privileged_deploy_script() << base
+                             << dest << staged << digest);
+    if (!proc.waitForFinished(30000) || proc.exitStatus() != QProcess::NormalExit)
+        return -1;
+    return proc.exitCode();
+}
+
+static bool stat_of(const QString& p, struct stat* st) {
+    return ::lstat(QFile::encodeName(p).constData(), st) == 0;
+}
+
+static void test_privileged_deploy_script(const QString& root) {
+    const QString staged = root + QStringLiteral("/deploy_staged");
+    const QString base = root + QStringLiteral("/deploy_base");
+    const QString dest = base + QStringLiteral("/pkg");
+    QDir().mkpath(staged + QStringLiteral("/sub"));
+    const bool fx =
+        write_file(staged + QStringLiteral("/plugin.json"), "{}") &&
+        write_file(staged + QStringLiteral("/sub/a.lua"), "print(1)\n") &&
+        write_file(staged + QStringLiteral("/run.sh"), "#!/bin/sh\n") &&
+        // 绝对目标:staged_dir_digest 用 symLinkTarget(解析为绝对路径),与脚本侧 readlink
+        // 只在绝对目标时逐字节一致(暂存目录实际不含符号链接,见 copy_dir_recursive)
+        QFile::link(staged + QStringLiteral("/sub/a.lua"), staged + QStringLiteral("/link.lua"));
+    ::chmod(QFile::encodeName(staged).constData(), 0700);  // 与 QTemporaryDir/mktemp 一致
+    ::chmod(QFile::encodeName(staged + QStringLiteral("/sub/a.lua")).constData(), 0666);
+    ::chmod(QFile::encodeName(staged + QStringLiteral("/run.sh")).constData(), 04777);
+    const QDateTime old_ts = QDateTime::fromSecsSinceEpoch(1000000000);  // 2001-09-09
+    {
+        QFile f(staged + QStringLiteral("/plugin.json"));
+        f.open(QIODevice::ReadWrite);
+        f.setFileTime(old_ts, QFileDevice::FileModificationTime);
+    }
+    const bool is_root = ::geteuid() == 0;
+    if (is_root)
+        check("deploy-script: chown source to 65534",
+              ::lchown(QFile::encodeName(staged + QStringLiteral("/sub/a.lua")).constData(),
+                       65534, 65534) == 0);
+    check("deploy-script: fixture", fx);
+    const QString digest = PluginMarket::staged_dir_digest(staged);
+
+    // 摘要不符:退 2,目标不落盘
+    check("deploy-script: digest mismatch exits 2",
+          run_deploy_script(base, dest, staged, QString(64, QLatin1Char('0'))) == 2 &&
+              !QFileInfo::exists(dest));
+
+    const int rc = run_deploy_script(base, dest, staged, digest);
+    check("deploy-script: deploy succeeds", rc == 0 && QFileInfo(dest).isDir());
+
+    // 整棵副本(含符号链接本身)归执行者
+    const uid_t me = ::geteuid();
+    bool all_mine = true;
+    int n = 0;
+    QDirIterator it(dest, QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
+                    QDirIterator::Subdirectories);
+    struct stat st {};
+    if (!stat_of(dest, &st) || st.st_uid != me) all_mine = false;
+    while (it.hasNext()) {
+        const QString p = it.next();
+        ++n;
+        if (!stat_of(p, &st) || st.st_uid != me) all_mine = false;
+    }
+    check("deploy-script: every entry owned by deploying user", all_mine && n == 5);
+    if (is_root) {
+        check("deploy-script: root copy of 65534-owned file owned by root",
+              stat_of(dest + QStringLiteral("/sub/a.lua"), &st) && st.st_uid == 0 &&
+                  st.st_gid == 0);
+    } else {
+        std::printf("  [skip] deploy-script: foreign-owner chown case needs root\n");
+    }
+    // 不保留源元数据(cp -a/-p 会保留 mtime 与属主):时间戳不应是 2001 年
+    check("deploy-script: source metadata not preserved (no cp -a/-p)",
+          QFileInfo(dest + QStringLiteral("/plugin.json")).lastModified() != old_ts);
+    // 权限显式处理:根目录 0755,组/其他写位与 suid 被去掉,可执行位保留
+    check("deploy-script: dest dir mode 0755",
+          stat_of(dest, &st) && (st.st_mode & 07777) == 0755);
+    check("deploy-script: 0666 file loses go-w",
+          stat_of(dest + QStringLiteral("/sub/a.lua"), &st) && (st.st_mode & 07777) == 0644);
+    check("deploy-script: suid stripped, exec kept",
+          stat_of(dest + QStringLiteral("/run.sh"), &st) && (st.st_mode & 07777) == 0755);
+    check("deploy-script: symlink copied as symlink",
+          QFileInfo(dest + QStringLiteral("/link.lua")).isSymLink() &&
+              QFileInfo(dest + QStringLiteral("/link.lua")).symLinkTarget() ==
+                  QFileInfo(staged + QStringLiteral("/sub/a.lua")).absoluteFilePath());
+    // 部署后的树与暂存摘要一致(脚本内复核的同一算法)
+    check("deploy-script: deployed tree digest matches staged",
+          PluginMarket::staged_dir_digest(dest) == digest);
+    if (is_root)
+        ::lchown(QFile::encodeName(staged + QStringLiteral("/sub/a.lua")).constData(), 0, 0);
+    QDir(base).removeRecursively();
+}
+#endif
 
 // ── L5:递归复制保持权限位、拒绝符号链接 ──
 static void test_copy_dir_recursive(const QString& root) {
@@ -567,6 +677,9 @@ int main(int argc, char** argv) {
     test_market_sha256(tmp.path());
     test_install_context(tmp.path());
     test_staged_digest(tmp.path());
+#ifdef Q_OS_LINUX
+    test_privileged_deploy_script(tmp.path());
+#endif
     test_copy_dir_recursive(tmp.path());
     QDir(PluginMarket::default_install_dir()).removeRecursively();
     std::printf("\nRESULT: %s (%d failures)\n", g_fails ? "FAILURES" : "ALL PASS", g_fails);
