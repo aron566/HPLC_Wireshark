@@ -11,6 +11,7 @@
 #include <QDebug>
 #include <QElapsedTimer>
 #include <chrono>
+#include <cstring>
 
 ReaderWorker::ReaderWorker(QObject* parent) : QObject(parent),
     m_serial(nullptr), m_file(nullptr),
@@ -268,36 +269,58 @@ void ReaderWorker::emit_drop_frame(const QByteArray& wire, const QString& reason
     emit_frame(drop);
 }
 
+void ReaderWorker::fill_overlong_wire(QByteArray& dst) const {
+    // 0x3C + 当前缓冲前 4 KiB + 0x3E。resize 保留已有容量:dst 未被共享时
+    // 不重新分配(被抑制帧逐帧刷新也只是一次 memcpy)。
+    // 调用方保证 m_in_buf.size() > kMaxFrameBodyBytes(两处超长判定的前提)。
+    dst.resize(kMaxFrameBodyBytes + 2);
+    char* p = dst.data();
+    p[0] = char(0x3C);
+    std::memcpy(p + 1, m_in_buf.constData(), size_t(kMaxFrameBodyBytes));
+    p[kMaxFrameBodyBytes + 1] = char(0x3E);
+}
+
 void ReaderWorker::flush_suppressed_overlong_drop() {
-    // 把被限速抑制的计数补发成一条 DROP 行(停止/回放 EOF 时调用)。
-    // 没有抑制计数时什么都不做,不产生多余行。
-    if (m_overlong_drop_suppressed <= 0) return;
-    if (m_in_buf.size() < kMaxFrameBodyBytes) return;   // 缓冲已清,无法构造 wire
-    m_drop_wire.clear();
-    m_drop_wire.append(char(0x3C));
-    m_drop_wire.append(m_in_buf.constData(), kMaxFrameBodyBytes);
-    m_drop_wire.append(char(0x3E));
-    const QString shown = trl::L("超长帧被丢弃")
-        + trl::L("（另有 %1 帧超长被抑制）").arg(m_overlong_drop_suppressed);
+    // 把被限速抑制的计数补发成一条 DROP 行(stop_reading / 回放 EOF 调用)。
+    // wire 取最后一个被抑制超长帧时保留的副本 m_suppressed_wire,与当前
+    // m_in_buf 无关:停止/EOF 时缓冲通常已清空或不足 4 KiB,旧实现按
+    // m_in_buf 构造 wire 导致汇总行几乎从不发出。
+    // 没有抑制计数时什么都不做,不产生多余行;发出后计数与限速时刻清零。
+    const int suppressed = m_overlong_drop_suppressed;
     m_overlong_drop_suppressed = 0;
     m_last_overlong_drop_us = 0;
-    emit_drop_frame(m_drop_wire, shown, m_frame_rx_us);
+    if (suppressed <= 0) return;
+    const QString shown = trl::L("DROP:帧超过最大长度")
+        + trl::L("（另有 %1 帧超长被抑制）").arg(suppressed);
+    BplcFrame drop;
+    drop.raw_wire = m_suppressed_wire;
+    drop.meta.frame_time = QDateTime::currentDateTime();
+    drop.meta.epoch_ms = drop.meta.frame_time.toMSecsSinceEpoch();
+    drop.meta.frame_ts_is_ntb = true;
+    drop.meta.local_rx_ms = QDateTime::currentMSecsSinceEpoch();
+    drop.arrival_us = m_frame_rx_us;
+    drop.accepted = false;
+    drop.error_reason = shown;
+    // 汇总行代表的帧在被抑制时已计入 m_frame_count,这里不重复计数。
+    // 停止路径上会话已被 abort():emit_frame 会因中止丢弃本帧,故这里
+    // 只记在途额度、不等待(与实时串口同口径,release 时配平)。
+    const quint64 gen = m_credit ? m_credit->acquire_nowait() : FrameCredit::kNoGeneration;
+    emit frame_ready(drop, gen);
 }
 
 void ReaderWorker::emit_overlong_drop(const QString& reason) {
     // L10:超长 DROP 限速(1 秒最多 1 条):1 秒内的后续超长帧不发 DROP 行,
     // 只计入 m_frame_count(计数口径不变)并累进抑制数,下一条发出时把数
-    // 字汇总进原因文本;wire 用成员缓冲复用,避免逐帧重复分配 4KB+2B
+    // 字汇总进原因文本;被抑制帧的 wire 刷新进 m_suppressed_wire(复用容量,
+    // 不逐帧分配),供 stop/EOF 时的汇总行使用
     const qint64 now = steady_us();
     if (now - m_last_overlong_drop_us < kOverlongDropMinIntervalUs) {
         ++m_frame_count;
         ++m_overlong_drop_suppressed;
+        fill_overlong_wire(m_suppressed_wire);
         return;
     }
-    m_drop_wire.clear();
-    m_drop_wire.append(char(0x3C));
-    m_drop_wire.append(m_in_buf.constData(), kMaxFrameBodyBytes);
-    m_drop_wire.append(char(0x3E));
+    fill_overlong_wire(m_drop_wire);
     QString shown = reason;
     if (m_overlong_drop_suppressed > 0)
         shown += trl::L("（另有 %1 帧超长被抑制）").arg(m_overlong_drop_suppressed);

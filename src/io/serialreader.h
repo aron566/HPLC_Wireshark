@@ -90,8 +90,12 @@ private:
     void emit_overlong_drop(const QString& reason);
     /// @brief 把被限速抑制的超长帧计数补发成一条 DROP 行
     /// @details stop_reading() 与回放 EOF 调用:否则这些帧只计入 m_frame_count,
-    ///          用户永远看不到"另有 N 帧超长被抑制"。
+    ///          用户永远看不到"另有 N 帧超长被抑制"。wire 用 m_suppressed_wire
+    ///          (最后一个被抑制帧的副本),不依赖此刻的 m_in_buf;计数为 0 时不发行,
+    ///          发出后抑制计数与限速时刻清零。
     void flush_suppressed_overlong_drop();
+    /// @brief 把 0x3C + m_in_buf 前 4 KiB + 0x3E 写入 dst(复用 dst 容量)
+    void fill_overlong_wire(QByteArray& dst) const;
     void process_raw_hex_line(const QByteArray& line);
     /// @brief 解析裸 hex 文本头行时间(TIME: / ISO 文本),失败返回 -1
     qint64 parse_time_header(const QByteArray& line);
@@ -129,6 +133,7 @@ private:
     int          m_last_progress; ///< 上次上报的进度百分比(节流,避免重复刷)
     qint64       m_frame_count;   ///< 本次回放已切出的帧数(日志统计用)
     QByteArray   m_drop_wire;     ///< 超长 DROP 的 raw_wire 复用缓冲(0x3C+4KB+0x3E)
+    QByteArray   m_suppressed_wire; ///< 最后一个被抑制超长帧的 wire(stop/EOF 汇总行用,与 m_in_buf 解耦)
     qint64       m_last_overlong_drop_us;  ///< 上次发出的超长 DROP 的单调时刻(µs)
     int          m_overlong_drop_suppressed;  ///< 上次发出后被限速抑制的超长帧数
     ReaderConfig m_cfg;

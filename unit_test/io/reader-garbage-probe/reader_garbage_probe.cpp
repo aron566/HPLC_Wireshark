@@ -101,7 +101,82 @@ public:
             if (gap_ms > 0 && i + 1 < counts.size()) QThread::msleep(gap_ms);
         }
         b.frame_count = w.m_frame_count;
+        // 析构走 stop_reading() 会把剩余抑制计数补发成汇总行;本用例只统计喂数据期间的行
+        QObject::disconnect(&w, &ReaderWorker::frame_ready, nullptr, nullptr);
         return b;
+    }
+    /// N 个被抑制的超长帧后 stop_reading():返回 stop 期间发出的行
+    /// (先发 1 条未抑制 DROP,再 N 条被抑制;缓冲在 stop 前已清空)。
+    /// simulate_gui_stop=true 时按 SerialReader::stop 的顺序先 abort() 并挂上背压额度,
+    /// 验证中止后的汇总行仍能发出。
+    struct StopFlush {
+        int rows_before = 0;
+        int rows_on_stop = 0;
+        QStringList stop_reasons;
+        QByteArray stop_wire;
+        int in_buf_at_stop = -1;
+        qint64 frame_count_before = 0;
+        qint64 frame_count_after = 0;
+        int suppressed_after = -1;
+        qint64 last_us_after = -1;
+        int rows_on_second_stop = 0;
+    };
+    static StopFlush suppressed_then_stop(int n, bool simulate_gui_stop = false) {
+        ReaderWorker w;
+        w.m_cfg.mode = ReaderMode::SerialPort;
+        std::shared_ptr<FrameCredit> credit;
+        if (simulate_gui_stop) {
+            credit = std::make_shared<FrameCredit>();
+            credit->set_enabled(true);
+            w.set_flow_credit(credit);
+            w.m_run_session = w.begin_session();
+        }
+        StopFlush r;
+        bool stopping = false;
+        int second = 0;
+        QObject::connect(&w, &ReaderWorker::frame_ready, [&](const BplcFrame& fr) {
+            if (fr.accepted) return;
+            if (stopping == false) { ++r.rows_before; return; }
+            if (second) { ++r.rows_on_second_stop; return; }
+            ++r.rows_on_stop;
+            r.stop_reasons << fr.error_reason;
+            r.stop_wire = fr.raw_wire;
+        });
+        for (int k = 0; k < n + 1; ++k) {
+            w.m_in_buf = overlong_block(true);
+            w.try_extract_frame();
+        }
+        r.in_buf_at_stop = int(w.m_in_buf.size());
+        r.frame_count_before = w.m_frame_count;
+        if (simulate_gui_stop) w.abort();
+        stopping = true;
+        w.stop_reading();
+        r.frame_count_after = w.m_frame_count;
+        r.suppressed_after = w.m_overlong_drop_suppressed;
+        r.last_us_after = w.m_last_overlong_drop_us;
+        second = 1;
+        w.stop_reading();   // 再停一次:计数已清零,不得再发
+        QObject::disconnect(&w, &ReaderWorker::frame_ready, nullptr, nullptr);
+        return r;
+    }
+    /// 回放文件 = N+1 个闭合超长块后 EOF:返回全部 DROP 原因
+    static QStringList overlong_playback(int n) {
+        QByteArray input;
+        for (int k = 0; k < n + 1; ++k) input += overlong_block(true);
+        QTemporaryDir dir;
+        QFile f(dir.filePath("overlong.bin"));
+        f.open(QIODevice::WriteOnly); f.write(input); f.close();
+        ReaderWorker w;
+        ReaderConfig cfg;
+        cfg.mode = ReaderMode::FilePlayback;
+        cfg.file_path = f.fileName();
+        QStringList reasons;
+        QObject::connect(&w, &ReaderWorker::frame_ready, [&](const BplcFrame& fr) {
+            if (!fr.accepted) reasons << fr.error_reason;
+        });
+        w.start_reading(cfg);
+        QObject::disconnect(&w, &ReaderWorker::frame_ready, nullptr, nullptr);
+        return reasons;
     }
     static qint64 abort_latency(const QByteArray& input, int delay_ms, int* frames_out) {
         QTemporaryDir dir;
@@ -211,6 +286,46 @@ int main(int argc, char** argv) {
                   (b3.reasons[0].contains(QStringLiteral("未闭合帧超过最大长度")) ||
                    b3.reasons[0].contains(QStringLiteral("unterminated frame"))),
               "unterminated DROP keeps its own reason");
+    }
+
+    // ⑧ 被抑制的超长 DROP 在 stop/EOF 时汇总成 1 条:与此刻 m_in_buf 无关(旧实现缓冲 <4 KiB 时直接返回)
+    {
+        const int N = 7;
+        const A::StopFlush s = A::suppressed_then_stop(N);
+        std::printf("  stop flush: before=%d on_stop=%d in_buf=%d reason=%s\n",
+                    s.rows_before, s.rows_on_stop, s.in_buf_at_stop,
+                    qPrintable(s.stop_reasons.value(0)));
+        check(s.rows_before == 1, "only the first overlong DROP is emitted before stop");
+        check(s.in_buf_at_stop == 0, "input buffer is empty at stop (summary must not depend on it)");
+        check(s.rows_on_stop == 1, "N suppressed drops + stop -> exactly one summary row");
+        const QString want_zh = QStringLiteral("另有 %1 帧").arg(N);
+        const QString want_en = QStringLiteral("%1 additional").arg(N);
+        check(s.stop_reasons.size() == 1 &&
+                  (s.stop_reasons[0].contains(want_zh) || s.stop_reasons[0].contains(want_en)),
+              "summary row carries suppressed count N");
+        check(s.stop_wire.size() == 4098 && s.stop_wire.startsWith(char(0x3C)) &&
+                  s.stop_wire.endsWith(char(0x3E)) &&
+                  s.stop_wire.mid(1, 4096) == QByteArray(4096, char(0x41)),
+              "summary row wire is the retained 0x3C + 4 KiB + 0x3E");
+        check(s.frame_count_before == N + 1 && s.frame_count_after == N + 1,
+              "summary row does not double-count suppressed frames");
+        check(s.suppressed_after == 0 && s.last_us_after == 0,
+              "stop resets suppressed counter and throttle time");
+        check(s.rows_on_second_stop == 0, "second stop emits nothing");
+
+        const A::StopFlush z = A::suppressed_then_stop(0);
+        check(z.rows_before == 1 && z.rows_on_stop == 0, "no summary row when nothing was suppressed");
+
+        const A::StopFlush g = A::suppressed_then_stop(N, true);
+        check(g.rows_on_stop == 1 && g.stop_reasons.size() == 1 &&
+                  (g.stop_reasons[0].contains(want_zh) || g.stop_reasons[0].contains(want_en)),
+              "summary row survives abort()+stop_reading with flow credit (SerialReader::stop order)");
+
+        const QStringList p = A::overlong_playback(N);
+        std::printf("  playback EOF flush: %d DROP rows, last=%s\n", int(p.size()),
+                    qPrintable(p.value(p.size() - 1)));
+        check(p.size() == 2 && (p.last().contains(want_zh) || p.last().contains(want_en)),
+              "playback EOF emits one summary row with count N");
     }
 
     // ④ abort 在块内生效(20 份样本 ≈ 4.7 MB 帧数据)

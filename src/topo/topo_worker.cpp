@@ -42,15 +42,19 @@ bool decode_event(const QByteArray& bytes, TopoEvent& event) {
 
 /// @brief L14:SQLite 失败详情的唯一构造点(操作名 + 驱动返回的细节)。
 ///        返回值仅供日志使用,不得作为 page.error / worker_error 文案;
-///        UI 侧只见统一文案"拓扑历史读取失败"(见 fail_db)。
+///        UI 侧只见统一文案"拓扑存储不可用"(见 store_failure_message)。
 QString db_failure_message(const QString& operation, const QString& detail) {
     return QStringLiteral("Topology SQLite %1 failed: %2").arg(operation, detail);
 }
 
 /// @brief 存储失败 UI 文案的英文注册(与本模块自维护,见 docs/CODING_STYLE.md §3.3)
 struct I18nRegTopoWorker { I18nRegTopoWorker() {
-    trl::register_en("拓扑历史读取失败", "Topology History Read Failed");
+    trl::register_en("拓扑存储不可用", "Topology Store Unavailable");
 } } kI18nRegTopoWorker;
+
+/// @brief L14:存储失败(开库/入库/清库/分页/历史回放)对 UI 的唯一文案。
+///        所有 worker_error / history_failed / page.error 都只用它,细节只写日志。
+QString store_failure_message() { return trl::L("拓扑存储不可用"); }
 }
 
 TopoReplayWorker::TopoReplayWorker(QString database_path, int checkpoint_interval,
@@ -453,8 +457,7 @@ void TopoReplayWorker::request_frame_page(quint64 request_id, qint64 offset, int
         emit frame_page_ready(page);
     };
     if (!open_store()) {
-        fail(m_store_error_message.isEmpty() ? trl::L("拓扑历史读取失败")
-                                             : m_store_error_message);
+        fail(store_failure_message());
         return;
     }
     QSqlQuery count_query(m_db);
@@ -495,8 +498,7 @@ void TopoReplayWorker::request_anomaly_page(quint64 request_id, quint32 nid, qin
         emit anomaly_page_ready(page);
     };
     if (!open_store()) {
-        fail(m_store_error_message.isEmpty() ? trl::L("拓扑历史读取失败")
-                                             : m_store_error_message);
+        fail(store_failure_message());
         return;
     }
     QSqlQuery count_query(m_db);
@@ -539,15 +541,13 @@ void TopoReplayWorker::request_anomaly_page(quint64 request_id, quint32 nid, qin
 void TopoReplayWorker::request_history(quint64 request_id, qint64 target_frame,
                                        qint64 target_ms, bool active) {
     if (!open_store()) {
-        const QString message = m_store_error_message.isEmpty()
-            ? trl::L("拓扑历史读取失败") : m_store_error_message;
+        const QString message = store_failure_message();
         emit history_failed(request_id, target_frame, target_ms, active, message);
         return;
     }
     QHash<quint32, TopoState> states;
     if (!state_at(target_frame, states)) {
-        const QString message = m_store_error_message.isEmpty()
-            ? trl::L("拓扑历史读取失败") : m_store_error_message;
+        const QString message = store_failure_message();
         emit history_failed(request_id, target_frame, target_ms, active, message);
         return;
     }
@@ -565,7 +565,7 @@ bool TopoReplayWorker::clear_store() {
         // 每次清库失败都要让用户知道:不走 report_store_error 的"只报一次"去重,
         // 否则一次入库失败后此后的清库失败都会被吞掉;详情记日志,UI 只见统一文案
         qWarning().noquote() << db_failure_message(QStringLiteral("clear topology store"), detail);
-        emit worker_error(trl::L("拓扑存储不可用"));
+        emit worker_error(store_failure_message());
         return false;
     };
     if (!query.exec(QStringLiteral("BEGIN IMMEDIATE"))) return fail(query.lastError().text());
@@ -587,7 +587,7 @@ void TopoReplayWorker::clear() {
     m_last_applied_frame = -1;
     if (!cleared) {
         m_store_failed = true;
-        m_store_error_message = trl::L("拓扑存储不可用");
+        m_store_error_message = store_failure_message();
         m_store_error_reported = true;   // clear_store 已上报具体原因
     } else {
         // 库已清空(或库从未打开、clear_store 直接返回成功)、实时状态随之重置,
@@ -618,7 +618,7 @@ void TopoReplayWorker::shutdown() {
 void TopoReplayWorker::report_store_error(const QString& detail) {
     m_store_failed = true;
     // UI 侧(worker_error/history_failed/分页 open 失败)只见统一文案;详情只写日志
-    m_store_error_message = trl::L("拓扑存储不可用");
+    m_store_error_message = store_failure_message();
     qWarning().noquote() << detail;
     if (m_store_error_reported) return;
     m_store_error_reported = true;
