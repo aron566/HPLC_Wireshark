@@ -411,7 +411,10 @@ static void test_copy_dir_recursive(const QString& root) {
           QFile::permissions(dst + QStringLiteral("/sub")) ==
               QFile::permissions(src + QStringLiteral("/sub")));
 #endif
-    // 反向用例:符号链接一律拒装(旧实现会跟随复制,连目录外的目标内容也照抄)
+    // 反向用例:符号链接一律拒装(旧实现会跟随复制,连目录外的目标内容也照抄)。
+    // 注:Windows 上 QFile::link 无法创建真符号链接(只能 .lnk,且需管理员权限),
+    //     该组断言仅在非 Windows 平台验证(见 README)。
+#ifndef Q_OS_WIN
     const QString outside = root + QStringLiteral("/outside.txt");
     write_file(outside, "SECRET");
     const std::vector<std::tuple<QString, QString, const char*>> link_cases = {
@@ -433,6 +436,7 @@ static void test_copy_dir_recursive(const QString& root) {
                          err.contains(QStringLiteral("Symlink"))));
         QFile::remove(link_path);
     }
+#endif
 }
 
 // ── H3:zip 条目名校验 + 解包上限 ──

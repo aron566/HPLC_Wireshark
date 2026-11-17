@@ -73,9 +73,20 @@ int main(int argc, char** argv) {
                QStringLiteral("x.exe"));
     check_name("L8: trailing dot trimmed", QStringLiteral("https://example.com/file."),
                QStringLiteral("file"));
+    // 反斜杠用例按平台区分期望:QFileInfo 对 '\' 的语义不同——
+    // · 非 Windows:'\' 是普通字符,QFileInfo::fileName() 取到 "..\..\evil.exe",
+    //   再被非法字符正则换成 '_' ⇒ ".._.._evil.exe"(穿越被中和);
+    // · Windows:'\' 是路径分隔符(与 '/' 同级),fileName() 直接取 basename "evil.exe",
+    //   结果不含任何分隔符、无穿越(反而更安全)。
+#ifdef Q_OS_WIN
+    check_name("L8: backslashes neutralised to plain name",
+               QStringLiteral("https://example.com/..\\..\\evil.exe"),
+               QStringLiteral("evil.exe"));
+#else
     check_name("L8: backslashes neutralised to plain name",
                QStringLiteral("https://example.com/..\\..\\evil.exe"),
                QStringLiteral(".._.._evil.exe"));
+#endif
     check_name("L8: illegal chars replaced", QStringLiteral("https://example.com/a<b>c.exe"),
                QStringLiteral("a_b_c.exe"));
 
