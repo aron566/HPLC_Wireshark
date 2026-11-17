@@ -112,6 +112,39 @@ int main(int argc, char** argv) {
               + trl::L("未知"), "T6 st 为空时显示未知");
     CHECK(asof3.isEmpty(), "T6 st 为空时 asof 不写回");
 
+    // T7:同一 NID、同一 TEI、两个不同 MAC 且不建节点 → 回退多义返回 0、显示"未知"、恒定。
+    //     index_mac 的旧键清理在 `if (nit != nodes.end())` 之内,无节点时旧键残留,
+    //     故两次 note_restart_origin(同 TEI 不同 MAC)会留下 twins=2 个 mac_to_tei 键。
+    TopoState st2;
+    st2.nid = kNid;
+    st2.note_restart_origin(kNid, 5, kStaMac, 0, 2000, 1, false, true);
+    st2.note_restart_origin(kNid, 5, kOtherMac, 0, 2001, 2, false, true);
+    CHECK(st2.mac_to_tei.value(TopoState::nid_mac_key(kNid, kStaMac), 0) == 5,
+          "T7 mac_to_tei (NID,STA MAC)->5");
+    CHECK(st2.mac_to_tei.value(TopoState::nid_mac_key(kNid, kOtherMac), 0) == 5,
+          "T7 mac_to_tei (NID,OTHER MAC)->5");
+    CHECK(!st2.nodes.contains(5), "T7 同 TEI 两 MAC 不建节点(twins=2 nodes=0)");
+    CHECK(mac_from_state_index(&st2, kNid, 5) == 0, "T7 多义回退返回 0");
+    for (int i = 0; i < 8; ++i)
+        CHECK(mac_from_state_index(&st2, kNid, 5) == 0, "T7 连续调用返回值恒定(0)");
+    QHash<quint16, quint64> asof7;
+    const QString t7 = event_mac_text(change_proxy(5, 1, 40), &st2, asof7);
+    CHECK(t7.contains(QStringLiteral("TEI=5 ") + trl::L("未知")), "T7 多义 TEI 显示未知");
+
+    // T7b:另一个 NID 下同号 TEI 的存在不得影响本 NID 的判定(NID 隔离)。
+    TopoState st3;
+    st3.nid = kNid;
+    st3.note_restart_origin(kNid, 5, kStaMac, 0, 3000, 1, false, true);
+    st3.note_restart_origin(0x0F, 5, kOtherMac, 0, 3001, 2, false, true);
+    CHECK(mac_from_state_index(&st3, kNid, 5) == kStaMac, "T7b NID 隔离:本 NID 唯一仍返回");
+    CHECK(mac_from_state_index(&st3, 0x0F, 5) == kOtherMac, "T7b 另一 NID 唯一返回其 MAC");
+
+    // T8:单一映射时仍必须回退成功(防止为消歧义一刀切返回 0)。
+    TopoState st4;
+    st4.nid = kNid;
+    st4.note_restart_origin(kNid, 1, kCcoMac, 0, 4000, 1, false, true);
+    CHECK(mac_from_state_index(&st4, kNid, 1) == kCcoMac, "T8 唯一映射仍回退成功");
+
     if (failures) {
         std::printf("FAILED: %d\n", failures);
         return 1;

@@ -1229,14 +1229,23 @@ namespace {
 /// @brief 在状态的实时映射表里反查 TEI→MAC:mac_to_tei 是 (NID, MAC)→TEI,按事件 NID + TEI 反向找 MAC
 /// @details 逐帧/信标路径只往 mac_to_tei 里学映射,从不进 asof;节点表 nodes 里可能还没有该 TEI
 ///          (无事件帧创建过节点),故不能用 nodes/mac_of() 反查,必须扫反向表。
-///          同一 TEI 正常只对应一个 MAC(index_mac 换 MAC 时清旧键);无节点时旧键可能残留,取首个命中。
-/// @return 查到的 MAC,查不到返回 0
+///          同一 TEI 正常只对应一个 MAC(index_mac 换 MAC 时清旧键);无节点时旧键可能残留。
+///          因此这里**只在唯一匹配时返回**:同一 NID 下该 TEI 匹配到 2 个及以上 MAC 时一律返回 0
+///          (调用方随即显示"未知")。理由三点:①歧义时不猜,避免 QHash 迭代顺序导致的非确定性
+///          (同一二进制连跑返回值在多个 MAC 间摇摆);②避免拿"当前映射"去猜历史行的 MAC——
+///          TEI 复用时会张冠李戴;③唯一匹配的情况仍照常回退(修法本意不变)。
+/// @return 查到的 MAC,查不到或多义返回 0
 quint64 mac_from_state_index(const TopoState* st, quint32 nid, quint16 tei) {
     if (!st || !nid || !tei) return 0;
+    quint64 found = 0;
+    int matches = 0;
     for (auto it = st->mac_to_tei.constBegin(); it != st->mac_to_tei.constEnd(); ++it) {
-        if (it.key().nid == nid && it.value() == tei) return it.key().mac;
+        if (it.key().nid == nid && it.value() == tei) {
+            ++matches;
+            found = it.key().mac;   // 只记值不提前返回,先数清匹配数
+        }
     }
-    return 0;
+    return matches == 1 ? found : 0;   // 唯一才回退,多义返回 0
 }
 
 /// @brief 事件行的 MAC 文本:帧内自带 MAC 优先,其余 TEI 用"截至该事件前"的时点映射解析
