@@ -1,0 +1,1987 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BPLC STA Monitor — HPLC/BPLC 协议报文监控上位机</title>
+<meta name="description" content="BPLC STA Monitor：基于 Qt6 / C++17 的 HPLC（BPLC/HRF）协议 STA 报文监控上位机。四类帧解析、多 PB 重组、字段树与十六进制联动高亮、TOPO 拓扑可视化、双协议栈支持。">
+<style>
+:root{
+  --bg:#05080b;
+  --bg-2:#080d12;
+  --panel:#0b1218;
+  --panel-2:#0e1720;
+  --line:rgba(120,190,210,.14);
+  --line-strong:rgba(120,200,220,.3);
+  --txt:#e3edf3;
+  --txt-dim:#8fa3b0;
+  --txt-faint:#5d707c;
+  --cyan:#22d3ee;
+  --cyan-deep:#0e7490;
+  --amber:#f5a524;
+  --green:#34d399;
+  --red:#f87171;
+  --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);
+  color:var(--txt);
+  font-family:var(--sans);
+  line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+::selection{background:rgba(34,211,238,.28);color:#fff}
+a{color:inherit;text-decoration:none}
+img{max-width:100%;display:block}
+
+/* ---------- background layers ---------- */
+.bg-fx{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.bg-grid{
+  position:absolute;inset:-20%;
+  background-image:
+    linear-gradient(rgba(34,211,238,.055) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(34,211,238,.055) 1px,transparent 1px);
+  background-size:64px 64px;
+  transform:perspective(600px) rotateX(58deg) translateY(-8%);
+  transform-origin:center top;
+  mask-image:radial-gradient(ellipse 70% 55% at 50% 0%,#000 10%,transparent 78%);
+  -webkit-mask-image:radial-gradient(ellipse 70% 55% at 50% 0%,#000 10%,transparent 78%);
+  animation:gridDrift 26s linear infinite;
+}
+@keyframes gridDrift{to{background-position:0 64px,64px 0}}
+.bg-glow{position:absolute;border-radius:50%;filter:blur(90px);opacity:.5}
+.glow-1{width:620px;height:620px;top:-260px;left:-140px;background:radial-gradient(circle,rgba(14,116,144,.55),transparent 68%)}
+.glow-2{width:520px;height:520px;top:8%;right:-180px;background:radial-gradient(circle,rgba(245,165,36,.16),transparent 70%)}
+.glow-3{width:700px;height:700px;bottom:-320px;left:30%;background:radial-gradient(circle,rgba(34,211,238,.13),transparent 70%)}
+.bg-scan{
+  position:absolute;inset:0;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,.014) 0 1px,transparent 1px 3px);
+  opacity:.6;
+}
+
+/* ---------- nav ---------- */
+.nav{
+  position:fixed;top:0;left:0;right:0;z-index:60;
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  background:rgba(5,8,11,.72);
+  border-bottom:1px solid transparent;
+  transition:border-color .3s,background .3s;
+}
+.nav.scrolled{border-bottom-color:var(--line);background:rgba(5,8,11,.9)}
+.nav-inner{
+  max-width:1180px;margin:0 auto;padding:0 22px;height:62px;
+  display:flex;align-items:center;gap:26px;
+}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.02em;font-size:15px;white-space:nowrap}
+.brand-mark{
+  width:26px;height:26px;border-radius:7px;flex:0 0 auto;
+  background:linear-gradient(145deg,var(--cyan),var(--cyan-deep));
+  display:grid;place-items:center;color:#04141a;font-family:var(--mono);font-size:12px;font-weight:800;
+  box-shadow:0 0 18px rgba(34,211,238,.4);
+}
+.brand small{color:var(--txt-faint);font-weight:500;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.nav-links{display:flex;gap:4px;margin-left:auto;align-items:center}
+.nav-links a{
+  font-size:13.5px;color:var(--txt-dim);padding:7px 11px;border-radius:7px;
+  transition:color .2s,background .2s;white-space:nowrap;
+}
+.nav-links a:hover{color:var(--txt);background:rgba(34,211,238,.08)}
+.nav-cta{
+  font-size:13px;font-weight:600;padding:8px 15px;border-radius:8px;
+  border:1px solid var(--line-strong);color:var(--cyan);
+  background:rgba(34,211,238,.07);transition:.2s;white-space:nowrap;
+}
+.nav-cta:hover{background:rgba(34,211,238,.16);box-shadow:0 0 22px rgba(34,211,238,.22)}
+.progress{position:absolute;bottom:-1px;left:0;height:2px;width:0;background:linear-gradient(90deg,var(--cyan),var(--amber));box-shadow:0 0 10px var(--cyan)}
+.burger{display:none;margin-left:auto;background:none;border:1px solid var(--line);color:var(--txt);width:38px;height:34px;border-radius:8px;font-size:16px;cursor:pointer}
+
+/* ---------- layout ---------- */
+.wrap{position:relative;z-index:1}
+section{position:relative;padding:96px 22px}
+.inner{max-width:1180px;margin:0 auto}
+.eyebrow{
+  display:inline-flex;align-items:center;gap:8px;
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--cyan);margin-bottom:16px;
+}
+.eyebrow::before{content:"";width:22px;height:1px;background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+h2.sec-title{font-size:clamp(26px,3.6vw,40px);line-height:1.25;letter-spacing:-.02em;font-weight:750;margin-bottom:14px}
+.sec-sub{color:var(--txt-dim);font-size:15.5px;max-width:720px;margin-bottom:44px}
+.sec-sub strong{color:var(--txt);font-weight:600}
+
+/* ---------- hero ---------- */
+.hero{padding:150px 22px 90px;min-height:100vh;display:flex;align-items:center}
+.hero-grid{display:grid;grid-template-columns:1.08fr .92fr;gap:56px;align-items:center;width:100%}
+.badge-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:22px}
+.badge{
+  font-family:var(--mono);font-size:11px;letter-spacing:.06em;
+  padding:5px 10px;border-radius:5px;border:1px solid var(--line);
+  color:var(--txt-dim);background:rgba(255,255,255,.02);
+}
+.badge.live{color:var(--green);border-color:rgba(52,211,153,.3);background:rgba(52,211,153,.07)}
+.badge.live::before{content:"●";margin-right:6px;font-size:8px;vertical-align:middle;animation:pulse 1.8s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+h1{
+  font-size:clamp(34px,5.4vw,62px);line-height:1.06;letter-spacing:-.035em;font-weight:800;
+  margin-bottom:20px;
+}
+h1 .grad{
+  background:linear-gradient(100deg,var(--cyan) 0%,#7dd3fc 45%,var(--amber) 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.hero-desc{color:var(--txt-dim);font-size:16.5px;max-width:560px;margin-bottom:14px}
+.hero-desc b{color:var(--txt);font-weight:600}
+.hero-meta{font-family:var(--mono);font-size:12px;color:var(--txt-faint);margin-bottom:32px;letter-spacing:.02em}
+.hero-meta span{color:var(--cyan)}
+.btn-row{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:34px}
+.btn{
+  display:inline-flex;align-items:center;gap:9px;
+  padding:13px 24px;border-radius:9px;font-size:14.5px;font-weight:650;
+  transition:transform .18s,box-shadow .25s,background .2s,border-color .2s;
+  border:1px solid transparent;cursor:pointer;
+}
+.btn-primary{
+  background:linear-gradient(135deg,var(--cyan),#0891b2);color:#03151b;
+  box-shadow:0 6px 26px rgba(34,211,238,.3);
+}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 10px 34px rgba(34,211,238,.45)}
+.btn-ghost{border-color:var(--line-strong);color:var(--txt);background:rgba(255,255,255,.025)}
+.btn-ghost:hover{background:rgba(34,211,238,.09);border-color:var(--cyan);transform:translateY(-2px)}
+.hero-stats{display:flex;gap:30px;flex-wrap:wrap;padding-top:26px;border-top:1px solid var(--line)}
+.stat b{display:block;font-family:var(--mono);font-size:22px;color:var(--cyan);letter-spacing:-.02em}
+.stat span{font-size:11.5px;color:var(--txt-faint);letter-spacing:.1em;text-transform:uppercase}
+
+/* terminal card */
+.term{
+  border:1px solid var(--line-strong);border-radius:12px;overflow:hidden;
+  background:linear-gradient(180deg,#0a1218,#070c11);
+  box-shadow:0 30px 80px -30px rgba(0,0,0,.9),0 0 0 1px rgba(34,211,238,.05),0 0 60px -20px rgba(34,211,238,.25);
+  position:relative;
+}
+.term::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(180deg,transparent 60%,rgba(34,211,238,.05));
+}
+.term-bar{
+  display:flex;align-items:center;gap:7px;padding:10px 14px;
+  border-bottom:1px solid var(--line);background:rgba(255,255,255,.02);
+}
+.dot{width:9px;height:9px;border-radius:50%}
+.d1{background:#ff5f57}.d2{background:#febc2e}.d3{background:#28c840}
+.term-title{margin-left:8px;font-family:var(--mono);font-size:11.5px;color:var(--txt-faint);letter-spacing:.05em}
+.term-body{padding:16px 16px 20px;font-family:var(--mono);font-size:12.2px;line-height:1.95;overflow-x:auto}
+.term-body .ln{white-space:nowrap;display:block}
+.c-dim{color:#4d6270}
+.c-cy{color:var(--cyan)}
+.c-am{color:var(--amber)}
+.c-gr{color:var(--green)}
+.c-rd{color:var(--red)}
+.c-wh{color:#cfe0ea}
+.hexline{display:flex;gap:0;flex-wrap:nowrap}
+.hexline .off{color:#3f5563;margin-right:12px;flex:0 0 auto}
+.hexline .bytes{letter-spacing:.09em}
+.hexline .bytes i{font-style:normal;transition:background .3s,color .3s;padding:0 1px;border-radius:2px}
+.hexline .bytes i.hl{background:rgba(34,211,238,.22);color:#a5f3fc;box-shadow:0 0 10px rgba(34,211,238,.35)}
+.term-foot{
+  border-top:1px solid var(--line);padding:9px 14px;display:flex;gap:16px;flex-wrap:wrap;
+  font-family:var(--mono);font-size:11px;color:var(--txt-faint);background:rgba(255,255,255,.015);
+}
+.term-foot b{color:var(--cyan);font-weight:600}
+
+/* ---------- cards / grids ---------- */
+.grid{display:grid;gap:16px}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g2{grid-template-columns:repeat(2,1fr)}
+.g4{grid-template-columns:repeat(4,1fr)}
+.card{
+  position:relative;padding:26px 24px;border-radius:12px;
+  border:1px solid var(--line);background:linear-gradient(165deg,rgba(14,23,32,.9),rgba(8,13,18,.9));
+  transition:transform .25s,border-color .25s,box-shadow .25s;
+  overflow:hidden;
+}
+.card::before{
+  content:"";position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(34,211,238,.5),transparent);
+  opacity:0;transition:opacity .3s;
+}
+.card:hover{transform:translateY(-4px);border-color:var(--line-strong);box-shadow:0 18px 44px -22px rgba(0,0,0,.9),0 0 40px -24px rgba(34,211,238,.5)}
+.card:hover::before{opacity:1}
+.card-ico{
+  width:38px;height:38px;border-radius:9px;display:grid;place-items:center;
+  background:rgba(34,211,238,.09);border:1px solid rgba(34,211,238,.22);
+  color:var(--cyan);margin-bottom:16px;font-size:17px;
+}
+.card h3{font-size:16px;font-weight:680;margin-bottom:9px;letter-spacing:-.01em}
+.card p{font-size:13.8px;color:var(--txt-dim);line-height:1.72}
+.card p code,.inline-code{
+  font-family:var(--mono);font-size:12.2px;color:#a5f3fc;
+  background:rgba(34,211,238,.09);padding:1px 5px;border-radius:4px;
+}
+.card .tagline{
+  display:inline-block;margin-top:14px;font-family:var(--mono);font-size:10.5px;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--txt-faint);
+  border-top:1px solid var(--line);padding-top:10px;width:100%;
+}
+
+/* ---------- architecture ---------- */
+.arch{display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:start}
+.stack{display:flex;flex-direction:column;gap:9px}
+.layer{
+  display:flex;align-items:center;gap:14px;padding:14px 18px;border-radius:9px;
+  border:1px solid var(--line);background:rgba(11,18,24,.85);
+  transition:.25s;position:relative;
+}
+.layer:hover{border-color:var(--line-strong);background:rgba(14,23,32,.95);transform:translateX(4px)}
+.layer .lname{font-family:var(--mono);font-size:12.5px;color:var(--cyan);flex:0 0 96px;letter-spacing:.02em}
+.layer .ldesc{font-size:13px;color:var(--txt-dim)}
+.layer .lidx{
+  font-family:var(--mono);font-size:10px;color:var(--txt-faint);
+  border:1px solid var(--line);border-radius:4px;padding:1px 5px;flex:0 0 auto;
+}
+.flow-note{
+  margin-top:18px;padding:14px 16px;border-left:2px solid var(--cyan);
+  background:rgba(34,211,238,.05);border-radius:0 8px 8px 0;
+  font-size:13px;color:var(--txt-dim);
+}
+.flow-note b{color:var(--txt)}
+
+/* frame diagram */
+.frame-diagram{
+  border:1px solid var(--line);border-radius:12px;padding:22px;background:rgba(8,13,18,.7);
+}
+.fd-title{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--txt-faint);margin-bottom:16px}
+.fd-row{display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap}
+.fd-cell{
+  flex:1 1 0;min-width:52px;padding:9px 6px;border-radius:6px;text-align:center;
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.02em;
+  border:1px solid var(--line);background:rgba(34,211,238,.05);color:#a5f3fc;
+  transition:.2s;overflow-wrap:anywhere;word-break:break-word;line-height:1.35;
+}
+.fd-cell:hover{background:rgba(34,211,238,.16);border-color:var(--cyan);transform:translateY(-2px)}
+.fd-cell.am{background:rgba(245,165,36,.07);border-color:rgba(245,165,36,.25);color:#fcd34d}
+.fd-cell.gr{background:rgba(52,211,153,.07);border-color:rgba(52,211,153,.25);color:#6ee7b7}
+.fd-cell.dm{background:rgba(255,255,255,.02);border-color:var(--line);color:var(--txt-faint)}
+.fd-legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;font-size:11.5px;color:var(--txt-faint);font-family:var(--mono)}
+.fd-legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;vertical-align:middle}
+
+/* ---------- steps ---------- */
+.tabs{display:flex;gap:6px;margin-bottom:22px;flex-wrap:wrap}
+.tab{
+  padding:9px 17px;border-radius:8px;font-size:13.5px;cursor:pointer;
+  border:1px solid var(--line);background:transparent;color:var(--txt-dim);
+  transition:.2s;font-family:inherit;
+}
+.tab:hover{color:var(--txt);border-color:var(--line-strong)}
+.tab.active{background:rgba(34,211,238,.12);border-color:var(--cyan);color:var(--cyan);font-weight:600}
+.pane{display:none}
+.pane.active{display:block;animation:fadeUp .35s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.steps{display:flex;flex-direction:column;gap:0}
+.step{display:flex;gap:18px;padding:0 0 26px;position:relative}
+.step:last-child{padding-bottom:0}
+.step::before{
+  content:"";position:absolute;left:15px;top:34px;bottom:0;width:1px;
+  background:linear-gradient(180deg,var(--line-strong),transparent);
+}
+.step:last-child::before{display:none}
+.step-n{
+  flex:0 0 31px;height:31px;border-radius:50%;display:grid;place-items:center;
+  font-family:var(--mono);font-size:12px;font-weight:700;color:var(--cyan);
+  border:1px solid rgba(34,211,238,.35);background:rgba(34,211,238,.08);
+  position:relative;z-index:1;
+}
+.step-body h4{font-size:14.5px;font-weight:650;margin-bottom:5px}
+.step-body p{font-size:13.5px;color:var(--txt-dim)}
+.code-block{
+  position:relative;margin-top:10px;border:1px solid var(--line);border-radius:8px;
+  background:#060b0f;padding:13px 15px;font-family:var(--mono);font-size:12.2px;
+  color:#a5f3fc;overflow-x:auto;line-height:1.8;
+}
+.code-block .cmt{color:#4d6270}
+.copy-btn{
+  position:absolute;top:8px;right:8px;font-family:var(--mono);font-size:10px;
+  padding:3px 8px;border-radius:5px;border:1px solid var(--line);
+  background:rgba(255,255,255,.03);color:var(--txt-faint);cursor:pointer;transition:.2s;
+}
+.copy-btn:hover{color:var(--cyan);border-color:var(--cyan)}
+
+/* ---------- table ---------- */
+.tbl-wrap{border:1px solid var(--line);border-radius:11px;overflow:hidden;background:rgba(8,13,18,.6)}
+.tbl-scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13.2px;min-width:560px}
+thead th{
+  text-align:left;padding:12px 16px;font-family:var(--mono);font-size:10.5px;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--txt-faint);
+  background:rgba(255,255,255,.025);border-bottom:1px solid var(--line);font-weight:600;
+  white-space:nowrap;
+}
+tbody td{padding:11px 16px;border-bottom:1px solid rgba(120,190,210,.07);color:var(--txt-dim);vertical-align:top}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover td{background:rgba(34,211,238,.035);color:var(--txt)}
+td code{font-family:var(--mono);font-size:12px;color:#a5f3fc;background:rgba(34,211,238,.08);padding:1px 5px;border-radius:4px;white-space:nowrap}
+td .k{color:var(--txt);font-weight:600}
+
+/* ---------- scenarios ---------- */
+.scn{
+  display:grid;grid-template-columns:56px 1fr;gap:20px;padding:26px;
+  border:1px solid var(--line);border-radius:12px;background:rgba(11,18,24,.7);
+  transition:.25s;
+}
+.scn:hover{border-color:var(--line-strong);background:rgba(14,23,32,.9)}
+.scn-n{
+  font-family:var(--mono);font-size:26px;font-weight:800;color:transparent;
+  -webkit-text-stroke:1px rgba(34,211,238,.45);line-height:1;
+}
+.scn h3{font-size:16.5px;margin-bottom:8px;font-weight:680}
+.scn .prob{font-size:13.5px;color:var(--txt-dim);margin-bottom:12px}
+.scn .prob b{color:var(--amber);font-weight:600}
+.scn .sol{font-size:13.5px;color:var(--txt-dim);padding-left:14px;border-left:2px solid rgba(52,211,153,.4)}
+.scn .sol b{color:var(--green);font-weight:600}
+.scn .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px}
+.chip{
+  font-family:var(--mono);font-size:10.5px;padding:3px 8px;border-radius:4px;
+  border:1px solid var(--line);color:var(--txt-faint);background:rgba(255,255,255,.02);
+}
+
+/* ---------- topo deep dive ---------- */
+.topo-fig{margin:0 0 24px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#060b0f}
+.topo-fig img{width:100%;display:block}
+.topo-fig figcaption{padding:12px 16px;font-size:12.5px;color:var(--txt-faint);border-top:1px solid var(--line);background:rgba(255,255,255,.015);line-height:1.75}
+.topo-fig figcaption b{color:var(--cyan);font-weight:600}
+/* 图 2：异常/冲突页签 —— 用真实 HTML 表格绘制，保证文字清晰 */
+.anom-mock{margin:0 0 24px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#060b0f}
+.anom-mock .am-title{display:flex;align-items:center;gap:9px;padding:10px 14px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.02);font-size:12px;color:var(--txt-dim)}
+.anom-mock .am-dot{width:8px;height:8px;border-radius:50%;background:rgba(34,211,238,.65);box-shadow:0 0 8px rgba(34,211,238,.5);flex:none}
+.anom-mock .am-tabs{display:flex;gap:2px;padding:8px 12px 0;background:rgba(255,255,255,.015);border-bottom:1px solid var(--line)}
+.anom-mock .am-tab{font-size:11.5px;padding:6px 13px;border-radius:6px 6px 0 0;color:var(--txt-faint);border:1px solid transparent;border-bottom:none;white-space:nowrap}
+.anom-mock .am-tab.on{color:var(--cyan);background:rgba(34,211,238,.09);border-color:rgba(34,211,238,.28);font-weight:600}
+.anom-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.anom-mock table{width:100%;border-collapse:collapse;min-width:940px}
+.anom-mock th{font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--txt-faint);text-align:left;padding:8px 9px;border-bottom:1px solid var(--line);white-space:nowrap;background:rgba(255,255,255,.02);font-weight:500}
+.anom-mock td{padding:8px 9px;border-bottom:1px solid rgba(255,255,255,.045);color:var(--txt-dim);white-space:nowrap;font-family:var(--mono);font-size:10.5px}
+.anom-mock tr:last-child td{border-bottom:none}
+.anom-mock td.kind{font-family:inherit;font-size:11px}
+.anom-mock .tag{display:inline-block;padding:2px 7px;border-radius:4px;font-size:10.5px;font-family:inherit;line-height:1.5}
+.anom-mock .tag.am{color:#fcd34d;background:rgba(245,165,36,.1);border:1px solid rgba(245,165,36,.28)}
+.anom-mock .tag.rd{color:#fca5a5;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.28)}
+.anom-mock .tag.cy{color:#a5f3fc;background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.25)}
+.anom-mock td.num{color:#fcd34d;font-weight:600}
+.anom-mock td.jump{color:var(--cyan)}
+.anom-mock .am-foot{padding:9px 14px;font-size:11px;color:var(--txt-faint);border-top:1px solid var(--line);background:rgba(255,255,255,.015);line-height:1.7}
+.anom-mock .am-foot b{color:var(--cyan);font-weight:600}
+
+/* window layout map */
+.winmap{border:1px solid var(--line-strong);border-radius:12px;overflow:hidden;background:linear-gradient(180deg,#0a1218,#070c11);margin-bottom:24px}
+.wm-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:11px 14px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.02)}
+.wm-pill{font-family:var(--mono);font-size:10.5px;padding:4px 9px;border-radius:5px;border:1px solid var(--line);color:var(--txt-dim);background:rgba(255,255,255,.02);white-space:nowrap}
+.wm-pill.wm-btn{color:var(--cyan);border-color:rgba(34,211,238,.3);background:rgba(34,211,238,.07)}
+.wm-pill.wm-live{color:var(--green);border-color:rgba(52,211,153,.3);background:rgba(52,211,153,.07)}
+.wm-mid{display:grid;grid-template-columns:1.55fr 1fr;gap:1px;background:var(--line)}
+.wm-graph,.wm-side{padding:16px 14px;background:#080e13;min-height:132px;display:flex;flex-direction:column;gap:6px}
+.wm-graph{background:radial-gradient(ellipse 70% 90% at 50% 40%,rgba(34,211,238,.07),transparent 70%),#080e13}
+.wm-lbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--cyan)}
+.wm-hint{font-size:11.5px;color:var(--txt-faint);line-height:1.6}
+.wm-nodes{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.wm-node{font-family:var(--mono);font-size:9.5px;padding:5px 7px;border-radius:4px;border:1px solid rgba(34,211,238,.25);color:#a5f3fc;background:rgba(34,211,238,.06)}
+.wm-node.am{border-color:rgba(245,165,36,.35);color:#fcd34d;background:rgba(245,165,36,.07)}
+.wm-node.rd{border-color:rgba(248,113,113,.35);color:#fca5a5;background:rgba(248,113,113,.07)}
+.wm-bottom{border-top:1px solid var(--line);padding:0}
+.wm-tabs{display:flex;gap:2px;padding:8px 12px 0;background:rgba(255,255,255,.015)}
+.wm-tab{font-size:11.5px;padding:6px 13px;border-radius:6px 6px 0 0;color:var(--txt-faint);border:1px solid transparent;border-bottom:none}
+.wm-tab.on{color:var(--cyan);background:rgba(34,211,238,.09);border-color:rgba(34,211,238,.28);font-weight:600}
+.wm-tbl{padding:14px;font-size:11.5px;color:var(--txt-faint);border-top:1px solid var(--line);background:#080e13}
+.wm-tbl .wm-cols{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
+.wm-col{font-family:var(--mono);font-size:9.5px;padding:3px 6px;border-radius:3px;border:1px solid var(--line);color:var(--txt-faint)}
+.wm-col.hot{border-color:rgba(245,165,36,.3);color:#fcd34d}
+
+/* anomaly kind table */
+.kind-tbl td:first-child{white-space:nowrap}
+.kind-tbl .kn{font-family:var(--mono);font-size:11.5px;color:#a5f3fc;background:rgba(34,211,238,.08);padding:2px 7px;border-radius:4px;display:inline-block}
+.kind-tbl .kn.am{color:#fcd34d;background:rgba(245,165,36,.09)}
+.kind-tbl .kn.rd{color:#fca5a5;background:rgba(248,113,113,.09)}
+
+/* probe steps */
+.probe{display:flex;flex-direction:column;gap:0;margin-top:6px}
+.probe .step::before{background:linear-gradient(180deg,rgba(34,211,238,.35),transparent)}
+.probe .step-n{color:var(--amber);border-color:rgba(245,165,36,.35);background:rgba(245,165,36,.08)}
+
+/* boundary note */
+.boundary{
+  margin-top:26px;padding:16px 18px;border-radius:9px;font-size:13px;color:var(--txt-dim);line-height:1.8;
+  background:rgba(245,165,36,.05);border-left:2px solid rgba(245,165,36,.5);
+}
+.boundary b{color:var(--amber)}
+.boundary code{font-family:var(--mono);font-size:12px;color:#a5f3fc;background:rgba(34,211,238,.08);padding:1px 5px;border-radius:4px}
+
+/* ---------- faq ---------- */
+.faq-item{border:1px solid var(--line);border-radius:10px;margin-bottom:10px;overflow:hidden;background:rgba(11,18,24,.6);transition:border-color .2s}
+.faq-item.open{border-color:var(--line-strong)}
+.faq-q{
+  width:100%;text-align:left;padding:17px 20px;background:none;border:none;cursor:pointer;
+  color:var(--txt);font-size:14.5px;font-weight:600;font-family:inherit;
+  display:flex;justify-content:space-between;align-items:center;gap:16px;
+}
+.faq-q:hover{color:var(--cyan)}
+.faq-q .ic{color:var(--cyan);font-family:var(--mono);font-size:16px;transition:transform .25s;flex:0 0 auto}
+.faq-item.open .faq-q .ic{transform:rotate(45deg)}
+.faq-a{max-height:0;overflow:hidden;transition:max-height .35s ease}
+.faq-a-in{padding:0 20px 18px;font-size:13.6px;color:var(--txt-dim);line-height:1.8}
+.faq-a-in code{font-family:var(--mono);font-size:12.2px;color:#a5f3fc;background:rgba(34,211,238,.08);padding:1px 5px;border-radius:4px}
+.faq-a-in ul{margin:8px 0 0 18px}
+.faq-a-in li{margin-bottom:5px}
+
+/* ---------- download ---------- */
+.dl-section{
+  border:1px solid var(--line-strong);border-radius:16px;padding:44px 40px;
+  background:
+    radial-gradient(ellipse 80% 120% at 50% 0%,rgba(34,211,238,.1),transparent 65%),
+    linear-gradient(180deg,rgba(11,18,24,.95),rgba(6,10,14,.95));
+  position:relative;overflow:hidden;
+}
+.dl-section::before{
+  content:"";position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--cyan),transparent);
+}
+/* 动态版本徽标 —— 固定高度，兜底值与真实值同尺寸，替换时不产生布局位移 */
+.ver-badge{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin-top:18px;min-height:38px;padding:8px 14px;
+  border:1px solid var(--line);border-radius:999px;
+  background:rgba(34,211,238,.05);
+  font-size:12.8px;color:var(--txt-dim);line-height:1.5;
+  width:fit-content;max-width:100%;
+}
+.ver-badge .ver-dot{
+  width:7px;height:7px;border-radius:50%;flex:0 0 auto;
+  background:var(--cyan);box-shadow:0 0 0 3px rgba(34,211,238,.16);
+}
+.ver-badge[data-state="fallback"] .ver-dot{background:var(--txt-faint);box-shadow:0 0 0 3px rgba(255,255,255,.06)}
+.ver-badge .ver-txt{white-space:nowrap}
+.ver-badge .ver-txt strong{color:#a5f3fc;font-family:var(--mono);font-weight:650;font-size:13px}
+.ver-badge .ver-link{
+  color:var(--cyan);font-weight:600;font-size:12.4px;white-space:nowrap;
+  border-left:1px solid var(--line);padding-left:10px;margin-left:2px;
+}
+.ver-badge .ver-link:hover{text-decoration:underline}
+@media (max-width:760px){
+  .ver-badge{border-radius:12px;width:100%;gap:8px;padding:10px 13px}
+  .ver-badge .ver-txt{white-space:normal}
+  .ver-badge .ver-link{border-left:0;padding-left:0;margin-left:0}
+}
+
+.dl-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:30px}
+.dl-card{
+  padding:22px;border-radius:11px;border:1px solid var(--line);
+  background:rgba(255,255,255,.02);transition:.25s;display:flex;flex-direction:column;
+}
+.dl-card:hover{border-color:var(--cyan);background:rgba(34,211,238,.06);transform:translateY(-3px)}
+.dl-os{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--txt-faint);margin-bottom:8px}
+.dl-name{font-size:14.5px;font-weight:650;margin-bottom:6px}
+.dl-file{font-family:var(--mono);font-size:11px;color:var(--txt-faint);word-break:break-all;margin-bottom:16px;flex:1}
+.dl-link{
+  font-size:12.5px;font-weight:600;color:var(--cyan);display:inline-flex;align-items:center;gap:6px;
+}
+.dl-link:hover{text-decoration:underline}
+.note{
+  margin-top:20px;font-size:12.5px;color:var(--txt-faint);line-height:1.75;
+  padding:12px 16px;border-radius:8px;background:rgba(245,165,36,.05);
+  border-left:2px solid rgba(245,165,36,.5);
+}
+.note b{color:var(--amber)}
+
+/* ---------- footer ---------- */
+footer{
+  border-top:1px solid var(--line);padding:44px 22px 34px;position:relative;z-index:1;
+  background:rgba(4,7,10,.7);
+}
+.foot-inner{max-width:1180px;margin:0 auto;display:flex;justify-content:space-between;gap:26px;flex-wrap:wrap;align-items:flex-start}
+.foot-brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:14px;margin-bottom:10px}
+.foot-txt{font-size:12.5px;color:var(--txt-faint);max-width:420px;line-height:1.8}
+.foot-links{display:flex;gap:22px;flex-wrap:wrap;font-size:12.5px}
+.foot-links a{color:var(--txt-dim);transition:color .2s}
+.foot-links a:hover{color:var(--cyan)}
+
+/* ---------- reveal ---------- */
+.reveal{opacity:0;transform:translateY(22px);transition:opacity .7s cubic-bezier(.2,.7,.3,1),transform .7s cubic-bezier(.2,.7,.3,1)}
+.reveal.in{opacity:1;transform:none}
+
+/* ---------- responsive ---------- */
+@media(max-width:1000px){
+  .hero-grid{grid-template-columns:1fr;gap:44px}
+  .arch{grid-template-columns:1fr;gap:32px}
+  .g3,.g4{grid-template-columns:repeat(2,1fr)}
+  .dl-grid{grid-template-columns:1fr}
+}
+@media(max-width:760px){
+  .nav-links{display:none}
+  .nav-links.open{
+    display:flex;position:absolute;top:62px;left:0;right:0;flex-direction:column;
+    background:rgba(5,8,11,.98);border-bottom:1px solid var(--line);padding:12px;gap:2px;
+  }
+  .nav-links.open a{padding:11px 14px;width:100%}
+  .nav-links.open .nav-cta{margin-top:6px;text-align:center}
+  .burger{display:block}
+  section{padding:70px 18px}
+  .hero{padding:120px 18px 60px;min-height:auto}
+  .g3,.g4,.g2{grid-template-columns:1fr}
+  .scn{grid-template-columns:1fr;gap:12px}
+  .scn-n{font-size:20px}
+  .dl-section{padding:30px 20px}
+  .hero-stats{gap:22px}
+  .stat b{font-size:19px}
+  .term-body{font-size:11px}
+  .layer{flex-wrap:wrap;gap:8px}
+  .layer .lname{flex:0 0 auto}
+  .fd-cell{min-width:44px;font-size:9.5px;padding:7px 3px}
+  .wm-mid{grid-template-columns:1fr}
+  .wm-graph,.wm-side{min-height:auto}
+  .topo-fig figcaption{font-size:11.5px;padding:10px 12px}
+  .boundary{font-size:12.5px;padding:14px}
+}
+@media(prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+  .reveal{opacity:1;transform:none}
+}
+</style>
+</head>
+<body>
+
+<div class="bg-fx">
+  <div class="bg-grid"></div>
+  <div class="bg-glow glow-1"></div>
+  <div class="bg-glow glow-2"></div>
+  <div class="bg-glow glow-3"></div>
+  <div class="bg-scan"></div>
+</div>
+
+<nav class="nav" id="nav">
+  <div class="nav-inner">
+    <a href="#top" class="brand">
+      <span class="brand-mark">B</span>
+      <span>BPLC STA Monitor<br><small>HPLC Protocol Analyzer</small></span>
+    </a>
+    <button class="burger" id="burger" aria-label="菜单">☰</button>
+    <div class="nav-links" id="navLinks">
+      <a href="#intro">简介</a>
+      <a href="#features">功能</a>
+      <a href="#arch">架构</a>
+      <a href="#usage">使用</a>
+      <a href="#config">配置</a>
+      <a href="#scenarios">场景</a>
+      <a href="#topo">TOPO 排查</a>
+      <a href="#faq">FAQ</a>
+      <a href="#download" class="nav-cta">下载</a>
+    </div>
+  </div>
+  <div class="progress" id="progress"></div>
+</nav>
+
+<div class="wrap" id="top">
+
+<!-- ============ HERO ============ -->
+<section class="hero">
+  <div class="inner hero-grid">
+    <div>
+      <div class="badge-row">
+        <span class="badge live">v2.0.1</span>
+        <span class="badge">Qt 6.11 · C++17</span>
+        <span class="badge">Apache-2.0</span>
+        <span class="badge">Windows / Linux</span>
+      </div>
+      <h1>把电力线载波报文<br><span class="grad">拆到每一个 bit</span></h1>
+      <p class="hero-desc">
+        <b>BPLC STA Monitor</b> 是面向 HPLC（BPLC / HRF）协议的 STA 报文监控上位机。
+        它从调试串口实时捕获固件输出的 <code class="inline-code">0x3C … 0x3E</code> 封装帧，
+        逐层拆解 FCH / MPDU / PB / MSDU / MMe / APP，并把<b>协议字段树与十六进制原始字节双向联动高亮</b>——
+        点一个字段，就知道它来自哪几个字节。
+      </p>
+      <p class="hero-meta">
+        Qt 6 / C++17 桌面应用 · 约 <span>4.7 万行</span> C++ · 双协议栈
+      </p>
+      <div class="btn-row">
+        <a href="#download" class="btn btn-primary">↓ 下载安装包</a>
+      </div>
+      <div class="hero-stats">
+        <div class="stat"><b>4</b><span>帧类型解析</span></div>
+        <div class="stat"><b>2</b><span>协议栈</span></div>
+        <div class="stat"><b>4</b><span>CRC 校验层</span></div>
+        <div class="stat"><b>200ms</b><span>拓扑刷新</span></div>
+      </div>
+    </div>
+
+    <div class="term">
+      <div class="term-bar">
+        <span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span>
+        <span class="term-title">BPLC_STA_Monitor — frame #1284</span>
+      </div>
+      <div class="term-body">
+        <span class="ln c-dim">#  Physical</span>
+        <span class="ln"><span class="c-dim">├─</span> Media      <span class="c-cy">HPLC</span>  <span class="c-dim">(isRF=0)</span></span>
+        <span class="ln"><span class="c-dim">├─</span> NTB        <span class="c-wh">0x1A3F_2C08</span>  <span class="c-dim">40ns/tick</span></span>
+        <span class="ln"><span class="c-dim">└─</span> Channel    <span class="c-wh">0</span>  PHR MCS <span class="c-wh">0x0B</span></span>
+        <span class="ln c-dim">#  MPDU Base</span>
+        <span class="ln"><span class="c-dim">├─</span> Frame Type <span class="c-am">SOF</span></span>
+        <span class="ln"><span class="c-dim">├─</span> Net ID     <span class="c-wh">0xCDA1D5</span></span>
+        <span class="ln"><span class="c-dim">├─</span> Src / Dst  <span class="c-wh">CCO</span> → <span class="c-wh">STA-2</span></span>
+        <span class="ln"><span class="c-dim">└─</span> FCH CRC24  <span class="c-gr">OK</span></span>
+        <span class="ln c-dim">#  SOF PB ×3</span>
+        <span class="ln"><span class="c-dim">├─</span> PB[0] Hdr/Body/CRC24  <span class="c-gr">OK</span></span>
+        <span class="ln"><span class="c-dim">├─</span> PB[1] Hdr/Body/CRC24  <span class="c-gr">OK</span></span>
+        <span class="ln"><span class="c-dim">└─</span> PB[2] Hdr/Body/CRC24  <span class="c-gr">OK</span></span>
+        <span class="ln c-dim">#  MSDU (reassembled)</span>
+        <span class="ln"><span class="c-dim">├─</span> MMe Type   <span class="c-am">Assoc Request</span></span>
+        <span class="ln"><span class="c-dim">└─</span> MSDU CRC32 <span class="c-gr">OK</span></span>
+        <span class="ln">&nbsp;</span>
+        <span class="hexline"><span class="off">0000</span><span class="bytes"><i>3C</i> <i>9C</i> <i>00</i> <i>08</i> <i>2C</i> <i>3F</i> <i>1A</i> <i>0B</i> <i>00</i> <i>00</i> <i>00</i> <i class="hl">D5</i> <i class="hl">A1</i> <i class="hl">CD</i> <i>01</i> <i>02</i></span></span>
+        <span class="hexline"><span class="off">0010</span><span class="bytes"><i>00</i> <i>00</i> <i>3C</i> <i>00</i> <i>00</i> <i>00</i> <i>00</i> <i>00</i> <i>00</i> <i>00</i> <i>00</i> <i>00</i> <i>00</i> <i>00</i> <i>00</i> <i>3E</i></span></span>
+      </div>
+      <div class="term-foot">
+        <span>Total <b>1284</b></span>
+        <span>BEACON <b>312</b></span>
+        <span>SOF <b>806</b></span>
+        <span>ACK <b>158</b></span>
+        <span>Drop <b>8</b></span>
+        <span>MSDU <b>402</b></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ INTRO ============ -->
+<section id="intro">
+  <div class="inner">
+    <div class="reveal">
+      <span class="eyebrow">Overview</span>
+      <h2 class="sec-title">它解决什么问题</h2>
+      <p class="sec-sub">
+        电力线载波通信（PLC）的调试长期依赖「抓一堆十六进制、对着 PDF 规范逐字节数」。
+        一个 152 字节的 SOF 帧，要跨 FCH、多个物理块、MSDU 三层才能定位一个字段——
+        而字段位置在不同帧类型下含义还会变。<strong>BPLC STA Monitor 把这套手工流程自动化了。</strong>
+      </p>
+    </div>
+
+    <div class="grid g3">
+      <div class="card reveal">
+        <div class="card-ico">◈</div>
+        <h3>从「字节流」到「字段树」</h3>
+        <p>串口收到的原始帧被逐层拆成 Physical → MPDU Base → PB → MSDU → MMe/APP 的树形结构，
+           每个节点标注位宽 <code>[Nb]</code>、枚举中文含义、单位（s / ms / dB / %）。</p>
+        <span class="tagline">Field Tree</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-ico">⇄</div>
+        <h3>字段 ↔ 字节双向定位</h3>
+        <p>点字段树任意一行，下方十六进制视图立刻高亮它覆盖的原始字节；多 PB 报文里每块的
+           Header / Body / CRC24 都能单独点选。反过来看字节，也知道它属于哪个字段。</p>
+        <span class="tagline">Linked Highlight</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-ico">⌁</div>
+        <h3>组网结构可视化</h3>
+        <p>独立的 TOPO 窗口按 NID 动态绘制 CCO / STA 树形拓扑，四态图标区分在线、入网中、离线，
+           右侧同步记录路由变更与 TEI→MAC 映射，还能回放到任意历史帧。</p>
+        <span class="tagline">Topology</span>
+      </div>
+    </div>
+
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card reveal">
+        <div class="card-ico">⚡</div>
+        <h3>双协议栈，运行时切换</h3>
+        <p>国网 <code>GW_2022</code>（HDC 1.0）与南网 <code>NW_2021</code> 两套协议栈并存，
+           并已扩展到 <code>GW_2026</code> / <code>NW_2026</code>（SPLC）。字段树、枚举、数值解释随协议整体切换，
+           选择持久化在 <code>config.ini</code>。</p>
+        <span class="tagline">Dual Stack</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-ico">◱</div>
+        <h3>离线可复现</h3>
+        <p>捕获结果可导出为 <code>.bin</code>（保留原始帧 + BCD 时间标签）或裸 hex 文本，
+           随时重新导入回放；也能导出 CSV 给 Excel 直接打开。现场抓一次，实验室反复分析。</p>
+        <span class="tagline">Capture &amp; Replay</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FEATURES ============ -->
+<section id="features">
+  <div class="inner">
+    <div class="reveal">
+      <span class="eyebrow">Core Features</span>
+      <h2 class="sec-title">核心功能</h2>
+      <p class="sec-sub">从帧解析到拓扑还原，覆盖现场调试的完整链路。</p>
+    </div>
+
+    <div class="grid g3">
+      <div class="card reveal">
+        <div class="card-ico">▤</div>
+        <h3>四类帧完整解析</h3>
+        <p>SOF（数据）、BEACON（信标）、ACK、COORD（协调）四类帧逐字段拆分，
+           含 FCH 位域、PB 块结构、MSDU 载荷。SEARCH / SWITCH 帧也会出现在列表中。</p>
+        <span class="tagline">Frame Types</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-ico">✓</div>
+        <h3>四层 CRC 校验</h3>
+        <p>FCH CRC24、PB CRC24、MSDU CRC32、BEACON 载荷 CRC 全部校验，
+           三态显示 <code>N/A</code> / <code>OK</code> / <code>FAIL</code>，坏帧一眼可见。</p>
+        <span class="tagline">Integrity</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-ico">⧉</div>
+        <h3>多 PB 块重组</h3>
+        <p>分片 MSDU 跨多个物理块（PB）时自动重组，树中逐块展示
+           <code>PB Header / PB Body(+Padding) / PB CRC24</code>，字段仍可高亮到原始字节。</p>
+        <span class="tagline">Reassembly</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-ico">◫</div>
+        <h3>MSDU / MMe / APP 解析</h3>
+        <p>标准头与简头 MSDU_BASE、MMe 头（MMType 2B + RSV 2B）、8 类 MMe 消息，
+           以及 APP EventPacket 事件上报：DiscoveryNodeList、UpRouteEntryList、SuccessRateReport、Beacon Load 等。</p>
+        <span class="tagline">Application Layer</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-ico">≡</div>
+        <h3>帧列表与表达式过滤</h3>
+        <p>13 列信息（# / Time / Delta / Source / Destination / Protocol / Frame Type / MSDU Type / Seq / Length / Info…），
+           支持 <code>&amp;</code> 与 <code>|</code> 组合的过滤表达式，按帧型、NetID、站点、媒介、序号筛选。</p>
+        <span class="tagline">Filtering</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-ico">◐</div>
+        <h3>行颜色分系</h3>
+        <p>管理消息（MMe）暖色、应用数据（APP）冷色、COORD 紫色；
+           红色只保留给异常报文（ACK 校验失败 / APP NACK），不滥用告警色。</p>
+        <span class="tagline">Visual Coding</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-ico">◈</div>
+        <h3>TOPO 拓扑窗口</h3>
+        <p>按 NID 绘制 CCO/STA 树形拓扑，节点三行标签（标题 / MAC / 接入方式 载波·RF），
+           拖拽平移、滚轮缩放，悬停显示上下行通讯成功率，约 200ms 节流刷新。</p>
+        <span class="tagline">Topology</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-ico">↺</div>
+        <h3>历史回放调试</h3>
+        <p>点任意历史帧，拓扑冻结并重放到该帧时刻的快照（图 / 路由变更表 / TEI→MAC 表），
+           顶部显示「历史回放 @ #帧号」，一键回到实时跟随。</p>
+        <span class="tagline">Time Travel</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-ico">⌸</div>
+        <h3>插件市场</h3>
+        <p>VS Code 风格的扩展市场：Lua 脚本插件可订阅帧事件、调用 <code>host.jumpToFrame()</code> 控制主窗口，
+           支持安装 / 更新 / 卸载与版本约束。</p>
+        <span class="tagline">Extensible</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-ico">⌗</div>
+        <h3>Wireshark 解析器</h3>
+        <p>随包提供 4 个 Lua dissector（gw_2022 / gw_2026 / nw_2021 / nw_2026）与
+           <code>bin2pcap.py</code>、<code>serial2pcap.py</code>、extcap 串口采集，可把捕获直接丢进 Wireshark。</p>
+        <span class="tagline">Interop</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-ico">◍</div>
+        <h3>中英双语 + 深浅主题</h3>
+        <p>界面语言中文 / English，默认跟随系统；深色（QDarkStyleSheet）/ 浅色主题即切即生效，
+           所有用户可见字符串中英配对。</p>
+        <span class="tagline">i18n &amp; Theme</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-ico">⛨</div>
+        <h3>崩溃转储与自动更新</h3>
+        <p>崩溃时自动生成 minidump 到 <code>crashpad_db/</code>，可配 Sentry DSN 自动上报；
+           内置更新检查，中国出口 IP 自动走镜像代理加速。</p>
+        <span class="tagline">Reliability</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ARCHITECTURE ============ -->
+<section id="arch">
+  <div class="inner">
+    <div class="reveal">
+      <span class="eyebrow">Architecture</span>
+      <h2 class="sec-title">技术原理与架构</h2>
+      <p class="sec-sub">
+        模块依赖自底向上单向流动：<strong>updater → common → io / protocol / ui → app</strong>。
+        协议解析与界面完全解耦，同一套解析器同时供桌面端与 Wireshark 插件使用。
+      </p>
+    </div>
+
+    <div class="arch">
+      <div class="reveal">
+        <div class="stack">
+          <div class="layer"><span class="lidx">L5</span><span class="lname">app/</span><span class="ldesc">主窗口、帧分发、配置持久化</span></div>
+          <div class="layer"><span class="lidx">L4</span><span class="lname">ui/</span><span class="ldesc">帧列表模型、协议字段树、十六进制视图</span></div>
+          <div class="layer"><span class="lidx">L4</span><span class="lname">topo/</span><span class="ldesc">拓扑状态机、布局、变更记录、历史快照</span></div>
+          <div class="layer"><span class="lidx">L3</span><span class="lname">protocol/</span><span class="ldesc">帧解析器 + 统计；gw_2022 / gw_2026 / nw_2021 / nw_2026</span></div>
+          <div class="layer"><span class="lidx">L2</span><span class="lname">io/</span><span class="ldesc">串口读取、0x3C/0x3E 切帧、反转义、回放写入</span></div>
+          <div class="layer"><span class="lidx">L1</span><span class="lname">common/</span><span class="ldesc">帧/消息数据结构、位域节点、高亮坐标</span></div>
+          <div class="layer"><span class="lidx">L0</span><span class="lname">crash/ · updater/</span><span class="ldesc">崩溃转储（crashpad / Sentry）、QSimpleUpdater</span></div>
+        </div>
+        <div class="flow-note">
+          <b>关键设计：</b>解析器实现统一的 <code class="inline-code">IProtocolParser</code> 接口，
+          由 <code class="inline-code">ProtocolFactory</code> 按协议类型分发。新增一代协议只需实现接口并注册，
+          界面层零改动——这也是 GW_2026 / NW_2026 能平滑接入的原因。
+        </div>
+      </div>
+
+      <div class="reveal">
+        <div class="frame-diagram">
+          <div class="fd-title">串口帧封装 · 0x3C … 0x3E</div>
+          <div class="fd-row">
+            <div class="fd-cell am">0x3C<br>起始</div>
+            <div class="fd-cell">dlen<br>2B LE</div>
+            <div class="fd-cell">ts<br>4B LE</div>
+            <div class="fd-cell">phr_mcs<br>1B</div>
+            <div class="fd-cell">option<br>1B</div>
+            <div class="fd-cell">channel<br>1B</div>
+            <div class="fd-cell">isRF<br>1B</div>
+            <div class="fd-cell gr">MPDU<br>变长</div>
+            <div class="fd-cell am">0x3E<br>结束</div>
+          </div>
+          <div class="fd-title" style="margin-top:22px">MPDU 内部结构</div>
+          <div class="fd-row">
+            <div class="fd-cell">FCH<br>16B</div>
+            <div class="fd-cell">PB[0]<br>Hdr+Body+CRC24</div>
+            <div class="fd-cell">PB[1]<br>Hdr+Body+CRC24</div>
+            <div class="fd-cell dm">…</div>
+            <div class="fd-cell">PB[n]<br>Hdr+Body+CRC24</div>
+          </div>
+          <div class="fd-title" style="margin-top:22px">MSDU（跨 PB 重组后）</div>
+          <div class="fd-row">
+            <div class="fd-cell gr">MSDU Base<br>标准头 / 简头</div>
+            <div class="fd-cell gr">MMe 头<br>MMType 2B + RSV 2B</div>
+            <div class="fd-cell gr">载荷<br>MMe / APP</div>
+            <div class="fd-cell am">CRC32<br>4B</div>
+          </div>
+          <div class="fd-legend">
+            <span><i style="background:rgba(245,165,36,.5)"></i>封装层</span>
+            <span><i style="background:rgba(34,211,238,.5)"></i>链路层</span>
+            <span><i style="background:rgba(52,211,153,.5)"></i>应用层</span>
+          </div>
+        </div>
+
+        <div class="flow-note" style="margin-top:16px">
+          <b>转义规则：</b>数据内的 <code class="inline-code">0x3C / 0x3E / 0x3D</code> 用
+          <code class="inline-code">0x3D + (0xFF ^ 原字节)</code> 转义。反转义已放宽：
+          <code class="inline-code">0x3D</code> 后接非 C1/C2/C3 字节时按普通数据保留（只记 warn 不丢弃），
+          但 <code class="inline-code">0x3E</code> 定界仍严格——避免现场模块帧尾未转义的 ASCII 日志导致整帧丢失。
+        </div>
+      </div>
+    </div>
+
+    <div class="grid g3" style="margin-top:34px">
+      <div class="card reveal">
+        <div class="card-ico">◷</div>
+        <h3>时间轴还原</h3>
+        <p>帧内 NTB 为 u32、40 ns/tick（25 MHz），约 171 秒回绕。时间轴按 NTB 差值推进；
+           帧间差值超出合理范围（≥60 s 或跨回绕）时自动开启新分段，用 BCD 时间标签重新锚定。</p>
+        <span class="tagline">Timing</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-ico">◧</div>
+        <h3>版本自适应委托</h3>
+        <p>SOF 帧按 FCH 标准版本号（byte12 高 4bit）区分：<code>1</code> 走 BPLC 旧协议、
+           <code>2</code> 走 SPLC 新协议。信标 / ACK / COORD 默认按新协议解析，失败自动回退旧协议。</p>
+        <span class="tagline">Version Dispatch</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-ico">◨</div>
+        <h3>拓扑事件驱动</h3>
+        <p>拓扑只由「成功解析」的关联请求 / 确认 / 指示、发现节点列表、代理变更确认、
+           离线指示等事件更新；CCO 与 STA 的重启次数变化会单独记警告，不清空已有拓扑。</p>
+        <span class="tagline">Event Sourcing</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ USAGE ============ -->
+<section id="usage">
+  <div class="inner">
+    <div class="reveal">
+      <span class="eyebrow">Getting Started</span>
+      <h2 class="sec-title">安装与使用</h2>
+      <p class="sec-sub">三种数据来源，同一套解析流程。安装包为 per-user 安装，不触发 UAC。</p>
+    </div>
+
+    <div class="reveal">
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-pane="p1">① 安装</button>
+        <button class="tab" data-pane="p2">② 实时串口采集</button>
+        <button class="tab" data-pane="p3">③ 离线回放</button>
+        <button class="tab" data-pane="p4">④ 从源码构建</button>
+      </div>
+
+      <div class="pane active" id="p1">
+        <div class="steps">
+          <div class="step">
+            <div class="step-n">1</div>
+            <div class="step-body">
+              <h4>下载安装包</h4>
+              <p>从 Releases 页面获取 <code class="inline-code">BPLC_STA_Monitor_Setup_v2.0.1.exe</code>（Windows）
+                 或 <code class="inline-code">BPLC_STA_Monitor_v2.0.1_linux_x86_64.tar.gz</code>（Linux）。</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-n">2</div>
+            <div class="step-body">
+              <h4>运行安装程序</h4>
+              <p>默认安装到 <code class="inline-code">%LOCALAPPDATA%\Programs\BPLC_STA_Monitor</code>，
+                 自动创建桌面快捷方式与开始菜单项。升级安装会先关闭运行中的程序并覆盖旧文件，
+                 同时保留已有的 <code class="inline-code">config.ini</code>。</p>
+              <div class="code-block"><button class="copy-btn" data-copy="BPLC_STA_Monitor_Setup_v2.0.1.exe /S">复制</button><span class="cmt"># 静默安装（免 UAC）</span>
+BPLC_STA_Monitor_Setup_v2.0.1.exe /S
+<span class="cmt"># 静默安装到指定目录</span>
+BPLC_STA_Monitor_Setup_v2.0.1.exe /S /D=C:\my\dir</div>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-n">3</div>
+            <div class="step-body">
+              <h4>首次启动</h4>
+              <p>程序在 exe 同目录自动生成带注释的 <code class="inline-code">config.ini</code> 模板。
+                 删除该文件后下次启动会重建默认配置。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pane" id="p2">
+        <div class="steps">
+          <div class="step">
+            <div class="step-n">1</div>
+            <div class="step-body"><h4>连接 STA 调试串口</h4><p>确认调试串口已连接，且未被其他程序占用。</p></div>
+          </div>
+          <div class="step">
+            <div class="step-n">2</div>
+            <div class="step-body"><h4>打开数据源对话框</h4><p>点击工具栏「开始」或按 <code class="inline-code">Ctrl+E</code>，
+                在「通讯口设置」中选择「实时串口」。</p></div>
+          </div>
+          <div class="step">
+            <div class="step-n">3</div>
+            <div class="step-body"><h4>选择 COM 口与波特率</h4><p>默认 <code class="inline-code">460800</code>，
+                实际串口格式为 <code class="inline-code">8-N-1</code>。可选 115200 / 256000 / 460800 / 1500000。</p></div>
+          </div>
+          <div class="step">
+            <div class="step-n">4</div>
+            <div class="step-body"><h4>开始捕获</h4><p>新帧按时间顺序进入帧列表，默认自动跟随最新帧；
+                向上滚动会暂停跟随，滚回底部恢复。</p></div>
+          </div>
+          <div class="step">
+            <div class="step-n">5</div>
+            <div class="step-body"><h4>查看一帧</h4><p>点帧列表某行 → 上方协议字段树展开 → 点字段行 →
+                下方十六进制区高亮对应字节。右键可复制 <code class="inline-code">Hex(N 字节)</code> 或 <code class="inline-code">0x 前缀</code>。</p></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pane" id="p3">
+        <div class="steps">
+          <div class="step">
+            <div class="step-n">1</div>
+            <div class="step-body"><h4>选择回放类型</h4><p>「开始」→ 数据源类型选「文件回放 (.bin)」或「裸 hex 文本」。</p></div>
+          </div>
+          <div class="step">
+            <div class="step-n">2</div>
+            <div class="step-body"><h4>选择文件</h4><p><code class="inline-code">.bin</code> 保留原始帧与 BCD 时间标签；
+                <code class="inline-code">.txt / .hex</code> 每行一条完整 <code class="inline-code">0x3C … 0x3E</code> 帧，
+                首行可为 <code class="inline-code">TIME: yyyy-MM-dd HH:mm:ss.zzz</code>。</p></div>
+          </div>
+          <div class="step">
+            <div class="step-n">3</div>
+            <div class="step-body"><h4>自动识别时间基准</h4><p>程序用 <code class="inline-code">looks_like_bcd_time()</code>
+                自动识别 8 字节 BCD 标签，恢复每帧原始捕获时刻；无标签的旧文件自动回退本地时间，无需手动配置。</p></div>
+          </div>
+          <div class="step">
+            <div class="step-n">4</div>
+            <div class="step-body"><h4>拖放导入</h4><p>也可以直接把 <code class="inline-code">.bin</code> 或裸 hex 文件拖到窗口里。</p></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pane" id="p4">
+        <div class="steps">
+          <div class="step">
+            <div class="step-n">1</div>
+            <div class="step-body"><h4>准备环境</h4><p>Qt 6.11.3（mingw_64）+ MinGW 13.1.0，构建方式为
+                <code class="inline-code">qmake + mingw32-make</code>（非 shadow 构建）。</p></div>
+          </div>
+          <div class="step">
+            <div class="step-n">2</div>
+            <div class="step-body"><h4>编译</h4>
+              <div class="code-block"><button class="copy-btn" data-copy='export PATH="/c/Qt/Tools/mingw1310_64/bin:/c/Qt/6.11.3/mingw_64/bin:$PATH"
+qmake BPLC_STA_Monitor.pro
+mingw32-make -j4'>复制</button>export PATH="/c/Qt/Tools/mingw1310_64/bin:/c/Qt/6.11.3/mingw_64/bin:$PATH"
+qmake BPLC_STA_Monitor.pro
+mingw32-make -j4
+<span class="cmt"># 产物: release/BPLC_STA_Monitor.exe</span></div>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-n">3</div>
+            <div class="step-body"><h4>一键打包</h4><p>全量构建 → windeployqt 收集 Qt 运行库 → NSIS 生成安装包。</p>
+              <div class="code-block"><button class="copy-btn" data-copy="bash scripts/package.sh 2.0.1">复制</button>bash scripts/package.sh 2.0.1
+<span class="cmt"># 产物: dist/BPLC_STA_Monitor_Setup_v2.0.1.exe</span></div>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-n">4</div>
+            <div class="step-body"><h4>注意</h4><p>用 clangd / LSP 时对 Qt 头文件会有假阳性报错，
+                以本机 <code class="inline-code">mingw32-make</code> 编译结果为准。</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CONFIG ============ -->
+<section id="config">
+  <div class="inner">
+    <div class="reveal">
+      <span class="eyebrow">Configuration</span>
+      <h2 class="sec-title">参数与配置说明</h2>
+      <p class="sec-sub">配置文件位于程序目录 <code class="inline-code">config.ini</code>，首次启动自动生成。
+        大部分项也可在「开始」对话框中修改并自动写回。</p>
+    </div>
+
+    <div class="reveal tbl-wrap" style="margin-bottom:34px">
+      <div class="tbl-scroll">
+        <table>
+          <thead><tr><th>配置项</th><th>取值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>general/lang</code></td><td><code>auto</code> / <code>zh</code> / <code>en</code></td><td>界面语言，默认跟随系统</td></tr>
+            <tr><td><code>general/protocol</code></td><td><code>gw_2022</code> / <code>nw_2021</code></td><td>国网 / 南网协议栈，运行时切换并持久化</td></tr>
+            <tr><td><code>general/theme</code></td><td><code>auto</code> / <code>dark</code> / <code>light</code></td><td>界面主题，即切即生效</td></tr>
+            <tr><td><code>general/filter</code></td><td>过滤表达式</td><td>帧列表显示过滤器，下次启动自动恢复</td></tr>
+            <tr><td><code>general/update_url</code></td><td>URL</td><td>更新清单 <code>update.json</code> 地址</td></tr>
+            <tr><td><code>general/mirror_mode</code></td><td><code>auto</code> / <code>native</code> / <code>proxy</code></td><td>更新下载加速：按出口 IP 自动选路 / 始终直连 / 始终走代理</td></tr>
+            <tr><td><code>general/mirror_list</code></td><td>逗号分隔前缀</td><td>代理前缀列表，按序探活取第一个可用；留空用内置三项</td></tr>
+            <tr><td><code>reader/mode</code></td><td><code>0</code> / <code>1</code> / <code>2</code></td><td>0 串口、1 <code>.bin</code> 回放、2 裸 hex</td></tr>
+            <tr><td><code>reader/com</code></td><td>COM 名称</td><td>串口名，如 <code>COM3</code></td></tr>
+            <tr><td><code>reader/baud</code></td><td>整数</td><td>波特率，默认 <code>460800</code></td></tr>
+            <tr><td><code>reader/file_path</code></td><td>路径</td><td>回放或导入文件路径</td></tr>
+            <tr><td><code>crash/backend</code></td><td><code>auto</code> / <code>sentry</code> / <code>crashpad</code></td><td>崩溃转储后端，安装失败自动回退</td></tr>
+            <tr><td><code>crash/dsn</code></td><td>Sentry DSN</td><td>填了崩溃自动上报，留空只本地落盘</td></tr>
+            <tr><td><code>crash/db_path</code></td><td>目录</td><td>转储目录，留空为 exe 同级 <code>crashpad_db</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="grid g2">
+      <div class="card reveal">
+        <div class="card-ico">⌕</div>
+        <h3>显示过滤器语法</h3>
+        <p style="margin-bottom:12px"><code>&amp;</code> 为与、<code>|</code> 为或，<code>&amp;</code> 优先级高于 <code>|</code>，
+          暂不支持括号嵌套。<code>a &amp; b | c</code> 等价于 <code>(a 且 b) 或 c</code>。</p>
+        <div class="code-block" style="margin-top:0"><span class="cmt"># 仅 NetID cda1d5 的信标帧</span>
+beacon &amp; cda1d5
+<span class="cmt"># (SOF 且源/目的含 sta-2) 或所有 ACK</span>
+sof &amp; sta-2 | ack
+<span class="cmt"># 指定网络的协调帧</span>
+coord &amp; 0xcda1d5
+<span class="cmt"># HPLC 信标（排除 HRF）</span>
+hplc &amp; beacon</div>
+      </div>
+      <div class="card reveal">
+        <div class="card-ico">⌨</div>
+        <h3>快捷键</h3>
+        <div class="tbl-scroll" style="margin-top:6px">
+          <table style="min-width:0">
+            <tbody>
+              <tr><td><code>Ctrl+E</code></td><td>开始</td></tr>
+              <tr><td><code>Ctrl+.</code></td><td>停止</td></tr>
+              <tr><td><code>Ctrl+P</code></td><td>切换暂停菜单项</td></tr>
+              <tr><td><code>Ctrl+L</code></td><td>清空</td></tr>
+              <tr><td><code>Ctrl+F</code></td><td>应用显示过滤器</td></tr>
+              <tr><td><code>Enter</code></td><td>在过滤框内应用</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top:12px;font-size:12.5px;color:var(--txt-faint)">
+          需要可靠暂停时，优先用工具栏「暂停 / 继续」按钮——菜单项与按钮状态当前未完全同步。
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SCENARIOS ============ -->
+<section id="scenarios">
+  <div class="inner">
+    <div class="reveal">
+      <span class="eyebrow">Use Cases</span>
+      <h2 class="sec-title">应用场景案例</h2>
+      <p class="sec-sub">六个真实调试场景，说明在什么情况下用它、解决什么问题。</p>
+    </div>
+
+    <div class="grid" style="gap:14px">
+      <div class="scn reveal">
+        <div class="scn-n">01</div>
+        <div>
+          <h3>现场组网失败：STA 反复入网却始终不上线</h3>
+          <p class="prob"><b>问题：</b>现场 STA 上电后一直重试关联，日志只有一串十六进制。
+            无法判断是关联请求没发出去、CCO 没回确认，还是确认回来了但被 CRC 判坏丢弃。</p>
+          <p class="sol"><b>用它：</b>串口实时捕获后按 <code class="inline-code">sof &amp; sta-13</code> 过滤，
+            在帧列表里看关联请求 / 确认的往返；点开 MSDU 树确认 MMe 类型与重启次数，
+            再看 FCH CRC24 与 MSDU CRC32 是否 <code class="inline-code">FAIL</code>——
+            一次就能区分「没发」「没回」「回了但坏了」三种完全不同的故障方向。</p>
+          <div class="chips"><span class="chip">实时串口</span><span class="chip">表达式过滤</span><span class="chip">CRC 三态</span><span class="chip">MMe 解析</span></div>
+        </div>
+      </div>
+
+      <div class="scn reveal">
+        <div class="scn-n">02</div>
+        <div>
+          <h3>台区拓扑异常：某个 STA 频繁掉线、路由反复切换</h3>
+          <p class="prob"><b>问题：</b>抄表成功率下降，怀疑是某几级中继不稳定，但拓扑是动态变化的，
+            事后看日志根本还原不出「当时网络长什么样」。</p>
+          <p class="sol"><b>用它：</b>打开 TOPO 窗口按 NID 看树形拓扑，四态图标直接标出在线 / 入网中 / 离线；
+            悬停节点看上下行通讯成功率。右侧「路由变更记录」按时间正序列出代理变更、离线指示、
+            CCO/STA 重启警告，双击任意一行即可把拓扑冻结回放到那一帧，主界面同步定位——
+            掉线前一刻的父节点是谁，一目了然。</p>
+          <div class="chips"><span class="chip">TOPO 拓扑</span><span class="chip">路由变更记录</span><span class="chip">历史回放</span><span class="chip">成功率</span></div>
+        </div>
+      </div>
+
+      <div class="scn reveal">
+        <div class="scn-n">03</div>
+        <div>
+          <h3>协议开发联调：新固件字段对不上规范</h3>
+          <p class="prob"><b>问题：</b>固件改了某个位域布局，上位机解析出来的值明显不对。
+            对着 PDF 规范逐字节数，一个 152 字节的 SOF 帧要数十几分钟，还容易数错位。</p>
+          <p class="sol"><b>用它：</b>点字段树里的目标字段，十六进制区立刻高亮它覆盖的原始字节，
+            位宽 <code class="inline-code">[Nb]</code> 直接标在字段名后；多 PB 报文里每块的
+            Header / Body / CRC24 都能单独点选。字段位置错了，高亮范围一眼就能看出偏移。
+            需要给同事看时导出 CSV 或裸 hex 文本，对方导入即可复现同一视图。</p>
+          <div class="chips"><span class="chip">字段↔字节联动</span><span class="chip">位宽标注</span><span class="chip">多 PB 逐块</span><span class="chip">CSV 导出</span></div>
+        </div>
+      </div>
+
+      <div class="scn reveal">
+        <div class="scn-n">04</div>
+        <div>
+          <h3>跨协议版本排查：国网 / 南网、新旧协议混跑</h3>
+          <p class="prob"><b>问题：</b>同一批设备里既有 HDC 1.0 也有 HDC 2.0，南网侧还有 BPLC 与 SPLC 2026 混跑。
+            用错解析器，字段全是乱码，还容易得出「固件有 bug」的错误结论。</p>
+          <p class="sol"><b>用它：</b>在「开始」对话框切换协议栈，字段树、枚举、数值解释整体跟着换；
+            SOF 帧按 FCH 版本号自动分派到对应解析器，非 SOF 帧新协议解析失败会自动回退旧协议。
+            需要更细的抓包分析时，把导出的 <code class="inline-code">.bin</code> 用
+            <code class="inline-code">bin2pcap.py</code> 转成 pcap，配合随包的 4 个 Wireshark dissector 继续深挖。</p>
+          <div class="chips"><span class="chip">双协议栈</span><span class="chip">版本自适应</span><span class="chip">bin2pcap</span><span class="chip">Wireshark</span></div>
+        </div>
+      </div>
+
+      <div class="scn reveal">
+        <div class="scn-n">05</div>
+        <div>
+          <h3>设备异常重启：STA / CCO 不定时掉线又重连</h3>
+          <p class="prob"><b>问题：</b>现场某台 STA 或 CCO 会不定时“消失”几秒又回来，抄表出现空档。日志里只有一串十六进制，
+            看不出是断电重启、看门狗复位，还是只是链路抖动；重启次数是 4-bit 计数器还会回绕，靠人眼比对根本对不上。</p>
+          <p class="sol"><b>用它：</b>TOPO 窗口的“路由变更记录”表会直接记下
+            <code class="inline-code">警告STA重启过！STA N 重启次数 x→y</code> 与 <code class="inline-code">警告CCO重启过！重启次数 x→y</code>
+            （CCO 重启按发现列表源 TEI=1 判定，STA 重启按关联请求判定），双击该行即可把拓扑冻结回放到那一帧，
+            看掉线前一刻的父节点是谁。重启次数是 4-bit 计数器（0–15 循环），工具用“连续前进数”判回绕，
+            把正常回绕与真正的双实体振荡区分开；同一 TEI 的载波与无线两条链路各自计数，不一致时另记一条“两链路计数不同”。
+            若报文带版本信息，字段树还会解析 <code class="inline-code">系统启动原因</code>
+            （0 正常启动 / 1 断电重启 / 2 看门狗复位 / 3 程序指针异常），直接给出重启性质。
+            再用 <code class="inline-code">sta-13</code> 过滤只看该站点的帧，配合历史回放逐帧看它掉线前后的关联请求 / 确认往返。</p>
+          <div class="chips"><span class="chip">TOPO 路由变更记录</span><span class="chip">重启次数回绕判定</span><span class="chip">系统启动原因</span><span class="chip">历史回放</span></div>
+        </div>
+      </div>
+
+      <div class="scn reveal">
+        <div class="scn-n">06</div>
+        <div>
+          <h3>MAC 冲突：同一 MAC 多 TEI / 同一 TEI 多 MAC</h3>
+          <p class="prob"><b>问题：</b>同一台设备换了 TEI，或两台设备共用一个 TEI / MAC，导致抄表串号、路由错乱。
+            这种“数据自相矛盾”在原始报文里完全看不出来，事后翻日志也拼不出是哪两台设备撞了。</p>
+          <p class="sol"><b>用它：</b>TOPO 窗口底部“异常 / 冲突”页签专门汇总这类问题，共五类：
+            <code class="inline-code">同一 MAC 多 TEI</code>、<code class="inline-code">同一 TEI 多 MAC</code>、
+            <code class="inline-code">重启次数振荡</code>、<code class="inline-code">两链路计数不同</code>、
+            <code class="inline-code">同一 NID 多 CCO MAC</code>，每类按主体合并成一行并累加“冲突次数”，
+            双击可跳回首次 / 最近一次出现的帧。右侧“TEI→MAC 映射表”列出各节点 TEI 与 MAC 的对应关系，
+            冲突时一眼能看出哪个 TEI 被两台设备占用。设备重上电再次发起关联请求时，同一 MAC 的旧节点状态会先被移除，
+            避免“在线”与“入网中”双状态并存造成的误判。需要看原始证据时，用 MAC 串
+            （如 <code class="inline-code">aa:bb:cc:dd:ee:ff</code>）或 <code class="inline-code">sta-N</code> 过滤，
+            字段树里 MAC 字段与十六进制区联动高亮，直接定位冲突字节。</p>
+          <div class="chips"><span class="chip">异常 / 冲突页签</span><span class="chip">TEI→MAC 映射表</span><span class="chip">MAC 子串过滤</span><span class="chip">字段↔字节联动</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TOPO DEEP DIVE ============ -->
+<section id="topo">
+  <div class="inner">
+    <div class="reveal">
+      <span class="eyebrow">TOPO Deep Dive</span>
+      <h2 class="sec-title">TOPO 拓扑排查</h2>
+      <p class="sec-sub">
+        报文列表告诉你「这一帧是什么」，TOPO 窗口告诉你「这张网现在长什么样、刚才发生了什么」。
+        它把散落在成千上万帧里的组网事件、身份映射与自相矛盾之处，收敛成一张图、两张表、五个异常类别。
+      </p>
+    </div>
+
+    <!-- 1. 入口与布局 -->
+    <div class="reveal">
+      <h3 style="font-size:19px;font-weight:700;margin-bottom:10px">一、入口与窗口布局</h3>
+      <p style="font-size:14px;color:var(--txt-dim);margin-bottom:20px;max-width:820px">
+        主界面工具栏点「拓扑」按钮，打开一个<b style="color:var(--txt)">独立顶层窗口</b>（标题「拓扑图 TOPO」，默认 1000×700，可自由移动、最小化、最大化）。
+        它不占用主界面空间，可以拖到第二块屏幕上，一边看报文一边看拓扑。窗口分四个区域：
+      </p>
+
+      <div class="winmap">
+        <div class="wm-bar">
+          <span class="wm-pill">网络: NID ▾</span>
+          <span class="wm-pill wm-live">实时</span>
+          <span class="wm-pill">在网节点：12（入网中 1 / 离线 2）</span>
+          <span class="wm-pill wm-btn">回到实时</span>
+          <span class="wm-pill wm-btn">适应视图</span>
+        </div>
+        <div class="wm-mid">
+          <div class="wm-graph">
+            <span class="wm-lbl">① 拓扑图</span>
+            <span class="wm-hint">拖拽平移 · 滚轮缩放 · 悬停节点看详情</span>
+            <div class="wm-nodes">
+              <span class="wm-node">CCO</span>
+              <span class="wm-node">STA-2</span>
+              <span class="wm-node">STA-5</span>
+              <span class="wm-node am">STA-13</span>
+              <span class="wm-node rd">STA-21</span>
+              <span class="wm-node">STA-33</span>
+            </div>
+          </div>
+          <div class="wm-side">
+            <span class="wm-lbl">② TEI → MAC 映射</span>
+            <span class="wm-hint">搜索 TEI / MAC…</span>
+            <span class="wm-hint">TEI · MAC · 入网链路 · 双模 · 状态 · 层级 · 代理 TEI · 邻居表</span>
+          </div>
+        </div>
+        <div class="wm-bottom">
+          <div class="wm-tabs">
+            <span class="wm-tab">路由变更</span>
+            <span class="wm-tab on">异常 / 冲突</span>
+          </div>
+          <div class="wm-tbl">
+            ③ 底部页签区（两个页签共用同一块空间，点页签切换）
+            <div class="wm-cols">
+              <span class="wm-col">首次帧</span><span class="wm-col">类别</span><span class="wm-col">TEI</span>
+              <span class="wm-col">MAC</span><span class="wm-col">介质</span><span class="wm-col hot">次数</span>
+              <span class="wm-col">最近变化</span><span class="wm-col">首次时间</span><span class="wm-col">最近时间</span><span class="wm-col">最近帧</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <figure class="topo-fig">
+        <img src="images/topo-overview.png" alt="TOPO 拓扑窗口整体布局示意：顶部 NID 下拉与状态栏、左侧拓扑图、右侧 TEI→MAC 映射表、底部路由变更与异常/冲突页签" loading="lazy">
+        <figcaption><b>图 1 · 窗口整体布局</b>　顶部是「看哪个网络、现在是什么模式、有多少节点」；中部左图右表；底部两个页签承载「发生过什么」与「哪里自相矛盾」。示意图，非真实截图。</figcaption>
+      </figure>
+
+      <div class="tbl-wrap" style="margin-bottom:26px">
+        <div class="tbl-scroll">
+          <table>
+            <thead><tr><th>区域</th><th>控件</th><th>排查时用来做什么</th></tr></thead>
+            <tbody>
+              <tr><td class="k">顶部</td><td><code>网络: NID ▾</code></td><td>切换网络。下拉项显示 NID、CCO 的 MAC、该网络首次识别的时间，用来区分同一 CCO MAC 下的新旧网络</td></tr>
+              <tr><td class="k">顶部</td><td>模式标签</td><td>显示 <code>实时</code> 或 <code>历史回放 @ #帧号 时间</code>，一眼看出当前看的是不是冻结快照</td></tr>
+              <tr><td class="k">顶部</td><td><code>在网节点：N</code></td><td>只统计状态为在线的 STA（不含 CCO、不含入网中、不含离线），括号里另列入网中 / 离线数</td></tr>
+              <tr><td class="k">顶部</td><td><code>回到实时</code></td><td>退出历史回放，恢复实时跟随（仅在回放模式下出现）</td></tr>
+              <tr><td class="k">顶部</td><td><code>适应视图</code></td><td>缩放并居中显示整张拓扑图，同时让各表列宽按内容重排一次</td></tr>
+              <tr><td class="k">中部左</td><td>拓扑图</td><td>四态图标（CCO / 在线 / 入网中 / 离线）、三行标签（标题、MAC、入网链路）、悬停看详情</td></tr>
+              <tr><td class="k">中部右</td><td>TEI → MAC 映射表</td><td>八列身份台账 + 搜索框，双击邻居表单元格弹出邻居明细</td></tr>
+              <tr><td class="k">底部</td><td><code>路由变更</code> 页签</td><td>按时间正序列出组网事件，带筛选框，双击任意行跳帧</td></tr>
+              <tr><td class="k">底部</td><td><code>异常/冲突</code> 页签</td><td>五类「数据自相矛盾」的汇总，同类同主体合并成一行并累加次数</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. 五类异常 -->
+    <div class="reveal">
+      <h3 style="font-size:19px;font-weight:700;margin-bottom:10px">二、异常 / 冲突页签：五类「数据自相矛盾」</h3>
+      <p style="font-size:14px;color:var(--txt-dim);margin-bottom:20px;max-width:860px">
+        这一页签与「路由变更」刻意分开：路由变更是<b style="color:var(--txt)">拓扑的正常演进</b>，而这里记录的是
+        <b style="color:var(--txt)">数据自己打自己</b>——同一台设备出现两个身份、同一个身份被两台设备占用、计数器来回跳。
+        这类问题在原始报文里完全看不出来，事后翻日志也拼不出是哪两台设备撞了。
+      </p>
+
+      <div class="tbl-wrap" style="margin-bottom:22px">
+        <div class="tbl-scroll">
+          <table class="kind-tbl">
+            <thead><tr><th>类别</th><th>判定条件（代码口径）</th><th>说明什么</th><th>「次数」列含义</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><span class="kn">同一 MAC 多 TEI</span></td>
+                <td>同一 (NID, MAC) 先后落在两个不同 TEI 上，且旧节点仍在线；CCO/STA 角色切换不受离线状态限制</td>
+                <td>一台设备换了 TEI 却还留着旧身份，或两台设备共用同一 MAC。TEI 列显示 <code>旧→新</code></td>
+                <td>冲突次数：同一主体反复冲突的累计次数</td>
+              </tr>
+              <tr>
+                <td><span class="kn">同一 TEI 多 MAC</span></td>
+                <td>同一 TEI 先后被两个仍在线的 MAC 使用</td>
+                <td>TEI 被两台设备占用，抄表会串号。MAC 列显示 <code>旧→新</code></td>
+                <td>冲突次数</td>
+              </tr>
+              <tr>
+                <td><span class="kn am">重启次数振荡</span></td>
+                <td>同一 TEI + 介质的 4-bit 重启次数回到出现过的旧值（连续前进 ≥2 步后的回绕视为正常，不记）</td>
+                <td>双实体共用 TEI，或计数器被复位。最近变化列显示 <code>9↔12 (9→12)</code> 这类往返</td>
+                <td>往返次数：回到出现过的取值才计，首次出现新值不计</td>
+              </tr>
+              <tr>
+                <td><span class="kn am">两链路计数不同</span></td>
+                <td>同一 TEI 的载波与无线两条链路各自计数，两侧都有取值且不相等（两侧采样时间差超窗口则不比较）</td>
+                <td>同一台设备在两条链路上报的重启次数对不上，提示其中一条链路的数据陈旧或身份串了</td>
+                <td>差异组合数：每个不同的 (载波, 无线) 取值组合各计一次</td>
+              </tr>
+              <tr>
+                <td><span class="kn rd">同一 NID 多 CCO MAC</span></td>
+                <td>同一 NID 下出现第二个不同的 CCO MAC</td>
+                <td>网络标识冲突：两个 CCO 用了同一个 NID，或 CCO 被换过。MAC 列显示 <code>旧→新</code></td>
+                <td>冲突次数：每发现一个新的 CCO MAC 计一次</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <p style="font-size:13.5px;color:var(--txt-dim);margin-bottom:20px;max-width:860px">
+        表头十列：<code class="inline-code">首次帧</code>、<code class="inline-code">类别</code>、<code class="inline-code">TEI</code>、<code class="inline-code">MAC</code>、
+        <code class="inline-code">介质</code>、<code class="inline-code">次数</code>、<code class="inline-code">最近变化</code>、<code class="inline-code">首次时间</code>、
+        <code class="inline-code">最近时间</code>、<code class="inline-code">最近帧</code>。
+        <b style="color:var(--txt)">双击「首次帧」列</b>跳到该异常第一次出现的帧，<b style="color:var(--txt)">双击「最近帧」或其它任意列</b>跳到最近一次出现的帧——
+        主界面帧列表同步选中并滚动居中，可以直接看那一帧的原始字节。
+      </p>
+
+      <figure class="topo-fig" style="border:none;background:none;overflow:visible">
+        <div class="anom-mock">
+          <div class="am-title"><span class="am-dot"></span>TOPO 拓扑 — NID 0x1A2B · 异常 / 冲突</div>
+          <div class="am-tabs">
+            <span class="am-tab">路由变更</span>
+            <span class="am-tab on">异常 / 冲突</span>
+          </div>
+          <div class="anom-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>首次帧</th><th>类别</th><th>TEI</th><th>MAC</th><th>介质</th>
+                  <th>次数</th><th>最近变化</th><th>首次时间</th><th>最近时间</th><th>最近帧</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="jump">1024</td>
+                  <td class="kind"><span class="tag am">同一 MAC 多 TEI</span></td>
+                  <td>5→13</td>
+                  <td>AA:BB:CC:DD:EE:01</td>
+                  <td>载波</td>
+                  <td class="num">3</td>
+                  <td>5→13 (5→13)</td>
+                  <td>10:02:11.480</td>
+                  <td>10:07:33.902</td>
+                  <td class="jump">1188</td>
+                </tr>
+                <tr>
+                  <td class="jump">1102</td>
+                  <td class="kind"><span class="tag am">同一 TEI 多 MAC</span></td>
+                  <td>21</td>
+                  <td>…EE:21→…EE:2F</td>
+                  <td>无线</td>
+                  <td class="num">2</td>
+                  <td>…EE:21→…EE:2F</td>
+                  <td>10:04:02.115</td>
+                  <td>10:06:48.330</td>
+                  <td class="jump">1150</td>
+                </tr>
+                <tr>
+                  <td class="jump">1201</td>
+                  <td class="kind"><span class="tag am">重启次数振荡</span></td>
+                  <td>13</td>
+                  <td>AA:BB:CC:DD:EE:01</td>
+                  <td>载波</td>
+                  <td class="num">20</td>
+                  <td>9→12 (9→12)</td>
+                  <td>10:08:15.007</td>
+                  <td>10:09:41.660</td>
+                  <td class="jump">1247</td>
+                </tr>
+                <tr>
+                  <td class="jump">1266</td>
+                  <td class="kind"><span class="tag cy">两链路计数不同</span></td>
+                  <td>33</td>
+                  <td>AA:BB:CC:DD:EE:33</td>
+                  <td>载波 / 无线</td>
+                  <td class="num">4</td>
+                  <td>载波 7 / 无线 5</td>
+                  <td>10:10:22.540</td>
+                  <td>10:11:05.118</td>
+                  <td class="jump">1290</td>
+                </tr>
+                <tr>
+                  <td class="jump">1310</td>
+                  <td class="kind"><span class="tag rd">同一 NID 多 CCO MAC</span></td>
+                  <td>1</td>
+                  <td>…EE:00→…EE:0A</td>
+                  <td>载波</td>
+                  <td class="num">1</td>
+                  <td>…EE:00→…EE:0A</td>
+                  <td>10:12:30.004</td>
+                  <td>10:12:30.004</td>
+                  <td class="jump">1310</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="am-foot">
+            同类同主体合并成一行、次数累加，避免刷屏。<b>双击「首次帧」</b>跳到该异常第一次出现的帧，<b>双击其它任意列</b>跳到最近一次出现的帧。
+          </div>
+        </div>
+        <figcaption><b>图 2 · 异常 / 冲突页签</b>　十列表格，五类异常各占一行示例；「次数」列在五类里含义各不相同（冲突次数 / 往返次数 / 差异组合数），鼠标悬停有逐类说明，防止把「往返 20 次」误读成「重启 20 次」。示意图，非真实截图。</figcaption>
+      </figure>
+    </div>
+
+    <!-- 3. 路由变更 -->
+    <div class="reveal">
+      <h3 style="font-size:19px;font-weight:700;margin-bottom:10px">三、路由变更记录与筛选</h3>
+      <p style="font-size:14px;color:var(--txt-dim);margin-bottom:18px;max-width:860px">
+        按时间正序记录组网事件，最新在底部（与主界面帧列表一致）。六列：
+        <code class="inline-code">序号</code>（对应主界面帧号）、<code class="inline-code">时间点</code>、<code class="inline-code">类型</code>、
+        <code class="inline-code">NID</code>、<code class="inline-code">MAC</code>、<code class="inline-code">变更说明</code>。
+        其中 MAC 列取的是<b style="color:var(--txt)">「截至该事件之前」</b>的映射值，不是最终映射回填——所以同一 TEI 换过 MAC 时，历史行显示的是当时那台设备。
+      </p>
+      <div class="chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px">
+        <span class="chip">发现列表</span><span class="chip">关联请求</span><span class="chip">关联确认</span>
+        <span class="chip">关联汇总指示</span><span class="chip">关联指示</span><span class="chip">代理变更请求</span>
+        <span class="chip">代理变更</span><span class="chip">离线指示</span><span class="chip">CCO 重启</span>
+        <span class="chip">STA 重启</span><span class="chip">断电事件</span><span class="chip">上电事件</span>
+        <span class="chip">信道观测</span>
+      </div>
+      <p style="font-size:13.5px;color:var(--txt-dim);margin-bottom:20px;max-width:860px">
+        上方筛选框是<b style="color:var(--txt)">子串匹配、不区分大小写</b>，同时匹配时间点、类型、NID、MAC、变更说明五列。
+        所以输入 <code class="inline-code">STA-13</code> 只看该站点相关事件，输入 <code class="inline-code">重启</code> 只看重启警告，
+        输入 <code class="inline-code">aa:bb:cc</code> 只看该 MAC 前缀，输入 <code class="inline-code">0x1a2b</code> 只看某个 NID。
+        滚动逻辑与主界面一致：滚到底部时跟随最新，向上翻阅时保持位置不动。
+      </p>
+    </div>
+
+    <!-- 4. 重启警告 -->
+    <div class="reveal">
+      <h3 style="font-size:19px;font-weight:700;margin-bottom:10px">四、重启警告：谁重启了、重启了几次</h3>
+      <p style="font-size:14px;color:var(--txt-dim);margin-bottom:16px;max-width:860px">
+        重启次数是 MAC 帧头里的 <b style="color:var(--txt)">4-bit 计数器</b>（0–15 循环），任何变化即视为重启。工具按主体分别判定，避免把 CCO 的重启记到某个 STA 头上：
+      </p>
+      <div class="grid g2" style="margin-bottom:20px">
+        <div class="card" style="padding:20px">
+          <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--cyan);margin-bottom:8px">CCO 重启</div>
+          <p style="font-size:13.5px;color:var(--txt-dim);margin-bottom:10px">判定依据：发现列表由 CCO 本人发出（源 TEI = 1）。基线按 (NID, MAC) 分开记，多 NID 同时抓包不会互相踩。</p>
+          <div class="code-block" style="margin-top:0">警告CCO重启过！重启次数 3→4</div>
+        </div>
+        <div class="card" style="padding:20px">
+          <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber);margin-bottom:8px">STA 重启</div>
+          <p style="font-size:13.5px;color:var(--txt-dim);margin-bottom:10px">判定依据：关联请求由 STA 本人发出。基线按 (NID, 主体 MAC) 分开记，同 MAC 在不同 NID 下不串。</p>
+          <div class="code-block" style="margin-top:0">警告STA重启过！STA 13 重启次数 7→8</div>
+        </div>
+      </div>
+      <p style="font-size:13.5px;color:var(--txt-dim);margin-bottom:20px;max-width:860px">
+        重启只是<b style="color:var(--txt)">警告，不清空拓扑</b>——网络还在，只是有人重启过。
+        4-bit 计数器会回绕（…→14→15→0），单步 +1 无法区分「正常回绕」与「差 1 的双实体振荡」，
+        所以工具用<b style="color:var(--txt)">连续前进步数</b>判回绕：连续前进 ≥2 步之后回到的旧值视为正常回绕、静默通过；
+        其余回到出现过的旧值才记一次往返。抓包丢帧时无法区分正常回绕与跳变，此时宁可报出来。
+      </p>
+    </div>
+
+    <!-- 5. TEI→MAC 表 -->
+    <div class="reveal">
+      <h3 style="font-size:19px;font-weight:700;margin-bottom:10px">五、TEI → MAC 映射表与搜索</h3>
+      <p style="font-size:14px;color:var(--txt-dim);margin-bottom:18px;max-width:860px">
+        右侧面板是身份台账，八列：<code class="inline-code">TEI</code>、<code class="inline-code">MAC</code>、
+        <code class="inline-code">入网链路</code>（载波 / 无线 / 未定）、<code class="inline-code">双模</code>、
+        <code class="inline-code">状态</code>（在线 / 入网中 / 离线）、<code class="inline-code">层级</code>（从 CCO=0 沿父链向下，不可达为 -1）、
+        <code class="inline-code">代理 TEI</code>、<code class="inline-code">邻居表</code>。
+      </p>
+      <ul style="font-size:13.5px;color:var(--txt-dim);margin:0 0 20px 20px;line-height:1.9">
+        <li><b style="color:var(--txt)">搜索框</b>按 TEI 或 MAC 子串过滤行，冲突时一眼看出哪个 TEI 被两台设备占用。</li>
+        <li><b style="color:var(--txt)">双击邻居表单元格</b>弹出独立窗口，列出该 STA 的邻居明细：TEI、MAC、入网链路、双模、SNR、信号强度、上行/下行成功率、我报它次数、它报我次数、双向、可靠度评分。同一格里各 TEI 按信号强度显示不同深浅的绿色。</li>
+        <li><b style="color:var(--txt)">双击其它列</b>跳到拓扑图上对应的 STA 节点并居中。</li>
+        <li>拖动滑块或滚轮翻阅表格时，实时刷新会<b style="color:var(--txt)">自动暂停</b>（模式标签变「已暂停」），避免你正看着的行被刷走；点「回到实时」恢复。</li>
+      </ul>
+    </div>
+
+    <!-- 6. NID / 回放 / 悬停 -->
+    <div class="reveal">
+      <h3 style="font-size:19px;font-weight:700;margin-bottom:10px">六、NID 切换、历史回放与悬停详情</h3>
+      <div class="grid g3" style="margin-bottom:22px">
+        <div class="card" style="padding:20px">
+          <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--cyan);margin-bottom:8px">NID 切换</div>
+          <p style="font-size:13.5px;color:var(--txt-dim)">多网络同时抓包时，按 NID 分别绘制各自的树。下拉项带 CCO MAC 与首次识别时间，用来区分同一 CCO MAC 下的新旧网络。下拉展开期间跳过的更新，收起时会补刷一次，不留过期列表。</p>
+        </div>
+        <div class="card" style="padding:20px">
+          <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber);margin-bottom:8px">历史回放</div>
+          <p style="font-size:13.5px;color:var(--txt-dim)">单击主界面任意历史帧，拓扑图 / 路由变更表 / TEI→MAC 表一起冻结为该帧时刻的快照，顶部显示「历史回放 @ #帧号 时间」。双击任意帧（含最新帧）强制冻结。点「回到实时」恢复跟随。</p>
+        </div>
+        <div class="card" style="padding:20px">
+          <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--green);margin-bottom:8px">悬停详情</div>
+          <p style="font-size:13.5px;color:var(--txt-dim)">鼠标停在节点上弹出：MAC、入网链路、双模、信号强度（dBm）、上级（代理）、无线上下行成功率、载波上下行成功率。两组都无上报时显示「通讯成功率: 暂无上报」。</p>
+        </div>
+      </div>
+      <p style="font-size:13.5px;color:var(--txt-dim);margin-bottom:20px;max-width:860px">
+        拓扑数据随报文实时刷新，约 <b style="color:var(--txt)">200ms 节流</b>一次——高速灌帧时只置脏标志、定时批量刷新，不会因为拓扑重绘把界面拖卡。
+        设备重上电再次发起关联请求时，同一 MAC 的旧节点状态会先被移除，避免「在线」与「入网中」双状态并存造成的误判。
+      </p>
+    </div>
+
+    <!-- 7. 完整排查过程 -->
+    <div class="reveal">
+      <h3 style="font-size:19px;font-weight:700;margin-bottom:10px">七、一次完整排查：从「抄表串号」到定位两台设备</h3>
+      <p style="font-size:14px;color:var(--txt-dim);margin-bottom:20px;max-width:860px">
+        现场反馈：某台区抄表偶发串号，同一户的数据出现在别人名下。原始报文里一切正常，看不出任何异常。
+      </p>
+
+      <figure class="topo-fig">
+        <img src="images/topo-before-after.png" alt="排查前后对比示意：左侧拓扑中两个节点重叠并带红色冲突标记，右侧冲突节点被区分开并高亮，侧表两行标黄" loading="lazy">
+        <figcaption><b>图 3 · 排查前后对比</b>　左：拓扑图上两个节点挤在同一位置、带冲突标记，说明有身份重叠；右：经异常表与映射表确认后，两个身份被区分开，对应行在侧表标黄。示意图，非真实截图。</figcaption>
+      </figure>
+
+      <div class="probe">
+        <div class="step">
+          <div class="step-n">1</div>
+          <div class="step-body">
+            <h4>先看「在网节点」数对不对</h4>
+            <p>顶部显示 <code class="inline-code">在网节点：N（入网中 x / 离线 y）</code>。若 N 比台账少，说明有设备没上线或身份被覆盖；若入网中持续不为 0，说明有设备卡在关联阶段。这一步只花两秒，先判断是「少设备」还是「多身份」。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-n">2</div>
+          <div class="step-body">
+            <h4>切到「异常 / 冲突」页签，看有没有行</h4>
+            <p>串号类问题几乎必然在这里留下痕迹：<code class="inline-code">同一 TEI 多 MAC</code> 说明一个 TEI 被两台设备占用；<code class="inline-code">同一 MAC 多 TEI</code> 说明一台设备换了身份还留着旧的。看「次数」列判断是偶发一次还是反复发生——反复发生才是现场故障，偶发一次多半是重上电的正常过渡。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-n">3</div>
+          <div class="step-body">
+            <h4>双击「首次帧」，把拓扑冻结到冲突发生那一刻</h4>
+            <p>双击该行「首次帧」列，拓扑图、路由变更表、TEI→MAC 表一起冻结到那一帧，主界面帧列表同步选中并滚动居中。此时看到的是<b style="color:var(--txt)">冲突刚发生时的网络形态</b>，而不是现在的形态——这是事后翻日志永远拿不到的信息。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-n">4</div>
+          <div class="step-body">
+            <h4>在冻结快照里读 TEI→MAC 表，锁定两台设备</h4>
+            <p>冲突行的 TEI 列显示 <code class="inline-code">旧→新</code>（或 MAC 列显示 <code class="inline-code">旧→新</code>），拿这个 TEI 去右侧映射表搜索框里过滤，就能看到该 TEI 当前挂在哪个 MAC、层级多少、代理 TEI 是谁。双击邻居表单元格还能看它和周围节点的 SNR 与双向成功率，判断是不是物理位置相近导致串了。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-n">5</div>
+          <div class="step-body">
+            <h4>回到实时，用主界面过滤器看原始证据</h4>
+            <p>点「回到实时」恢复跟随，然后在主界面显示过滤器里输入该 MAC 串（如 <code class="inline-code">aa:bb:cc:dd:ee:ff</code>）或 <code class="inline-code">sta-13</code>，只看这两台设备的帧。点开字段树里的 MAC 字段，十六进制区会联动高亮它覆盖的原始字节，直接确认冲突发生在哪一帧、哪个字段。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-n">6</div>
+          <div class="step-body">
+            <h4>需要复盘时，把整段过程导出</h4>
+            <p>把抓包导出为 <code class="inline-code">.bin</code> 或 CSV，用历史回放逐帧重走一遍；需要更细的协议层分析时，用 <code class="inline-code">bin2pcap.py</code> 转成 pcap，配合随包的 Wireshark dissector 继续深挖。异常表与路由变更表都支持整表复制，可直接贴进故障报告。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="boundary">
+        <b>能力边界（避免误期待）</b>　TOPO 窗口是<b>只读的观测视图</b>：它不提供节点级的「排除 / 隐藏 / 屏蔽」操作，也不能在图上删除节点或修改拓扑。
+        要把不关心的设备从视野里去掉，实际可用的手段是：顶部 <code>NID</code> 下拉只看一个网络、右侧映射表搜索框按 TEI/MAC 过滤行、
+        底部路由变更表筛选框按关键字过滤事件、以及主界面显示过滤器（支持 <code>|</code> 或、<code>&amp;</code> 与，无取反语法）只看某节点的帧。
+        异常 / 冲突页签本身没有独立筛选框，靠 NID 切换与上述手段缩小范围。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FAQ ============ -->
+<section id="faq">
+  <div class="inner">
+    <div class="reveal">
+      <span class="eyebrow">FAQ</span>
+      <h2 class="sec-title">常见问题</h2>
+      <p class="sec-sub">来自使用说明书 §11 的高频问题。</p>
+    </div>
+
+    <div class="reveal" style="max-width:900px">
+      <div class="faq-item">
+        <button class="faq-q">串口打不开怎么办？<span class="ic">+</span></button>
+        <div class="faq-a"><div class="faq-a-in">
+          确认 COM 口未被其他程序占用；确认 STA 调试串口已连接；默认波特率 <code>460800</code>；
+          当前版本实际串口格式为 <code>8-N-1</code>（界面上的数据位 / 停止位 / 校验位选项暂未真正写入采集配置）。
+        </div></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">文件回放没有任何记录？<span class="ic">+</span></button>
+        <div class="faq-a"><div class="faq-a-in">
+          <ul>
+            <li><code>.bin</code> 必须使用 <code>0x3C … 0x3E</code> 帧格式；</li>
+            <li>裸 hex 文本每行必须包含完整哨兵；</li>
+            <li>检查文件是否为空，或数据是否被旧格式转换工具改写过；</li>
+            <li>旧版无 <code>0x3C/0x3E</code> 哨兵的裸 MPDU 行不再兼容，会被直接忽略。</li>
+          </ul>
+        </div></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">帧显示为 DROP 是什么原因？<span class="ic">+</span></button>
+        <div class="faq-a"><div class="faq-a-in">
+          常见原因：FCH CRC24 错误、PB 配置非法、PB 块超出帧长、帧长过短，
+          或链路 / NetID / TEI / 帧类型被解析过滤器拒绝。
+          查看 <code>Destination</code> 或 <code>Info</code> 列中的拒绝原因即可定位。
+        </div></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">Delta 时间差看起来不对？<span class="ic">+</span></button>
+        <div class="faq-a"><div class="faq-a-in">
+          实时串口在长时间无报文或跨 171.8 秒 NTB 回绕后会标记新分段；
+          文件回放依赖 BCD / TIME 时间标签恢复绝对时间；没有时间标签的旧文件会回退到本地时间。
+          选中两行时，状态栏中间会显示两帧时间差（优先用帧内 NTB 差值，偏差过大时降级为本地时间差）。
+        </div></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">点协议字段没有高亮？<span class="ic">+</span></button>
+        <div class="faq-a"><div class="faq-a-in">
+          <ul>
+            <li>该协议节点是分组节点，本身不对应字节；</li>
+            <li>MSDU 跨多个 PB，字段跨 PB 边界，无法映射到当前帧的连续字节；</li>
+            <li>帧被丢弃或载荷不完整。</li>
+          </ul>
+        </div></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">当前版本有哪些已知限制？<span class="ic">+</span></button>
+        <div class="faq-a"><div class="faq-a-in">
+          <ul>
+            <li>南网 NW_2021 解析基于标准报批稿实现，暂无真实现场样本帧回归验证；</li>
+            <li>详细协议树重点支持 BEACON / SOF / ACK / COORD，SEARCH / SWITCH 会出现在列表中但无同等完整的专用载荷解析；</li>
+            <li>过滤器不支持括号；</li>
+            <li>导出始终导出全部帧，不导出「仅当前过滤结果」；</li>
+            <li>暂停期间新到达的帧不会缓存，恢复后也不补写。</li>
+          </ul>
+        </div></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">程序崩溃了怎么定位？<span class="ic">+</span></button>
+        <div class="faq-a"><div class="faq-a-in">
+          崩溃时自动生成 minidump（<code>*.dmp</code>）到 exe 同级 <code>crashpad_db\pending\</code>。
+          在 <code>[crash] dsn</code> 填入 Sentry DSN 后崩溃会自动上报；不填只本地落盘。
+          命令行加 <code>--self-crash-test</code> 可触发一次确定性崩溃自测。
+          拿到 dump 后用 <code>scripts/symbolize.sh &lt;dump&gt; --symdir &lt;符号目录&gt;</code>
+          符号化定位到崩溃函数名与源码行。
+        </div></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">检查更新很慢或失败？<span class="ic">+</span></button>
+        <div class="faq-a"><div class="faq-a-in">
+          程序会先识别出口 IP 所在区域：中国出口时按 <code>mirror_list</code> 顺序逐个代理探活，
+          第一个可用者同时用于清单获取与安装包下载；非中国出口直连 GitHub。
+          区域识别失败、代理全部不可用或中途失效时自动回退直连。
+          整个选路过程可在日志中以 <code>[update-mirror]</code> 前缀查看。
+          某个内置代理失效时，直接编辑 <code>mirror_list</code> 换成其他可用前缀即可，无需更新程序。
+        </div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DOWNLOAD ============ -->
+<section id="download">
+  <div class="inner">
+    <div class="dl-section reveal">
+      <span class="eyebrow">Download</span>
+      <h2 class="sec-title" style="margin-bottom:10px">获取 BPLC STA Monitor</h2>
+      <p class="sec-sub" style="margin-bottom:0">
+        Windows 提供 NSIS 安装包（per-user，免 UAC），
+        Linux 提供 x86_64 压缩包；另附符号包用于崩溃栈符号化。
+      </p>
+
+      <!-- 动态版本徽标：先渲染兜底值，再由脚本替换，min-height 固定避免首屏跳动 -->
+      <div class="ver-badge" id="verBadge" data-state="fallback">
+        <span class="ver-dot" aria-hidden="true"></span>
+        <span class="ver-txt">最新版本 <strong id="verTag">v2.0.1</strong><span id="verDateWrap"> · 发布于 <span id="verDate">2026-10-30</span></span></span>
+        <a class="ver-link" id="verLink" href="https://github.com/aron566/HPLC_Wireshark/releases/tag/v2.0.1" target="_blank" rel="noopener">查看 Release →</a>
+      </div>
+
+      <div class="dl-grid">
+        <div class="dl-card">
+          <div class="dl-os">Windows · x64</div>
+          <div class="dl-name">安装包（推荐）</div>
+          <div class="dl-file">BPLC_STA_Monitor_Setup_v2.0.1.exe</div>
+          <a class="dl-link" href="https://github.com/aron566/HPLC_Wireshark/releases/download/v2.0.1/BPLC_STA_Monitor_Setup_v2.0.1.exe" target="_blank" rel="noopener">下载 →</a>
+        </div>
+        <div class="dl-card">
+          <div class="dl-os">Linux · x86_64</div>
+          <div class="dl-name">便携压缩包</div>
+          <div class="dl-file">BPLC_STA_Monitor_v2.0.1_linux_x86_64.tar.gz</div>
+          <a class="dl-link" href="https://github.com/aron566/HPLC_Wireshark/releases/download/v2.0.1/BPLC_STA_Monitor_v2.0.1_linux_x86_64.tar.gz" target="_blank" rel="noopener">下载 →</a>
+        </div>
+        <div class="dl-card">
+          <div class="dl-os">全部版本</div>
+          <div class="dl-name">Releases 页面</div>
+          <div class="dl-file">历史版本 · 符号包 · 更新日志</div>
+          <a class="dl-link" href="https://github.com/aron566/HPLC_Wireshark/releases" target="_blank" rel="noopener">打开 Releases →</a>
+        </div>
+      </div>
+
+      <div class="note">
+        <b>关于下载地址：</b>安装包、符号包与历史版本都发布在
+        <a href="https://github.com/aron566/HPLC_Wireshark/releases" target="_blank" rel="noopener" style="color:var(--cyan)">Releases 页面</a>。
+        若上方直链失效，请到 Releases 页面按版本号查找对应文件。
+      </div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<footer>
+  <div class="foot-inner">
+    <div>
+      <div class="foot-brand"><span class="brand-mark">B</span> BPLC STA Monitor</div>
+      <p class="foot-txt">
+        BPLC/HRF（HPLC）协议 STA 报文监控上位机 · Qt 6 / C++17。
+        本页内容依据官方使用说明书与公开资料整理。
+      </p>
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/aron566/HPLC_Wireshark/releases" target="_blank" rel="noopener">Releases</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  /* nav scroll state + progress */
+  var nav = document.getElementById('nav');
+  var prog = document.getElementById('progress');
+  function onScroll(){
+    var y = window.scrollY || document.documentElement.scrollTop;
+    if (y > 12) nav.classList.add('scrolled'); else nav.classList.remove('scrolled');
+    var h = document.documentElement.scrollHeight - window.innerHeight;
+    prog.style.width = (h > 0 ? Math.min(100, (y / h) * 100) : 0) + '%';
+  }
+  window.addEventListener('scroll', onScroll, {passive:true});
+  onScroll();
+
+  /* mobile menu */
+  var burger = document.getElementById('burger');
+  var links = document.getElementById('navLinks');
+  burger.addEventListener('click', function(){ links.classList.toggle('open'); });
+  links.addEventListener('click', function(e){
+    if (e.target.tagName === 'A') links.classList.remove('open');
+  });
+
+  /* reveal on scroll */
+  var items = document.querySelectorAll('.reveal');
+  if ('IntersectionObserver' in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if (en.isIntersecting){
+          en.target.classList.add('in');
+          io.unobserve(en.target);
+        }
+      });
+    }, {threshold:0.12, rootMargin:'0px 0px -40px 0px'});
+    items.forEach(function(el, i){
+      el.style.transitionDelay = (Math.min(i % 3, 2) * 70) + 'ms';
+      io.observe(el);
+    });
+  } else {
+    items.forEach(function(el){ el.classList.add('in'); });
+  }
+
+  /* tabs */
+  var tabs = document.querySelectorAll('.tab');
+  tabs.forEach(function(t){
+    t.addEventListener('click', function(){
+      tabs.forEach(function(x){ x.classList.remove('active'); });
+      document.querySelectorAll('.pane').forEach(function(p){ p.classList.remove('active'); });
+      t.classList.add('active');
+      var pane = document.getElementById(t.getAttribute('data-pane'));
+      if (pane) pane.classList.add('active');
+    });
+  });
+
+  /* faq accordion */
+  document.querySelectorAll('.faq-q').forEach(function(q){
+    q.addEventListener('click', function(){
+      var item = q.parentElement;
+      var ans = item.querySelector('.faq-a');
+      var isOpen = item.classList.contains('open');
+      document.querySelectorAll('.faq-item').forEach(function(it){
+        it.classList.remove('open');
+        var a = it.querySelector('.faq-a');
+        if (a) a.style.maxHeight = '0px';
+      });
+      if (!isOpen){
+        item.classList.add('open');
+        ans.style.maxHeight = ans.scrollHeight + 40 + 'px';
+      }
+    });
+  });
+
+  /* copy buttons */
+  document.querySelectorAll('.copy-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var text = btn.getAttribute('data-copy') || '';
+      var done = function(){
+        var old = btn.textContent;
+        btn.textContent = '已复制';
+        setTimeout(function(){ btn.textContent = old; }, 1400);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(done, function(){ fallback(text, done); });
+      } else {
+        fallback(text, done);
+      }
+    });
+  });
+  function fallback(text, cb){
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); cb(); } catch(e){}
+    document.body.removeChild(ta);
+  }
+
+  /* ---------- 动态获取最新版本号 ---------- */
+  (function(){
+    var REPO = 'aron566/HPLC_Wireshark';
+    var API_LATEST = 'https://api.github.com/repos/' + REPO + '/releases/latest';
+    var API_TAGS   = 'https://api.github.com/repos/' + REPO + '/tags';
+    var CACHE_KEY  = 'bplc_sta_monitor_latest_ver';
+    var TTL = 10 * 60 * 1000; /* 10 分钟 */
+
+    var badge = document.getElementById('verBadge');
+    var elTag = document.getElementById('verTag');
+    var elDate = document.getElementById('verDate');
+    var elDateWrap = document.getElementById('verDateWrap');
+    var elLink = document.getElementById('verLink');
+    if (!badge || !elTag) return;
+
+    /* 兜底值：直接取页面里已渲染的静态文案，任何失败都保持原样 */
+    var FALLBACK = {
+      tag: elTag.textContent.trim(),
+      date: elDate ? elDate.textContent.trim() : '',
+      url: elLink ? elLink.getAttribute('href') : ('https://github.com/' + REPO + '/releases')
+    };
+
+    function fmtDate(iso){
+      if (!iso) return '';
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      var m = d.getUTCMonth() + 1, day = d.getUTCDate();
+      return d.getUTCFullYear() + '-' + (m < 10 ? '0' + m : m) + '-' + (day < 10 ? '0' + day : day);
+    }
+
+    function apply(info, state){
+      if (!info || !info.tag) return;
+      elTag.textContent = info.tag;
+      if (info.date && elDate && elDateWrap){
+        elDate.textContent = info.date;
+        elDateWrap.style.display = '';
+      } else if (elDateWrap){
+        elDateWrap.style.display = 'none'; /* 无发布日期时只显示版本号，不留空 */
+      }
+      if (info.url && elLink) elLink.setAttribute('href', info.url);
+      /* 只有真正取到远端数据才点亮状态点；回落时保持灰点，不谎报"已获取" */
+      badge.setAttribute('data-state', state === 'fallback' ? 'fallback' : 'live');
+    }
+
+    function readCache(){
+      try {
+        var raw = sessionStorage.getItem(CACHE_KEY);
+        if (!raw) return null;
+        var o = JSON.parse(raw);
+        if (!o || !o.t || (Date.now() - o.t) > TTL) return null;
+        return o.v;
+      } catch(e){ return null; }
+    }
+
+    function writeCache(v){
+      try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), v: v })); } catch(e){}
+    }
+
+    function getJSON(url){
+      return fetch(url, {
+        headers: { 'Accept': 'application/vnd.github+json' },
+        cache: 'no-store'
+      }).then(function(r){
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      });
+    }
+
+    /* 1) 先看缓存 */
+    var cached = readCache();
+    if (cached && cached.tag){ apply(cached, 'live'); return; }
+
+    /* 2) 请求 latest release；失败或无 Release 时退回 tags 第一个 */
+    getJSON(API_LATEST).then(function(d){
+      if (!d || !d.tag_name) throw new Error('no release');
+      return {
+        tag: d.tag_name,
+        date: fmtDate(d.published_at),
+        url: d.html_url || ('https://github.com/' + REPO + '/releases/tag/' + d.tag_name)
+      };
+    }).catch(function(){
+      return getJSON(API_TAGS).then(function(arr){
+        if (!arr || !arr.length || !arr[0].name) throw new Error('no tag');
+        return {
+          tag: arr[0].name,
+          date: '',
+          url: 'https://github.com/' + REPO + '/releases/tag/' + arr[0].name
+        };
+      });
+    }).then(function(info){
+      apply(info, 'live');
+      writeCache(info);
+    }).catch(function(){
+      /* 静默回落：保持页面里写死的兜底文案，不报错、不留空白 */
+      apply(FALLBACK, 'fallback');
+    });
+  })();
+
+  /* hero hex highlight cycle */
+  var cells = document.querySelectorAll('.hexline .bytes i');
+  if (cells.length && !window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+    var idx = 0;
+    setInterval(function(){
+      cells.forEach(function(c){ c.classList.remove('hl'); });
+      var start = 11 + (idx % 4);
+      for (var k = 0; k < 3; k++){
+        var el = cells[start + k];
+        if (el) el.classList.add('hl');
+      }
+      idx++;
+    }, 2200);
+  }
+})();
+</script>
+</body>
+</html>
