@@ -11,7 +11,7 @@ TARGET = host_exit_uaf_probe
 TEMPLATE = app
 
 REPO = $$PWD/../../..
-INCLUDEPATH += $$REPO/src $$REPO/src/plugin $$REPO/src/common $$REPO/src/protocol $$REPO/src/protocol/common
+INCLUDEPATH += $$REPO/src $$REPO/src/app $$REPO/src/plugin $$REPO/src/common $$REPO/src/protocol $$REPO/src/protocol/common
 include($$REPO/src/plugin/plugin.pri)
 
 SOURCES += host_exit_uaf_probe.cpp \
