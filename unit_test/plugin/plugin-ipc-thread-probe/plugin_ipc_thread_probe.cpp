@@ -385,6 +385,18 @@ int main(int argc, char** argv) {
                                  plugins + QStringLiteral("/lua_gfx_nofont")));
     const bool bench_only = QCoreApplication::arguments().contains(QStringLiteral("--bench-only"));
 
+    // L9 心跳配置:改小(活动 500 ms / 空闲 4 s / 超时 30 s),⑤b 数 Ping 验证活动/空闲两种节奏。
+    // PluginManager 只在构造时读一次心跳配置(运行中改 config.ini 需重启生效),
+    // 所以必须在第一次 PluginManager::instance() 之前写入;构造之后再改不会生效。
+    // 活动间隔取钳制下限 500 ms:12 s 窗口内名义 24 次,即使共享 VM 下
+    // 定时器合并丢 tick 也有足够余量;超时放 30 s:④b 的 5.6 s SIGSTOP
+    // 与 ⑤b 的空闲等待都不会误禁用。--bench-only 不跑 ⑤b,保持默认配置。
+    if (!bench_only) {
+        appcfg::set_plugin_heartbeat_interval_ms(500);
+        appcfg::set_plugin_heartbeat_idle_ms(4000);
+        appcfg::set_plugin_heartbeat_timeout_ms(30000);
+    }
+
     QStringList bad_status;
     QObject::connect(&PluginManager::instance(), &PluginManager::plugin_status_changed,
                      [&](const QString& id, const QString& st) {
@@ -401,15 +413,6 @@ int main(int argc, char** argv) {
                                             pm.is_plugin_protocol(gnf));
     QElapsedTimer t;
     if (bench_only) goto bench;
-
-    // L9 心跳配置:尽早改小(活动 500 ms / 空闲 4 s / 超时 30 s),让心跳定时器
-    // 在 ①~⑤ 跑完前就已按新节奏走;⑤b 再数 Ping 验证活动/空闲两种节奏。
-    // 活动间隔取钳制下限 500 ms:12 s 窗口内名义 24 次,即使共享 VM 下
-    // 定时器合并丢 tick 也有足够余量;超时放 30 s:④b 的 5.6 s SIGSTOP
-    // 与 ⑤b 的空闲等待都不会误禁用。
-    appcfg::set_plugin_heartbeat_interval_ms(500);
-    appcfg::set_plugin_heartbeat_idle_ms(4000);
-    appcfg::set_plugin_heartbeat_timeout_ms(30000);
 
     {
     // ① worker 解析 + GUI 事件循环空跑
@@ -676,7 +679,7 @@ bench:
 
     // ⑤b L9 心跳:活动间隔/空闲间隔可配置;空闲退避到配置的空闲间隔
     {
-        // 配置已在 ① 前改小(500 ms/4 s/30 s);manager 读回须一致(每轮心跳重读配置)
+        // 配置已在构造 PluginManager 前改小(500 ms/4 s/30 s);manager 读回须一致
         check("heartbeat: configured intervals read back",
               pm.heartbeat_interval_ms() == 500 &&
               pm.heartbeat_idle_interval_ms() == 4000 &&
@@ -713,7 +716,8 @@ bench:
               pings_idle <= 4 && pings_idle < pings_active);
         check("heartbeat: plugin still enabled after idle backoff",
               pm.is_plugin_protocol(echo));
-        // 恢复默认配置(5000/30000/15000),不影响后续退出路径;读回须一致
+        // 恢复默认配置(5000/30000/15000),避免改小的值留在 config.ini 影响其他程序;
+        // 运行中的 manager 仍用构造时读到的值(不影响后续退出路径);读回须一致
         appcfg::set_plugin_heartbeat_interval_ms(5000);
         appcfg::set_plugin_heartbeat_idle_ms(30000);
         appcfg::set_plugin_heartbeat_timeout_ms(15000);
