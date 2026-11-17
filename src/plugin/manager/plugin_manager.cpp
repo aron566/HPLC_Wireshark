@@ -731,17 +731,34 @@ bool PluginManager::restart_plugin(const QString& protocol_id) {
     // 调用方:GUI 线程(起 QProcess + 动 m_plugins)。先停旧运行时(若有),
     // 再用登记的清单走 start_plugin 重建全新运行时。
     PluginManifest m;
+    bool found = false;
     {
         PluginRuntime* rt = find_runtime(protocol_id);
         if (rt) {
             m = rt->manifest;
+            found = true;
         } else {
             QReadLocker rl(&m_plugins_lock);
             const auto it = m_known_manifests.find(protocol_id);
-            if (it == m_known_manifests.end()) return false;
-            m = it.value();
+            if (it != m_known_manifests.end()) {
+                m = it.value();
+                found = true;
+            }
         }
     }
+    if (!found && !m_plugins_dir.isEmpty()) {
+        // 未登记:restart_all 会把 meta.json 禁用的插件摘出登记(徽标语义:
+        // 不算"需重启")。用户之后在市场改回启用再单独重启时,按磁盘重扫找回
+        // 清单,否则 restart_plugin 永远返回 false、插件无法恢复。
+        for (const PluginManifest& sm : scan_manifests(m_plugins_dir)) {
+            if (sm.protocol_id == protocol_id) {
+                m = sm;
+                found = true;
+                break;
+            }
+        }
+    }
+    if (!found) return false;
     if (!QDir(m.dir_path).exists()) {
         // 卸载后目录已不存在:先停掉还在跑的旧运行时(与改动前一致),
         // 再摘除登记,下次 restart_all 不再尝试它
