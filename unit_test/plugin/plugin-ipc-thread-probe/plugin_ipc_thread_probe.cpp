@@ -418,6 +418,9 @@ int main(int argc, char** argv) {
     // 活动间隔取钳制下限 500 ms:12 s 窗口内名义 24 次,即使共享 VM 下
     // 定时器合并丢 tick 也有足够余量;超时放 30 s:④b 的 5.6 s SIGSTOP
     // 与 ⑤b 的空闲等待都不会误禁用。--bench-only 不跑 ⑤b,保持默认配置。
+    // 注意:⑤b 判定"心跳超时禁用"的等待预算(见 R3 spin_until 的 60 s)必须显著大于
+    // 超时值 + Ping 节奏(≤500 ms)+ 定时器 tick——首枚未应答 Ping 要等下一个节奏点才发出,
+    // 真实触发约 30.5 s;等待预算若与超时相等(30 s)会在触发前一刻判失败。三数不许改。
     if (!bench_only) {
         appcfg::set_plugin_heartbeat_interval_ms(500);
         appcfg::set_plugin_heartbeat_idle_ms(4000);
@@ -731,7 +734,7 @@ bench:
         const qint64 pid_gfx = host_pid(QStringLiteral("lua_graphics"));
         check("disable kills hung host: gfx host found", pid_gfx > 0);
         ::kill(pid_t(pid_gfx), SIGSTOP);
-        spin_until([&] { return !pm.is_plugin_protocol(gfx); }, 30000);
+        spin_until([&] { return !pm.is_plugin_protocol(gfx); }, 60000);
         check("disable kills hung host: plugin disabled by heartbeat timeout",
               !pm.is_plugin_protocol(gfx));
         check("disable kills hung host: plugin reports needs-restart",
