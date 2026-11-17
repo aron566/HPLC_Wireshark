@@ -7,6 +7,7 @@
 ///          预期输出 `RESULT: ALL PASS (0 failures)`,exit 0。
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QTemporaryDir>
 #include <cstdio>
@@ -29,6 +30,28 @@ static bool write_file(const QString& path, const QByteArray& data) {
 // 每项:{条件表达式, 失败名}。条件为真 = 沙箱行为符合预期
 static const char* kProbeScript = R"LUA(
 local function bad_dofile(p) return not pcall(dofile, p) end
+-- 把错误消息里回显的 '文件名' / '模块名' 归一,只比较其余部分
+local function norm(e) return (tostring(e):gsub("'[^']*'", "''")) end
+local function pack(...) return {n = select("#", ...), ...} end
+local function same_loadfile(a, b)
+  local ra, rb = pack(loadfile(a)), pack(loadfile(b))
+  return ra.n == rb.n and ra.n == 2 and ra[1] == nil and rb[1] == nil
+     and type(ra[2]) == "string" and norm(ra[2]) == norm(rb[2])
+end
+local function same_dofile(a, b)
+  local oka, ea = pcall(dofile, a)
+  local okb, eb = pcall(dofile, b)
+  return not oka and not okb and type(ea) == type(eb) and norm(ea) == norm(eb)
+end
+local function same_require(a, b)
+  local saved = package.path
+  package.path = PARENT .. "/?.lua"
+  package.loaded[a] = nil; package.loaded[b] = nil
+  local oka, ea = pcall(require, a)
+  local okb, eb = pcall(require, b)
+  package.path = saved
+  return not oka and not okb and norm(ea) == norm(eb)
+end
 local checks = {
   {function() return io == nil end, "io-present"},
   {function() return debug == nil end, "debug-present"},
@@ -43,11 +66,26 @@ local checks = {
   {function() return loadfile("helper.lua") ~= nil end, "loadfile-in-dir-broken"},
   {function() return loadfile("/etc/hostname") == nil end, "loadfile-abs-allowed"},
   {function() return loadfile("../outside.lua") == nil end, "loadfile-dotdot-allowed"},
-  -- L11:不存在 ≠ 越界——不存在的文件报 does not exist,不得报 outside;
-  -- 真实越界文件仍报 outside the plugin directory。
-  {function() local _, err = loadfile("missing.lua"); return err and err:find("does not exist", 1, true) and not err:find("outside", 1, true) end, "loadfile-missing-says-outside"},
-  {function() local _, err = loadfile("../outside.lua"); return err and err:find("outside the plugin directory", 1, true) end, "loadfile-outside-msg"},
-  {function() local ok, err = pcall(dofile, "missing.lua"); return not ok and err:find("does not exist", 1, true) and not err:find("outside", 1, true) end, "dofile-missing-says-outside"},
+  -- 防探测:沙箱外"存在的文件"与"不存在的文件"必须给出完全相同的结果
+  -- (返回值个数/类型、错误消息去掉回显的文件名后逐字相同),否则插件能
+  -- 探出沙箱外任意路径是否存在。词法越界、绝对路径、symlink 逃逸、悬空
+  -- 链接、插件目录内缺失文件,一律同一结果。
+  {function() return same_loadfile("../outside.lua", "../no-such-file.lua") end, "loadfile-outside-exists-vs-missing-differ"},
+  {function() return same_loadfile(PARENT .. "/outside.lua", PARENT .. "/no-such-file.lua") end, "loadfile-abs-exists-vs-missing-differ"},
+  {function() return same_loadfile("../../../../../../etc/passwd", "../../../../../../etc/no-such-file") end, "loadfile-etc-exists-vs-missing-differ"},
+  {function() return not HAVE_SYMLINKS or same_loadfile("escape_link.lua", "dangling_link.lua") end, "loadfile-symlink-escape-vs-dangling-differ"},
+  {function() return not HAVE_SYMLINKS or same_loadfile("escape_link.lua", "missing.lua") end, "loadfile-symlink-escape-vs-missing-differ"},
+  {function() return same_loadfile("../outside.lua", "missing.lua") end, "loadfile-outside-vs-inside-missing-differ"},
+  {function() return same_dofile("../outside.lua", "../no-such-file.lua") end, "dofile-outside-exists-vs-missing-differ"},
+  {function() return same_dofile(PARENT .. "/outside.lua", PARENT .. "/no-such-file.lua") end, "dofile-abs-exists-vs-missing-differ"},
+  {function() return not HAVE_SYMLINKS or same_dofile("escape_link.lua", "dangling_link.lua") end, "dofile-symlink-escape-vs-dangling-differ"},
+  {function() return same_dofile("../outside.lua", "missing.lua") end, "dofile-outside-vs-inside-missing-differ"},
+  {function() return same_require("outside", "no_such_module") end, "require-outside-exists-vs-missing-differ"},
+  -- 消息里不得再出现能区分两类失败的旧措辞
+  {function() local _, e1 = loadfile("../outside.lua"); local _, e2 = loadfile("missing.lua")
+     return not e1:find("does not exist", 1, true) and not e2:find("does not exist", 1, true)
+        and not e1:find("is outside", 1, true) and not e2:find("is outside", 1, true) end, "loadfile-legacy-distinct-msg"},
+  {function() return not HAVE_SYMLINKS or loadfile("escape_link.lua") == nil end, "loadfile-symlink-escape-allowed"},
   {function() return bad_dofile("../outside.lua") end, "dofile-outside-allowed"},
   -- L12:dofile/require 一个目录:luaL_loadfilex 失败走 lua_error/luaL_error,
   -- 旧实现此时栈上有待析构的 QString/QByteArray(longjmp 跳过析构);
@@ -96,8 +134,19 @@ static void test_sandbox(const QString& root) {
     write_file(dir + QStringLiteral("/helper.lua"), "return {v = 42}");
     QDir().mkpath(dir + QStringLiteral("/subdir"));       // L12:dofile(目录)
     QDir().mkpath(dir + QStringLiteral("/badmod.lua"));   // L12:require(目录)
+    // 防探测:插件目录内指向沙箱外真实文件的 symlink,与悬空 symlink
+    // (Windows 上 QFile::link 生成 .lnk 快捷方式而非 symlink,此时跳过 symlink 项)
+    const bool have_symlinks =
+        QFile::link(parent + QStringLiteral("/outside.lua"), dir + QStringLiteral("/escape_link.lua")) &&
+        QFile::link(parent + QStringLiteral("/no-such-target.lua"),
+                    dir + QStringLiteral("/dangling_link.lua")) &&
+        QFileInfo(dir + QStringLiteral("/escape_link.lua")).isSymLink() &&
+        QFileInfo(dir + QStringLiteral("/dangling_link.lua")).isSymLink();
+    if (!have_symlinks) std::printf("  note: symlinks unavailable, symlink probes skipped\n");
     write_file(dir + QStringLiteral("/main.lua"),
-               QByteArray("PARENT = [[") + parent.toUtf8() + "]]\n" + kProbeScript);
+               QByteArray("PARENT = [[") + parent.toUtf8() + "]]\n" +
+                   (have_symlinks ? "HAVE_SYMLINKS = true\n" : "HAVE_SYMLINKS = false\n") +
+                   kProbeScript);
     write_file(dir + QStringLiteral("/plugin.json"),
                R"({"name":"lua-sandbox","version":"1.0.0","runtime":"lua","entry":"main.lua",)"
                R"("api_version":1,"protocol_id":"SANDBOX_OK"})");

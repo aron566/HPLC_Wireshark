@@ -424,27 +424,47 @@ namespace {
 // (恶意字节码可绕过 Lua VM 校验)。环境变量请用 host.getEnv。
 
 /// 解析插件目录内的脚本路径(相对路径相对插件目录)。
-/// L11:三态返回——文件不存在(NotFound)与越界(Outside)是两种失败,
-/// 调用点分别报错,不得把"不存在"混报成"在插件目录之外"。
-enum class SandboxPathStatus { Ok, NotFound, Outside };
+/// 二态返回:Ok 或 Denied。
+/// @details 拒绝原因(词法越界 / symlink 越界 / 不存在 / 悬空链接)对脚本必须
+///          不可区分:旧实现先 canonicalFilePath,不存在报 NotFound、存在但越界
+///          报 Outside,插件拿 "../../etc/passwd" 与不存在的路径一比,就能探出
+///          沙箱外任意文件是否存在。现在:
+///          1) 先做纯词法检查(cleanPath(绝对路径) 必须在插件目录下),词法越界
+///             直接拒,不触碰文件系统——"../../etc/passwd" 不再有 stat/realpath
+///             的时间差可测;
+///          2) 词法在内的,再 canonicalFilePath 一次(单次解析,TOCTOU 性质不变)
+///             校验 symlink 逃逸;不存在、悬空链接、canonical 越界都归 Denied。
+///          所有调用点对 Denied 报同一条消息、同一种返回形态。
+enum class SandboxPathStatus { Ok, Denied };
 struct SandboxPath {
-    SandboxPathStatus status = SandboxPathStatus::NotFound;
+    SandboxPathStatus status = SandboxPathStatus::Denied;
     QString path;
 };
 /// @brief sandbox_plugin_path 调用次数(仅探针用:断言单次解析)
 /// @details 探针在工作线程里跑脚本、主线程读计数,普通 int 的 ++ 与读是数据竞争
 ///          (UB,TSAN 会报)。同 PR 的 g_unzip_call_count 已改 atomic,这里对齐。
 std::atomic<int> g_sandbox_path_resolve_count{0};
+/// @brief 纯词法判断 path 是否在 dir 之下(两者都应已 cleanPath,dir 不以 '/' 结尾)
+bool lexically_under(const QString& path, const QString& dir) {
+    if (dir.isEmpty()) return false;
+    if (dir == QLatin1String("/")) return path.startsWith(QLatin1Char('/')) && path.size() > 1;
+    return path.startsWith(dir + QLatin1Char('/'));
+}
 SandboxPath sandbox_plugin_path(lua_State* L, const char* fname) {
     ++g_sandbox_path_resolve_count;
-    const QString dir = QString::fromUtf8(lua_tostring(L, lua_upvalueindex(1)));
+    const QString dir = QDir::cleanPath(QString::fromUtf8(lua_tostring(L, lua_upvalueindex(1))));
+    // root 只取决于插件目录本身、与 fname 无关,解析它不泄露任何沙箱外信息
     const QString root = QFileInfo(dir).canonicalFilePath();
-    const QString path = QDir(dir).absoluteFilePath(QString::fromUtf8(fname));
-    const QString real = QFileInfo(path).canonicalFilePath();
-    // canonicalFilePath 为空 = 文件不存在(无法确认是否越界,按不存在报)
-    if (real.isEmpty()) return {SandboxPathStatus::NotFound, QString()};
-    if (root.isEmpty() || !real.startsWith(root + QLatin1Char('/')))
-        return {SandboxPathStatus::Outside, QString()};
+    const QString lexical = QDir::cleanPath(QDir(dir).absoluteFilePath(QString::fromUtf8(fname)));
+    // 1) 词法检查:不碰文件系统。插件目录的写法与其 canonical 形式都认
+    //    (如 /tmp 与 /private/tmp),两者都只由插件目录决定。
+    if (!lexically_under(lexical, dir) && !lexically_under(lexical, root))
+        return {SandboxPathStatus::Denied, QString()};
+    // 2) 单次 canonical 解析:不存在 / 悬空链接 → 空串;symlink 逃逸 → 不在 root 下。
+    //    两种都与词法越界同归 Denied,脚本不可区分。
+    const QString real = QFileInfo(lexical).canonicalFilePath();
+    if (real.isEmpty() || !lexically_under(real, root))
+        return {SandboxPathStatus::Denied, QString()};
     return {SandboxPathStatus::Ok, real};
 }
 
@@ -461,9 +481,8 @@ int l_sandbox_loadfile(lua_State* L) {
         const SandboxPath resolved = sandbox_plugin_path(L, fname);
         if (resolved.status != SandboxPathStatus::Ok) {
             luaL_pushfail(L);
-            lua_pushfstring(L, resolved.status == SandboxPathStatus::NotFound
-                ? "loadfile: '%s' does not exist"
-                : "loadfile: '%s' is outside the plugin directory", fname);
+            // 不存在 / 越界同一条消息(不得泄露沙箱外文件是否存在)
+            lua_pushfstring(L, "loadfile: cannot open '%s' (not found or not allowed)", fname);
             return 2;
         }
         const QByteArray p = resolved.path.toUtf8();  // 与入口脚本加载同口径
@@ -488,7 +507,8 @@ int l_sandbox_dofile(lua_State* L) {
         // 状态与路径串在同一内层作用域取:路径串压进 Lua 栈由 Lua 持有,
         // QString/QByteArray 在 luaL_error 之前已析构(longjmp 会跳过栈上
         // C++ 对象的析构)。
-        // L11:不存在与越界分开报——状态只在内层作用域取,结构体随之析构。
+        // 不存在与越界同报一条消息(防探测沙箱外文件是否存在);状态只在内层
+        // 作用域取,结构体随之析构。
         const SandboxPathStatus resolved_status = [&] {
             const SandboxPath resolved = sandbox_plugin_path(L, fname);
             if (resolved.status != SandboxPathStatus::Ok) return resolved.status;
@@ -498,9 +518,7 @@ int l_sandbox_dofile(lua_State* L) {
             return SandboxPathStatus::Ok;
         }();
         if (resolved_status != SandboxPathStatus::Ok)
-            return luaL_error(L, resolved_status == SandboxPathStatus::NotFound
-                ? "dofile: '%s' does not exist"
-                : "dofile: '%s' is outside the plugin directory", fname);
+            return luaL_error(L, "dofile: cannot open '%s' (not found or not allowed)", fname);
         // 路径串在 Lua 栈上,后续加载/调用抛错 longjmp 时栈上无待析构的
         // C++ 对象;加载完弹出,不进入返回值。
         const char* path_c = lua_tostring(L, -1);
