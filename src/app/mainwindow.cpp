@@ -63,7 +63,7 @@
 
 namespace {
 // 当前版本与仓库信息(介绍页见 kIntroPageUrl;更新检查地址见 config.ini [general] update_url)
-const QString kAppVersion = QStringLiteral("2.0.1");
+const QString kAppVersion = QStringLiteral("2.1.0");
 const QString kModuleName = QStringLiteral("BPLC STA Monitor");
 const QString kAuthorName = QStringLiteral("aron566");
 const QString kAuthorEmail = QStringLiteral("aron566@163.com");
