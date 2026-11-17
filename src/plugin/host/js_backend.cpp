@@ -96,13 +96,18 @@ static QJSValue build_topo_event_object(QJSEngine& eng, const TopoEvent& e);
 
 bool JsBackend::check_error(const QJSValue& v, QString* err,
                             const QString& ctx) const {
-    if (m_engine.isInterrupted()) {
-        *err = QStringLiteral("%1: script exceeded %2 ms time limit, interrupted")
-                   .arg(ctx).arg(m_watchdog.timeout_ms());
-        return false;
-    }
+    // 先判返回值,再判 interrupted:脚本在超时边界上正常返回时,
+    // m_engine.isInterrupted() 可能仍为 true(看门狗刚置位、引擎尚未复位),
+    // 先判 interrupted 会把一个合法结果误报成"超时"——所以非错误返回值一律放行。
+    // 但被看门狗打断时,引擎返回的本身就是一个 Error("Error: Interrupted"),
+    // 这时必须报成超时(调用方/探针按 "time limit" 识别),不能当普通脚本错误。
     if (v.isError()) {
-        *err = QStringLiteral("%1: %2").arg(ctx, v.toString());
+        if (m_engine.isInterrupted()) {
+            *err = QStringLiteral("%1: script exceeded %2 ms time limit, interrupted")
+                       .arg(ctx).arg(m_watchdog.timeout_ms());
+        } else {
+            *err = QStringLiteral("%1: %2").arg(ctx, v.toString());
+        }
         return false;
     }
     return true;
@@ -158,6 +163,8 @@ void JsWatchdog::run() {
         });
         if (!ended && m_armed && m_gen == gen && !m_fired) {
             m_fired = true;
+            // L13:跨线程调 setInterrupted 是 Qt 文档明确允许的用法(见
+            // js_backend.h 的 JsWatchdog 说明),不要改成排队到引擎线程。
             m_engine->setInterrupted(true);
         }
         // 已打断:等本次调用 disarm(或下一次 arm)再继续
@@ -296,6 +303,10 @@ QImage JsBackend::render_graphics(int w, int h, QString* err) {
     QPainter painter(&img);
     painter.setRenderHint(QPainter::Antialiasing);
     ScriptPainter bridge(&painter);
+    // bridge 是栈对象,而 newQObject() 默认把 JS 引擎当作它的 owner:
+    // 引擎析构/GC 时会 delete 一个栈地址 → 堆栈破坏。显式声明 CppOwnership,
+    // 让引擎只持有引用、不负责释放。
+    QJSEngine::setObjectOwnership(&bridge, QJSEngine::CppOwnership);
     QJSValue js_painter = m_engine.newQObject(&bridge);
     const QJSValue r = m_render_fn.call(
         QJSValueList{js_painter, QJSValue(w), QJSValue(h)});

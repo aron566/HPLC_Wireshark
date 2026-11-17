@@ -98,6 +98,18 @@ public slots:
 ///        QJSEngine::setInterrupted(true) 打断死循环;disarm() 复位中断标志。
 /// @details 一个后台线程常驻(不按调用新建);超时默认 3000 ms,环境变量
 ///          BPLC_JS_CALL_TIMEOUT_MS 可覆盖(测试用)。setInterrupted 线程安全。
+/// @note L13 复核结论:Teamily 报告称"看门狗跨线程调 setInterrupted"是缺陷,
+///       核实后不属实,不改行为。Qt 6 文档对 setInterrupted 明确写明
+///       "This function is thread safe. You may call it from a different
+///       thread in order to interrupt, for example, an infinite loop in
+///       JavaScript."(QJSEngine::setInterrupted,Qt 6.11 源码里只是对原子
+///       标志的 storeRelaxed;isInterrupted 同理是 loadRelaxed)。看门狗线程
+///       除这一调用外不碰引擎;disarm() 的 setInterrupted(false) 与
+///       check_error() 的 isInterrupted() 都在引擎线程调;析构先 join
+///       线程、引擎后析构,无悬空。反之,若把打断经 QueuedConnection 转回
+///       引擎线程,引擎线程正阻塞在 evaluate() 的死循环里、回不到事件循环,
+///       排队调用永远送不到,看门狗会被静默废掉——所以直接跨线程调用是
+///       唯一可行的设计,不要"修"成排队调用。
 class JsWatchdog {
 public:
     explicit JsWatchdog(QJSEngine* engine);
