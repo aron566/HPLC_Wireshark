@@ -41,6 +41,8 @@ struct I18nRegPluginMarket {
                          "Privileged Install Verification Failed: Staged Content Changed Before Elevation");
         trl::register_en("提权安装校验失败：暂存目录含设备节点",
                          "Privileged Install Verification Failed: Staged Directory Contains a Device Node");
+        trl::register_en("提权安装校验失败：暂存副本属主不是部署用户",
+                         "Privileged Install Verification Failed: Staged Copy Not Owned by Deploying User");
         trl::register_en("无法校验暂存目录：%1",
                          "Cannot Verify Staged Directory: %1");
         trl::register_en("无写权限，且未找到 pkexec",
