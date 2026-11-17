@@ -62,11 +62,12 @@
 #include <QIcon>
 
 namespace {
-// 当前版本与仓库信息(更新检查地址见 config.ini [general] update_url)
+// 当前版本与仓库信息(介绍页见 kIntroPageUrl;更新检查地址见 config.ini [general] update_url)
 const QString kAppVersion = QStringLiteral("2.0.1");
 const QString kModuleName = QStringLiteral("BPLC STA Monitor");
 const QString kAuthorName = QStringLiteral("aron566");
 const QString kAuthorEmail = QStringLiteral("aron566@163.com");
+const QString kIntroPageUrl = QStringLiteral("https://aron566.github.io/HPLC_Wireshark/");
 }  // namespace
 
 MainWindow::MainWindow(QWidget* parent)
@@ -379,7 +380,11 @@ void MainWindow::build_ui() {
             this, &MainWindow::on_download_failed);
     auto* act_about = menu_help->addAction(trl::L("关于(&A)"));
     connect(act_about, &QAction::triggered, this, [this]() {
-        // 关于:作者/作者邮箱/版本(如需打开仓库等外链请自行在浏览器访问)
+        // 关于:作者/作者邮箱/版本;版本号是超链接,点击后在系统默认浏览器打开介绍页。
+        // QMessageBox 的文本标签默认 openExternalLinks(true),RichText 里的 <a href>
+        // 点击即走 QDesktopServices 打开浏览器,无需另接 linkActivated。
+        const QString version_link =
+            QStringLiteral("<a href=\"%1\">%2</a>").arg(kIntroPageUrl, kAppVersion);
         QMessageBox box(this);
         box.setIcon(QMessageBox::Information);
         box.setWindowTitle(trl::L("关于 BPLC STA Monitor"));
@@ -389,13 +394,14 @@ void MainWindow::build_ui() {
                            "<p>%3</p>"
                            "<table>"
                            "<tr><td><b>%4</b></td><td>%5</td></tr>"
-                           "<tr><td><b>%6</b></td><td>%2</td></tr>"
+                           "<tr><td><b>%6</b></td><td>%9</td></tr>"
                            "<tr><td><b>%7</b></td><td>%8</td></tr>"
                            "</table>")
                 .arg(kModuleName, kAppVersion,
                      trl::L("BPLC/HRF 协议 STA 报文监控上位机(串口捕获 + 离线回放)。"),
                      trl::L("作者"), kAuthorName,
-                     trl::L("版本"), trl::L("作者邮箱"), kAuthorEmail));
+                     trl::L("版本"), trl::L("作者邮箱"), kAuthorEmail,
+                     version_link));
         box.addButton(QMessageBox::Close);
         box.exec();
     });
