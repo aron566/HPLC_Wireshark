@@ -8,8 +8,10 @@
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <algorithm>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -19,6 +21,7 @@
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QUrl>
+#include <atomic>
 #include <memory>
 
 #include "i18n.h"
@@ -34,6 +37,14 @@ struct I18nRegPluginMarket {
                          "No Write Permission for %1, and pkexec Not Found; Run as Root or Install to a Writable Location");
         trl::register_en("提权安装失败",
                          "Privileged Install Failed");
+        trl::register_en("提权安装校验失败：暂存目录内容在提权前被改动",
+                         "Privileged Install Verification Failed: Staged Content Changed Before Elevation");
+        trl::register_en("提权安装校验失败：暂存目录含设备节点",
+                         "Privileged Install Verification Failed: Staged Directory Contains a Device Node");
+        trl::register_en("提权安装校验失败：暂存副本属主不是部署用户",
+                         "Privileged Install Verification Failed: Staged Copy Not Owned by Deploying User");
+        trl::register_en("无法校验暂存目录：%1",
+                         "Cannot Verify Staged Directory: %1");
         trl::register_en("无写权限，且未找到 pkexec",
                          "No Write Permission, and pkexec Not Found");
         trl::register_en("提权卸载失败",
@@ -44,6 +55,12 @@ struct I18nRegPluginMarket {
                          "Cannot Create Directory: %1");
         trl::register_en("复制失败：%1",
                          "Copy Failed: %1");
+        trl::register_en("暂存目录含符号链接：%1",
+                         "Staged Directory Contains a Symlink: %1");
+        trl::register_en("无法设置文件权限：%1",
+                         "Cannot Set File Permissions: %1");
+        trl::register_en("无法设置目录权限：%1",
+                         "Cannot Set Directory Permissions: %1");
         trl::register_en("插件列表超出大小上限",
                          "Plugin Feed Exceeds the Size Limit");
         trl::register_en("文本超出大小上限",
@@ -127,10 +144,17 @@ bool pkexec_available() {
     return !QStandardPaths::findExecutable(QStringLiteral("pkexec")).isEmpty();
 }
 
-/// 以提权方式部署插件: mkdir -p base && rm -rf dest && mv staged dest
-/// 路径均以 sh 位置参数传递,避免 shell 注入
+/// 以提权方式部署插件:root 侧先把暂存目录复制到 mktemp -d 的 root 专属暂存区
+/// (去 suid/sgid 位、拒设备节点),再对该副本重算摘要并与提权前算好的比对,
+/// 通过才 mkdir -p base && rm -rf dest && mv staging dest——校验对象与移动对象
+/// 是同一棵 root 所有、攻击者不可写的树,堵住"校验后、移动前"暂存被替换的窗口。
+/// 路径与摘要均以 sh 位置参数传递,避免 shell 注入;摘要不一致脚本退 2,设备节点退 3,
+/// 暂存副本属主不是部署用户退 4(脚本正文见 PluginMarket::privileged_deploy_script)。
+/// 摘要算法须与 staged_dir_digest 逐字节一致(条目行 "<相对路径>\0<内容 sha256 |
+/// link:<目标>|(目录)>\n",相对路径 "./" 开头、按字节序排)。
 bool pkexec_deploy(const QString& base_dir, const QString& dest_dir,
-                   const QString& staged_dir, QString* err) {
+                   const QString& staged_dir, const QString& staged_digest,
+                   QString* err) {
     if (!pkexec_available()) {
         if (err)
             *err = trl::L("无写权限：%1，且未找到 pkexec；请以 root 运行或安装到可写位置")
@@ -142,15 +166,23 @@ bool pkexec_deploy(const QString& base_dir, const QString& dest_dir,
         QStringLiteral("pkexec"),
         QStringList()
             << QStringLiteral("sh") << QStringLiteral("-c")
-            << QStringLiteral("mkdir -p \"$0\" && rm -rf \"$1\" && mv \"$2\" \"$1\"")
-            << base_dir << dest_dir << staged_dir);
+            << PluginMarket::privileged_deploy_script()
+            << base_dir << dest_dir << staged_dir << staged_digest);
     proc.waitForFinished(180000);  // 等用户完成鉴权,给足时间
     if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0) {
         if (err) {
-            const QString se =
-                QString::fromLocal8Bit(proc.readAllStandardError()).trimmed();
-            *err = trl::L("提权安装失败") +
-                   (se.isEmpty() ? QString() : QStringLiteral(": ") + se);
+            if (proc.exitCode() == 2) {
+                *err = trl::L("提权安装校验失败：暂存目录内容在提权前被改动");
+            } else if (proc.exitCode() == 3) {
+                *err = trl::L("提权安装校验失败：暂存目录含设备节点");
+            } else if (proc.exitCode() == 4) {
+                *err = trl::L("提权安装校验失败：暂存副本属主不是部署用户");
+            } else {
+                const QString se =
+                    QString::fromLocal8Bit(proc.readAllStandardError()).trimmed();
+                *err = trl::L("提权安装失败") +
+                       (se.isEmpty() ? QString() : QStringLiteral(": ") + se);
+            }
         }
         return false;
     }
@@ -199,30 +231,50 @@ bool pkexec_write_file(const QString& path, const QByteArray& data,
 }
 #endif  // Q_OS_LINUX
 
-bool copy_dir_recursive(const QString& src, const QString& dst, QString* err) {
+}  // namespace
+
+bool PluginMarket::copy_dir_recursive(const QString& src, const QString& dst,
+                                      QString* err) {
     QDir s(src);
     if (!QDir().mkpath(dst)) {
         if (err) *err = trl::L("无法创建目录：%1").arg(dst);
         return false;
     }
+    // P2-2:保持源目录权限位(QDir::mkpath 只按 umask 建目录,不继承源权限)
+    if (!QFile::setPermissions(dst, QFile::permissions(src))) {
+        if (err) *err = trl::L("无法设置目录权限：%1").arg(dst);
+        return false;
+    }
     for (const QString& e : s.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
-        if (!copy_dir_recursive(s.absoluteFilePath(e),
-                                QDir(dst).absoluteFilePath(e), err))
+        const QString from = s.absoluteFilePath(e);
+        // L5:符号链接不跟随复制(链接目标可能在目录外),直接拒装
+        if (QFileInfo(from).isSymLink()) {
+            if (err) *err = trl::L("暂存目录含符号链接：%1").arg(from);
+            return false;
+        }
+        if (!copy_dir_recursive(from, QDir(dst).absoluteFilePath(e), err))
             return false;
     }
     for (const QString& e : s.entryList(QDir::Files)) {
         const QString from = s.absoluteFilePath(e);
+        if (QFileInfo(from).isSymLink()) {
+            if (err) *err = trl::L("暂存目录含符号链接：%1").arg(from);
+            return false;
+        }
         const QString to = QDir(dst).absoluteFilePath(e);
         QFile::remove(to);
         if (!QFile::copy(from, to)) {
             if (err) *err = trl::L("复制失败：%1").arg(from);
             return false;
         }
+        // L5:保持源文件权限位(QFile::copy 只按 umask 建 0666)
+        if (!QFile::setPermissions(to, QFile::permissions(from))) {
+            if (err) *err = trl::L("无法设置文件权限：%1").arg(to);
+            return false;
+        }
     }
     return true;
 }
-
-}  // namespace
 
 PluginMarket::PluginMarket(QObject* parent) : QObject(parent) {
     m_nam = new QNetworkAccessManager(this);
@@ -600,7 +652,13 @@ bool PluginMarket::deploy_staged(const QString& staged_dir,
         emit install_progress(
             trl::L("正在请求管理员权限..."));
         if (unload_cb) unload_cb();
-        if (!pkexec_deploy(base, dest, staged_dir, err)) return fail_and_reload();
+        // 提权前算好暂存摘要,提权脚本在 root 侧重算比对(防提权前暂存被替换)
+        const QString digest = staged_dir_digest(staged_dir);
+        if (digest.isEmpty()) {
+            if (err) *err = trl::L("无法校验暂存目录：%1").arg(staged_dir);
+            return fail_and_reload();
+        }
+        if (!pkexec_deploy(base, dest, staged_dir, digest, err)) return fail_and_reload();
         return true;
 #else
         if (err)
@@ -736,6 +794,90 @@ bool PluginMarket::is_sha256_hex(const QString& s) {
     return true;
 }
 
+/// @brief pkexec_deploy 以 root 执行的部署脚本(sh -c 正文;$0=base $1=dest $2=staged $3=digest)。
+/// @details 关键点:复制用 cp -RP 而**不是** cp -a。cp -a 保留源属主,而源暂存目录归调用者
+///          (非 root)所有,副本仍归调用者 ⇒ 调用者可在"校验后、mv 前"改写副本里的文件,
+///          "在 root 专属副本上复核摘要"的 TOCTOU 修复就失效了。cp -RP 新建的条目归执行者
+///          (root)所有;-P 不跟随符号链接(链接本身照搬,摘要里按 link:<目标> 计入)。
+///          权限显式处理:umask 022 保证新建条目不带组/其他写位;mktemp -d 建的暂存根是 0700,
+///          cp 不改已存在目录的权限,故单独 chmod 755(否则装好的插件目录普通用户读不了);
+///          随后 chmod -R a-s,go-w 去掉 suid/sgid/sticky 与组/其他写位。最后用 find ! -user
+///          断言整棵副本(含符号链接本身)都归执行者,否则退 4。
+QString PluginMarket::privileged_deploy_script() {
+    return QStringLiteral(
+        "umask 022\n"
+        "staging=$(mktemp -d) || exit 1\n"
+        "trap 'rm -rf \"$staging\"' EXIT\n"
+        // 不保留属主/时间戳:副本归执行者(root)所有,源属主无法再改写它
+        "cp -RP \"$2/.\" \"$staging/\" || exit 1\n"
+        "chmod 755 \"$staging\" || exit 1\n"
+        // a-s 只清 setuid/setgid/sticky,不会去掉 group/other 写权限:
+        // 源目录里 0666/0777 的文件拷进来后仍是组/其他可写,提权安装
+        // 到系统目录后任何本地用户都能改插件代码。go-w 一并去掉。
+        "chmod -R a-s,go-w \"$staging\" || exit 1\n"
+        "[ -z \"$(find \"$staging\" ! -user \"$(id -u)\" -print -quit)\" ] || { echo staged copy not owned by deploying user >&2; exit 4; }\n"
+        "[ -z \"$(find \"$staging\" \\( -type b -o -type c \\) -print -quit)\" ] || { echo staged device node rejected >&2; exit 3; }\n"
+        "cd \"$staging\" || exit 1\n"
+        "actual=$(find . \\( -type f -o -type l -o -type d \\) -print0 | LC_ALL=C sort -z | tr \"\\0\" \"\\n\" | while IFS= read -r f; do if [ -L \"$f\" ]; then printf \"%s\\000link:%s\\n\" \"$f\" \"$(readlink \"$f\")\"; elif [ -d \"$f\" ]; then printf \"%s/\\000\\n\" \"$f\"; else printf \"%s\\000\" \"$f\"; sha256sum \"$f\" | cut -d\" \" -f1; fi; done | sha256sum | cut -d\" \" -f1)\n"
+        "[ \"$actual\" = \"$3\" ] || { echo staged digest mismatch >&2; exit 2; }\n"
+        "mkdir -p \"$0\" && rm -rf \"$1\" && mv \"$staging\" \"$1\"");
+}
+
+/// @brief 暂存目录内容摘要:相对路径 "./" 开头、按字节序排,每条目一行
+///        "<相对路径>\0<内容 sha256 hex | link:<目标> | (目录)>\n";
+///        与 pkexec_deploy 内嵌脚本逐字节一致(脚本侧见其注释)。
+QString PluginMarket::staged_dir_digest(const QString& staged_dir) {
+    struct Entry {
+        QByteArray rel;
+        bool is_dir = false;
+        bool is_link = false;
+        QByteArray target;
+        QByteArray file_hex;
+    };
+    QList<Entry> entries;
+    entries.append({QByteArrayLiteral("."), true, false, {}, {}});
+    const QDir base(staged_dir);
+    QDirIterator it(staged_dir,
+                    QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden,
+                    QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        const QString p = it.next();
+        const QFileInfo fi = it.fileInfo();
+        const QByteArray rel =
+            QByteArrayLiteral("./") + base.relativeFilePath(p).toUtf8();
+        if (fi.isSymLink()) {
+            entries.append({rel, false, true, fi.symLinkTarget().toUtf8(), {}});
+        } else if (fi.isDir()) {
+            entries.append({rel, true, false, {}, {}});
+        } else if (fi.isFile()) {
+            QFile f(p);
+            if (!f.open(QIODevice::ReadOnly)) return {};
+            QCryptographicHash h(QCryptographicHash::Sha256);
+            if (!h.addData(&f)) return {};
+            entries.append({rel, false, false, {}, h.result().toHex()});
+        }
+        // 其余类型(fifo/socket 等)两边都不计入摘要
+    }
+    std::sort(entries.begin(), entries.end(),
+              [](const Entry& a, const Entry& b) { return a.rel < b.rel; });
+    QCryptographicHash outer(QCryptographicHash::Sha256);
+    for (const Entry& e : entries) {
+        outer.addData(e.rel);
+        if (e.is_link) {
+            outer.addData(QByteArray("\0link:", 6));
+            outer.addData(e.target);
+            outer.addData(QByteArray("\n", 1));
+        } else if (e.is_dir) {
+            outer.addData(QByteArray("/\0\n", 3));
+        } else {
+            outer.addData(QByteArray("\0", 1));
+            outer.addData(e.file_hex);
+            outer.addData(QByteArray("\n", 1));
+        }
+    }
+    return QString::fromLatin1(outer.result().toHex());
+}
+
 bool PluginMarket::verify_sha256(const QString& file_path,
                                  const QString& expected_hex) {
     QFile f(file_path);
@@ -770,7 +912,8 @@ constexpr mz_uint64 kZipMaxTotalBytes = 256ull * 1024 * 1024;
 constexpr mz_uint kZipMaxEntries = 4096;
 
 /// unzip_to_dir 累计调用次数(仅探针用:验证离线安装只解包一次)
-int g_unzip_call_count = 0;
+/// 原子计数:安装路径与探针读数可分属不同线程,普通 int 有数据竞争。
+std::atomic<int> g_unzip_call_count{0};
 
 /// 解压写回调:实际写出字节数不得超过中央目录声明的大小(防声明值作假)
 struct CappedFileWriter {

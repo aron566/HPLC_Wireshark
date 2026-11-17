@@ -24,16 +24,21 @@
 
 #include <QApplication>
 #include <QDesktopServices>
+#include <QDir>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QMessageBox>
 #include <QNetworkReply>
+#include <QRegularExpression>
+#include <QUrl>
 
 #include "Downloader.h"
 
 // ===== 本地修改(相对上游):长 changelog 在更新弹窗中裁剪显示 =====
 #include "i18n.h"
+#include "../plugin/plugin_api/plugin_manifest.h"  // plugin_name_is_reserved(保留设备名)
 namespace {
 /// @brief changelog(富文本)裁剪:超过 100 字时按标签闭合点安全截断并追加
 ///        省略提示,完整说明引导到仓库 Releases 页(避免 QMessageBox 无滚动超高)。
@@ -54,6 +59,27 @@ QString clipped_changelog(const QString& html, int limit = 100) {
     return out;
 }
 }  // namespace
+
+// 本地修改:安装包文件名取自 URL 路径的纯文件名并净化,防 "../" 穿越到下载目录外
+// 与 Windows 非法字符落盘失败;downloadUrl() 可能带镜像前缀,仍以其 path 为准。
+// 全局作用域(非匿名 namespace),供 updater-filename-probe 直接验证。
+QString sanitized_download_file_name(const QString& download_url) {
+    QString name = QDir::cleanPath(QFileInfo(QUrl(download_url).path()).fileName());
+    if (name.isEmpty() || name == QStringLiteral(".") || name == QStringLiteral(".."))
+        return QStringLiteral("update.bin");
+    // 非法字符(Windows:< > : " / \ | ? * 与控制字符)一律换 '_'
+    static const QRegularExpression kBadChars(QStringLiteral("[<>:\"/\\\\|?*\\x00-\\x1f]"));
+    name.replace(kBadChars, QStringLiteral("_"));
+    // Windows 忽略行尾 '.'/' ',先去掉,免得落盘后名字被系统改写
+    while (name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char(' ')))
+        name.chop(1);
+    if (name.isEmpty()) return QStringLiteral("update.bin");
+    // Windows 保留设备名(CON/PRN/AUX/NUL/COM1-9/LPT1-9,大小写不敏感):
+    // 即使带后缀也不能落盘(如 CON.txt 的主名仍是保留名),一律前缀 '_' 改名。
+    if (plugin_name_is_reserved(name))
+        name.prepend(QLatin1Char('_'));
+    return name;
+}
 
 
 namespace {
@@ -574,7 +600,8 @@ void Updater::setUpdateAvailable(const bool available)
 
       else if (downloaderEnabled()) {
         m_downloader->setUrlId(url());
-        m_downloader->setFileName(downloadUrl().split("/").last());
+        // 本地修改:文件名经 sanitized_download_file_name 净化,防路径穿越/非法字符
+        m_downloader->setFileName(sanitized_download_file_name(downloadUrl()));
         m_downloader->setMandatoryUpdate(m_mandatoryUpdate);
         auto download_url = QUrl(downloadUrl());
         download_url.setUserName(m_downloadUserName);

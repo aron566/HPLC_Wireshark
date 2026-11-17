@@ -4,6 +4,7 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDesktopServices>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDoubleSpinBox>
@@ -21,12 +22,14 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScrollArea>
 #include <QSpinBox>
 #include <QSplitter>
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QTextBrowser>
+#include <QUrl>
 #include <QVBoxLayout>
 
 #include <climits>
@@ -88,6 +91,9 @@ struct I18nRegMarket {
         trl::register_en("正在加载 README...", "Loading README...");
         trl::register_en("README 加载失败", "README load failed");
         trl::register_en("暂无 README", "No README available");
+        trl::register_en("打开外部链接", "Open External Link");
+        trl::register_en("是否在浏览器中打开以下链接？\n%1",
+                         "Open the Following Link in the Browser?\n%1");
         trl::register_en("安装后可配置该插件的独立设置。", "Install the plugin to configure its settings.");
         trl::register_en("该插件没有可配置项。", "This plugin has no configurable settings.");
         trl::register_en("保存", "Save");
@@ -135,6 +141,40 @@ QString format_updated_at(const QString& iso) {
     s.replace(QLatin1Char('T'), QLatin1Char(' '));
     if (s.size() > 16 && s[16] == QLatin1Char(':')) s = s.left(16);
     return s;
+}
+
+/// @brief 剥离 markdown 里的远程图片(http/https 及协议相对 //),只留替代文本。
+/// @details 远端 README(含插件自带 README.md)渲染时会拉取图片,等于向任意
+///          URL 发请求(追踪像素);本地相对路径图片不动。
+///          覆盖 markdown 图片 `![alt](url)` 与内联 HTML `<img src=url>`。
+QString strip_remote_images(const QString& markdown) {
+    QString out = markdown;
+    // markdown 图片:只替换 URL 以 http(s):// 或 // 开头的,替代文本保留
+    static const QRegularExpression kMdImg(
+        QStringLiteral("!\\[([^\\]]*)\\]\\(\\s*(?:https?:)?//[^)\\s]*\\)"),
+        QRegularExpression::CaseInsensitiveOption);
+    out.replace(kMdImg, QStringLiteral("\\1"));
+    // 内联 HTML 图片:整段去掉,只留 alt 属性文本(无 alt 则整段去掉)
+    static const QRegularExpression kHtmlImg(
+        QStringLiteral("<img\\b[^>]*\\bsrc\\s*=\\s*[\"']?(?:https?:)?//[^\"'\\s>]+[^>]*>"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression kAlt(
+        QStringLiteral("alt\\s*=\\s*\"([^\"]*)\"|alt\\s*=\\s*'([^']*)'"),
+        QRegularExpression::CaseInsensitiveOption);
+    QString stripped;
+    stripped.reserve(out.size());
+    int pos = 0;
+    QRegularExpressionMatchIterator it = kHtmlImg.globalMatch(out);
+    while (it.hasNext()) {
+        const QRegularExpressionMatch m = it.next();
+        stripped += out.mid(pos, m.capturedStart() - pos);
+        const QRegularExpressionMatch alt = kAlt.match(m.captured(0));
+        if (alt.hasMatch())
+            stripped += alt.captured(1).isEmpty() ? alt.captured(2) : alt.captured(1);
+        pos = m.capturedEnd();
+    }
+    stripped += out.mid(pos);
+    return stripped;
 }
 
 }  // namespace
@@ -226,11 +266,17 @@ void PluginMarketDialog::setup_ui() {
         m_d_name->setFont(f);
     }
     m_d_name->setWordWrap(true);
+    // 名称/元信息/版本文本来自市场 feed 或插件清单(不可信):按纯文本显示,
+    // 不解析 HTML,也就不会出现可点击链接
+    m_d_name->setTextFormat(Qt::PlainText);
+    m_d_name->setOpenExternalLinks(false);
     head->addWidget(m_d_icon);
     head->addWidget(m_d_name, 1);
     dl->addLayout(head);
     m_d_meta = new QLabel(detail);
     m_d_meta->setWordWrap(true);
+    m_d_meta->setTextFormat(Qt::PlainText);
+    m_d_meta->setOpenExternalLinks(false);
     dl->addWidget(m_d_meta);
     auto* btns = new QHBoxLayout();
     m_btn_install = new QPushButton(trl::L("安装"), detail);
@@ -250,7 +296,14 @@ void PluginMarketDialog::setup_ui() {
     // 详情 tab: README(md) / 设置 / 环境变量
     m_tabs = new QTabWidget(detail);
     m_readme = new QTextBrowser(m_tabs);
-    m_readme->setOpenExternalLinks(true);
+    // L7:README 来自市场/插件包,不可信。setOpenExternalLinks(false) 只管外部协议;
+    // openLinks 默认 true 时,file:、qrc:、相对路径等链接会被 QTextBrowser 自己 setSource
+    // 导航进来(可把本地任意文件读进视图)。两者都关掉,所有点击只发 anchorClicked,
+    // 由 on_readme_anchor_clicked 处理(只放行带主机名的 http/https,且弹确认)。
+    m_readme->setOpenLinks(false);
+    m_readme->setOpenExternalLinks(false);
+    connect(m_readme, &QTextBrowser::anchorClicked, this,
+            &PluginMarketDialog::on_readme_anchor_clicked);
     m_tabs->addTab(m_readme, trl::L("README"));
     m_settings_scroll = new QScrollArea(m_tabs);
     m_settings_scroll->setWidgetResizable(true);
@@ -267,6 +320,8 @@ void PluginMarketDialog::setup_ui() {
     dl->addWidget(m_tabs, 1);
     m_d_versions = new QLabel(detail);
     m_d_versions->setWordWrap(true);
+    m_d_versions->setTextFormat(Qt::PlainText);
+    m_d_versions->setOpenExternalLinks(false);
     m_d_versions->setVisible(false);  // 为空时隐藏,不在布局里留空白行
     dl->addWidget(m_d_versions);
     split->addWidget(detail);
@@ -551,8 +606,24 @@ void PluginMarketDialog::on_text_ready(const QString& url,
     m_readme_cache[url] = text;
     if (url == m_readme_pending_url && !m_readme_pending_url.isEmpty()) {
         m_readme_pending_url.clear();
-        m_readme->setMarkdown(text);
+        m_readme->setMarkdown(strip_remote_images(text));
     }
+}
+
+/// @brief README 里的链接点击:只放行带主机名的 http/https,且先弹确认;
+///        file:/qrc:/相对路径/锚点等其他链接一律忽略(openLinks 已关,视图不会自行导航)。
+void PluginMarketDialog::on_readme_anchor_clicked(const QUrl& url) {
+    if (!url.isValid() || url.isRelative() || url.host().isEmpty())
+        return;
+    const QString scheme = url.scheme().toLower();
+    if (scheme != QStringLiteral("http") && scheme != QStringLiteral("https"))
+        return;
+    if (QMessageBox::question(
+            this, trl::L("打开外部链接"),
+            trl::L("是否在浏览器中打开以下链接？\n%1").arg(url.toString())) !=
+        QMessageBox::Yes)
+        return;
+    QDesktopServices::openUrl(url);
 }
 
 void PluginMarketDialog::on_text_error(const QString& url,
@@ -572,7 +643,7 @@ void PluginMarketDialog::update_readme_tab(const InstalledPlugin* ip,
         for (const char* fn : {"README.md", "readme.md"}) {
             QFile f(QDir(ip->dir).filePath(QString::fromLatin1(fn)));
             if (f.open(QIODevice::ReadOnly)) {
-                m_readme->setMarkdown(QString::fromUtf8(f.readAll()));
+                m_readme->setMarkdown(strip_remote_images(QString::fromUtf8(f.readAll())));
                 return;
             }
         }
@@ -589,7 +660,7 @@ void PluginMarketDialog::update_readme_tab(const InstalledPlugin* ip,
     if (fmp && !fmp->readme_url.isEmpty()) {
         const QString url = fmp->readme_url;
         if (m_readme_cache.contains(url)) {
-            m_readme->setMarkdown(m_readme_cache.value(url));
+            m_readme->setMarkdown(strip_remote_images(m_readme_cache.value(url)));
         } else {
             m_readme->setPlainText(trl::L("正在加载 README..."));
             m_readme_pending_url = url;

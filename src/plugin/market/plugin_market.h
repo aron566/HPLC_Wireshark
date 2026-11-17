@@ -138,6 +138,20 @@ public:
     static bool is_sha256_hex(const QString& s);
     static bool verify_sha256(const QString& file_path,
                               const QString& expected_hex);
+    /// @brief 暂存目录内容摘要(提权部署前算、提权脚本内重算比对)。
+    /// @details 覆盖目录/文件/符号链接:每条目一行 "<相对路径>\0<内容 sha256 hex |
+    ///          link:<目标>|(目录)>\n",相对路径 "./" 开头、按字节序排;算法须与
+    ///          pkexec_deploy 内嵌脚本逐字节一致。读失败返回空串(调用方拒装)。
+    static QString staged_dir_digest(const QString& staged_dir);
+    /// @brief 提权部署脚本正文(Linux 下 pkexec sh -c 执行;$0=base $1=dest $2=staged $3=digest)。
+    /// @details 以执行者身份复制暂存(cp -RP,不保留源属主)、去 suid/组他写、拒设备节点、
+    ///          断言副本全归执行者(否则退 4)、重算摘要比对(不符退 2)后 mv 到 dest。
+    ///          公开仅为探针可直接以当前用户跑同一脚本。
+    static QString privileged_deploy_script();
+    /// @brief 递归复制目录:复制后保持源文件和目录权限位;符号链接不跟随复制,直接拒装。
+    /// @return 成功 true;失败时 err 置错误信息
+    static bool copy_dir_recursive(const QString& src, const QString& dst,
+                                   QString* err);
     /// @brief 解包到 dest_dir:拒绝不安全条目名(见 safe_extract_path),
     ///        限制单条目 64 MB / 总量 256 MB / 条目数 4096
     static bool unzip_to_dir(const QString& zip_path, const QString& dest_dir,

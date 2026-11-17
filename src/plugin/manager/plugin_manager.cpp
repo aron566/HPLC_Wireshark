@@ -26,18 +26,22 @@
 #include "plugin_serialization.h"
 #include "plugin_parser_proxy.h"
 #include "protocolfactory.h"
+#include "appconfig.h"   // 心跳间隔/空闲间隔/超时走 config.ini [plugin] 段
 
 namespace {
 constexpr int kHandshakeTimeoutMs = 10000;
 constexpr int kParseTimeoutMs = 5000;
-constexpr int kHeartbeatIntervalMs = 5000;
-constexpr int kHeartbeatTimeoutMs = 15000;
 constexpr int kGraphicsTimeoutMs = 5000;     ///< 异步图形请求超时
 constexpr int kAsyncSweepIntervalMs = 50;    ///< 超时扫描粒度
-/// 单调时钟(ms),用于异步请求截止时刻
+/// 记一次插件活动(解析/图形请求/握手完成):心跳空闲退避的时钟。
+/// Pong 回包不记(否则每次 Ping 都会复位空闲,退避永不生效)。
+/// 单调时钟(ms),用于异步请求截止时刻与心跳计时
 qint64 steady_ms() {
     static QElapsedTimer t = [] { QElapsedTimer e; e.start(); return e; }();
     return t.elapsed();
+}
+void touch_activity(PluginRuntime* rt) {
+    rt->last_activity_ms = steady_ms();
 }
 /// 当前线程是否 GUI(主)线程
 bool on_gui_thread() {
@@ -52,7 +56,12 @@ PluginManager& PluginManager::instance() {
 }
 
 PluginManager::PluginManager(QObject* parent) : QObject(parent) {
-    m_hb_timer.setInterval(kHeartbeatIntervalMs);
+    // 心跳参数启动时读一次,之后不再每轮 tick 重读 QSettings。
+    // (运行中改 config.ini 需重启生效)
+    m_hb_interval_ms = appcfg::plugin_heartbeat_interval_ms();
+    m_hb_idle_ms = appcfg::plugin_heartbeat_idle_ms();
+    m_hb_timeout_ms = appcfg::plugin_heartbeat_timeout_ms();
+    m_hb_timer.setInterval(m_hb_interval_ms);
     connect(&m_hb_timer, &QTimer::timeout, this, &PluginManager::check_heartbeats);
     m_hb_timer.start();
     m_async_timer.setInterval(kAsyncSweepIntervalMs);
@@ -362,7 +371,10 @@ void PluginManager::on_host_ready_read(PluginRuntime* rt) {
             continue;
         }
         if (mt == plugin_ipc::MsgType::Pong) {
-            rt->last_pong_ms = QDateTime::currentMSecsSinceEpoch();
+            rt->last_pong_ms = steady_ms();
+            // 收到 Pong = 之前所有在飞 Ping 都已被应答(IPC 是 FIFO 单连接),
+            // 清掉"首枚未应答 Ping"起点,下一枚 Ping 重新起算。
+            rt->first_unanswered_ping_ms = 0;
             continue;
         }
         to_gui.append(frame);
@@ -417,7 +429,9 @@ void PluginManager::handle_message(const QString& plugin_id,
         // 排队到 IPC 线程写出;之后的请求同样排队,FIFO 保证 HelloAck 先发
         post_message(rt, static_cast<quint8>(plugin_ipc::MsgType::HelloAck), p);
         if (ok && !rt->disabled.load()) {
-            rt->last_pong_ms = QDateTime::currentMSecsSinceEpoch();
+            rt->last_pong_ms = steady_ms();
+            rt->first_unanswered_ping_ms = 0;
+            touch_activity(rt);   // 刚握手算活动:新插件前 idle_ms 内仍按活动间隔 Ping
             rt->ready = true;
             // 注册到协议注册表(协议 id → 代理;显示名取自 plugin.json,供界面协议列表)
             const QString pid = rt->manifest.protocol_id;
@@ -515,6 +529,7 @@ bool PluginManager::parse_via_plugin(const QString& protocol_id,
     if (!rt) return false;
     // 退役/禁用/未就绪:不再发请求(socket 只由 IPC 线程触碰,这里不读 rt->socket)
     if (!rt->ready || rt->disabled || rt->retired.load()) return false;
+    touch_activity(rt);   // 解析请求 = 插件在干活,心跳按活动间隔走
     const quint64 seq = begin_request(rt);
 
     QByteArray payload;
@@ -597,7 +612,14 @@ void PluginManager::disable_plugin(const QString& plugin_id,
 }
 
 void PluginManager::check_heartbeats() {
-    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const qint64 now = steady_ms();
+    // 心跳参数已在构造时读一次(m_hb_*),此处不再每轮重读 QSettings。
+    const int interval_ms = m_hb_interval_ms;
+    const int idle_ms = m_hb_idle_ms;
+    const int timeout_ms = m_hb_timeout_ms;
+    // 定时器按最小间隔走,保证配置改小后 Ping 节奏能跟上
+    const int tick_ms = qBound(200, qMin(interval_ms, idle_ms), 60000);
+    if (m_hb_timer.interval() != tick_ms) m_hb_timer.setInterval(tick_ms);
     QMap<QString, PluginRuntime*> snapshot;
     {
         QReadLocker rl(&m_plugins_lock);
@@ -606,18 +628,51 @@ void PluginManager::check_heartbeats() {
     for (auto it = snapshot.cbegin(); it != snapshot.cend(); ++it) {
         PluginRuntime* rt = it.value();
         if (!rt->ready || rt->disabled || !rt->connected.load()) continue;
-        // 发 Ping:排队到 IPC 线程写 socket(GUI 线程不碰 socket)
-        {
+        // 空闲 = 自上次活动起超过空闲间隔未解析/无图形请求。刚握手的插件
+        // 在握手时记过一次活动,故新插件前 idle_ms 内仍按活动间隔 Ping,
+        // 卡死的 host 仍能快速发现;真正空闲的插件才退避到 idle_ms。
+        const qint64 last_act = rt->last_activity_ms.load();
+        const bool idle = (last_act > 0) && (now - last_act > idle_ms);
+        const int cadence_ms = idle ? idle_ms : interval_ms;
+        // 只在到节奏时发 Ping:空闲插件两次 Ping 之间不发、不吵 host
+        if (now - rt->last_ping_ms.load() >= cadence_ms) {
+            // 发 Ping:排队到 IPC 线程写 socket(GUI 线程不碰 socket)
             QByteArray p;
             QDataStream o(&p, QIODevice::WriteOnly);
             o.setVersion(plugin_ipc::kStreamVersion);
             o << quint64(++rt->seq);
             post_message(rt, static_cast<quint8>(plugin_ipc::MsgType::Ping), p);
+            rt->last_ping_ms = now;
+            ++rt->ping_count;
+            // 记下"首枚未应答 Ping"的发出时刻:超时从它起算。
+            // 已有未应答 Ping 时不覆盖——否则每发一枚就重置起点,卡死的 host
+            // 永远等不到超时(旧实现用 last_pong 做起点,同样有这个毛病)。
+            qint64 expected = 0;
+            rt->first_unanswered_ping_ms.compare_exchange_strong(expected, now);
         }
-        if (now - rt->last_pong_ms > kHeartbeatTimeoutMs) {
+        // 超时从第一枚未应答 Ping 起算;没有在飞 Ping 时不可能超时。
+        const qint64 pending_since = rt->first_unanswered_ping_ms.load();
+        if (pending_since > 0 && now - pending_since > timeout_ms) {
             disable_plugin(it.key(), QStringLiteral("heartbeat timeout"));
         }
     }
+}
+
+int PluginManager::heartbeat_interval_ms() const {
+    return appcfg::plugin_heartbeat_interval_ms();
+}
+
+int PluginManager::heartbeat_idle_interval_ms() const {
+    return appcfg::plugin_heartbeat_idle_ms();
+}
+
+int PluginManager::heartbeat_timeout_ms() const {
+    return appcfg::plugin_heartbeat_timeout_ms();
+}
+
+quint64 PluginManager::ping_count(const QString& protocol_id) const {
+    const PluginRuntime* rt = find_runtime(protocol_id);
+    return rt ? rt->ping_count.load() : 0;
 }
 
 // ---- 图形(Phase3):GUI 线程异步请求 ----
@@ -635,6 +690,7 @@ quint64 PluginManager::start_async(PluginRuntime* rt, PluginAsyncRequest::Kind k
     if (!rt->ready || rt->disabled || rt->retired.load() || !rt->connected.load())
         return 0;
     if (!rt->manifest.graphics) return 0;
+    touch_activity(rt);   // 图形请求 = 插件在干活,心跳按活动间隔走
     const quint64 seq = ++rt->seq;
     const bool cb_registered = bool(cb);
     if (cb) {

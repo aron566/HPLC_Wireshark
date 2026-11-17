@@ -307,6 +307,13 @@ p_app_mirror_probe() {   # 更新镜像解析:需联网(raw.githubusercontent / 
     done
     return $f
 }
+p_app_updater_filename_probe() {   # 更新包文件名净化(L8):保留设备名改名、穿越/非法字符/空名回归
+    build app/updater-filename-probe || return 1
+    local d; d=$(rundir updater-filename)
+    cp "$UT/app/updater-filename-probe/build/updater_filename_probe/updater_filename_probe" "$d/" || return 1
+    (cd "$d" && run updater-filename 120 ./updater_filename_probe) && OUT="$LOGD/updater-filename.out" \
+        && has "RESULT: ALL PASS (0 failures)" && lacks " FAIL"
+}
 p_app_plugin_autotest() {   # 主程序 CONFIG+=plugin_autotest:回放后给各插件面板与主窗口截图并退出
     local host; host=$(plugin_host) || { echo "  FAIL: bplc-plugin-host 构建失败"; return 1; }
     local b="$WORK/app-autotest"

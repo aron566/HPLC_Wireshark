@@ -8,9 +8,12 @@
 #include <QCryptographicHash>
 #include <QEventLoop>
 #include <QMap>
+#include <QProcess>
 #include <QTimer>
 #include <QUrl>
 #include <QDir>
+#include <QDirIterator>
+#include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
 #include <QTemporaryDir>
@@ -21,6 +24,11 @@
 #include "i18n.h"
 #include "miniz.h"
 #include "plugin_market.h"
+
+#ifdef Q_OS_LINUX
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 static int g_fails = 0;
 static void check(const char* name, bool ok) {
@@ -79,7 +87,9 @@ static QByteArray manifest_json(const QByteArray& name) {
 
 // ── H2:插件名白名单 + 安装目录一级子目录约束 ──
 static void test_plugin_name() {
-    for (const char* ok : {"js-topo", "lua_echo", "Cpp.Coverage2", "a"})
+    for (const char* ok : {"js-topo", "lua_echo", "Cpp.Coverage2", "a",
+                           // L15:COM10/LPT10 不在保留名之列;CON 开头但不是保留名
+                           "COM10", "LPT10", "CONTROLLER", "console"})
         check(qPrintable(QStringLiteral("name ok: %1").arg(QLatin1String(ok))),
               plugin_name_is_safe(QString::fromLatin1(ok)));
     const QString bad[] = {QString(), QStringLiteral("."), QStringLiteral(".."),
@@ -87,10 +97,20 @@ static void test_plugin_name() {
                            QStringLiteral("a\\b"), QStringLiteral("C:x"),
                            QStringLiteral(".hidden"), QStringLiteral("-x"),
                            QStringLiteral("a b"), QString(65, QLatin1Char('a')),
-                           QStringLiteral("插件")};
+                           QStringLiteral("插件"),
+                           // L15:Windows 保留设备名(大小写不敏感;带后缀也拒)
+                           QStringLiteral("CON"), QStringLiteral("con"),
+                           QStringLiteral("Con"), QStringLiteral("PRN"),
+                           QStringLiteral("AUX"), QStringLiteral("NUL"),
+                           QStringLiteral("COM1"), QStringLiteral("com9"),
+                           QStringLiteral("LPT1"), QStringLiteral("lpt9"),
+                           QStringLiteral("con.txt"), QStringLiteral("COM1.txt"),
+                           QStringLiteral("CON.")};
     bool all_rej = true;
     for (const QString& b : bad) all_rej = all_rej && !plugin_name_is_safe(b);
-    check("name rejected: empty . .. ../x a/b a\\b C:x .x -x space 65ch CJK", all_rej);
+    check("name rejected: empty . .. ../x a/b a\\b C:x .x -x space 65ch CJK "
+          "CON con PRN AUX NUL COM1 COM9 LPT1 LPT9 con.txt COM1.txt CON.",
+          all_rej);
 }
 
 static void test_plugin_dir_path(const QString& root) {
@@ -119,7 +139,8 @@ static void test_manifest_name(const QString& root) {
     const QString d = root + QStringLiteral("/mf");
     QDir().mkpath(d);
     write_file(d + QStringLiteral("/x.js"), "1");
-    for (const QByteArray& n : {QByteArray(".."), QByteArray("a/../../x"), QByteArray("ok-name")}) {
+    for (const QByteArray& n : {QByteArray(".."), QByteArray("a/../../x"),
+                                QByteArray("ok-name"), QByteArray("CON")}) {
         write_file(d + QStringLiteral("/plugin.json"), manifest_json(n));
         const PluginManifest m = read_plugin_manifest(d);
         const bool expect_ok = (n == "ok-name");
@@ -189,6 +210,229 @@ static void test_offline_install_single_unzip(const QString& root) {
           meta.open(QIODevice::ReadOnly) &&
               meta.readAll().contains(QByteArray("\"source\": \"file\"")));
     mk.uninstall(QStringLiteral("once-pkg"));
+}
+
+// ── L6:提权部署的暂存摘要 ──
+/// 与 pkexec_deploy 内嵌脚本同款的摘要管道(须逐字节一致,见 plugin_market.cpp);
+/// 篡改后重算的摘要须与提权前算好的不一致(否则 root 侧复核形同虚设)。
+static QString shell_staged_digest(const QString& staged) {
+    static const char* kScript =
+        "find . \\( -type f -o -type l -o -type d \\) -print0 | LC_ALL=C sort -z | "
+        "tr \"\\0\" \"\\n\" | while IFS= read -r f; do "
+        "if [ -L \"$f\" ]; then printf \"%s\\000link:%s\\n\" \"$f\" \"$(readlink \"$f\")\"; "
+        "elif [ -d \"$f\" ]; then printf \"%s/\\000\\n\" \"$f\"; "
+        "else printf \"%s\\000\" \"$f\"; sha256sum \"$f\" | cut -d\" \" -f1; fi; done | "
+        "sha256sum | cut -d\" \" -f1";
+    QProcess proc;
+    proc.setWorkingDirectory(staged);
+    proc.start(QStringLiteral("sh"),
+               QStringList() << QStringLiteral("-c") << QString::fromLatin1(kScript));
+    if (!proc.waitForFinished(30000) || proc.exitCode() != 0) return QString();
+    return QString::fromLatin1(proc.readAllStandardOutput()).trimmed();
+}
+
+static void test_staged_digest(const QString& root) {
+    const QString staged = root + QStringLiteral("/staged");
+    QDir().mkpath(staged + QStringLiteral("/sub/empty"));
+    check("digest: fixture",
+          write_file(staged + QStringLiteral("/plugin.json"), "hello") &&
+              write_file(staged + QStringLiteral("/sub/a.lua"), "print(1)\n") &&
+              write_file(staged + QStringLiteral("/z.lua"), "z") &&
+              QFile::link(staged + QStringLiteral("/sub/a.lua"),
+                          staged + QStringLiteral("/link.lua")));
+    const QString digest = PluginMarket::staged_dir_digest(staged);
+    check("digest: 64 hex",
+          digest.size() == 64 && PluginMarket::is_sha256_hex(digest));
+    const QString shell = shell_staged_digest(staged);
+    check("digest: C++ matches privileged-script pipeline",
+          !shell.isEmpty() && shell == digest);
+    // 反向:改动内容/换链接目标/删空目录,管道重算的摘要必须与提权前算好的不一致
+    write_file(staged + QStringLiteral("/sub/a.lua"), "print(2)\n");
+    check("digest: tampered file detected", shell_staged_digest(staged) != digest);
+    write_file(staged + QStringLiteral("/sub/a.lua"), "print(1)\n");
+    QFile::remove(staged + QStringLiteral("/link.lua"));
+    QFile::link(staged + QStringLiteral("/z.lua"), staged + QStringLiteral("/link.lua"));
+    check("digest: swapped symlink target detected",
+          shell_staged_digest(staged) != digest);
+    QFile::remove(staged + QStringLiteral("/link.lua"));
+    QFile::link(staged + QStringLiteral("/sub/a.lua"),
+                staged + QStringLiteral("/link.lua"));
+    QDir(staged + QStringLiteral("/sub")).rmdir(QStringLiteral("empty"));
+    check("digest: removed empty dir detected", shell_staged_digest(staged) != digest);
+}
+
+#ifdef Q_OS_LINUX
+// ── 提权部署脚本:副本必须归执行者所有(cp -a 会保留源属主,TOCTOU 修复失效) ──
+/// 以当前用户直接跑 PluginMarket::privileged_deploy_script()(不经 pkexec)。
+/// 非 root(CI runner)时:属主恒为自己,无法区分 cp -a / cp -R,改用"不保留时间戳"
+/// 作行为代理(cp -a/-p 会把 2001 年的 mtime 带过去);root 时额外把源文件 chown 给
+/// 65534,断言副本仍归 root——这正是 cp -a 下会失败的那条。
+static int run_deploy_script(const QString& base, const QString& dest,
+                             const QString& staged, const QString& digest) {
+    QProcess proc;
+    proc.start(QStringLiteral("sh"),
+               QStringList() << QStringLiteral("-c")
+                             << PluginMarket::privileged_deploy_script() << base
+                             << dest << staged << digest);
+    if (!proc.waitForFinished(30000) || proc.exitStatus() != QProcess::NormalExit)
+        return -1;
+    return proc.exitCode();
+}
+
+static bool stat_of(const QString& p, struct stat* st) {
+    return ::lstat(QFile::encodeName(p).constData(), st) == 0;
+}
+
+static void test_privileged_deploy_script(const QString& root) {
+    const QString staged = root + QStringLiteral("/deploy_staged");
+    const QString base = root + QStringLiteral("/deploy_base");
+    const QString dest = base + QStringLiteral("/pkg");
+    QDir().mkpath(staged + QStringLiteral("/sub"));
+    const bool fx =
+        write_file(staged + QStringLiteral("/plugin.json"), "{}") &&
+        write_file(staged + QStringLiteral("/sub/a.lua"), "print(1)\n") &&
+        write_file(staged + QStringLiteral("/run.sh"), "#!/bin/sh\n") &&
+        // 绝对目标:staged_dir_digest 用 symLinkTarget(解析为绝对路径),与脚本侧 readlink
+        // 只在绝对目标时逐字节一致(暂存目录实际不含符号链接,见 copy_dir_recursive)
+        QFile::link(staged + QStringLiteral("/sub/a.lua"), staged + QStringLiteral("/link.lua"));
+    ::chmod(QFile::encodeName(staged).constData(), 0700);  // 与 QTemporaryDir/mktemp 一致
+    ::chmod(QFile::encodeName(staged + QStringLiteral("/sub/a.lua")).constData(), 0666);
+    ::chmod(QFile::encodeName(staged + QStringLiteral("/run.sh")).constData(), 04777);
+    const QDateTime old_ts = QDateTime::fromSecsSinceEpoch(1000000000);  // 2001-09-09
+    {
+        QFile f(staged + QStringLiteral("/plugin.json"));
+        f.open(QIODevice::ReadWrite);
+        f.setFileTime(old_ts, QFileDevice::FileModificationTime);
+    }
+    const bool is_root = ::geteuid() == 0;
+    if (is_root)
+        check("deploy-script: chown source to 65534",
+              ::lchown(QFile::encodeName(staged + QStringLiteral("/sub/a.lua")).constData(),
+                       65534, 65534) == 0);
+    check("deploy-script: fixture", fx);
+    const QString digest = PluginMarket::staged_dir_digest(staged);
+
+    // 摘要不符:退 2,目标不落盘
+    check("deploy-script: digest mismatch exits 2",
+          run_deploy_script(base, dest, staged, QString(64, QLatin1Char('0'))) == 2 &&
+              !QFileInfo::exists(dest));
+
+    const int rc = run_deploy_script(base, dest, staged, digest);
+    check("deploy-script: deploy succeeds", rc == 0 && QFileInfo(dest).isDir());
+
+    // 整棵副本(含符号链接本身)归执行者
+    const uid_t me = ::geteuid();
+    bool all_mine = true;
+    int n = 0;
+    QDirIterator it(dest, QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
+                    QDirIterator::Subdirectories);
+    struct stat st {};
+    if (!stat_of(dest, &st) || st.st_uid != me) all_mine = false;
+    while (it.hasNext()) {
+        const QString p = it.next();
+        ++n;
+        if (!stat_of(p, &st) || st.st_uid != me) all_mine = false;
+    }
+    check("deploy-script: every entry owned by deploying user", all_mine && n == 5);
+    if (is_root) {
+        check("deploy-script: root copy of 65534-owned file owned by root",
+              stat_of(dest + QStringLiteral("/sub/a.lua"), &st) && st.st_uid == 0 &&
+                  st.st_gid == 0);
+    } else {
+        std::printf("  [skip] deploy-script: foreign-owner chown case needs root\n");
+    }
+    // 不保留源元数据(cp -a/-p 会保留 mtime 与属主):时间戳不应是 2001 年
+    check("deploy-script: source metadata not preserved (no cp -a/-p)",
+          QFileInfo(dest + QStringLiteral("/plugin.json")).lastModified() != old_ts);
+    // 权限显式处理:根目录 0755,组/其他写位与 suid 被去掉,可执行位保留
+    check("deploy-script: dest dir mode 0755",
+          stat_of(dest, &st) && (st.st_mode & 07777) == 0755);
+    check("deploy-script: 0666 file loses go-w",
+          stat_of(dest + QStringLiteral("/sub/a.lua"), &st) && (st.st_mode & 07777) == 0644);
+    check("deploy-script: suid stripped, exec kept",
+          stat_of(dest + QStringLiteral("/run.sh"), &st) && (st.st_mode & 07777) == 0755);
+    check("deploy-script: symlink copied as symlink",
+          QFileInfo(dest + QStringLiteral("/link.lua")).isSymLink() &&
+              QFileInfo(dest + QStringLiteral("/link.lua")).symLinkTarget() ==
+                  QFileInfo(staged + QStringLiteral("/sub/a.lua")).absoluteFilePath());
+    // 部署后的树与暂存摘要一致(脚本内复核的同一算法)
+    check("deploy-script: deployed tree digest matches staged",
+          PluginMarket::staged_dir_digest(dest) == digest);
+    if (is_root)
+        ::lchown(QFile::encodeName(staged + QStringLiteral("/sub/a.lua")).constData(), 0, 0);
+    QDir(base).removeRecursively();
+}
+#endif
+
+// ── L5:递归复制保持权限位、拒绝符号链接 ──
+static void test_copy_dir_recursive(const QString& root) {
+    const QString src = root + QStringLiteral("/copy_src");
+    const QString dst = root + QStringLiteral("/copy_dst");
+    QDir().mkpath(src + QStringLiteral("/sub"));
+    check("copy: fixture",
+          write_file(src + QStringLiteral("/sub/x.sh"), "#!/bin/sh\n") &&
+              write_file(src + QStringLiteral("/sub/a.txt"), "a") &&
+              write_file(src + QStringLiteral("/plain.txt"), "p") &&
+              QFile::setPermissions(
+                  src + QStringLiteral("/sub/x.sh"),
+                  QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner |
+                      QFile::ReadGroup | QFile::ExeGroup | QFile::ReadOther |
+                      QFile::ExeOther) &&
+              QFile::setPermissions(src + QStringLiteral("/plain.txt"),
+                                    QFile::ReadOwner | QFile::WriteOwner));
+#ifndef Q_OS_WIN
+    // P2-2:目录权限也要保持(旧实现只同步文件权限位,目录一律按 umask 落盘)。
+    // 注意:QFile::permissions() 总是上报 ReadUser|WriteUser(目录还带 ExeUser),
+    // 经 setPermissions 回写会强制属主可读写,故 0550 这类去写位的源目录无法用
+    // QFile API 原样复现(会变 0750);夹具用 0750,旧实现按 umask 落盘仍能验出。
+    check("copy: dir fixture",
+          QFile::setPermissions(src, QFile::ReadOwner | QFile::WriteOwner |
+                                        QFile::ExeOwner) &&
+              QFile::setPermissions(src + QStringLiteral("/sub"),
+                                    QFile::ReadOwner | QFile::WriteOwner |
+                                        QFile::ExeOwner | QFile::ReadGroup |
+                                        QFile::ExeGroup));
+#endif
+    QString err;
+    check("copy: clean tree ok", PluginMarket::copy_dir_recursive(src, dst, &err));
+    check("copy: exec bit kept",
+          QFile::permissions(dst + QStringLiteral("/sub/x.sh")) ==
+              QFile::permissions(src + QStringLiteral("/sub/x.sh")));
+    check("copy: 0600 kept",
+          QFile::permissions(dst + QStringLiteral("/plain.txt")) ==
+              QFile::permissions(src + QStringLiteral("/plain.txt")));
+    check("copy: 0644 kept",
+          QFile::permissions(dst + QStringLiteral("/sub/a.txt")) ==
+              QFile::permissions(src + QStringLiteral("/sub/a.txt")));
+#ifndef Q_OS_WIN
+    check("copy: dir 0700 kept",
+          QFile::permissions(dst) == QFile::permissions(src));
+    check("copy: subdir 0750 kept",
+          QFile::permissions(dst + QStringLiteral("/sub")) ==
+              QFile::permissions(src + QStringLiteral("/sub")));
+#endif
+    // 反向用例:符号链接一律拒装(旧实现会跟随复制,连目录外的目标内容也照抄)
+    const QString outside = root + QStringLiteral("/outside.txt");
+    write_file(outside, "SECRET");
+    const std::vector<std::tuple<QString, QString, const char*>> link_cases = {
+        {QStringLiteral("link_file"), src + QStringLiteral("/plain.txt"),
+         "copy: symlink file refused"},
+        {QStringLiteral("link_dir"), src + QStringLiteral("/sub"),
+         "copy: symlink dir refused"},
+        {QStringLiteral("escape"), outside, "copy: escaping symlink refused"},
+    };
+    for (const auto& [link, target, what] : link_cases) {
+        const QString link_path = src + QStringLiteral("/") + link;
+        QFile::remove(link_path);
+        check(qPrintable(QStringLiteral("copy: link fixture %1").arg(link)),
+              QFile::link(target, link_path));
+        err.clear();
+        const QString d2 = dst + QStringLiteral("_") + link;
+        check(what, !PluginMarket::copy_dir_recursive(src, d2, &err) &&
+                        (err.contains(QStringLiteral("符号链接")) ||
+                         err.contains(QStringLiteral("Symlink"))));
+        QFile::remove(link_path);
+    }
 }
 
 // ── H3:zip 条目名校验 + 解包上限 ──
@@ -391,11 +635,14 @@ static void test_install_context(const QString& root) {
     check("bad sha256: refused without unloading plugins", !fin && unloads == 0 && reloads == 0);
 
 #ifndef Q_OS_WIN
-    // 卸载后删旧版失败(目录不可写):必须 reload_cb 恢复加载
-    const QString locked = base + QStringLiteral("/ctx-a/locked");
-    QDir().mkpath(locked);
-    write_file(locked + QStringLiteral("/f.txt"), "x");
-    QFile::setPermissions(locked, QFileDevice::ReadOwner | QFileDevice::ExeOwner);
+    // 卸载后部署失败:必须 reload_cb 恢复加载
+    // 夹具说明:原夹具依赖"0500 目录删不掉"来制造失败。该前提在 root + overlayfs 上不成立
+    // (root 可删 0500 目录,与目录组无关),部署会成功,于是 !fin 恒假、检查恒失败。
+    // 改用与权限无关的确定性失败:在目标路径上放一个普通文件,使 copy_dir_recursive 的
+    // mkpath 必然失败。失败点仍在 unload_cb 之后,检查的语义(失败后必须 reload)不变。
+    const QString blocked = base + QStringLiteral("/ctx-a");
+    QDir(blocked).removeRecursively();
+    write_file(blocked, "not a directory");
     unloads = reloads = 0;
     fin = true;
     mk.install_market_plugin(market_entry(QStringLiteral("ctx-a"), za, sha_of(za)), 0);
@@ -403,7 +650,7 @@ static void test_install_context(const QString& root) {
     loop.exec();
     check("deploy failure after unload: reload_cb called",
           !fin && unloads == 1 && reloads == 1);
-    QFile::setPermissions(locked, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+    QFile::remove(blocked);
 #endif
     mk.uninstall(QStringLiteral("ctx-a"));
     mk.uninstall(QStringLiteral("ctx-b"));
@@ -429,6 +676,11 @@ int main(int argc, char** argv) {
     test_zip_limits(tmp.path());
     test_market_sha256(tmp.path());
     test_install_context(tmp.path());
+    test_staged_digest(tmp.path());
+#ifdef Q_OS_LINUX
+    test_privileged_deploy_script(tmp.path());
+#endif
+    test_copy_dir_recursive(tmp.path());
     QDir(PluginMarket::default_install_dir()).removeRecursively();
     std::printf("\nRESULT: %s (%d failures)\n", g_fails ? "FAILURES" : "ALL PASS", g_fails);
     return g_fails ? 1 : 0;

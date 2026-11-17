@@ -73,6 +73,7 @@ static qint64 thread_runqueue_wait_ns() {
 }
 
 #include "plugin_manager.h"
+#include "appconfig.h"   // L9 心跳测试:改小间隔以便在秒级测到节奏变化
 #ifdef BPLC_PLUGIN_ASYNC_GRAPHICS
 #include "plugin_graphics_view.h"
 #endif
@@ -384,6 +385,18 @@ int main(int argc, char** argv) {
                                  plugins + QStringLiteral("/lua_gfx_nofont")));
     const bool bench_only = QCoreApplication::arguments().contains(QStringLiteral("--bench-only"));
 
+    // L9 心跳配置:改小(活动 500 ms / 空闲 4 s / 超时 30 s),⑤b 数 Ping 验证活动/空闲两种节奏。
+    // PluginManager 只在构造时读一次心跳配置(运行中改 config.ini 需重启生效),
+    // 所以必须在第一次 PluginManager::instance() 之前写入;构造之后再改不会生效。
+    // 活动间隔取钳制下限 500 ms:12 s 窗口内名义 24 次,即使共享 VM 下
+    // 定时器合并丢 tick 也有足够余量;超时放 30 s:④b 的 5.6 s SIGSTOP
+    // 与 ⑤b 的空闲等待都不会误禁用。--bench-only 不跑 ⑤b,保持默认配置。
+    if (!bench_only) {
+        appcfg::set_plugin_heartbeat_interval_ms(500);
+        appcfg::set_plugin_heartbeat_idle_ms(4000);
+        appcfg::set_plugin_heartbeat_timeout_ms(30000);
+    }
+
     QStringList bad_status;
     QObject::connect(&PluginManager::instance(), &PluginManager::plugin_status_changed,
                      [&](const QString& id, const QString& st) {
@@ -663,6 +676,56 @@ bench:
     int gok5 = 0, gtot5 = 0;
     const int ok5 = pm.is_plugin_protocol(echo) ? parse_in_worker(echo, 200, nullptr, &gok5, &gtot5) : 0;
     check("reload after stop_all: parses answered", ok5 == 200);
+
+    // ⑤b L9 心跳:活动间隔/空闲间隔可配置;空闲退避到配置的空闲间隔
+    {
+        // 配置已在构造 PluginManager 前改小(500 ms/4 s/30 s);manager 读回须一致
+        check("heartbeat: configured intervals read back",
+              pm.heartbeat_interval_ms() == 500 &&
+              pm.heartbeat_idle_interval_ms() == 4000 &&
+              pm.heartbeat_timeout_ms() == 30000);
+        // 活动态:连续解析 12 s,Ping 应按 500 ms 节奏(名义 24 次,≥12 次;
+        // 共享 VM 下 QTimer 合并丢 tick 也留足余量)
+        std::atomic<bool> hb_stop{false};
+        QThread* hb_th = QThread::create([&]() {
+            while (!hb_stop) {
+                BplcFrame fr;
+                fr.data = QByteArray::fromHex("3c000102");
+                MsduState ms;
+                ParseFilter fl{};
+                ParseResult rr;
+                if (!pm.parse_via_plugin(echo, fr, ms, fl, &rr)) break;
+            }
+        });
+        const quint64 pings_before = pm.ping_count(echo);
+        hb_th->start();
+        spin_until([] { return false; }, 12000);  // 只泵事件循环等 12 s
+        hb_stop = true;
+        hb_th->wait();
+        delete hb_th;
+        const quint64 pings_active = pm.ping_count(echo) - pings_before;
+        // 空闲态:停解析,等 5 s 跨过空闲阈值(4 s)进入空闲,再数 8 s 内的 Ping
+        spin_until([] { return false; }, 5000);
+        const quint64 pings_idle_before = pm.ping_count(echo);
+        spin_until([] { return false; }, 8000);
+        const quint64 pings_idle = pm.ping_count(echo) - pings_idle_before;
+        std::printf("  heartbeat: active 12s pings=%llu, idle 8s pings=%llu\n",
+                    (unsigned long long)pings_active, (unsigned long long)pings_idle);
+        check("heartbeat: active pings follow 500 ms cadence", pings_active >= 12);
+        check("heartbeat: idle pings back off to 4 s cadence",
+              pings_idle <= 4 && pings_idle < pings_active);
+        check("heartbeat: plugin still enabled after idle backoff",
+              pm.is_plugin_protocol(echo));
+        // 恢复默认配置(5000/30000/15000),避免改小的值留在 config.ini 影响其他程序;
+        // 运行中的 manager 仍用构造时读到的值(不影响后续退出路径);读回须一致
+        appcfg::set_plugin_heartbeat_interval_ms(5000);
+        appcfg::set_plugin_heartbeat_idle_ms(30000);
+        appcfg::set_plugin_heartbeat_timeout_ms(15000);
+        check("heartbeat: default intervals restored",
+              pm.heartbeat_interval_ms() == 5000 &&
+              pm.heartbeat_idle_interval_ms() == 30000 &&
+              pm.heartbeat_timeout_ms() == 15000);
+    }
 
     // ⑥ 走应用正常退出路径(aboutToQuit → 停插件、关 socket、停 IPC 线程),
     //    期间的 Qt 告警同样计入

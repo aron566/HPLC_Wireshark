@@ -5,8 +5,9 @@
 #        AuthenticateDialog/Downloader 两个 .ui 对话框。文件保持上游原貌,
 #        不做本地风格改造;许可副本见本目录 LICENSE.md。
 # 同步基线:上游 master e474328(2026-10-16);本地补丁——
-#        Updater.cpp 的 clipped_changelog 裁剪、downloadUrl 镜像前缀、
-#        update.json 1 MB 上限;Downloader 的 512 MB 安装包上限
+#        Updater.cpp 的 clipped_changelog 裁剪、downloadUrl 镜像前缀、update.json 1 MB 上限、
+#        sanitized_download_file_name 文件名净化(含 Windows 保留设备名改名,供探针验证);
+#        Downloader 的 512 MB 安装包上限
 #        (均有「本地修改/local extension」标注,同步时按标注重打)。
 #
 # 用法:  #include "QSimpleUpdater.h"

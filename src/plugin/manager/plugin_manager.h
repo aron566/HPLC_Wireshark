@@ -84,7 +84,23 @@ struct PluginRuntime {
     std::atomic<bool> retired{false}; ///< stop_all 已退役:对象本体延迟到
                                       ///< 管理器析构才释放(见 stop_all)
     QString       disable_reason;     ///< 仅 GUI 线程读写
+    /// @brief 最近一次 Pong 的单调时钟时刻(ms,steady_ms 基准)
+    /// @details 旧实现用 QDateTime::currentMSecsSinceEpoch()(墙钟):系统时间被
+    ///          NTP 回拨/用户改时间时,now - last_pong 会变成负数或跳变,
+    ///          心跳要么永不超时(卡死 host 一直活着)要么瞬间误杀。
     std::atomic<qint64> last_pong_ms{0};
+    /// @brief 第一枚"尚未被 Pong 应答"的 Ping 的单调时刻(ms);0 = 无未应答 Ping
+    /// @details 超时必须从这枚 Ping 起算,而不是从最近一次 Pong 起算:
+    ///          旧实现 now - last_pong 在"Ping 已发出但 host 已卡死"时,
+    ///          计时起点是上一枚 Pong,等于把超时窗口白白多算一个 Ping 间隔。
+    std::atomic<qint64> first_unanswered_ping_ms{0};
+    /// @brief 最近一次活动(单调时钟 ms):解析/图形请求或握手完成(L9 空闲退避时钟)
+    /// @details Pong 本身不算活动(否则每次 Ping 都会复位空闲,退避永不生效)
+    std::atomic<qint64> last_activity_ms{0};
+    /// @brief 最近一次 Ping 发出(单调时钟 ms;供空闲节奏门控)
+    std::atomic<qint64> last_ping_ms{0};
+    /// @brief 已发 Ping 数(测试/诊断用)
+    std::atomic<quint64> ping_count{0};
 };
 
 /// @brief 插件管理器(单例,主线程)
@@ -130,6 +146,12 @@ public:
                                       const GraphicsEvent& e,
                                       QObject* context = nullptr,
                                       EventCallback cb = {});
+    /// @brief 当前心跳配置(毫秒;读 config.ini [plugin] 段,改配置无需重启)
+    int heartbeat_interval_ms() const;        ///< 活动间隔
+    int heartbeat_idle_interval_ms() const;   ///< 空闲间隔
+    int heartbeat_timeout_ms() const;         ///< 超时
+    /// @brief 该插件已发 Ping 数(测试/诊断用;无此插件返回 0)
+    quint64 ping_count(const QString& protocol_id) const;
     /// @brief 当前登记中的异步请求数(全部插件;测试/诊断用)
     int pending_async_requests() const;
     /// @brief 注册图形视图(收 RequestRedraw 时通知重绘)
@@ -197,6 +219,13 @@ private:
     QMap<QString, QList<PluginGraphicsView*>> m_graphics_views;  ///< key: protocol_id
     QTimer m_async_timer;            ///< 异步请求超时扫描(GUI 线程;有登记时才运行)
     QTimer m_hb_timer;               ///< 心跳定时器(GUI 线程;Ping 经 post_message 排队)
+    /// @brief 心跳参数:启动时读一次配置,之后不再每轮重读
+    /// @details 旧实现每轮 tick 都调 appcfg::plugin_heartbeat_*(),那是三次
+    ///          QSettings 读盘 + 字符串解析,5 s 一次的心跳里纯属浪费;
+    ///          而且配置在运行中被改会让超时窗口在飞行中变化,难以复现。
+    int m_hb_interval_ms = 5000;
+    int m_hb_idle_ms = 30000;
+    int m_hb_timeout_ms = 15000;
     QThread* m_ipc_thread = nullptr;  ///< "PluginIpc" 线程
     QObject* m_ipc_ctx = nullptr;     ///< 住在 IPC 线程的上下文对象:server 的父对象、
                                       ///< 排队调用/信号连接的接收方

@@ -227,7 +227,34 @@ inline QString plugin_contained_entry_path(const QString& plugin_dir,
     return file_canon;
 }
 
-/// @brief 插件名(= 安装目录名)白名单:[A-Za-z0-9][A-Za-z0-9._-]{0,63}
+/// @brief Windows 保留设备名(大小写不敏感):CON/PRN/AUX/NUL/COM1-9/LPT1-9。
+/// @details 名字会成为安装目录名,Windows 上建同名目录失败;带后缀也一样
+///          (如 CON.txt 的主名仍是保留名,故比对去后缀的主名,并去掉末尾的
+///          '.'/' ')。COM10/LPT10 这类两位数不在保留名之列,不要误杀。
+inline bool plugin_name_is_reserved(const QString& name) {
+    QString stem = name;
+    // 按第一个点拆分:Windows 保留名判定看的是主名,而主名是第一个点之前的部分。
+    // 用 lastIndexOf 会把 "CON.foo.txt" 的主名当成 "CON.foo"、"com1.a.b" 当成
+    // "com1.a",于是这些名字被误判为安全,在 Windows 上建目录/写文件时失败。
+    const int dot = stem.indexOf(QLatin1Char('.'));
+    if (dot > 0) stem.truncate(dot);
+    while (!stem.isEmpty() &&
+           (stem.endsWith(QLatin1Char('.')) || stem.endsWith(QLatin1Char(' '))))
+        stem.chop(1);
+    const QString upper = stem.toUpper();
+    if (upper == QLatin1String("CON") || upper == QLatin1String("PRN") ||
+        upper == QLatin1String("AUX") || upper == QLatin1String("NUL"))
+        return true;
+    if (upper.size() == 4 &&
+        (upper.startsWith(QLatin1String("COM")) || upper.startsWith(QLatin1String("LPT")))) {
+        const QChar d = upper.at(3);
+        return d >= QLatin1Char('1') && d <= QLatin1Char('9');
+    }
+    return false;
+}
+
+/// @brief 插件名(= 安装目录名)白名单:[A-Za-z0-9][A-Za-z0-9._-]{0,63},
+///        且不能是 Windows 保留设备名(plugin_name_is_reserved)。
 /// @details 名字会被拼成安装目录并在覆盖安装/卸载时整目录删除,
 ///          必须是单级目录名:不含 '/' '\\' ':',不能是 "." / ".."(首字符须为字母数字)。
 inline bool plugin_name_is_safe(const QString& name) {
@@ -243,6 +270,7 @@ inline bool plugin_name_is_safe(const QString& name) {
             continue;
         return false;
     }
+    if (plugin_name_is_reserved(name)) return false;
     return true;
 }
 
