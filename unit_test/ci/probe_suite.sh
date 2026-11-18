@@ -207,6 +207,9 @@ p_protocol_nw_nw2026_delegate_probe() {   # NW_2026 委托走注册表(A1):内�
     build protocol-nw/nw2026-delegate-probe && run nw2026-delegate 60 "$UT/protocol-nw/nw2026-delegate-probe/build/nw2026_delegate_probe/nw2026_delegate_probe" \
         "$UT/topo/topo-route-verify/user_frame_container.bin" && has "RESULT: ALL PASS (0 failures)"
 }
+p_protocol_nw_nw2021_frametype_probe() {   # NW_2021 枚举独立头(A5):不依赖 QtWidgets 也能编过
+    build protocol-nw/nw2021-frametype-probe && run nw2021-frametype 60 "$UT/protocol-nw/nw2021-frametype-probe/build/nw2021_frametype_probe/nw2021_frametype_probe" && has "RESULT: ALL PASS (0 failures)"
+}
 p_protocol_nw_nw2026_ul_probe() {
     build protocol-nw/nw2026-ul-probe && run nw2026-ul 30 "$UT/protocol-nw/nw2026-ul-probe/build/probe/nw2026_ul_probe" \
         "$FP/nw2026_trigger.bin" "$FP/nw2026_ul_ofdma_data.bin" "$FP/nw2026_dl_sack.bin" \
