@@ -34,6 +34,17 @@ BPLC/HRF(HPLC) 协议 STA 报文监控上位机(Windows,Qt 6 / C++17)。
 
 自查脚本：`python tools/check_title_case.py`（扫全项目英文文案合规性）
 
+## 辅助工具 / Helper Tools
+
+全部脚本索引见 **[`tools/README.md`](tools/README.md)**，常看的几项：
+
+| 工具 | 用途 | 用法 |
+|---|---|---|
+| **报文封装 GUI** | 原始报文 → `0x3C/0x3E` 封装 txt（时间值固定 0，可选 isRF） | Windows 双击 `tools/frame_wrap/frame_wrap.bat`<br>Linux `./tools/frame_wrap/frame_wrap.sh` |
+| `tools/check_i18n.py` | i18n 配对与裸中文自查（`trl::L` + `register_en`） | `py -3 tools/check_i18n.py --strict` |
+| `tools/check_title_case.py` | 英文 Title Case 合规 | `py -3 tools/check_title_case.py --strict` |
+| `tools/gen_*.py` | 从 `docs/protocol_doc/` 规约生成帧目录 / 跨协议对照 / 3 级帧型矩阵 | 见 `tools/README.md` |
+
 ## 使用说明书 / User Manual
 
 - [中文使用说明书](docs/USER_MANUAL_zh-CN.md)
