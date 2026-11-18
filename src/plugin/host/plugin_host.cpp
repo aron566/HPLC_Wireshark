@@ -100,10 +100,17 @@ void PluginHost::on_ready_read() {
             return;
         }
 
-        QDataStream ds(frame);
-        ds.setVersion(plugin_ipc::kStreamVersion);
         quint8 t = 0;
-        ds >> t;
+        QByteArray payload;
+        QString decode_error;
+        if (!plugin_ipc::decode_frame(frame, &t, &payload, &decode_error)) {
+            m_rx_buf.clear();
+            m_socket.abort();
+            QCoreApplication::exit(3);
+            return;
+        }
+        QDataStream ds(payload);
+        ds.setVersion(plugin_ipc::kStreamVersion);
         handle_message(static_cast<plugin_ipc::MsgType>(t), ds);
     }
 }
@@ -118,11 +125,12 @@ void PluginHost::on_socket_error(QLocalSocket::LocalSocketError e) {
 }
 
 void PluginHost::send_message(plugin_ipc::MsgType t, const QByteArray& payload) {
-    QByteArray frame;
-    QDataStream ds(&frame, QIODevice::WriteOnly);
-    ds.setVersion(plugin_ipc::kStreamVersion);
-    ds << quint32(1 + payload.size()) << static_cast<quint8>(t);
-    frame.append(payload);
+    const QByteArray frame = plugin_ipc::encode_frame(static_cast<quint8>(t), payload);
+    if (frame.isEmpty()) {
+        qWarning() << "PluginHost: failed to encode protobuf frame";
+        m_socket.abort();
+        return;
+    }
     m_socket.write(frame);
     m_socket.flush();
 }

@@ -1,6 +1,6 @@
 /// @file plugin_ipc.h
 /// @brief 插件 IPC 协议定义(主程序 ↔ bplc-plugin-host)
-/// @details 传输:QLocalSocket;帧格式:[quint32 总长][quint8 消息类型][QDataStream 载荷]
+/// @details 传输:QLocalSocket;帧格式:[quint32 总长][Protobuf Envelope];Envelope 内载荷暂保留 QDataStream 域对象布局
 ///          QDataStream 版本固定为 Qt_6_5,保证主程序与 host 一致。
 #ifndef BPLC_PLUGIN_IPC_H
 #define BPLC_PLUGIN_IPC_H
@@ -10,17 +10,19 @@
 #include <QDataStream>
 #include <QString>
 #include <QtGlobal>
+#include "plugin_wire.pb.h"
 
 namespace plugin_ipc {
+
+using Envelope = ::bplc::plugin::ipc::Envelope;
 
 /// @brief 插件 API 版本(主程序与 host 握手时校验,不一致则拒绝)
 constexpr int kApiVersion = 1;
 
-/// @brief IPC 载荷序列化格式版本(plugin_serialization 的 QDataStream 算子布局)
-/// @details 与 kApiVersion 分开:kApiVersion 是插件清单声明的 API 级别,本项
-///          只约束 app↔host 之间的载荷布局。布局变更必须升版,握手时随
-///          Hello 一并校验,不一致则拒绝连接——不做跨版本布局兼容,避免
-///          新旧两端按不同布局静默错位反序列化。
+/// @brief IPC Protobuf Envelope / 载荷格式版本。
+/// @details 与 kApiVersion 分开:kApiVersion 是插件清单声明的 API 级别;本项
+///          标识 Protobuf 信封及其承载的 app↔host 消息体布局。版本不匹配
+///          即拒绝连接,不允许新旧消息体静默错位。
 ///          v1:旧布局(MsduInfo 无 route_hops_left、ParseResult 无 protocol)
 ///          v2:MsduInfo 增 route_hops_left、ParseResult 增 protocol
 ///          v3:三线合流并集,MpduInfo 增 pb_num_field(GW 线载波块数/无线大小码)
@@ -29,7 +31,7 @@ constexpr int kApiVersion = 1;
 ///          v6:MpduInfo 增 mcs(无线 MCS)
 ///          v7:ParseResult 增 dissect_fields(插件通用字段树);MpduInfo 删死字段
 ///             pb_index/coord_option/ack_search_freq
-constexpr int kWireFormatVersion = 7;
+constexpr int kWireFormatVersion = 8;
 
 /// @brief QDataStream 序列化版本(双方必须一致)
 constexpr int kStreamVersion = QDataStream::Qt_6_5;
@@ -52,22 +54,78 @@ enum class MsgType : quint8 {
     RequestRedraw = 54,  ///< host→app: {} 插件主动请求重绘(如动画/数据更新)
 };
 
-/// @brief 单帧上限(类型字节 + 载荷),超过视为协议错误
-/// @details 帧头长度来自对端进程,不可信。上限 1 MB:覆盖解析结果与常规尺寸的图形帧(PNG 压缩 QImage)。
+/// @brief 单个长度前缀帧的 Protobuf Envelope 上限,超过视为协议错误
+/// @details 帧头长度来自对端进程,不可信。上限 1 MB:覆盖解析结果与常规尺寸的图形帧。
 constexpr qint64 kMaxIpcFrame = 1 * 1024 * 1024;
 
 /// @brief try_take_frame 的结果
+/// @brief 将消息类型和兼容载荷编码为 Protobuf Envelope。
+inline QByteArray encode_envelope(quint8 type, const QByteArray& payload,
+                                  QString* error = nullptr) {
+    Envelope envelope;
+    envelope.set_wire_format_version(kWireFormatVersion);
+    envelope.set_message_type(type);
+    envelope.set_payload(payload.constData(), size_t(payload.size()));
+    std::string encoded;
+    if (!envelope.SerializeToString(&encoded)) {
+        if (error) *error = QStringLiteral("protobuf envelope serialization failed");
+        return {};
+    }
+    return QByteArray(encoded.data(), int(encoded.size()));
+}
+
+/// @brief 解码并严格校验 Protobuf Envelope 的版本和消息类型。
+inline bool decode_envelope(const QByteArray& encoded, quint8* type,
+                            QByteArray* payload, QString* error = nullptr) {
+    Envelope envelope;
+    if (!envelope.ParseFromArray(encoded.constData(), encoded.size())) {
+        if (error) *error = QStringLiteral("invalid protobuf envelope");
+        return false;
+    }
+    if (envelope.wire_format_version() != uint32_t(kWireFormatVersion)) {
+        if (error) *error = QStringLiteral("wire_format_version mismatch");
+        return false;
+    }
+    if (envelope.message_type() > 0xFFu) {
+        if (error) *error = QStringLiteral("message_type out of range");
+        return false;
+    }
+    if (type) *type = quint8(envelope.message_type());
+    if (payload) *payload = QByteArray(envelope.payload().data(),
+                                       int(envelope.payload().size()));
+    return true;
+}
+
+/// @brief 编码一个带长度头的 IPC 帧。
+inline QByteArray encode_frame(quint8 type, const QByteArray& payload,
+                               QString* error = nullptr) {
+    const QByteArray body = encode_envelope(type, payload, error);
+    if (body.isEmpty() || body.size() + 4 > kMaxIpcFrame + 4) return {};
+    QByteArray frame;
+    QDataStream ds(&frame, QIODevice::WriteOnly);
+    ds.setByteOrder(QDataStream::BigEndian);
+    ds << quint32(body.size());
+    frame.append(body);
+    return frame;
+}
+
+/// @brief 将完整长度前缀帧解码为消息类型与消息载荷。
+inline bool decode_frame(const QByteArray& frame, quint8* type, QByteArray* payload,
+                         QString* error = nullptr) {
+    return decode_envelope(frame, type, payload, error);
+}
+
 enum class FrameTake {
     Ok,        ///< 取出一帧,out 为 [type][payload]
     NeedMore,  ///< 数据不足,等待更多字节
     Bad,       ///< 帧长为 0 或超过 kMaxIpcFrame:调用方必须断开连接
 };
 
-/// @brief 从接收缓冲取出一帧 [quint32 len][len 字节]
+/// @brief 从接收缓冲取出一帧 [quint32 len][Protobuf Envelope]
 /// @details 主程序与 host 共用。长度统一按 qint64 比较,避免 4 + len 回绕。
 /// @param buf 接收缓冲,成功时移除已取出的字节
 /// @param out 输出帧(不含长度头)
-/// @return 见 FrameTake
+/// @return 见 FrameTake; out 为 Envelope 序列化字节,随后由 decode_frame 解码
 inline FrameTake try_take_frame(QByteArray& buf, QByteArray& out) {
     if (buf.size() < 4) return FrameTake::NeedMore;
     const auto* p = reinterpret_cast<const uchar*>(buf.constData());

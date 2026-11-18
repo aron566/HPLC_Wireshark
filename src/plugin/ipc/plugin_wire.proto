@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package bplc.plugin.ipc;
+
+// Versioned protobuf envelope used inside the existing 4-byte big-endian
+// length-prefixed QLocalSocket stream. The payload is the message-specific body;
+// existing Qt domain-object codecs are retained for this wire-format migration.
+message Envelope {
+  uint32 wire_format_version = 1;
+  uint32 message_type = 2;
+  bytes payload = 3;
+}

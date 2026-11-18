@@ -381,10 +381,18 @@ void PluginManager::on_host_ready_read(PluginRuntime* rt) {
         const auto took = plugin_ipc::try_take_frame(rt->rx_buf, frame);
         if (took == plugin_ipc::FrameTake::NeedMore) break;
         if (took == plugin_ipc::FrameTake::Bad) { bad_frame = true; break; }
-        QDataStream ds(frame);
-        ds.setVersion(plugin_ipc::kStreamVersion);
         quint8 t = 0;
-        ds >> t;
+        QByteArray payload;
+        QString decode_error;
+        if (!plugin_ipc::decode_frame(frame, &t, &payload, &decode_error)) {
+            bad_frame = true;
+            qWarning() << "PluginManager IPC: invalid protobuf envelope:" << decode_error;
+            break;
+        }
+        QByteArray legacy_frame(1, char(t));
+        legacy_frame.append(payload);
+        QDataStream ds(payload);
+        ds.setVersion(plugin_ipc::kStreamVersion);
         const auto mt = static_cast<plugin_ipc::MsgType>(t);
         if (mt == plugin_ipc::MsgType::ParseResponse ||
             mt == plugin_ipc::MsgType::RenderResponse ||
@@ -393,7 +401,7 @@ void PluginManager::on_host_ready_read(PluginRuntime* rt) {
             ds >> rseq;
             QMutexLocker lock(&rt->ipc_mutex);
             if (rt->waiting.contains(rseq)) {   // 同步等待方(worker 解析)
-                rt->responses.insert(rseq, frame);
+                rt->responses.insert(rseq, legacy_frame);
                 rt->resp_cv.wakeAll();
                 continue;
             }
@@ -439,7 +447,7 @@ void PluginManager::on_host_ready_read(PluginRuntime* rt) {
             rt->first_unanswered_ping_ms = 0;
             continue;
         }
-        to_gui.append(frame);
+        to_gui.append(legacy_frame);
     }
     if (!to_gui.isEmpty()) {
         const QString pid = rt->manifest.protocol_id;
@@ -527,11 +535,11 @@ void PluginManager::send_message(PluginRuntime* rt, quint8 type,
                                 const QByteArray& payload) {
     Q_ASSERT(!m_ipc_thread || QThread::currentThread() == m_ipc_thread);
     if (!rt->socket) return;
-    QByteArray frame;
-    QDataStream ds(&frame, QIODevice::WriteOnly);
-    ds.setVersion(plugin_ipc::kStreamVersion);
-    ds << quint32(1 + payload.size()) << type;
-    frame.append(payload);
+    const QByteArray frame = plugin_ipc::encode_frame(type, payload);
+    if (frame.isEmpty()) {
+        qWarning() << "PluginManager IPC: failed to encode protobuf frame" << type;
+        return;
+    }
     rt->socket->write(frame);
     rt->socket->flush();
 }
