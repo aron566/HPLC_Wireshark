@@ -4,6 +4,8 @@ CONFIG   += c++17 console
 CONFIG   -= app_bundle
 
 TARGET = bplc-plugin-host
+
+include(../../../3rdparty/protobuf/protobuf.pri)
 TEMPLATE = app
 
 DEFINES += QT_DEPRECATED_WARNINGS
@@ -31,6 +33,7 @@ HEADERS += \
     ../plugin_api/igraphicsplugin.h \
     ../plugin_api/plugin_manifest.h \
     ../ipc/plugin_ipc.h \
+    ../ipc/plugin_wire.pb.h \
     ../ipc/plugin_serialization.h
 
 # 节点图标(与主程序 TopoWindow 同源),供 ScriptPainter::draw_icon
@@ -44,4 +47,5 @@ SOURCES += \
     js_backend.cpp \
     lua_backend.cpp \
     script_painter.cpp \
+    ../ipc/plugin_wire.pb.cc \
     ../ipc/plugin_serialization.cpp

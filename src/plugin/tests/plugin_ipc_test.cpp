@@ -59,11 +59,7 @@ QByteArray make_payload(std::function<void(QDataStream&)> writer) {
 }
 
 void send_msg(QLocalSocket* sock, plugin_ipc::MsgType t, const QByteArray& payload) {
-    QByteArray frame;
-    QDataStream ds(&frame, QIODevice::WriteOnly);
-    ds.setVersion(plugin_ipc::kStreamVersion);
-    ds << quint32(1 + payload.size()) << static_cast<quint8>(t);
-    frame.append(payload);
+    const QByteArray frame = plugin_ipc::encode_frame(static_cast<quint8>(t), payload);
     sock->write(frame);
     sock->flush();
 }
@@ -91,10 +87,13 @@ RecvResult recv_msg(QLocalSocket* sock, int timeout_ms = 10000) {
         QByteArray body;
         switch (plugin_ipc::try_take_frame(buf, body)) {
         case plugin_ipc::FrameTake::Ok: {
-            const auto t = static_cast<plugin_ipc::MsgType>(static_cast<quint8>(body[0]));
+            quint8 type = 0;
+            if (!plugin_ipc::decode_frame(body, &type, &r.payload, &r.error)) {
+                return r;
+            }
+            const auto t = static_cast<plugin_ipc::MsgType>(type);
             if (t == plugin_ipc::MsgType::RequestRedraw) continue;
             r.type = t;
-            r.payload = body.mid(1);
             r.ok = true;
             return r;
         }
@@ -185,11 +184,13 @@ bool test_plugin(const QString& host_bin, const QString& plugin_dir,
         QString plugin_id;
         QString plugin_name2;
         int api_ver = 0;
+        int wire_ver = 0;
         if (ok) {
             QDataStream ds(rr.payload);
             ds.setVersion(plugin_ipc::kStreamVersion);
-            ds >> api_ver >> plugin_name2 >> plugin_id;
-            ok = (api_ver == plugin_ipc::kApiVersion);
+            ds >> api_ver >> plugin_name2 >> plugin_id >> wire_ver;
+            ok = (api_ver == plugin_ipc::kApiVersion &&
+                  wire_ver == plugin_ipc::kWireFormatVersion);
         }
         check(ok, QStringLiteral("Hello handshake"),
               ok ? QStringLiteral("plugin_id=%1").arg(plugin_id) : rr.error);
@@ -313,6 +314,32 @@ bool test_plugin(const QString& host_bin, const QString& plugin_dir,
 
 int main(int argc, char* argv[]) {
     QCoreApplication app(argc, argv);
+
+    // Protobuf envelope round trip and strict version rejection.
+    {
+        const QByteArray payload = QByteArray::fromHex("001122ff");
+        const QByteArray frame = plugin_ipc::encode_frame(
+            static_cast<quint8>(plugin_ipc::MsgType::Ping), payload);
+        QByteArray rx = frame;
+        QByteArray decoded_body;
+        const bool framed = plugin_ipc::try_take_frame(rx, decoded_body) ==
+                            plugin_ipc::FrameTake::Ok;
+        quint8 type = 0;
+        QByteArray decoded_payload;
+        const bool decoded = framed && plugin_ipc::decode_frame(
+            decoded_body, &type, &decoded_payload);
+        check(decoded && type == static_cast<quint8>(plugin_ipc::MsgType::Ping) &&
+                  decoded_payload == payload, QStringLiteral("Protobuf envelope round trip"));
+        auto wrong_version = plugin_ipc::Envelope();
+        wrong_version.set_wire_format_version(plugin_ipc::kWireFormatVersion - 1);
+        wrong_version.set_message_type(static_cast<quint8>(plugin_ipc::MsgType::Ping));
+        std::string bytes;
+        wrong_version.SerializeToString(&bytes);
+        QString error;
+        check(!plugin_ipc::decode_frame(QByteArray(bytes.data(), int(bytes.size())),
+                                        &type, &decoded_payload, &error),
+              QStringLiteral("Protobuf rejects incompatible wire version"), error);
+    }
     // 总时长看门狗:任何一步卡住都在 120 s 内以失败退出,绝不挂死 CI
     // (测试全程是阻塞调用,QTimer 不会被调度,所以用独立线程)
     std::thread([] {
