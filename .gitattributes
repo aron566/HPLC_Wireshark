@@ -9,3 +9,9 @@ unit_test/ci/roundtrip/roundtrip_test.bin -text
 # 导致"包内插件 vs 仓库 blob"比对必须先归一化才能比（一致性卫生，非加载问题——
 # 实测 CRLF 版在 release/ 与安装目录均能正常加载）。同类规则见上方 *.nsi。
 *.lua text eol=lf
+
+# Windows 批处理必须 CRLF(否则 cmd.exe 解析错乱: 报 'hon'/'rlevel' 之类),
+# shell 脚本必须 LF。与各平台的 core.autocrlf 设置无关,始终强制。
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.sh   text eol=lf
