@@ -27,6 +27,8 @@ SOURCES += msdu_crc_gate_probe.cpp \
            $$R/src/protocol/nw_protocol/nw_2021/nw_2021_msdu_parser.cpp \
            $$R/src/protocol/nw_protocol/nw_2021/nw_2021_beacon_parser.cpp \
            $$R/src/protocol/nw_protocol/nw_2026/nw_2026_parser.cpp \
+           # NW_2026_Parser 构造时经注册表取委托解析器
+           $$R/src/protocol/protocolfactory.cpp \
            $$R/src/protocol/nw_protocol/nw_2026/nw_2026_msdu_parser.cpp \
            $$R/src/protocol/nw_protocol/nw_2026/nw_2026_beacon_parser.cpp \
            $$R/src/protocol/gw_protocol/gw_2026/gw_2026_parser.cpp \

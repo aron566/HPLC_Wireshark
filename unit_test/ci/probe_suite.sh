@@ -203,6 +203,10 @@ p_protocol_nw_nw2026_frame_test() {
     build protocol-nw/nw2026-frame-test && run nw2026-frame 30 "$UT/protocol-nw/nw2026-frame-test/build/probe/frame_test" \
         "$UT/topo/topo-route-verify/user_frame_container.bin" 0 && has "frame 1 accept=1 fch_ok=1" "msdu_present=1"
 }
+p_protocol_nw_nw2026_delegate_probe() {   # NW_2026 委托走注册表(A1):内置委托与裸 NW_2021 一致、影子覆盖生效
+    build protocol-nw/nw2026-delegate-probe && run nw2026-delegate 60 "$UT/protocol-nw/nw2026-delegate-probe/build/nw2026_delegate_probe/nw2026_delegate_probe" \
+        "$UT/topo/topo-route-verify/user_frame_container.bin" && has "RESULT: ALL PASS (0 failures)"
+}
 p_protocol_nw_nw2026_ul_probe() {
     build protocol-nw/nw2026-ul-probe && run nw2026-ul 30 "$UT/protocol-nw/nw2026-ul-probe/build/probe/nw2026_ul_probe" \
         "$FP/nw2026_trigger.bin" "$FP/nw2026_ul_ofdma_data.bin" "$FP/nw2026_dl_sack.bin" \
@@ -276,6 +280,10 @@ p_plugin_ipc_decode_probe() {   # 插件 IPC 反序列化防护(M2 深度/节点
     cp "$UT/plugin/ipc-decode-probe/build/ipc_decode_probe/ipc_decode_probe" "$d/" || return 1
     (cd "$d" && run ipc-decode 180 ./ipc_decode_probe) && OUT="$LOGD/ipc-decode.out" \
         && has "RESULT: ALL PASS (0 failures)" "e2e hugecount: parse refused" && lacks " FAIL"
+}
+p_plugin_protocol_registry_probe() {   # 分层注册表(A1/A-7/A4):内置只读/影子覆盖/归属+引用计数/告警
+    build plugin/protocol-registry-probe || return 1
+    run protocol-registry 60 "$UT/plugin/protocol-registry-probe/build/protocol_registry_probe/protocol_registry_probe" && has "RESULT: ALL PASS (0 failures)" && lacks " FAIL"
 }
 p_plugin_host_exit_uaf_probe() {   # 宿主退出/崩溃时 QProcess 在自身信号里被 delete(UAF),ASan+UBSan + 释放填充
     build plugin/host-exit-uaf-probe || return 1

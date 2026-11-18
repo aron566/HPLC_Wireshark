@@ -140,6 +140,7 @@ void PluginManager::stop_all() {
         rt->retired.store(true);
         wake_waiters(rt);
         fail_async(rt);   // 在途异步图形请求以失败结束(排队回调;上下文已销毁则丢弃)
+        // 停机清理:强制摘除覆盖层条目(忽略引用计数/归属,内置层本就不受影响)
         unregister_parser(rt->manifest.protocol_id);
     }
     // 第二遍(IPC 线程,同步):发 Shutdown、断开并释放 socket/server。
@@ -504,10 +505,15 @@ void PluginManager::handle_message(const QString& plugin_id,
             touch_activity(rt);   // 刚握手算活动:新插件前 idle_ms 内仍按活动间隔 Ping
             rt->ready = true;
             // 注册到协议注册表(协议 id → 代理;显示名取自 plugin.json,供界面协议列表)
+            // 归属 = 插件 protocol_id(写覆盖层);同归属重复握手不再重复登记
+            // (防引用计数膨胀),影子覆盖内置同名 id 时注册表内告警(A4)。
             const QString pid = rt->manifest.protocol_id;
-            register_parser_provider(pid, rt->manifest.display_name,
-                                     rt->manifest.display_name_en,
-                                     [pid]() { return make_plugin_parser(pid); });
+            if (protocol_owner_plugin_id(pid) != pid) {
+                register_parser_provider(pid, rt->manifest.display_name,
+                                         rt->manifest.display_name_en,
+                                         [pid]() { return make_plugin_parser(pid); },
+                                         200, pid);
+            }
             emit plugin_status_changed(plugin_id, QStringLiteral("ready"));
         } else if (!ok) {
             disable_plugin(plugin_id, QStringLiteral("handshake failed"));
@@ -647,7 +653,8 @@ bool PluginManager::parse_via_plugin(const QString& protocol_id,
         QMetaObject::invokeMethod(this, [this, rt, protocol_id, reason, corrupt]() {
             if (rt->retired.load()) return;
             rt->disable_reason = reason;
-            unregister_parser(rt->manifest.protocol_id);
+            // 按归属注销:只摘本插件的覆盖条目(引用计数 -1),不动他人/内置
+            unregister_parser_for_owner(rt->manifest.protocol_id, protocol_id);
             emit plugin_status_changed(protocol_id, corrupt ? QStringLiteral("protocol-error-disabled")
                                                             : QStringLiteral("timeout-disabled"));
             shutdown_runtime(rt);
@@ -684,7 +691,8 @@ void PluginManager::disable_plugin(const QString& plugin_id,
     rt->ready = false;
     wake_waiters(rt);   // 等待中的请求立即失败返回,不必等满超时
     fail_async(rt);     // 在途异步图形请求排队失败回调(不在本调用内重入回调)
-    unregister_parser(rt->manifest.protocol_id);
+    // 按归属注销:只摘本插件的覆盖条目(引用计数 -1),不动他人/内置
+    unregister_parser_for_owner(rt->manifest.protocol_id, plugin_id);
     emit plugin_status_changed(plugin_id, QStringLiteral("disabled: ") + reason);
     shutdown_runtime(rt);
 }
