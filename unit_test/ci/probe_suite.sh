@@ -265,6 +265,10 @@ p_app_frame_dispatcher_lifetime_probe() {   # FrameDispatcher 重建生命周期
         && OUT="$LOGD/frame-dispatcher-lifetime.out" \
         && has "frame_dispatcher_lifetime_probe: OK" && lacks "ERROR: AddressSanitizer" && lacks "runtime error:"
 }
+p_app_plugin_unregister_fallback_probe() {   # 插件注销热回退(A-8):注销重建回退内置;注册到达采集中不切换、空闲时切换
+    build app/plugin-unregister-fallback-probe || return 1
+    run plugin-unregister-fallback 120 "$UT/app/plugin-unregister-fallback-probe/build/plugin_unregister_fallback_probe/plugin_unregister_fallback_probe" && has "RESULT: ALL PASS (0 failures)" && lacks " FAIL"
+}
 p_app_downloader_rename_probe() {   # Downloader 重命名失败发 downloadFailed(M6)、不装错文件
     build app/downloader-rename-probe || return 1
     local d; d=$(rundir downloader-rename)

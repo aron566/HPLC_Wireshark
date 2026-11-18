@@ -106,6 +106,8 @@ private slots:
     void on_download_failed(const QString& url, const QString& error);  // 更新下载失败(QSimpleUpdater::downloadFailed,重命名/网络错误/超限三路)
     void on_mirror_resolved(const QString& effectiveUrl, const QString& prefix); // 更新加速解析完成 → 正式发起检查
     void on_plugin_loaded(const PluginLoadedInfo& info);  // 插件就绪 → 建功能面板
+    void on_plugin_status_changed(const QString& plugin_id,
+                                  const QString& status);  // 插件注销/注册到达 → 分发器热回退/切换(A-8)
     void on_choose_plugin_dir();                  // 插件菜单:选择插件目录
     void on_open_plugin_market();                 // 插件菜单:插件市场
 
