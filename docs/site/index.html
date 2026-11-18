@@ -587,7 +587,7 @@ footer{
   <div class="inner hero-grid">
     <div>
       <div class="badge-row">
-        <span class="badge live">v2.0.1</span>
+        <span class="badge live" id="heroVer">v2.0.1</span>
         <span class="badge">Qt 6.11 · C++17</span>
         <span class="badge">Apache-2.0</span>
         <span class="badge">Windows / Linux</span>
@@ -930,8 +930,8 @@ footer{
             <div class="step-n">1</div>
             <div class="step-body">
               <h4>下载安装包</h4>
-              <p>从 Releases 页面获取 <code class="inline-code">BPLC_STA_Monitor_Setup_v2.0.1.exe</code>（Windows）
-                 或 <code class="inline-code">BPLC_STA_Monitor_v2.0.1_linux_x86_64.tar.gz</code>（Linux）。</p>
+              <p>从 Releases 页面获取 <code class="inline-code js-win-file">BPLC_STA_Monitor_Setup_v2.0.1.exe</code>（Windows）
+                 或 <code class="inline-code js-lin-file">BPLC_STA_Monitor_v2.0.1_linux_x86_64.tar.gz</code>（Linux）。</p>
             </div>
           </div>
           <div class="step">
@@ -941,10 +941,10 @@ footer{
               <p>默认安装到 <code class="inline-code">%LOCALAPPDATA%\Programs\BPLC_STA_Monitor</code>，
                  自动创建桌面快捷方式与开始菜单项。升级安装会先关闭运行中的程序并覆盖旧文件，
                  同时保留已有的 <code class="inline-code">config.ini</code>。</p>
-              <div class="code-block"><button class="copy-btn" data-copy="BPLC_STA_Monitor_Setup_v2.0.1.exe /S">复制</button><span class="cmt"># 静默安装（免 UAC）</span>
-BPLC_STA_Monitor_Setup_v2.0.1.exe /S
+              <div class="code-block"><button class="copy-btn" id="silentInstallCopy" data-copy="BPLC_STA_Monitor_Setup_v2.0.1.exe /S">复制</button><span class="cmt"># 静默安装（免 UAC）</span>
+<span class="js-win-file">BPLC_STA_Monitor_Setup_v2.0.1.exe</span> /S
 <span class="cmt"># 静默安装到指定目录</span>
-BPLC_STA_Monitor_Setup_v2.0.1.exe /S /D=C:\my\dir</div>
+<span class="js-win-file">BPLC_STA_Monitor_Setup_v2.0.1.exe</span> /S /D=C:\my\dir</div>
             </div>
           </div>
           <div class="step">
@@ -1032,8 +1032,8 @@ mingw32-make -j4
           <div class="step">
             <div class="step-n">3</div>
             <div class="step-body"><h4>一键打包</h4><p>全量构建 → windeployqt 收集 Qt 运行库 → NSIS 生成安装包。</p>
-              <div class="code-block"><button class="copy-btn" data-copy="bash scripts/package.sh 2.0.1">复制</button>bash scripts/package.sh 2.0.1
-<span class="cmt"># 产物: dist/BPLC_STA_Monitor_Setup_v2.0.1.exe</span></div>
+              <div class="code-block"><button class="copy-btn" id="packageCopy" data-copy="bash scripts/package.sh 2.0.1">复制</button>bash scripts/package.sh <span class="js-ver">2.0.1</span>
+<span class="cmt"># 产物: dist/<span class="js-win-file">BPLC_STA_Monitor_Setup_v2.0.1.exe</span></span></div>
             </div>
           </div>
           <div class="step">
@@ -1726,14 +1726,14 @@ hplc &amp; beacon</div>
         <div class="dl-card">
           <div class="dl-os">Windows · x64</div>
           <div class="dl-name">安装包（推荐）</div>
-          <div class="dl-file">BPLC_STA_Monitor_Setup_v2.0.1.exe</div>
-          <a class="dl-link" href="https://github.com/aron566/HPLC_Wireshark/releases/download/v2.0.1/BPLC_STA_Monitor_Setup_v2.0.1.exe" target="_blank" rel="noopener">下载 →</a>
+          <div class="dl-file js-win-file" id="dlWinFile">BPLC_STA_Monitor_Setup_v2.0.1.exe</div>
+          <a class="dl-link" id="dlWinLink" href="https://github.com/aron566/HPLC_Wireshark/releases/download/v2.0.1/BPLC_STA_Monitor_Setup_v2.0.1.exe" target="_blank" rel="noopener">下载 →</a>
         </div>
         <div class="dl-card">
           <div class="dl-os">Linux · x86_64</div>
           <div class="dl-name">便携压缩包</div>
-          <div class="dl-file">BPLC_STA_Monitor_v2.0.1_linux_x86_64.tar.gz</div>
-          <a class="dl-link" href="https://github.com/aron566/HPLC_Wireshark/releases/download/v2.0.1/BPLC_STA_Monitor_v2.0.1_linux_x86_64.tar.gz" target="_blank" rel="noopener">下载 →</a>
+          <div class="dl-file js-lin-file" id="dlLinFile">BPLC_STA_Monitor_v2.0.1_linux_x86_64.tar.gz</div>
+          <a class="dl-link" id="dlLinLink" href="https://github.com/aron566/HPLC_Wireshark/releases/download/v2.0.1/BPLC_STA_Monitor_v2.0.1_linux_x86_64.tar.gz" target="_blank" rel="noopener">下载 →</a>
         </div>
         <div class="dl-card">
           <div class="dl-os">全部版本</div>
@@ -1882,13 +1882,58 @@ hplc &amp; beacon</div>
     var elDate = document.getElementById('verDate');
     var elDateWrap = document.getElementById('verDateWrap');
     var elLink = document.getElementById('verLink');
+    var elHeroVer = document.getElementById('heroVer');
+    var elDlWinFile = document.getElementById('dlWinFile');
+    var elDlWinLink = document.getElementById('dlWinLink');
+    var elDlLinFile = document.getElementById('dlLinFile');
+    var elDlLinLink = document.getElementById('dlLinLink');
+    var elSilentCopy = document.getElementById('silentInstallCopy');
+    var elPackageCopy = document.getElementById('packageCopy');
     if (!badge || !elTag) return;
+
+    function stripV(tag){ return (tag || '').replace(/^v/, ''); }
+
+    /* 从 release 的 assets 里挑安装包；挑不到就按 tag 拼名字 */
+    function pickFiles(d){
+      var tag = d.tag_name || d.name || '';
+      var ver = stripV(tag);
+      var win = null, lin = null;
+      var assets = d.assets || [];
+      for (var i = 0; i < assets.length; i++){
+        var name = assets[i].name || '';
+        if (!win && /^BPLC_STA_Monitor_Setup_.*\.exe$/.test(name)) win = assets[i];
+        if (!lin && /^BPLC_STA_Monitor_v.*_linux_x86_64\.tar\.gz$/.test(name) && name.indexOf('symbols') < 0) lin = assets[i];
+      }
+      var base = 'https://github.com/' + REPO + '/releases/download/' + tag + '/';
+      return {
+        tag: tag,
+        ver: ver,
+        win: {
+          /* 注意：安装包名里带 v（BPLC_STA_Monitor_Setup_v2.1.0.exe），用 tag 全文拼 */
+          file: win ? win.name : ('BPLC_STA_Monitor_Setup_' + tag + '.exe'),
+          url: win ? (win.browser_download_url || base + win.name) : (base + 'BPLC_STA_Monitor_Setup_' + tag + '.exe')
+        },
+        lin: {
+          file: lin ? lin.name : ('BPLC_STA_Monitor_v' + ver + '_linux_x86_64.tar.gz'),
+          url: lin ? (lin.browser_download_url || base + lin.name) : (base + 'BPLC_STA_Monitor_v' + ver + '_linux_x86_64.tar.gz')
+        }
+      };
+    }
 
     /* 兜底值：直接取页面里已渲染的静态文案，任何失败都保持原样 */
     var FALLBACK = {
       tag: elTag.textContent.trim(),
       date: elDate ? elDate.textContent.trim() : '',
-      url: elLink ? elLink.getAttribute('href') : ('https://github.com/' + REPO + '/releases')
+      url: elLink ? elLink.getAttribute('href') : ('https://github.com/' + REPO + '/releases'),
+      ver: stripV(elTag.textContent.trim()),
+      win: {
+        file: elDlWinFile ? elDlWinFile.textContent.trim() : '',
+        url: elDlWinLink ? elDlWinLink.getAttribute('href') : ''
+      },
+      lin: {
+        file: elDlLinFile ? elDlLinFile.textContent.trim() : '',
+        url: elDlLinLink ? elDlLinLink.getAttribute('href') : ''
+      }
     };
 
     function fmtDate(iso){
@@ -1899,8 +1944,16 @@ hplc &amp; beacon</div>
       return d.getUTCFullYear() + '-' + (m < 10 ? '0' + m : m) + '-' + (day < 10 ? '0' + day : day);
     }
 
+    function setTextAll(sel, text){
+      var els = document.querySelectorAll(sel);
+      for (var i = 0; i < els.length; i++) els[i].textContent = text;
+    }
+
     function apply(info, state){
       if (!info || !info.tag) return;
+      var ver = info.ver || stripV(info.tag);
+      var win = info.win || FALLBACK.win;
+      var lin = info.lin || FALLBACK.lin;
       elTag.textContent = info.tag;
       if (info.date && elDate && elDateWrap){
         elDate.textContent = info.date;
@@ -1909,6 +1962,19 @@ hplc &amp; beacon</div>
         elDateWrap.style.display = 'none'; /* 无发布日期时只显示版本号，不留空 */
       }
       if (info.url && elLink) elLink.setAttribute('href', info.url);
+      if (elHeroVer) elHeroVer.textContent = info.tag;
+      /* 下载区一并跟随最新版：文件名、链接、安装命令、打包命令 */
+      if (win.file){
+        setTextAll('.js-win-file', win.file);
+        if (elSilentCopy) elSilentCopy.setAttribute('data-copy', win.file + ' /S');
+      }
+      if (lin.file) setTextAll('.js-lin-file', lin.file);
+      if (ver){
+        setTextAll('.js-ver', ver);
+        if (elPackageCopy) elPackageCopy.setAttribute('data-copy', 'bash scripts/package.sh ' + ver);
+      }
+      if (elDlWinLink && win.url) elDlWinLink.setAttribute('href', win.url);
+      if (elDlLinLink && lin.url) elDlLinLink.setAttribute('href', lin.url);
       /* 只有真正取到远端数据才点亮状态点；回落时保持灰点，不谎报"已获取" */
       badge.setAttribute('data-state', state === 'fallback' ? 'fallback' : 'live');
     }
@@ -1937,26 +2003,24 @@ hplc &amp; beacon</div>
       });
     }
 
-    /* 1) 先看缓存 */
+    /* 1) 先看缓存（旧版缓存只有 tag/date/url，没有下载文件信息，不可直接用） */
     var cached = readCache();
-    if (cached && cached.tag){ apply(cached, 'live'); return; }
+    if (cached && cached.tag && cached.win && cached.lin){ apply(cached, 'live'); return; }
 
     /* 2) 请求 latest release；失败或无 Release 时退回 tags 第一个 */
     getJSON(API_LATEST).then(function(d){
       if (!d || !d.tag_name) throw new Error('no release');
-      return {
-        tag: d.tag_name,
-        date: fmtDate(d.published_at),
-        url: d.html_url || ('https://github.com/' + REPO + '/releases/tag/' + d.tag_name)
-      };
+      var info = pickFiles(d);
+      info.date = fmtDate(d.published_at);
+      info.url = d.html_url || ('https://github.com/' + REPO + '/releases/tag/' + d.tag_name);
+      return info;
     }).catch(function(){
       return getJSON(API_TAGS).then(function(arr){
         if (!arr || !arr.length || !arr[0].name) throw new Error('no tag');
-        return {
-          tag: arr[0].name,
-          date: '',
-          url: 'https://github.com/' + REPO + '/releases/tag/' + arr[0].name
-        };
+        var info = pickFiles({ tag_name: arr[0].name });
+        info.date = '';
+        info.url = 'https://github.com/' + REPO + '/releases/tag/' + arr[0].name;
+        return info;
       });
     }).then(function(info){
       apply(info, 'live');
