@@ -246,6 +246,10 @@ p_io_reader_garbage_probe() {   # 回放切帧 + Reader 生命周期(M5/L4/L5)
     cp "$UT/io/reader-garbage-probe/build/reader_garbage_probe/reader_garbage_probe" "$d/" || return 1
     (cd "$d" && run reader-garbage 180 ./reader_garbage_probe) && OUT="$LOGD/reader-garbage.out" && has "reader_garbage_probe: OK (0 failures)" && lacks "FAIL "
 }
+p_io_reader_envelope_probe() {   # Reader 信封必填(A-6):3C/裸 hex 好帧必填 meta,与解析器复核恒等
+    build io/reader-envelope-probe || return 1
+    run reader-envelope 60 "$UT/io/reader-envelope-probe/build/reader_envelope_probe/reader_envelope_probe" && has "RESULT: ALL PASS (0 failures)" && lacks " FAIL"
+}
 p_ui_paging_race_probe() {   # PacketListModel 盘块换页竞态(M2/M3/M4)
     build ui/paging-race-probe || return 1
     local d; d=$(rundir paging-race)
