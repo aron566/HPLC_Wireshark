@@ -264,8 +264,8 @@ void regressions() {
     }
 
     {
-        // 无 raw_wire 的旧缓存导出会生成逐帧 BCD。验证 bin 重读使用该标签,
-        // 同时与 TIME + NTB 的 RawHex 导出保持同一时间语义。
+        // 无 raw_wire 的旧缓存也必须导出为新格式:时间标签在帧外,
+        // 不再生成逐帧 BCD。验证 bin 重读与 TIME + NTB 的 RawHex 导出一致。
         PacketEntry a;
         a.raw_bytes = first.mid(10);
         a.epoch_ms = base;
@@ -278,23 +278,26 @@ void regressions() {
         b.raw_bytes = second.mid(10);
         b.epoch_ms = base + 40;
         b.meta.timestamp = 26000;
-        const QVector<PacketEntry> legacy_entries{a, b};
-        const QByteArray legacy_bin = playback::build_playback_bin(legacy_entries);
-        const auto legacy_bin_read = read(legacy_bin, ReaderMode::FilePlayback);
-        const auto legacy_hex_read = read(playback::build_raw_hex_text(legacy_entries),
+        const QVector<PacketEntry> fallback_entries{a, b};
+        const QByteArray fallback_bin = playback::build_playback_bin(fallback_entries);
+        const auto fallback_bin_read = read(fallback_bin, ReaderMode::FilePlayback);
+        const auto fallback_hex_read = read(playback::build_raw_hex_text(fallback_entries),
                                           ReaderMode::RawHex);
-        check(legacy_bin_read.size() == 2 && legacy_hex_read.size() == 2
-                  && legacy_bin_read[0].epoch_ms == base
-                  && legacy_bin_read[1].epoch_ms == base + 40
-                  && legacy_hex_read[0].epoch_ms == base
-                  && legacy_hex_read[1].epoch_ms == base + 40,
+        check(fallback_bin_read.size() == 2 && fallback_hex_read.size() == 2
+                  && fallback_bin_read[0].epoch_ms == base
+                  && fallback_bin_read[1].epoch_ms == base + 40
+                  && fallback_hex_read[0].epoch_ms == base
+                  && fallback_hex_read[1].epoch_ms == base + 40,
               "bin and RawHex exports preserve fallback local timestamps");
-        check(legacy_bin_read.size() == 2 && legacy_hex_read.size() == 2
-                  && legacy_bin_read[0].meta.timestamp == 1000
-                  && legacy_bin_read[1].meta.timestamp == 26000
-                  && legacy_hex_read[0].meta.timestamp == 1000
-                  && legacy_hex_read[1].meta.timestamp == 26000,
+        check(fallback_bin_read.size() == 2 && fallback_hex_read.size() == 2
+                  && fallback_bin_read[0].meta.timestamp == 1000
+                  && fallback_bin_read[1].meta.timestamp == 26000
+                  && fallback_hex_read[0].meta.timestamp == 1000
+                  && fallback_hex_read[1].meta.timestamp == 26000,
               "bin and RawHex exports preserve NTB fields");
+        check(fallback_bin.startsWith(playback::bcd_time_tag(base))
+                  && !playback::looks_like_legacy_inline_bcd(fallback_bin.mid(8)),
+              "bin fallback export uses frame-external BCD, not inline BCD");
     }
 
     {
