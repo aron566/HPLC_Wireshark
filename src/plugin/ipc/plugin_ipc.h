@@ -8,6 +8,7 @@
 #include <QByteArray>
 #include <QCoreApplication>
 #include <QDataStream>
+#include <QIODevice>
 #include <QString>
 #include <QtGlobal>
 #include "plugin_wire.pb.h"
