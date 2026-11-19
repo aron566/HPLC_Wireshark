@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          submodules: recursive
 
       - name: 解析版本号
         id: ver
@@ -93,6 +95,42 @@ jobs:
         if: steps.crashdeps.outputs.cache-hit != 'true'
         shell: bash
         run: SENTRY_TRANSPORT=none bash 3rdparty/build_crash_deps.sh sentry
+
+      # Vendored protobuf v36.2 + abseil-cpp 20250512.1（静态，子库入库）：
+      # 只缓存安装前缀，不缓存构建树；Key 用两个子库 HEAD SHA + 构建脚本哈希
+      # （hashFiles 读不到 gitlink 内容，SHA 是缓存键的一部分；不要 hash 整个子库树）。
+      # Windows 构建在 PR 阶段无覆盖（topology-worker-windows 不编 protobuf），
+      # 本步随 build.yml 手动触发实测（U2）；protoc 在 MinGW 下是 protoc.exe。
+      - name: Record vendored protobuf SHAs
+        shell: bash
+        run: |
+          echo "PB_SHA=$(git -C 3rdparty/protobuf-src rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "ABSL_SHA=$(git -C 3rdparty/abseil-cpp rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Cache vendored protobuf
+        id: protobuf
+        uses: actions/cache@v4
+        with:
+          path: |
+            3rdparty/install/protobuf
+            3rdparty/install/absl
+          key: protobuf-v36-${{ runner.os }}-mingw1310-${{ env.PB_SHA }}-${{ env.ABSL_SHA }}-${{ hashFiles('3rdparty/build_protobuf.sh') }}
+          # 无 restore-keys（命中即全有，未命中即全编，避免新旧混用）
+
+      - name: Build vendored protobuf (static)
+        if: steps.protobuf.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          cmake --version
+          bash 3rdparty/build_protobuf.sh
+
+      - name: Verify vendored protobuf artifacts
+        shell: bash
+        run: |
+          test -f 3rdparty/install/protobuf/lib/libprotobuf.a
+          test -f 3rdparty/install/protobuf/include/google/protobuf/port_def.inc
+          test -f 3rdparty/install/protobuf/bin/protoc.exe
+          test -f 3rdparty/install/absl/lib/cmake/absl/abslConfig.cmake
 
       - name: crash 模块测试(crashpad + sentry 后端 Windows 实测)
         shell: bash
@@ -183,6 +221,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          submodules: recursive
 
       - name: 解析版本号
         id: ver
@@ -208,6 +248,38 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake libcurl4-openssl-dev zlib1g-dev
+
+      # Vendored protobuf v36.2 + abseil-cpp 20250512.1（静态，子库入库）：
+      # 只缓存安装前缀，不缓存构建树；Key 用两个子库 HEAD SHA + 构建脚本哈希
+      # （hashFiles 读不到 gitlink 内容，SHA 是缓存键的一部分；不要 hash 整个子库树）。
+      - name: Record vendored protobuf SHAs
+        shell: bash
+        run: |
+          echo "PB_SHA=$(git -C 3rdparty/protobuf-src rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "ABSL_SHA=$(git -C 3rdparty/abseil-cpp rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Cache vendored protobuf
+        id: protobuf
+        uses: actions/cache@v4
+        with:
+          path: |
+            3rdparty/install/protobuf
+            3rdparty/install/absl
+          key: protobuf-v36-${{ runner.os }}-gcc13-${{ env.PB_SHA }}-${{ env.ABSL_SHA }}-${{ hashFiles('3rdparty/build_protobuf.sh') }}
+          # 无 restore-keys（命中即全有，未命中即全编，避免新旧混用）
+
+      - name: Build vendored protobuf (static)
+        if: steps.protobuf.outputs.cache-hit != 'true'
+        shell: bash
+        run: bash 3rdparty/build_protobuf.sh
+
+      - name: Verify vendored protobuf artifacts
+        shell: bash
+        run: |
+          test -f 3rdparty/install/protobuf/lib/libprotobuf.a
+          test -f 3rdparty/install/protobuf/include/google/protobuf/port_def.inc
+          test -x 3rdparty/install/protobuf/bin/protoc
+          test -f 3rdparty/install/absl/lib/cmake/absl/abslConfig.cmake
 
       - name: 构建 crash 依赖(sentry + crashpad)
         shell: bash
@@ -262,6 +334,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          submodules: recursive
 
       - name: update_json_release 自测
         shell: bash
@@ -336,6 +410,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          submodules: recursive
 
       - name: 安装 Qt 6.11.3
         uses: jurplel/install-qt-action@v4
@@ -349,6 +425,38 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake libcurl4-openssl-dev zlib1g-dev
+
+      # Vendored protobuf v36.2 + abseil-cpp 20250512.1（静态，子库入库）：
+      # 只缓存安装前缀，不缓存构建树；Key 用两个子库 HEAD SHA + 构建脚本哈希
+      # （hashFiles 读不到 gitlink 内容，SHA 是缓存键的一部分；不要 hash 整个子库树）。
+      - name: Record vendored protobuf SHAs
+        shell: bash
+        run: |
+          echo "PB_SHA=$(git -C 3rdparty/protobuf-src rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "ABSL_SHA=$(git -C 3rdparty/abseil-cpp rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Cache vendored protobuf
+        id: protobuf
+        uses: actions/cache@v4
+        with:
+          path: |
+            3rdparty/install/protobuf
+            3rdparty/install/absl
+          key: protobuf-v36-${{ runner.os }}-gcc13-${{ env.PB_SHA }}-${{ env.ABSL_SHA }}-${{ hashFiles('3rdparty/build_protobuf.sh') }}
+          # 无 restore-keys（命中即全有，未命中即全编，避免新旧混用）
+
+      - name: Build vendored protobuf (static)
+        if: steps.protobuf.outputs.cache-hit != 'true'
+        shell: bash
+        run: bash 3rdparty/build_protobuf.sh
+
+      - name: Verify vendored protobuf artifacts
+        shell: bash
+        run: |
+          test -f 3rdparty/install/protobuf/lib/libprotobuf.a
+          test -f 3rdparty/install/protobuf/include/google/protobuf/port_def.inc
+          test -x 3rdparty/install/protobuf/bin/protoc
+          test -f 3rdparty/install/absl/lib/cmake/absl/abslConfig.cmake
 
       - name: 构建 crash 依赖(sentry + crashpad)
         shell: bash

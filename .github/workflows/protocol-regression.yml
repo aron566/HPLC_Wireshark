@@ -33,6 +33,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          submodules: recursive
 
       - name: Install Qt 6.11.3 and build dependencies
         uses: jurplel/install-qt-action@v4
@@ -40,6 +42,38 @@ jobs:
           version: '6.11.3'
           modules: 'qtserialport'
           cache: true
+
+      # Vendored protobuf v36.2 + abseil-cpp 20250512.1（静态，子库入库）：
+      # 只缓存安装前缀，不缓存构建树；Key 用两个子库 HEAD SHA + 构建脚本哈希
+      # （hashFiles 读不到 gitlink 内容，SHA 是缓存键的一部分；不要 hash 整个子库树）。
+      - name: Record vendored protobuf SHAs
+        run: |
+          echo "PB_SHA=$(git -C 3rdparty/protobuf-src rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "ABSL_SHA=$(git -C 3rdparty/abseil-cpp rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Cache vendored protobuf
+        id: protobuf
+        uses: actions/cache@v4
+        with:
+          path: |
+            3rdparty/install/protobuf
+            3rdparty/install/absl
+          key: protobuf-v36-${{ runner.os }}-gcc13-${{ env.PB_SHA }}-${{ env.ABSL_SHA }}-${{ hashFiles('3rdparty/build_protobuf.sh') }}
+          # 无 restore-keys（命中即全有，未命中即全编，避免新旧混用）
+
+      - name: Build vendored protobuf (static)
+        if: steps.protobuf.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake
+          bash 3rdparty/build_protobuf.sh
+
+      - name: Verify vendored protobuf artifacts
+        run: |
+          test -f 3rdparty/install/protobuf/lib/libprotobuf.a
+          test -f 3rdparty/install/protobuf/include/google/protobuf/port_def.inc
+          test -x 3rdparty/install/protobuf/bin/protoc
+          test -f 3rdparty/install/absl/lib/cmake/absl/abslConfig.cmake
 
       - name: Hard-only source convention checks
         run: |
@@ -564,6 +598,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          submodules: recursive
 
       # 3rdparty/lua-5.4.* 不入库(.gitignore),CI 里没有源码可编 ⇒ 用发行版 lua5.4
       - name: Install Lua 5.4
@@ -597,6 +633,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          submodules: recursive
 
       - name: Install Qt 6.11.3
         uses: jurplel/install-qt-action@v4
@@ -682,6 +720,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          submodules: recursive
 
       - name: Install Qt 6.11.3
         uses: jurplel/install-qt-action@v4
@@ -728,6 +768,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          submodules: recursive
 
       - name: Install Qt 6.11.3
         uses: jurplel/install-qt-action@v4
@@ -757,6 +799,38 @@ jobs:
 
       # ubuntu-24.04 runner 内核 vm.mmap_rnd_bits=32,ThreadSanitizer 运行时启动即
       # "FATAL: ThreadSanitizer: unexpected memory mapping";调回 28 TSan 才能跑
+      # Vendored protobuf v36.2 + abseil-cpp 20250512.1（静态，子库入库）：
+      # 只缓存安装前缀，不缓存构建树；Key 用两个子库 HEAD SHA + 构建脚本哈希
+      # （hashFiles 读不到 gitlink 内容，SHA 是缓存键的一部分；不要 hash 整个子库树）。
+      - name: Record vendored protobuf SHAs
+        run: |
+          echo "PB_SHA=$(git -C 3rdparty/protobuf-src rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "ABSL_SHA=$(git -C 3rdparty/abseil-cpp rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Cache vendored protobuf
+        id: protobuf
+        uses: actions/cache@v4
+        with:
+          path: |
+            3rdparty/install/protobuf
+            3rdparty/install/absl
+          key: protobuf-v36-${{ runner.os }}-gcc13-${{ env.PB_SHA }}-${{ env.ABSL_SHA }}-${{ hashFiles('3rdparty/build_protobuf.sh') }}
+          # 无 restore-keys（命中即全有，未命中即全编，避免新旧混用）
+
+      - name: Build vendored protobuf (static)
+        if: steps.protobuf.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake
+          bash 3rdparty/build_protobuf.sh
+
+      - name: Verify vendored protobuf artifacts
+        run: |
+          test -f 3rdparty/install/protobuf/lib/libprotobuf.a
+          test -f 3rdparty/install/protobuf/include/google/protobuf/port_def.inc
+          test -x 3rdparty/install/protobuf/bin/protoc
+          test -f 3rdparty/install/absl/lib/cmake/absl/abslConfig.cmake
+
       - name: Allow ThreadSanitizer (vm.mmap_rnd_bits=28)
         run: sudo sysctl -w vm.mmap_rnd_bits=28
 
@@ -824,6 +898,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          submodules: recursive
 
       - name: Install Qt 6.11.3
         uses: jurplel/install-qt-action@v4
@@ -853,6 +929,38 @@ jobs:
 
       # 主程序 CONFIG+=plugin_autotest crash_no_default:回放 roundtrip_test.bin,等 Reader 结束、
       # 插件线程空闲后给各插件面板截 plugin_<id>.png、主窗口截 main.png 后自行退出(900 s 超时)
+      # Vendored protobuf v36.2 + abseil-cpp 20250512.1（静态，子库入库）：
+      # 只缓存安装前缀，不缓存构建树；Key 用两个子库 HEAD SHA + 构建脚本哈希
+      # （hashFiles 读不到 gitlink 内容，SHA 是缓存键的一部分；不要 hash 整个子库树）。
+      - name: Record vendored protobuf SHAs
+        run: |
+          echo "PB_SHA=$(git -C 3rdparty/protobuf-src rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "ABSL_SHA=$(git -C 3rdparty/abseil-cpp rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Cache vendored protobuf
+        id: protobuf
+        uses: actions/cache@v4
+        with:
+          path: |
+            3rdparty/install/protobuf
+            3rdparty/install/absl
+          key: protobuf-v36-${{ runner.os }}-gcc13-${{ env.PB_SHA }}-${{ env.ABSL_SHA }}-${{ hashFiles('3rdparty/build_protobuf.sh') }}
+          # 无 restore-keys（命中即全有，未命中即全编，避免新旧混用）
+
+      - name: Build vendored protobuf (static)
+        if: steps.protobuf.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake
+          bash 3rdparty/build_protobuf.sh
+
+      - name: Verify vendored protobuf artifacts
+        run: |
+          test -f 3rdparty/install/protobuf/lib/libprotobuf.a
+          test -f 3rdparty/install/protobuf/include/google/protobuf/port_def.inc
+          test -x 3rdparty/install/protobuf/bin/protoc
+          test -f 3rdparty/install/absl/lib/cmake/absl/abslConfig.cmake
+
       - name: Plugin panel autotest (app/plugin-autotest, probe_suite.sh)
         env:
           QT_QPA_PLATFORM: offscreen
@@ -880,6 +988,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          submodules: recursive
       - name: Install Qt 6.11.3
         uses: jurplel/install-qt-action@v4
         with:
@@ -900,6 +1010,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          submodules: recursive
       - name: Install Qt 6.11.3 + MinGW 13.1.0
         uses: jurplel/install-qt-action@v4
         with:
