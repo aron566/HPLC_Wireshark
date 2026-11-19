@@ -51,6 +51,18 @@ inline bool looks_like_bcd_time(const QByteArray& d) {
     return looks_like_bcd8(d);
 }
 
+/// @brief 识别旧版 frame_to_playback 的逐帧 BCD 封装。
+/// @details 仅检查 BCD 日期不足以区分新格式帧;旧格式去掉 BCD 后,
+///          dlen 必须等于剩余 data 长度减去 dlen/ts/媒介四字节头。
+inline bool looks_like_legacy_inline_bcd(const QByteArray& d) {
+    if (!looks_like_bcd_time(d)) return false;
+    const int body_size = d.size() - 8;
+    if (body_size < 26) return false;
+    const quint16 dlen = quint16(quint8(d[8]))
+                       | quint16(quint8(d[9]) << 8);
+    return dlen >= 20 && dlen == body_size - 6;
+}
+
 inline QByteArray escape_frame_data(const QByteArray& data) {
     QByteArray esc;
     esc.reserve(data.size() + 8);

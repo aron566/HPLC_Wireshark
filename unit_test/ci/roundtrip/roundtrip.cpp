@@ -297,6 +297,49 @@ void regressions() {
               "bin and RawHex exports preserve NTB fields");
     }
 
+    {
+        // 新格式帧的前 8B 可以偶然满足 BCD 日期范围,但去掉 8B 后不满足
+        // 旧格式 dlen 与剩余长度关系,不得被误剥离或污染时间链。
+        QByteArray false_bcd_mpdu(272, char(0));
+        false_bcd_mpdu[0] = char(0x02);
+        false_bcd_mpdu[1] = char(0xd5);
+        QByteArray false_bcd(1, char(0x3c));
+        QByteArray false_bcd_data;
+        false_bcd_data.append(char(0x14)).append(char(0x01)); // dlen=0x0114
+        false_bcd_data.append(char(0x19)).append(char(0x14))
+            .append(char(0x32)).append(char(0x09));           // NTB bytes
+        false_bcd_data.append(char(0x05)).append(char(0x00)); // phr/option
+        false_bcd_data.append(false_bcd_mpdu);
+        false_bcd.append(playback::escape_frame_data(false_bcd_data)).append(char(0x3e));
+        const qint64 before = QDateTime::currentMSecsSinceEpoch();
+        const auto false_bcd_entries = read(false_bcd, ReaderMode::FilePlayback);
+        const qint64 after = QDateTime::currentMSecsSinceEpoch();
+        check(false_bcd_entries.size() == 1
+                  && !false_bcd_entries[0].meta.replay_time_tag
+                  && false_bcd_entries[0].epoch_ms >= before
+                  && false_bcd_entries[0].epoch_ms <= after,
+              "new-format BCD-shaped header is not treated as inline BCD");
+        const auto realtime_false_bcd = ReaderWorkerTestAccess::serial_frames(false_bcd);
+        check(realtime_false_bcd.size() == 1 && !realtime_false_bcd[0].meta.replay_time_tag,
+              "real-time BCD-shaped header is not treated as inline BCD");
+
+        // 旧逐帧 BCD 的 ts 曾经是 epoch ms 低位。后接新格式 NTB 时,
+        // 不能把旧字段当作 NTB 差分基准而回退到当前本地时间。
+        QByteArray first_data;
+        playback::unescape_frame_data(first.mid(1, first.size() - 2), first_data);
+        QByteArray old_data = playback::bcd_time_tag(base) + first_data;
+        const quint32 old_epoch_ts = quint32(base & 0xffffffffu);
+        for (int i = 0; i < 4; ++i) old_data[10 + i] = char(old_epoch_ts >> (8 * i));
+        const QByteArray old_frame = QByteArray(1, char(0x3c))
+            + playback::escape_frame_data(old_data) + char(0x3e);
+        const auto mixed_entries = read(tag + old_frame + wire(26000), ReaderMode::FilePlayback);
+        check(mixed_entries.size() == 2 && mixed_entries[0].epoch_ms == base
+                  && mixed_entries[1].epoch_ms == base
+                  && mixed_entries[0].meta.replay_time_tag
+                  && mixed_entries[1].meta.replay_time_tag,
+              "legacy epoch-ts does not poison a following new-format NTB");
+    }
+
     for (ReaderMode mode : {ReaderMode::FilePlayback, ReaderMode::RawHex}) {
         const bool hex = mode == ReaderMode::RawHex;
         const QByteArray gap = wire(1000 + 61u * 25000000u);
@@ -421,7 +464,7 @@ void serial_regressions() {
         {"exactly 60s", 1000, 60u * 25000000u, 60000, false},
         {"one tick beyond 60s", 1000, 60u * 25000000u + 1, 60000, true},
         {"61s matching local gap", 1000, 61u * 25000000u, 61000, true},
-        {"zero NTB delta", 1000, 0, 1, true},
+        {"zero NTB delta", 1000, 0, 1, false},
         {"backward NTB", 100000, quint32(-25000), 1, true},
         {"signed delta limit", 1000, 0x80000000u, 85899, true},
         {"short u32 wrap", 0xfffff000u, 25000, 1, false},
