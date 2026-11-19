@@ -106,3 +106,9 @@ audit/
 wireshark_support_plugins/*.pcap
 wireshark_support_plugins/*.bin
 wireshark_support_plugins/test_2026/*.pcap
+
+# HDC2.0 规约分析中间产物(不入库,仅本地留档)
+docs/protocol_doc/gw/HDC2.0/HDC2.0_4-2_字段级差异明细.md
+docs/protocol_doc/gw/HDC2.0/HDC2.0_4-2_解析器改动点清单_复核.md
+docs/protocol_doc/gw/HDC2.0/HDC2.0_NEW_VS_OLD_DIFF.md
+docs/protocol_doc/gw/HDC2.0/HDC2.0_NEW_VS_OLD_DIFF_REVIEW.md
