@@ -245,6 +245,58 @@ void regressions() {
               "segment and export survive disk-block round-trip");
     }
 
+    {
+        // 相同 NTB 表示同一设备时钟刻度:不应因 dn==0 回退到快速回放时的本地时刻。
+        const QByteArray hex = time_line(base) + playback::hex_line_of(first)
+                               + playback::hex_line_of(first);
+        const auto hex_entries = read(hex, ReaderMode::RawHex);
+        check(hex_entries.size() == 2 && hex_entries[0].epoch_ms == base
+                  && hex_entries[1].epoch_ms == base
+                  && hex_entries[1].delta_us == 0,
+              "RawHex duplicate NTB keeps the previous replay time");
+
+        const QByteArray bin = tag + first + first;
+        const auto bin_entries = read(bin, ReaderMode::FilePlayback);
+        check(bin_entries.size() == 2 && bin_entries[0].epoch_ms == base
+                  && bin_entries[1].epoch_ms == base
+                  && bin_entries[1].delta_us == 0,
+              "bin duplicate NTB keeps the previous replay time");
+    }
+
+    {
+        // 无 raw_wire 的旧缓存导出会生成逐帧 BCD。验证 bin 重读使用该标签,
+        // 同时与 TIME + NTB 的 RawHex 导出保持同一时间语义。
+        PacketEntry a;
+        a.raw_bytes = first.mid(10);
+        a.epoch_ms = base;
+        a.meta.timestamp = 1000;
+        a.meta.phr_mcs = 0x02;
+        a.meta.option = 0xd5;
+        a.meta.channel = 1;
+        a.meta.is_rf = true;
+        PacketEntry b = a;
+        b.raw_bytes = second.mid(10);
+        b.epoch_ms = base + 40;
+        b.meta.timestamp = 26000;
+        const QVector<PacketEntry> legacy_entries{a, b};
+        const QByteArray legacy_bin = playback::build_playback_bin(legacy_entries);
+        const auto legacy_bin_read = read(legacy_bin, ReaderMode::FilePlayback);
+        const auto legacy_hex_read = read(playback::build_raw_hex_text(legacy_entries),
+                                          ReaderMode::RawHex);
+        check(legacy_bin_read.size() == 2 && legacy_hex_read.size() == 2
+                  && legacy_bin_read[0].epoch_ms == base
+                  && legacy_bin_read[1].epoch_ms == base + 40
+                  && legacy_hex_read[0].epoch_ms == base
+                  && legacy_hex_read[1].epoch_ms == base + 40,
+              "bin and RawHex exports preserve fallback local timestamps");
+        check(legacy_bin_read.size() == 2 && legacy_hex_read.size() == 2
+                  && legacy_bin_read[0].meta.timestamp == 1000
+                  && legacy_bin_read[1].meta.timestamp == 26000
+                  && legacy_hex_read[0].meta.timestamp == 1000
+                  && legacy_hex_read[1].meta.timestamp == 26000,
+              "bin and RawHex exports preserve NTB fields");
+    }
+
     for (ReaderMode mode : {ReaderMode::FilePlayback, ReaderMode::RawHex}) {
         const bool hex = mode == ReaderMode::RawHex;
         const QByteArray gap = wire(1000 + 61u * 25000000u);

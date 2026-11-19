@@ -488,7 +488,9 @@ void ReaderWorker::try_extract_frame() {
         // frame_to_playback 的回退格式) → 剥离并重建 raw_wire,统一为新格式。
         // 不剥离的后果:raw_wire 含帧内 BCD,再次导出时该帧走 raw_wire 分支,
         // 段首(seg_start)会在帧外再写一个 8B 段标注 → 同一帧带双重 BCD 标签。
+        qint64 inline_bcd_ms = -1;
         if (playback::looks_like_bcd_time(unesc)) {
+            inline_bcd_ms = bcd_ms_of(unesc.left(8));
             const QByteArray stripped = unesc.mid(8);
             wire.clear();
             wire.append(char(0x3C))
@@ -526,12 +528,22 @@ void ReaderWorker::try_extract_frame() {
         }
 
         BplcFrame bf;
-        // 新 bin:时间轴以帧内 NTB(u32,40 µs)差推进——
+        // 新 bin:时间轴以帧内 NTB(u32,40 ns)差推进——
         //   首帧  frame_time = 文件头/段 8B 标注时刻
-        //   后续帧 frame_time = 上一帧 frame_time + (本帧 NTB − 上一帧 NTB)×40 µs
+        //   后续帧 frame_time = 上一帧 frame_time + (本帧 NTB − 上一帧 NTB)×40 ns
         //   帧间 NTB 差超出合理范围(长时间无报文/跨 u32 回绕)→ 用本地时刻,不
         //   沿用上一帧 NTB(本帧为断点,重置链)
-        if (m_playback_base_ms >= 0) {
+        if (inline_bcd_ms >= 0) {
+            // 旧版 frame_to_playback 将 BCD 放在每个帧体内。该标签是本帧
+            // 的权威绝对时间,不能只剥离后再按当前处理时刻回退。
+            bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(inline_bcd_ms);
+            m_last_ft = inline_bcd_ms;
+            m_last_ntb = (unesc.size() >= 6)
+                ? (quint32)(quint8)unesc[2] | ((quint32)(quint8)unesc[3] << 8)
+                  | ((quint32)(quint8)unesc[4] << 16) | ((quint32)(quint8)unesc[5] << 24)
+                : 0;
+            bf.meta.replay_time_tag = true;
+        } else if (m_playback_base_ms >= 0) {
             // 极短帧(<6B,无帧内 NTB):ntb=0,时间轴走断点分支(本地时刻)
             const quint32 ntb = (unesc.size() >= 6)
                 ? (quint32)(quint8)unesc[2] | ((quint32)(quint8)unesc[3] << 8)
@@ -545,7 +557,7 @@ void ReaderWorker::try_extract_frame() {
                 bf.meta.replay_time_tag = true;
             } else {
                 const qint64 dn = (qint32)(ntb - m_last_ntb);   // 回绕安全
-                if (dn > 0 && dn <= playback::kMaxNtbGapTicks) {
+                if (dn >= 0 && dn <= playback::kMaxNtbGapTicks) {
                     const qint64 ft_ms = m_last_ft + playback::ntb_to_us(quint32(dn)) / 1000;
                     bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(ft_ms);
                     m_last_ft = ft_ms;
@@ -604,7 +616,7 @@ void ReaderWorker::try_extract_frame() {
         bf.arrival_us = m_frame_rx_us;   // 0x3C 起始高精度接收时刻(实时)
         bf.meta.local_rx_ms = QDateTime::currentMSecsSinceEpoch();  // 收帧本地时刻(解析器回退显示时间用)
         bf.raw_wire   = wire;            // 原始串口帧原样(调试复制)
-        // 帧 ts 域语义(2026-09 统一):ts 一律为 NTB tick(25kHz,40ns),
+        // 帧 ts 域语义(2026-09 统一):ts 一律为 NTB tick(25MHz,40ns),
         // 无论实时串口(设备填)还是文件回放(bin/裸 hex 导出均写 NTB)
         bf.meta.frame_ts_is_ntb = true;
         // 8B 标注在文件头/段间,帧体无逐帧 BCD;不做旧版每帧 BCD 兼容检测
@@ -647,7 +659,7 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
         // 与串口/二进制回放一致:采集头 10B + 完整 FCH 至少 16B。
         // 必须在读取时间戳、更新 RawHex 时间链之前拒绝短帧。
         if (data.size() < 26) return;
-        // 时间:ts 统一 NTB tick(25kHz,40ns)。段首帧用 TIME 头(m_raw_base_ms)
+        // 时间:ts 统一 NTB tick(25MHz,40ns)。段首帧用 TIME 头(m_raw_base_ms)
         // 作基准,无 TIME 头则用首帧本地时刻作基准;段内按自段首累计 NTB 差
         // ×40ns 统一换算为 µs(单次除法,避免逐帧 ms 截断累计漂移,µs 级准确);
         // 断段(差超阈值/回绕)回退本地时刻并重建基准。
@@ -668,7 +680,7 @@ void ReaderWorker::process_raw_hex_line(const QByteArray& line) {
             replay_time_tag = m_raw_base_ms >= 0;
         } else {
             const qint64 dn = (qint32)(ts_le2 - m_hex_seg_base_ts);  // 自段首累计 tick
-            if (dn > 0 && dn <= playback::kMaxNtbGapTicks)
+            if (dn >= 0 && dn <= playback::kMaxNtbGapTicks)
                 t2_us = m_hex_seg_base_us + playback::ntb_to_us((quint32)dn);
             else {
                 // 断段:回退本地,并以本帧重建基准
