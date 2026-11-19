@@ -295,14 +295,57 @@ void regressions() {
                   && fallback_hex_read[0].meta.timestamp == 1000
                   && fallback_hex_read[1].meta.timestamp == 26000,
               "bin and RawHex exports preserve NTB fields");
-        check(fallback_bin.startsWith(playback::bcd_time_tag(base))
-                  && !playback::looks_like_legacy_inline_bcd(fallback_bin.mid(8)),
+        check(fallback_bin.startsWith(playback::bcd_time_tag(base)
+                                          + playback::frame_to_playback(a)),
               "bin fallback export uses frame-external BCD, not inline BCD");
     }
 
     {
-        // 新格式帧的前 8B 可以偶然满足 BCD 日期范围,但去掉 8B 后不满足
-        // 旧格式 dlen 与剩余长度关系,不得被误剥离或污染时间链。
+        // 回退帧(无 raw_wire)后紧跟的 raw_wire 帧必须自带段标注:回退帧 ts
+        // 与 raw_wire 帧 NTB 来源不同,不能跨来源做 NTB 差。此处故意让差值
+        // 落在 60s 窗口内(1000→26000),缺标注时会静默得到 base+5000+1。
+        PacketEntry r;
+        r.raw_wire = first;
+        r.raw_bytes = first.mid(10);
+        r.epoch_ms = base;
+        r.meta.timestamp = 1000;
+        PacketEntry f;
+        f.raw_bytes = first.mid(10);
+        f.epoch_ms = base + 5000;
+        f.meta.timestamp = 1000;
+        f.meta.phr_mcs = 0x02;
+        f.meta.option = 0xd5;
+        f.meta.channel = 1;
+        f.meta.is_rf = true;
+        PacketEntry r2;
+        r2.raw_wire = second;
+        r2.raw_bytes = second.mid(10);
+        r2.epoch_ms = base + 9000;
+        r2.meta.timestamp = 26000;
+        const QVector<PacketEntry> mixed{r, f, r2};
+        const QByteArray expected = playback::bcd_time_tag(base) + first
+            + playback::bcd_time_tag(base + 5000) + playback::frame_to_playback(f)
+            + playback::bcd_time_tag(base + 9000) + second;
+        const QByteArray mixed_bin = playback::build_playback_bin(mixed);
+        check(mixed_bin == expected && streamed(mixed, false) == expected,
+              "raw_wire frame after fallback frame gets its own BCD tag");
+        const auto mixed_read = read(mixed_bin, ReaderMode::FilePlayback);
+        check(mixed_read.size() == 3 && mixed_read[0].epoch_ms == base
+                  && mixed_read[1].epoch_ms == base + 5000
+                  && mixed_read[2].epoch_ms == base + 9000,
+              "fallback/raw_wire mix keeps each frame's own time");
+
+        // 空帧(无 raw_bytes)不得留下悬空 BCD 标注
+        PacketEntry empty;
+        empty.epoch_ms = base;
+        check(playback::build_playback_bin({empty}).isEmpty()
+                  && streamed({empty}, false).isEmpty(),
+              "empty fallback entry writes no dangling BCD tag");
+    }
+
+    {
+        // 新格式帧的前 8B 可以偶然满足 BCD 日期范围;读取端已不兼容逐帧 BCD,
+        // 不得被误剥离或污染时间链。
         QByteArray false_bcd_mpdu(272, char(0));
         false_bcd_mpdu[0] = char(0x02);
         false_bcd_mpdu[1] = char(0xd5);
@@ -326,21 +369,17 @@ void regressions() {
         check(realtime_false_bcd.size() == 1 && !realtime_false_bcd[0].meta.replay_time_tag,
               "real-time BCD-shaped header is not treated as inline BCD");
 
-        // 旧逐帧 BCD 的 ts 曾经是 epoch ms 低位。后接新格式 NTB 时,
-        // 不能把旧字段当作 NTB 差分基准而回退到当前本地时间。
+        // 历史逐帧 BCD 帧(结构完全符合旧 frame_to_playback 布局)也不再剥离:
+        // 帧体原样保留,时间取帧外标注,证明兼容读路径已删除。
         QByteArray first_data;
         playback::unescape_frame_data(first.mid(1, first.size() - 2), first_data);
-        QByteArray old_data = playback::bcd_time_tag(base) + first_data;
-        const quint32 old_epoch_ts = quint32(base & 0xffffffffu);
-        for (int i = 0; i < 4; ++i) old_data[10 + i] = char(old_epoch_ts >> (8 * i));
+        const QByteArray old_data = playback::bcd_time_tag(later) + first_data;
         const QByteArray old_frame = QByteArray(1, char(0x3c))
             + playback::escape_frame_data(old_data) + char(0x3e);
-        const auto mixed_entries = read(tag + old_frame + wire(26000), ReaderMode::FilePlayback);
-        check(mixed_entries.size() == 2 && mixed_entries[0].epoch_ms == base
-                  && mixed_entries[1].epoch_ms == base
-                  && mixed_entries[0].meta.replay_time_tag
-                  && mixed_entries[1].meta.replay_time_tag,
-              "legacy epoch-ts does not poison a following new-format NTB");
+        const auto old_entries = read(tag + old_frame, ReaderMode::FilePlayback);
+        check(old_entries.size() == 1 && old_entries[0].epoch_ms == base
+                  && old_entries[0].raw_wire == old_frame,
+              "legacy inline BCD is no longer stripped on read");
     }
 
     for (ReaderMode mode : {ReaderMode::FilePlayback, ReaderMode::RawHex}) {

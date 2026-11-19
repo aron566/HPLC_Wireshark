@@ -484,24 +484,9 @@ void ReaderWorker::try_extract_frame() {
                      trl::L("反转义宽松处理 %1 处非法 0x3D（当普通数据）").arg(lenient_fixes));
         }
 
-        // 旧格式兼容:帧体 data 开头带 8B 逐帧 BCD 标签(无 raw_wire 时
-        // frame_to_playback 的回退格式) → 剥离并重建 raw_wire,统一为新格式。
-        // 不剥离的后果:raw_wire 含帧内 BCD,再次导出时该帧走 raw_wire 分支,
-        // 段首(seg_start)会在帧外再写一个 8B 段标注 → 同一帧带双重 BCD 标签。
-        qint64 inline_bcd_ms = -1;
-        const bool can_have_inline_bcd = m_cfg.mode == ReaderMode::FilePlayback;
-        if (can_have_inline_bcd && playback::looks_like_legacy_inline_bcd(unesc)) {
-            const qint64 candidate_ms = bcd_ms_of(unesc.left(8));
-            if (candidate_ms >= 0) {
-                inline_bcd_ms = candidate_ms;
-                const QByteArray stripped = unesc.mid(8);
-                wire.clear();
-                wire.append(char(0x3C))
-                    .append(playback::escape_frame_data(stripped))
-                    .append(char(0x3E));
-                unesc = stripped;
-            }
-        }
+        // 帧体只有新格式:8B BCD 时间标注只出现在帧外(文件头/段间),
+        // 由 try_consume_bcd_tag 消费。历史逐帧 BCD 读取兼容已移除(2026-11),
+        // 帧体前 8B 即使形似 BCD 也按新格式处理,不剥离、不改时间链。
 
         // 新口径:MPDU 短于 FCH(16B)的完整 0x3C...0x3E 帧不再送解析器,
         // 由 reader 直接标 DROP(灰行、不解析)。data 布局为 len2+NTB4+媒介4+
@@ -537,21 +522,7 @@ void ReaderWorker::try_extract_frame() {
         //   后续帧 frame_time = 上一帧 frame_time + (本帧 NTB − 上一帧 NTB)×40 ns
         //   帧间 NTB 差超出合理范围(长时间无报文/跨 u32 回绕)→ 用本地时刻,不
         //   沿用上一帧 NTB(本帧为断点,重置链)
-        if (inline_bcd_ms >= 0) {
-            // 旧版 frame_to_playback 将 BCD 放在每个帧体内。该标签是本帧
-            // 的权威绝对时间,不能只剥离后再按当前处理时刻回退。
-            bf.meta.frame_time = QDateTime::fromMSecsSinceEpoch(inline_bcd_ms);
-            m_last_ft = inline_bcd_ms;
-            m_last_ntb = (unesc.size() >= 6)
-                ? (quint32)(quint8)unesc[2] | ((quint32)(quint8)unesc[3] << 8)
-                  | ((quint32)(quint8)unesc[4] << 16) | ((quint32)(quint8)unesc[5] << 24)
-                : 0;
-            bf.meta.replay_time_tag = true;
-            // 重新建立后续帧的时间基准,避免旧格式 epoch-ts 或文件头 NTB
-            // 被错误地拿来和新格式 NTB 做差分。
-            m_playback_base_ms = inline_bcd_ms;
-            m_first_frame = true;
-        } else if (m_playback_base_ms >= 0) {
+        if (m_playback_base_ms >= 0) {
             // 极短帧(<6B,无帧内 NTB):ntb=0,时间轴走断点分支(本地时刻)
             const quint32 ntb = (unesc.size() >= 6)
                 ? (quint32)(quint8)unesc[2] | ((quint32)(quint8)unesc[3] << 8)
@@ -627,7 +598,7 @@ void ReaderWorker::try_extract_frame() {
         // 帧 ts 域语义(2026-09 统一):ts 一律为 NTB tick(25MHz,40ns),
         // 无论实时串口(设备填)还是文件回放(bin/裸 hex 导出均写 NTB)
         bf.meta.frame_ts_is_ntb = true;
-        // 新格式帧体无逐帧 BCD;旧格式仅在 FilePlayback 中通过严格结构门兼容
+        // 帧体无逐帧 BCD(时间标注只在帧外)
         bf.meta.has_time_tag = false;
         bf.data = unesc;
         ++m_frame_count;
