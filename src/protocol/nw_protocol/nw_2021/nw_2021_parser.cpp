@@ -7,7 +7,7 @@
 #include "nw_2021_pb_table.h"
 #include "nw_2021_msdu_parser.h"
 #include "nw_2021_beacon_parser.h"
-#include "nw_2021_tree.h"
+#include "nw_2021_frametype.h"   // FrameType / AckExtType(不含 QTreeWidgetItem,解析器不链接 QtWidgets)
 #include "common/fieldtools.h"
 #include "common/pb_assembler.h"
 #include "crc.h"

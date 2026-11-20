@@ -19,10 +19,38 @@
 #include "bcd.h"
 #include "i18n.h"
 #include "common/msdu_crc_state.h"
+#include "protocolfactory.h"
 #include <QDateTime>
 
 
-NW_2026_Parser::NW_2026_Parser() {}
+NW_2026_Parser::NW_2026_Parser() {
+    // BPLC 版委托解析器走注册表(影子覆盖同样生效,见头文件);注册表未登记
+    // 内置协议时回退直接构造(单测只链接本解析器时仍可工作)
+    m_legacy = make_parser_by_id(QStringLiteral("NW_2021"));
+    m_legacy_nw2021 = dynamic_cast<NW_2021_Parser*>(m_legacy.get());
+    if (!m_legacy) {
+        m_legacy = std::make_unique<NW_2021_Parser>();
+        m_legacy_nw2021 = static_cast<NW_2021_Parser*>(m_legacy.get());
+    }
+}
+
+/// @brief BPLC 版帧委托解析(标准版本号≠2 的整帧转交)
+/// @details 内置 NW_2021_Parser 走 parse_inner(不做显示时间判定,委托方统一做,
+///          与改动前 m_legacy.parse_inner 完全一致);影子解析器走公开 parse()
+///          并转发显示上下文。
+NW_2026_Parser::Result NW_2026_Parser::parse_legacy(const BplcFrame& in,
+                                                   MsduState& msdu,
+                                                   const Filter& f) {
+    if (m_legacy_nw2021)
+        return m_legacy_nw2021->parse_inner(in, msdu, f);
+    if (m_legacy) {
+        m_legacy->set_display_context(m_display_ctx);
+        return m_legacy->parse(in, msdu, f);
+    }
+    // 不可达:构造时已保证 m_legacy 非空;防御性回退
+    NW_2021_Parser fallback;
+    return fallback.parse_inner(in, msdu, f);
+}
 
 // 剥物理层头(与国网一致:[dlen2][ts4][phr_mcs][option][channel][isRF])
 bool NW_2026_Parser::decode_envelope(const BplcFrame& in, Result& r) {
@@ -275,7 +303,7 @@ NW_2026_Parser::Result NW_2026_Parser::parse_inner(const BplcFrame& in, MsduStat
                 }
             }
             if (!splc_ext_mme)
-                return m_legacy.parse_inner(in, msdu, f);
+                return parse_legacy(in, msdu, f);
         }
     }
 
@@ -646,7 +674,7 @@ NW_2026_Parser::Result NW_2026_Parser::parse_inner(const BplcFrame& in, MsduStat
         // 非 SOF 帧 SPLC 结构性失败(载荷不足/信标载荷区不完整,parse_beacon 置 present=false)
         // → 回退 BPLC 解析(分派策略第 3 条,用户决策)
         if (!r.beacon.present) {
-            return m_legacy.parse_inner(in, msdu, f);
+            return parse_legacy(in, msdu, f);
         }
     } else if (ftype == NW_2026_FrameType::ACK) {
         // ACK(南网 MPDU_ACK_FCH 坐标,表19/表21)
