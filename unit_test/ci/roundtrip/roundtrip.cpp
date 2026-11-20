@@ -265,7 +265,7 @@ void regressions() {
 
     {
         // 无 raw_wire 的旧缓存也必须导出为新格式:时间标签在帧外,
-        // 不再生成逐帧 BCD。验证 bin 重读与 TIME + NTB 的 RawHex 导出一致。
+        // 验证 bin 重读与 TIME + NTB 的 RawHex 导出一致。
         PacketEntry a;
         a.raw_bytes = first.mid(10);
         a.epoch_ms = base;
@@ -297,7 +297,7 @@ void regressions() {
               "bin and RawHex exports preserve NTB fields");
         check(fallback_bin.startsWith(playback::bcd_time_tag(base)
                                           + playback::frame_to_playback(a)),
-              "bin fallback export uses frame-external BCD, not inline BCD");
+              "bin fallback export places the time tag outside the frame");
     }
 
     {
@@ -344,8 +344,8 @@ void regressions() {
     }
 
     {
-        // 新格式帧的前 8B 可以偶然满足 BCD 日期范围;读取端已不兼容逐帧 BCD,
-        // 不得被误剥离或污染时间链。
+        // 新格式帧的前 8B 可以偶然满足 BCD 日期范围;帧内字节不得被误判为
+        // 帧外时间标签,也不得污染时间链。
         QByteArray false_bcd_mpdu(272, char(0));
         false_bcd_mpdu[0] = char(0x02);
         false_bcd_mpdu[1] = char(0xd5);
@@ -364,22 +364,11 @@ void regressions() {
                   && !false_bcd_entries[0].meta.replay_time_tag
                   && false_bcd_entries[0].epoch_ms >= before
                   && false_bcd_entries[0].epoch_ms <= after,
-              "new-format BCD-shaped header is not treated as inline BCD");
+              "frame bytes shaped like BCD are not treated as a time tag");
         const auto realtime_false_bcd = ReaderWorkerTestAccess::serial_frames(false_bcd);
         check(realtime_false_bcd.size() == 1 && !realtime_false_bcd[0].meta.replay_time_tag,
-              "real-time BCD-shaped header is not treated as inline BCD");
+              "real-time frame bytes shaped like BCD are not treated as a time tag");
 
-        // 历史逐帧 BCD 帧(结构完全符合旧 frame_to_playback 布局)也不再剥离:
-        // 帧体原样保留,时间取帧外标注,证明兼容读路径已删除。
-        QByteArray first_data;
-        playback::unescape_frame_data(first.mid(1, first.size() - 2), first_data);
-        const QByteArray old_data = playback::bcd_time_tag(later) + first_data;
-        const QByteArray old_frame = QByteArray(1, char(0x3c))
-            + playback::escape_frame_data(old_data) + char(0x3e);
-        const auto old_entries = read(tag + old_frame, ReaderMode::FilePlayback);
-        check(old_entries.size() == 1 && old_entries[0].epoch_ms == base
-                  && old_entries[0].raw_wire == old_frame,
-              "legacy inline BCD is no longer stripped on read");
     }
 
     for (ReaderMode mode : {ReaderMode::FilePlayback, ReaderMode::RawHex}) {

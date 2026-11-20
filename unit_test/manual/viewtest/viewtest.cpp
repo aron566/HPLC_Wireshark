@@ -1077,8 +1077,14 @@ int main(int argc, char* argv[]) {
                 }
                 BplcFrame fr2;
                 fr2.data = unesc;
-                // 模拟 SerialReader 回放自动识别导出文件的时间标签
-                fr2.meta.has_time_tag = playback::looks_like_bcd_time(unesc);
+                // BCD 标签位于帧外并由 SerialReader 消费；此处直接注入
+                // Reader 已建立的时间，避免把帧体误当成时间标签。
+                fr2.meta.has_time_tag = false;
+                if (n_back < n_src) {
+                    fr2.meta.frame_time = entries[n_back].meta.frame_time;
+                    fr2.meta.epoch_ms = entries[n_back].epoch_ms;
+                    fr2.meta.replay_time_tag = entries[n_back].meta.replay_time_tag;
+                }
                 auto r2 = parser2.parse(fr2, msdu_state2, f0);
                 if (!r2.accept) break;                       // 导出帧必须可解析
                 if (n_back < n_src) {

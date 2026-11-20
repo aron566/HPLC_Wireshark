@@ -485,7 +485,7 @@ void ReaderWorker::try_extract_frame() {
         }
 
         // 帧体只有新格式:8B BCD 时间标注只出现在帧外(文件头/段间),
-        // 由 try_consume_bcd_tag 消费。历史逐帧 BCD 读取兼容已移除(2026-11),
+        // 由 try_consume_bcd_tag 消费。
         // 帧体前 8B 即使形似 BCD 也按新格式处理,不剥离、不改时间链。
 
         // 新口径:MPDU 短于 FCH(16B)的完整 0x3C...0x3E 帧不再送解析器,
@@ -598,7 +598,7 @@ void ReaderWorker::try_extract_frame() {
         // 帧 ts 域语义(2026-09 统一):ts 一律为 NTB tick(25MHz,40ns),
         // 无论实时串口(设备填)还是文件回放(bin/裸 hex 导出均写 NTB)
         bf.meta.frame_ts_is_ntb = true;
-        // 帧体无逐帧 BCD(时间标注只在帧外)
+        // 时间标注只在帧外
         bf.meta.has_time_tag = false;
         bf.data = unesc;
         ++m_frame_count;
