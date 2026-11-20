@@ -285,3 +285,55 @@ static const FieldSpec kTsaHeadSpec[] = {
 
 - 字段级差异明细：`HDC2.0_4-2_字段级差异明细.md` 182,012 B sha256 `15940e7cbb5f11f8e505c58ff17f5b8d75925ac30c14cc3ae9c6356c6545a5fb`
 - 题注/体量差集台账：`HDC2.0_NEW_VS_OLD_DIFF.md` 9,841 B sha256 `2a3e56d3e4a9478923b00ab3449e9be71e0148e92b10e5fdbdc5fc13a40ac18f`
+
+## 9. 第三次复核 —— 源码侧实测（@code-review-bot，对照 V6 原文 + 跑真实构建/探针）
+
+> 复核对象：`src/protocol/gw_protocol/gw_2026/` 16 个文件的未提交改动（236+/228−）
+> 方法：逐表用**展开 rowspan 的网格解析器**抽 V6 原文比对 + 主程序实编 + 探针 A/B 对照
+> 结论：**暂不可提交**，4 项必须改（其中 A 不修 CI 必红）
+
+### 9.1 ✅ 逐格核过、确实正确（无需再动）
+
+| 项 | 实测坐标 | V6 原文 | 结论 |
+|---|---|---|---|
+| 表97 信道评估请求 | SrcTEI (0,0,12) / DstTEI (1,4,12) / 子载波分组大小 (3,0,2) / 训练序列频段标识 (3,2,3) / 保留 (3,5,3) | byte0-2 TEI；byte3 b0-1 2bit、b2-4 3bit、b5-7 3bit | ✅ 5 字段全对 |
+| 表98 信道评估拒绝 | RejectReason (3,0,8) | byte3 拒绝原因 8bit | ✅ |
+| 表14 SACK(不反馈SNR) | RxPBNum (4,2,2) / RxStatus (4,4,4) / SrcTEI (5,0,12) / DstTEI (6,4,12) / RemainSTANum (8,0,2) / RSV0 (8,2,6) / ChQ (9,0) / Load (10,0) / RSV1 (11,0)；`ack_rx_res` 恒 0 | 接收结果已删除；byte4 b0 BRU、b1 SATID、b2-3 RxPBNum、b4-7 RxStatus | ✅ 9 字段全对 |
+| 表27 TSA | 13 字段；NTB (7,0,32) / 周期 (11,0,32) / RF 时隙 (15,0,10) / 保留 (16,2,6) | **固定头 17B**；byte7-10 / 11-14 / 15-16 | ✅ 固定头与三处坐标全对（旧表28） |
+| 表24 站点能力 | 层级数 (10,4,4) 仍在、通信成功率 (11,0,8)、**新增 PCOBRUSNR (13,0,32)** | byte10 b4-7 层级数、byte11 通信成功率、byte13-16 代理BRU SNR | ✅ 11 字段全对 |
+| 表36 精简信标 | AssociationFlag (0,6,1) 本就存在 | byte0 b6 开始关联标志位 | ✅ 未新增是对的 |
+| 表21 标准信标头 | 固定头 **16B**（byte15 统计序号、byte16 起管理信息） | byte14 保留、byte15 统计序号、byte16+ 管理信息 | ✅（旧表22 为 20B） |
+| MMe 枚举 | 0x11(表97) / 0x12(表98) / **0x15(表99)**；0x15 走 `parse_channel_eval` | 表99 = BRU SNR 标志(0,0,1)、SAT 配置长度(0,1,7)、表64 | ✅ |
+
+构建与自检实测：`qmake+mingw32-make` **MAKE=0、本项目诊断 0**；i18n 884 键 **①0②0③0**；`check_title_case --strict` exit 0；`bplcframe.h` / `packetentry_serialize.h` **零改动**；gw-icv-probe **73 PASS**、msdu-crc-gate-probe **ALL PASS(85)**、h1-getbits-probe **81 PASS**。
+
+### 9.2 🔴 必须改
+
+| # | 项 | 位置 | V6 依据 | 影响 |
+|---|---|---|---|---|
+| **A** | `gw-beacon-crc-probe` 仍按旧 20B 信标头造帧 | `unit_test/protocol-gw/gw-beacon-crc-probe/gw_beacon_crc_probe.cpp:70-73` | 表21：固定头 16B | **A/B 实测：HEAD ALL PASS → 工作区 2 FAIL**（`gw2026 ok/pb-bad: TEI5 learned==1`）⇒ CI 必红。改法：`gb[20]→gb[16]`、`gb[21]→gb[17]`、`gb[22]→gb[18]`、`gb+23→gb+19`、补 `gb[15]=统计序号` |
+| **B** | FC 符号数枚举顺序仍旧版（0=短/1=标准/2=长） | `gw_2026_tree.cpp:176-183` `fch_sym_txt()` | 表5/表7/表12：**0:标准FC 1:长FC 2:短FC 3:保留** | 表5/7/9/12 全部显示错；函数共用，改一处全对 |
+| **C** | 加密标志位文案仍「预留信息段」 | `:295-298`(表12 `10,7,1`)、`:393`(表7/表19/表32)、`:19` register_en | 三处原文均为「0:不加密 1:加密」 | 显示错误 + 改后 `register_en` 成死键 |
+| **D** | 表号「同号异义」 | `tree.cpp:154/381/399`、`sof_parser.cpp:19/52/53`、`msdu_parser.cpp:711/724/750` | 见下表 | 注释误导后人；非单纯平移 |
+
+同号异义映射（V6 这一簇整体前移一位）：
+
+| 代码里写的 | 代码本意 | V6 同号实际 | 应改 |
+|---|---|---|---|
+| 表19 | 无线 SOF 帧 | 选择确认的可变区域 | 表18 |
+| 表18 | 无线信标帧 / PB 大小 | SOF 帧的可变区域 | 表17 |
+| 表99/100/101 | 无线 RSSI 8/4/6bit | 信道评估参数更新 / 子载波选择表 / 比特加载表 | 表92/93/94 |
+| 表72/73/74 | 载波 RSSI 8/4/6bit | （需按章节确认簇归属） | 表66/67/68 |
+
+### 9.3 🟡 建议
+
+1. 表12 字段名 `站点0数据载荷符号数` → V6「站点0载荷符号数」
+2. 表36 byte0 bit7 代码标 `BeaconCEFlag`，V6 该位为「保留」
+3. `src/ui/packetlistmodel.cpp:658` 的 `ack_rx_res == 1` 红行规则已成死代码（恒 0），加注释或删除，**不得为它改块格式**
+4. ACK 注释「V6 表14 已删接收结果(旧表含,1bit)」应写准：「接收结果」4bit 在**旧表20→V6 表19**，旧表14 里是代码自读的 1bit RxRes
+
+### 9.4 测试基建已知项（非本次改动引入）
+
+- `gw2026-tree-probe` 喂 `gw2026_{ofdma,tda}_sim.bin`（4536/4400 B）→ **FC CRC24 拒收**；HEAD 上同样拒收，且 FC CRC24 只覆盖固定 16B 头，与字段布局无关 ⇒ fixture 与探针输入格式不匹配（README 称 440/304 B），需重建裸 MPDU fixture
+- `gw2026-tree-probe/build.sh` 用 `make`（本机无）⇒ 需改 `mingw32-make` 或 qmake 直构
+- `gw-beacon-crc-probe` / `gw-learn-probe` 的 build.sh 需 `QT_ROOT`，否则 `QCoreApplication: No such file`
