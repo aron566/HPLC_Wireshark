@@ -1,6 +1,6 @@
 /// @file gw_2026_provider.cpp
 /// @brief GW_2026 协议提供者:自注册 id / 显示名 / 排序 / 解析器与字段树构建器
-/// @details GW_2026_Parser 内部按 FCH 版本号自适应:HDC 1.0 帧整帧委托
+/// @details GW_2026_Parser 内部按 FC 版本号自适应:HDC 1.0 帧整帧委托
 ///          GW_2022_Parser,结果 protocol 标记为 GW_2022,字段树随之分派。
 #include "iprotocolprovider.h"
 #include "protocolfactory.h"

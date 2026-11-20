@@ -1,7 +1,7 @@
 /// @file sofparser.h
-/// @brief SOF 帧解析模块声明(HDC 2.0 SOF:FCH 字段 + PB 块/MSDU 重组)
-/// @details 负责 SOF 帧 FCH 内业务字段(源/目的 TEI、帧长、载波表7 帧子类型/
-///          TF/调制方式…、无线表19 载荷PB大小/MCS…)与多 PB 块的 MSDU 跨帧
+/// @brief SOF 帧解析模块声明(HDC 2.0 SOF:FC 字段 + PB 块/MSDU 重组)
+/// @details 负责 SOF 帧 FC 内业务字段(源/目的 TEI、帧长、载波表7 帧子类型/
+///          TF/调制方式…、无线表18 载荷PB大小/MCS…)与多 PB 块的 MSDU 跨帧
 ///          重组(与 Python MPDU_Class 重组逻辑一致)。
 ///          重组状态 MsduState 定义于 bplcframe.h(由调用方持有,跨帧保活)。
 #ifndef BPLC_GW_2026_SOF_PARSER_H
@@ -12,15 +12,15 @@
 
 namespace gw_2026_sof {
 
-/// @brief SOF FCH 字段解析 + 多 PB 重组
-/// @param body      payload_for_log(自 FrameType 起,含 16B FCH)
+/// @brief SOF FC 字段解析 + 多 PB 重组
+/// @param body      payload_for_log(自 FrameType 起,含 16B FC)
 /// @param info      [out] 填充 src/dst TEI、pb_size、pb_heads/pb_crc_oks 等
 /// @param msdu      跨帧重组状态(多帧分段时由调用方在帧间保留)
 /// @param complete_msdu_body [out] 重组完成的 MSDU body(未完成则为空)
 /// @param band      PLC 频段号(0-3),用于查 gw_2026_pb_num_table 校验 PB 块数;
 ///                  0xFF(默认)= 非 PLC(HRF 等)
-/// @param is_rf     是否无线信道帧:无线 SOF 走 HDC2.0 4-2 表19 字段格式——固定 1 个 PB 块,
-///                  字节9 bit4-7 为载荷PB大小(表19)定 PB 大小、字节11 bit4-7 为 MCS,
+/// @param is_rf     是否无线信道帧:无线 SOF 走 HDC2.0 4-2 表18 字段格式——固定 1 个 PB 块,
+///                  字节9 bit4-7 为载荷PB大小(表18)定 PB 大小、字节11 bit4-7 为 MCS,
 ///                  字节10-11 bit0/字节12 bit0-3 为保留;载波走表7(帧子类型/TF/调制
 ///                  方式与参数,链路标识符在 MAC 帧头 byte15)
 /// @param msdu_span_clean [out,optional] 首个 MSDU span 是否完全避开 PB CRC

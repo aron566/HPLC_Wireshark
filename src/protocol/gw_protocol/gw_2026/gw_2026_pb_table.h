@@ -2,7 +2,7 @@
 /// @brief 国网 GW_2026 协议参数:TMI → PB 块大小查表
 /// @details 国网 HPLC TMI(分级拷贝基本模式)决定物理块大小,取值 0-14:
 ///   TMI 0-1 → 520;2-6 → 136;7-10 → 520;11-12 → 264;13-14 → 72。
-///   信标/单块帧同样按 FCH TMI 查表;-1 = TMI 无效。
+///   信标/单块帧同样按 FC TMI 查表;-1 = TMI 无效。
 /// @note 南网 NW_2021 的 PB 大小定义不同(见 nw_protocol/nw_2021/nw_2021_pb_table.h),
 ///       故本表按协议+版本独立,不与其他协议共享。
 #ifndef BPLC_GW_2026_PB_TABLE_H
@@ -10,7 +10,7 @@
 
 #include <QtGlobal>
 
-/// 国网无线载荷 PB 大小码 → PB 块大小(字节)(HDC2.0 4-2 表18/表19:0-5 = 16/40/72/136/264/520)。-1 = 保留值
+/// 国网无线载荷 PB 大小码 → PB 块大小(字节)(HDC2.0 4-2 表17/表18:0-5 = 16/40/72/136/264/520)。-1 = 保留值
 inline int gw_2026_rf_pb_size(quint8 code) {
     static const quint16 table[] = {16, 40, 72, 136, 264, 520};
     return (code <= 5) ? int(table[code]) : -1;

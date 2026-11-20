@@ -1,7 +1,7 @@
 /// @file sofparser.cpp
 /// @brief SOF 帧解析实现(独立帧解析模块,sofparser.pri)
-/// @details HDC 2.0:SOF 按载波表7-表13/无线表19 分介质解析 FCH 可变区域,
-///          载波再按帧子类型(表7 byte7 bit0-2)分派:数据帧/信道探测帧(表9)/
+/// @details HDC 2.0:SOF 按载波表7-表13/无线表18 分介质解析 FC 可变区域,
+///          载波再按帧子类型(表7 byte7 bit0-2)分派:数据帧/信道评估帧(表9)/
 ///          OFDMA 下行帧(表10/11)/TDA 下行帧(表12/13);链路标识符已移至
 ///          MAC 帧头 byte15(表2)。逐 PB 块 CRC24 校验与 MSDU 重组
 ///          (PB 头 START/END/seq 语义)。公共位域/CRC 工具见 fieldspec.h。
@@ -16,7 +16,7 @@
 
 namespace {
 
-// 无线 SOF 载荷PB大小(HDC2.0 4-2 表19):索引 0-5 对应 16/40/72/136/264/520 字节
+// 无线 SOF 载荷PB大小(HDC2.0 4-2 表18):索引 0-5 对应 16/40/72/136/264/520 字节
 int sof_rf_pb_size(quint8 idx) {
     static const quint16 table[] = {16, 40, 72, 136, 264, 520};
     return (idx <= 5) ? int(table[idx]) : -1;
@@ -40,17 +40,17 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
                  bool* msdu_span_clean) {
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
 
-    // FCH 业务字段(相对 FCH 起点;载波/无线共用前段:源/目的 TEI + 帧长)
+    // FC 业务字段(相对 FC 起点;载波/无线共用前段:源/目的 TEI + 帧长)
     info.src_tei      = (quint16)get_bits_unchecked(p, 4, 0, 12);
     info.dst_tei      = (quint16)get_bits_unchecked(p, 5, 4, 12);
     info.frame_len    = (quint16)get_bits_unchecked(p, 8, 0, 12);
-    // 链路标识符(HDC 2.0 移至 MAC 帧头 byte15,表2;FCH 内不再有此字段)
+    // 链路标识符(HDC 2.0 移至 MAC 帧头 byte15,表2;FC 内不再有此字段)
     info.link_id      = 0;
 
     int pb_size;
     if (is_rf) {
-        // 无线 SOF(HDC2.0 4-2 表19,布局同 HDC 1.0 表30):固定 1 块;字节9 bit4-7 为
-        // 载荷PB大小(表19),字节11 bit4-7 为 MCS(表18),其余保留(存原始值)
+        // 无线 SOF(HDC2.0 4-2 表18,布局同 HDC 1.0 表30):固定 1 块;字节9 bit4-7 为
+        // 载荷PB大小(表18),字节11 bit4-7 为 MCS(4-1 表47),其余保留(存原始值)
         info.pb_num_field = (quint8) get_bits_unchecked(p, 9, 4, 4);
         info.bc_flag      = (bool)   get_bits_unchecked(p, 11, 1, 1);
         info.re_send_flag = (bool)   get_bits_unchecked(p, 11, 2, 1);
@@ -61,14 +61,14 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
         info.tmi_ext    = (quint8) get_bits_unchecked(p, 12, 0, 4);   // 保留(原始值)
         pb_size         = sof_rf_pb_size(info.pb_num_field);
     } else {
-        // 载波 SOF(表7 数据帧):帧子类型/TF描述/帧长后为 FCH 符号数(跨字节)/
+        // 载波 SOF(表7 数据帧):帧子类型/TF描述/帧长后为 FC 符号数(跨字节)/
         // 调制方式与参数/2b 编码 PB 个数/广播·加密·重传/频段标识/增益/加载表ID
         info.sof_data_type     = (quint8) get_bits_unchecked(p, 7, 0, 3);
         // 载波 SOF 按帧子类型分派(表7 (7,0,3)):
-        //   0=数据帧(表7) 1=信道探测帧(表9) 2=OFDMA下行(表10/11) 3=TDA下行(表12/13)
+        //   0=数据帧(表7) 1=信道评估帧(表9) 2=OFDMA下行(表10/11) 3=TDA下行(表12/13)
         const quint8 sof_dt = info.sof_data_type;
         if (sof_dt == 1) {
-            // 表9(信道探测帧)无 PB/调制/PB个数字段:载荷为训练序列,不带数据物理块。
+            // 表9(信道评估帧)无 PB/调制/PB个数字段:载荷为训练序列,不带数据物理块。
             // 表9 专属字段(子载波分组/训练序列频段/训练序列符号数/扩展目的TEI)由树层从 raw 直读,
             // 不进 MpduInfo。⇒ 跳过 PB 组装,避免按表7 坐标读出垃圾并误报 CRC FAIL。
             info.pb_num = 0; info.pb_size = 0; info.pb_num_field = 0;
@@ -76,7 +76,7 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
             return QString();
         }
         if (sof_dt == 2 || sof_dt == 3) {
-            // eFC(表11/13,固定 16B):FCH 16B + eFC 16B = 32B。帧长不足 32B 时
+            // eFC(表11/13,固定 16B):FC 16B + eFC 16B = 32B。帧长不足 32B 时
             // eFC 字段读到 byte27 会越界(新 H1),先整帧拒收;再按南网同款
             // 校验 eFC CRC24(eFC[13..15],即 p[29..31]),不对同样整帧拒收。
             // 拒收时清空 PB/站点信息,树层不按半成品 MpduInfo 画 PB 节点。
@@ -104,7 +104,7 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
                 return trl::L("OFDMA/TDA 站点数为保留值 0(表10/表12 仅定义 1-3)");
             }
             info.sof_stations.clear();
-            int blk = 32;   // PB 起点:FCH 16B + eFC 16B(表11/13 固定 16 字节)
+            int blk = 32;   // PB 起点:FC 16B + eFC 16B(表11/13 固定 16 字节)
             bool any_reassembly_bad = false;   // 任一站序列号落位失败(缺块/越界/冲突)
             for (int si = 0; si < n_sites; ++si) {
                 SofStationPb st;
@@ -186,7 +186,7 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
             }
             // 多站点 PB 布局已通过协议仿真帧验证，尚未经实包确认。
             // 已验证(strong)：
-            //   · 块边界 —— 帧长恰好等于 16(FCH) + 16(eFC) + Σ(站点块数 × 块长)：
+            //   · 块边界 —— 帧长恰好等于 16(FC) + 16(eFC) + Σ(站点块数 × 块长)：
             //     OFDMA 440B = 32 + 2×136 + 1×136；TDA 304B = 32 + 136 + 136
             //   · 每块 CRC24 校验通过（切错 1 字节必挂）⇒ 块起点 32、块长 136、
             //     站点间步进 136 全部自洽
@@ -194,7 +194,7 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
             //   · 源码与 Python 独立复算、Lua tshark 三方 CRC 值一致
             // 未验证(weak) —— 只有实包能证伪：
             //   · eFC 是否恒为 16 字节：表11/13 内部字节号 0-15、校验在 13-15，
-            //     且符号数是时序属性（表 6：FCH 符号数随频段变而字节长恒 16B，同理），
+            //     且符号数是时序属性（表 6：FC 符号数随频段变而字节长恒 16B，同理），
             //     故文档内 eFC 按 16B 理解；但规约未明文定 eFC 总长，真实设备是否
             //     存在更长 eFC 或 eFC 后私有字段，仍待实包确认。
             //   · 分集拷贝模式(5bit) → PB 大小 的映射：已按分集拷贝模式表
@@ -212,24 +212,20 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
 
         info.sof_tf_symbol_pos = (quint8) get_bits_unchecked(p, 7, 3, 2);
         info.sof_tf_symbol_num = (quint8) get_bits_unchecked(p, 7, 5, 3);
-        // FCH符号数(9,7,2) 跨字节:byte9 bit7 + byte10 bit0(表7)
-        info.sof_fch_sym_num   = (quint8)((get_bits_unchecked(p, 9, 7, 1))
-                                       | (get_bits_unchecked(p, 10, 0, 1) << 1));
-        info.sof_mod_mode      = (quint8) get_bits_unchecked(p, 10, 1, 1);
+        // byte9: bit0-3=帧长FL高4bit;bit4-5=FC符号数(表7 (9,4,2)):0标准/1长/2短/3保留;bit6-7=保留(表7,2bit)
+        info.sof_fch_sym_num   = (quint8) get_bits_unchecked(p, 9, 4, 2);
+        info.sof_mod_mode      = (quint8) get_bits_unchecked(p, 10, 0, 2);   // 表7 (10,0,2):0静态/1动态功率/2动态比特
         info.sof_mod_param     = (quint8) get_bits_unchecked(p, 10, 2, 5);
-        // PB 个数 2b 编码:(10,7)+(11,0) 跨字节 → 0-3 = 1-4 块
-        // (68-bit 位流连续排布:…参数(10,2-6)|PB个数(10,7)+(11,0)|广播(11,1)…)
-        const quint8 pb_code   = (quint8)((get_bits_unchecked(p, 10, 7, 1))
-                                       | (get_bits_unchecked(p, 11, 0, 1) << 1));
+        // PB 个数 2b 编码(表7 (11,0,2)):0-3 = 1-4 块
+        const quint8 pb_code   = (quint8) get_bits_unchecked(p, 11, 0, 2);
         info.pb_num_field      = pb_code;
         info.pb_num            = sof_pb_num_decode(pb_code);
-        info.bc_flag           = (bool)   get_bits_unchecked(p, 11, 1, 1);
-        info.encryp_flag       = (bool)   get_bits_unchecked(p, 11, 2, 1);
-        info.re_send_flag      = (bool)   get_bits_unchecked(p, 11, 3, 1);
-        info.sof_band          = (quint8) get_bits_unchecked(p, 11, 4, 3);
-        info.sof_gain          = (quint8)((get_bits_unchecked(p, 11, 7, 1))
-                                       | (get_bits_unchecked(p, 12, 0, 3) << 1));
-        info.sof_load_table_id = (quint8) get_bits_unchecked(p, 12, 3, 1);
+        info.bc_flag           = (bool)   get_bits_unchecked(p, 11, 2, 1);   // 表7 (11,2,1):广播
+        info.encryp_flag       = (bool)   get_bits_unchecked(p, 10, 7, 1);   // 表7 (10,7,1):加密
+        info.re_send_flag      = (bool)   get_bits_unchecked(p, 11, 3, 1);   // 表7 (11,3,1):重传
+        info.sof_band          = (quint8) get_bits_unchecked(p, 11, 4, 3);   // 表7 (11,4,3):TF与载荷频段
+        info.sof_gain          = (quint8) get_bits_unchecked(p, 12, 0, 4);   // 表7 (12,0,4):数据载荷增益
+        info.sof_load_table_id = (quint8) get_bits_unchecked(p, 11, 7, 1);   // 表7 (11,7,1):动态加载表ID
         info.symbol_num = 0;
         info.tmi = info.sof_mod_param;   // 分集拷贝模式编号 = 调制参数(表7 byte10 bit2-6)
         // HDC 2.0 无 TMI_EXT:载波不填扩展字段,info.tmi_ext 保持默认 0,不再参与查表。
@@ -237,17 +233,18 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
         // PB 大小按调制方式分派(枚举驱动):分集拷贝=调制参数查分集拷贝模式表;
         // 动态加载=调制参数查物理块类型表(表8)
         switch (static_cast<GW_2026_ModMode>(info.sof_mod_mode)) {
-            case GW_2026_ModMode::DIVERSITY_COPY:
+            case GW_2026_ModMode::STATIC_LOAD:
+            case GW_2026_ModMode::DYNAMIC_POWER:
                 pb_size = gw_2026_diversity_pb_size(info.tmi);
                 break;
-            case GW_2026_ModMode::DYNAMIC_LOAD:
+            case GW_2026_ModMode::DYNAMIC_BIT:
                 pb_size = sof_dynamic_pb_size(info.sof_mod_param);
                 break;
             default:
                 pb_size = -1;
                 break;
         }
-        // 帧子类型非数据帧(信道探测/OFDMA/TDA)的字段布局不同(表9-表13),
+        // 帧子类型非数据帧(信道评估/OFDMA/TDA)的字段布局不同(表9-表13),
         // 此处仍按数据帧完成 TEI/帧长提取,载荷区按通用 PB 逐块解析展示;
         // 子类型专属字段由字段树标注(见 gw_2026_tree.cpp SOF 分支)。
     }

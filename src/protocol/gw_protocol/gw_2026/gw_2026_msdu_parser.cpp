@@ -62,10 +62,11 @@ static QString mme_type_name(quint8 t) {
         case GW_2026_MMeType::MME_NETWORK_CONFLICT_REPORT: return trl::L("网络冲突上报");
         case GW_2026_MMeType::MME_ZERO_CROSS_NTB_COLLECT_IND: return trl::L("过零NTB采集指示");
         case GW_2026_MMeType::MME_ZERO_CROSS_NTB_REPORT: return trl::L("过零NTB上报");
-        case GW_2026_MMeType::MME_BITLOADING_TRAIN_REQ: return trl::L("Bitloading训练请求");
-        case GW_2026_MMeType::MME_BITLOADING_TRAIN_REQ_REJECT: return trl::L("Bitloading训练请求拒绝");
+        case GW_2026_MMeType::MME_CHANNEL_ASSESS_REQ: return trl::L("信道评估请求");
+        case GW_2026_MMeType::MME_CHANNEL_ASSESS_REJECT: return trl::L("信道评估拒绝");
         case GW_2026_MMeType::MME_GROUP_REQ: return trl::L("分组请求");
         case GW_2026_MMeType::MME_GROUP_CNF: return trl::L("分组确认");
+        case GW_2026_MMeType::MME_CHANNEL_ASSESS_PARAM_UPDATE: return trl::L("信道评估参数更新");
         case GW_2026_MMeType::MME_DIAGNOSE: return trl::L("网络诊断");
         case GW_2026_MMeType::MME_RF_CHANNEL_CONFLICT_REPORT: return trl::L("无线信道冲突上报");
         default:   return QStringLiteral("Unknown(0x%1)").arg(t, 2, 16, QChar('0'));
@@ -416,16 +417,25 @@ static const FieldSpec kHeartBeatSpec[] = {
 };
 static const int kHeartBeatSpecN = int(sizeof(kHeartBeatSpec) / sizeof(kHeartBeatSpec[0]));
 
-// ---- MMeBitloadingTrainReq (0x11,表104)/MMeBitloadingTrainReqReject (0x12,表105) ----
-// 两报文体前 3B 同构:源TEI(0,12) + 目的TEI(2,12);byte3 分别为
-// 子载波分组大小(表104)/拒绝原因(表105),在 case 分支内按语义改名注释。
-// (文档表题"Bitloadeing"系规约拼写错误,代码统一用 Bitloading)
-static const FieldSpec kBitloadingTrainReqSpec[] = {
-    {"SourceTEI",          0, 0, 12, Fmt::DEC},   // 表104: byte0 全8位 + byte1 bit0-3
-    {"DestinationTEI",     1, 4, 12, Fmt::DEC},   // 表104: byte1 bit4-7 + byte2 全8位
-    {"SubCarrierGroupSize", 3, 0, 8, Fmt::DEC},  ///< 表104:0-3=4/8/12/16 个子载波一组;表105 复用为拒绝原因
+// ---- MMeChannelAssessReq (0x11,表97) / MMeChannelAssessReject (0x12,表98) ----
+// 两报文体前 3B 同构:源TEI(0,12) + 目的TEI(2,12);byte3 分支不同:
+// 表97 = 子载波分组大小(2bit) + 训练序列频段标识(3bit) + 保留(3bit);
+// 表98 = 拒绝原因(8bit)。V6 拆分表97/98,旧表104/105 的 8bit 子载波分组大小改 2bit。
+static const FieldSpec kChannelAssessReqSpec[] = {
+    {"SourceTEI",          0, 0, 12, Fmt::DEC},   // 表97: byte0 全8位 + byte1 bit0-3
+    {"DestinationTEI",     1, 4, 12, Fmt::DEC},   // 表97: byte1 bit4-7 + byte2 全8位
+    {"SubCarrierGroupSize", 3, 0, 2, Fmt::DEC},   // 表97: 0-3 = 4/6/8/12 个子载波一组
+    {"TrainSeqFreqBand",   3, 2, 3, Fmt::DEC},    // 表97: 训练序列频段标识(0/1/2/4/5/6 有效,3/7 保留)
+    {"RSV",                3, 5, 3, Fmt::DEC},    // 表97: 保留
 };
-static const int kBitloadingTrainReqSpecN = int(sizeof(kBitloadingTrainReqSpec) / sizeof(kBitloadingTrainReqSpec[0]));
+static const int kChannelAssessReqSpecN = int(sizeof(kChannelAssessReqSpec) / sizeof(kChannelAssessReqSpec[0]));
+
+static const FieldSpec kChannelAssessRejectSpec[] = {
+    {"SourceTEI",          0, 0, 12, Fmt::DEC},   // 表98: byte0 全8位 + byte1 bit0-3
+    {"DestinationTEI",     1, 4, 12, Fmt::DEC},   // 表98: byte1 bit4-7 + byte2 全8位
+    {"RejectReason",       3, 0, 8,  Fmt::DEC},   // 表98: 拒绝原因(0x0 未定义/0x1 节点正在评估/0x2 评估节点已满)
+};
+static const int kChannelAssessRejectSpecN = int(sizeof(kChannelAssessRejectSpec) / sizeof(kChannelAssessRejectSpec[0]));
 
 
 // ---- MMeChangeProxyCnf (0x04):固定 20B + 子站点 2B×N ----
@@ -477,7 +487,7 @@ static const FieldSpec kDiagnoseSpec[] = {
 static const int kDiagnoseSpecN = int(sizeof(kDiagnoseSpec) / sizeof(kDiagnoseSpec[0]));
 
 // ---- MMeZeroCrossNTBCollectInd (0x0B):固定 8B ----
-// 协议 L1533 表104: TEI=12bit(字节0 bit0-7 + 字节1 bit0-3), RSV=4bit(字节1 bit4-7)
+// 表75: TEI=12bit(字节0 bit0-7 + 字节1 bit0-3), RSV=4bit(字节1 bit4-7)
 static const FieldSpec kZeroCrossCollectSpec[] = {
     {"STATEI",            0, 0, 12, Fmt::DEC},
     {"RSV0",              1, 4, 4,  Fmt::DEC},
@@ -698,8 +708,8 @@ static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
         bp += cb.snr;
     }
     if (cb.rssi) {
-        // RSSI 映射两簇不同(勿混):无线=表99(8bit 量化值=RSSI+110)/表100(4bit 非均匀,-105 起)/表101(6bit 2dB 步进,-110 起);
-        // 载波=表72(8bit 量化值=RSSI+100,-100 起)/表73(4bit 非均匀,-95 起)/表74(6bit 2dB 步进,-100 起)
+        // RSSI 映射两簇不同(勿混):无线=表92(8bit 量化值=RSSI+110)/表93(4bit 非均匀,-105 起)/表94(6bit 2dB 步进,-110 起);
+        // 载波=表66(8bit 量化值=RSSI+100,-100 起)/表67(4bit 非均匀,-95 起)/表68(6bit 2dB 步进,-100 起)
         const quint64 v = get_bits(c, bp / 8, bp % 8, cb.rssi);
         // 拓扑采集:该邻居信号强度 dBm(档位下限;gw 两簇映射与文案一致)
         if (rssi_out && tei) {
@@ -707,11 +717,11 @@ static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
             if (cb.rssi == 8)      dbm = int(v) - (carrier ? 100 : 110);
             else if (cb.rssi == 6) dbm = (v == 0) ? -(carrier ? 100 : 110)
                                                   : int(v) * 2 - (carrier ? 100 : 110);
-            else if (carrier) {    // 表73(载波 4bit)档位下限
+            else if (carrier) {    // 表67(载波 4bit)档位下限
                 static const int kLo[14] = {-95, -86, -80, -74, -68, -62, -56,
                                             -48, -42, -36, -30, -20, -10, 0};
                 dbm = (v == 0) ? -95 : (v >= 15 ? 10 : kLo[v - 1]);
-            } else {               // 表100(无线 4bit)档位下限
+            } else {               // 表93(无线 4bit)档位下限
                 static const int kLo[14] = {-105, -95, -86, -80, -74, -68, -62,
                                             -56, -48, -42, -36, -30, -20, -10};
                 dbm = (v == 0) ? -105 : (v >= 15 ? 0 : kLo[v - 1]);
@@ -726,7 +736,7 @@ static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
             rv = (v == 0) ? QStringLiteral("%1 (RSSI≤-%2dBm)").arg(v).arg(base)
                           : QStringLiteral("%1 (RSSI %2~%3dBm)").arg(v).arg(int(v) * 2 - base).arg(int(v) * 2 - base + 2);
         } else if (carrier) {
-            // 表73(载波 4bit):0=RSSI≤-95;1:-95~-86;2:-86~-80;3:-80~-74;4:-74~-68;5:-68~-62;
+            // 表67(载波 4bit):0=RSSI≤-95;1:-95~-86;2:-86~-80;3:-80~-74;4:-74~-68;5:-68~-62;
             //   6:-62~-56;7:-56~-48;8:-48~-42;9:-42~-36;10:-36~-30;11:-30~-20;12:-20~-10;
             //   13:-10~0;14:0~10;15=RSSI>10 (dBm)
             static const int kLo[14] = {-95, -86, -80, -74, -68, -62, -56,
@@ -737,7 +747,7 @@ static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
             else if (v == 15) rv = QStringLiteral("%1 (RSSI>10dBm)").arg(v);
             else              rv = QStringLiteral("%1 (RSSI=%2~%3dBm)").arg(v).arg(kLo[v - 1]).arg(kHi[v - 1]);
         } else {
-            // 表100(无线 4bit):0=RSSI≤-105;1:-105~-95;2:-95~-86;3:-86~-80;4:-80~-74;5:-74~-68;
+            // 表93(无线 4bit):0=RSSI≤-105;1:-105~-95;2:-95~-86;3:-86~-80;4:-80~-74;5:-74~-68;
             //   6:-68~-62;7:-62~-56;8:-56~-48;9:-48~-42;10:-42~-36;11:-36~-30;12:-30~-20;
             //   13:-20~-10;14:-10~0;15=RSSI>0 (dBm)
             static const int kLo[14] = {-105, -95, -86, -80, -74, -68, -62,
@@ -1030,7 +1040,7 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
                         }
                     kg.children.append(bn);
                 }
-                // 邻居表(位图版):位图置位 TEI 即该 STA 发现的邻居(discover_src_tei 由 mainwindow 用 FCH src_tei 填)
+                // 邻居表(位图版):位图置位 TEI 即该 STA 发现的邻居(discover_src_tei 由 mainwindow 用 FC src_tei 填)
                 // 全 0 位图也置 neighbor_teis_present,以清空该 STA 的旧邻居
                 out.topo_event.neighbor_teis_present = true;
                 out.topo_event.neighbor_teis.reserve(out.topo_event.neighbor_teis.size() + nk);
@@ -1071,13 +1081,13 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
     }
 }
 
-// ── 信道评估参数更新报文(表106-108,单跳帧消息类型1) ──
+// ── 信道评估参数更新报文(表99-101,单跳帧消息类型1 / MMe 0x0015) ──
 // byte0: BRUSNR有效标志(0,0,1) + SAT配置长度(0,1-7,0=无SAT配置);
 // 标志=1 时后随 4B BRU SNR 信息表(表64:8×4bit,-10+3v dB);
-// SAT 配置(sat_len 字节)固定头 2B(表106):
+// SAT 配置(sat_len 字节)固定头 2B(表99):
 //   byte0: SAT ID(0,0,1b) + SAT模式(0,1,1b) + 单子载波组大小(0,2-3,2b) + 保留(0,4-7)
 //   byte1: TMI(1,0-3,4b) + 数据载荷增益(1,4-7,4b)
-//   模式0:子载波选择表(表107:段数4b+N+1段×8b) / 模式1:比特加载表(表108:段数5b+N+1段×4组×2b)
+//   模式0:子载波选择表(表100:段数4b+N+1段×8b) / 模式1:比特加载表(表101:段数5b+N+1段×4组×2b)
 static void parse_channel_eval(MsduInfo& out, const QByteArray& c, int rel_base) {
     if (c.size() < 1) { pa::warn("gw_2026:content_short", QStringLiteral("channel eval <1B")); return; }
     const int bru_valid = (int)get_bits(c, 0, 0, 1);
@@ -1106,10 +1116,11 @@ static void parse_channel_eval(MsduInfo& out, const QByteArray& c, int rel_base)
     MsduFieldNode& sc = group(h.children, QStringLiteral("SAT Config [%1B]").arg(sat_len));
     sc.rel_start = rel_base + off; sc.rel_len = sat_len;
     if (sat.size() < 2) { pa::warn("gw_2026:content_short", QStringLiteral("SAT %1B<2B").arg(sat.size())); return; }
-    const int sat_id   = (int)get_bits(sat, 0, 0, 1);   // 表106:四字段共 1B,非整字节 ID
+    const int sat_id   = (int)get_bits(sat, 0, 0, 1);   // 表99:四字段共 1B,非整字节 ID
     const int sat_mode = (int)get_bits(sat, 0, 1, 1);
     const int grp_size = (int)get_bits(sat, 0, 2, 2);
-    const int tmi      = (int)get_bits(sat, 1, 0, 4);
+    // 载荷调制参数(表99,5bit):sat[0] bit7(高位)+sat[1] bit0-3(低4位);sat[0] bit4-6 为保留
+    const int tmi      = (int)((get_bits(sat, 0, 7, 1) << 4) | get_bits(sat, 1, 0, 4));
     const int gain     = (int)get_bits(sat, 1, 4, 4);
     MsduFieldNode& s0 = group(sc.children, QStringLiteral("SAT ID"), QString::number(sat_id));
     s0.rel_start = rel_base + off; s0.rel_len = 1;
@@ -1120,13 +1131,13 @@ static void parse_channel_eval(MsduInfo& out, const QByteArray& c, int rel_base)
     MsduFieldNode& s2 = group(sc.children, QStringLiteral("Subcarrier Group Size"),
         QStringLiteral("%1 (%2/group)").arg(grp_size).arg(4 + 2 * grp_size));  // 0/1/2 → 4/6/8 个一组
     s2.rel_start = rel_base + off; s2.rel_len = 1;
-    MsduFieldNode& s3 = group(sc.children, QStringLiteral("TMI [4b]"), QString::number(tmi));
+    MsduFieldNode& s3 = group(sc.children, trl::L("载荷调制参数 [5b]"), QString::number(tmi));
     s3.rel_start = rel_base + off + 1; s3.rel_len = 1;
     MsduFieldNode& s4 = group(sc.children, QStringLiteral("Data Payload Gain [4b]"), QString::number(gain));
     s4.rel_start = rel_base + off + 1; s4.rel_len = 1;
-    // 表107(子载波选择表,基线源 260823 原文):"子载波段个数 4bit……此字段表示有(N+1)个
+    // 表100(子载波选择表,基线源 260823 原文):"子载波段个数 4bit……此字段表示有(N+1)个
     // 连续子载波段","子载波段0..N 各 8bit,每个 bit 对应 1 个子载波组,0 不使用/1 使用"
-    // → 段索引从 0 起(无起始段字段),逐位=子载波组使能位图;表108 每组 2bit 为阶数值,非位图
+    // → 段索引从 0 起(无起始段字段),逐位=子载波组使能位图;表101 每组 2bit 为阶数值,非位图
     const int seg_cnt_bits = (sat_mode == 0) ? 4 : 5;
     if (sat.size() >= 3) {
         const int seg_cnt = (int)get_bits(sat, 2, 0, seg_cnt_bits) + 1;
@@ -1151,10 +1162,10 @@ static void parse_channel_eval(MsduInfo& out, const QByteArray& c, int rel_base)
                 }
             }
         } else {
-            // 表108(比特加载表):每 2bit 一个子载波组的阶数值(0-3,非位图,逐组列值)
+            // 表101(比特加载表):每 2bit 一个子载波组的阶数值(0-3,非位图,逐组列值)
             for (int k = 0; k < tbl_bytes - 1; ++k) {
                 const quint8 byte = (quint8)sat[3 + k];
-                // 阶数含义(表108/表156 同口径):0 不使用 1 BPSK 2 QPSK 3 16QAM
+                // 阶数含义(表101/表156 同口径):0 不使用 1 BPSK 2 QPSK 3 16QAM
                 static const char* const kBitLoadZh[] = { "不使用", "BPSK", "QPSK", "16QAM" };
                 for (int j = 0; j < 4; ++j) {
                     const int v = (byte >> (2 * j)) & 0x03;
@@ -1234,7 +1245,7 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
             out.summary = trl::L("载波发现列表消息");
             parse_rfdl(out, msdu_body, 4, /*carrier=*/true);
         } else if (st == GW_2026_MsduSType::CHANNEL_EVAL) {
-            // 消息类型1 = 信道评估参数更新报文(表106-108)
+            // 消息类型1 = 信道评估参数更新报文(表99-101)
             out.summary = trl::L("信道评估参数更新");
             parse_channel_eval(out, msdu_body, 4);
         } else {
@@ -1938,36 +1949,43 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
-            case GW_2026_MMeType::MME_BITLOADING_TRAIN_REQ: {
-                // MMeBitloadingTrainReq(Bitloading 训练请求,表104):固定 4B
-                // 源TEI(0,12) 目的TEI(2,12) 子载波分组大小(3,0,8)
-                add_fields(root.children, b, 0, kBitloadingTrainReqSpec,
-                           kBitloadingTrainReqSpecN, head_size + 4);
+            case GW_2026_MMeType::MME_CHANNEL_ASSESS_REQ: {
+                // MMeChannelAssessReq(信道评估请求,表97):固定 4B
+                // 源TEI(0,12) 目的TEI(2,12) 子载波分组大小(3,0,2) 训练序列频段标识(3,2,3) 保留(3,5,3)
+                add_fields(root.children, b, 0, kChannelAssessReqSpec,
+                           kChannelAssessReqSpecN, head_size + 4);
                 for (auto& ch : root.children) {
-                    if (!ch.name.startsWith(QStringLiteral("SubCarrierGroupSize")))
-                        continue;
-                    quint8 g = (quint8)get_bits(b, 3, 0, 8);
-                    // 表104:0-3 = 4/8/12/16 个子载波一组,其他保留
-                    ch.value = (g <= 3)
-                        ? QStringLiteral("%1 - %2").arg(g).arg((g + 1) * 4)
-                        : QStringLiteral("%1 - Reserved").arg(g);
+                    if (ch.name.startsWith(QStringLiteral("SubCarrierGroupSize"))) {
+                        // 表97:0-3 = 4/6/8/12 个子载波一组
+                        static const int kGroupSize[] = {4, 6, 8, 12};
+                        const quint8 g = (quint8)get_bits(b, 3, 0, 2);
+                        ch.value = (g <= 3)
+                            ? QStringLiteral("%1 - %2").arg(g).arg(kGroupSize[g])
+                            : QStringLiteral("%1 - Reserved").arg(g);
+                    } else if (ch.name.startsWith(QStringLiteral("TrainSeqFreqBand"))) {
+                        // 表97:训练序列频段标识(0/1/2/4/5/6 有效,3/7 保留),单位 MHz
+                        static const char* bands[] = {
+                            "1.953~11.96", "2.441~5.615", "0.781~2.930", "Reserved",
+                            "0.781~5.615", "0.781~11.96", "6.08~11.962", "Reserved"};
+                        const quint8 v = (quint8)get_bits(b, 3, 2, 3);
+                        ch.value = QStringLiteral("%1 - %2 MHz").arg(v).arg(QLatin1String(bands[v]));
+                    }
                 }
                 break;
             }
-            case GW_2026_MMeType::MME_BITLOADING_TRAIN_REQ_REJECT: {
-                // MMeBitloadingTrainReqReject(训练请求拒绝,表105):固定 4B
+            case GW_2026_MMeType::MME_CHANNEL_ASSESS_REJECT: {
+                // MMeChannelAssessReject(信道评估拒绝,表98):固定 4B
                 // 源TEI(0,12) 目的TEI(2,12) 拒绝原因(3,0,8)
-                add_fields(root.children, b, 0, kBitloadingTrainReqSpec,
-                           kBitloadingTrainReqSpecN, head_size + 4);
+                add_fields(root.children, b, 0, kChannelAssessRejectSpec,
+                           kChannelAssessRejectSpecN, head_size + 4);
                 for (auto& ch : root.children) {
-                    if (!ch.name.startsWith(QStringLiteral("SubCarrierGroupSize")))
+                    if (!ch.name.startsWith(QStringLiteral("RejectReason")))
                         continue;
-                    // 表105 byte3 = 拒绝原因:0x0 未定义 0x1 节点正在训练 0x2 训练节点已满
+                    // 表98 byte3 = 拒绝原因:0x0 未定义 0x1 节点正在评估 0x2 评估节点已满
                     static const char* rs[] = {"Undefined",
-                                               "Node training in progress",
-                                               "Training node full"};
+                                               "Node assessing",
+                                               "Assess nodes full"};
                     const quint8 v = (quint8)get_bits(b, 3, 0, 8);
-                    ch.name = QStringLiteral("RejectReason [8b]");
                     ch.value = (v <= 2)
                         ? QStringLiteral("%1 - %2").arg(v).arg(QLatin1String(rs[v]))
                         : QStringLiteral("%1 - Reserved").arg(v);
@@ -1975,8 +1993,8 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                 break;
             }
             case GW_2026_MMeType::MME_GROUP_REQ: {
-                // MMeGroupReq(分组请求,表109):保留 8B + 邻居个数(8,0,8)
-                // + 邻居列表信息(表110:TEI 12b + 类型 1b + 保留 3b + 载波信道质量 4b + 无线信道质量 4b = 3B/条)
+                // MMeGroupReq(分组请求,表102):保留 8B + 邻居个数(8,0,8)
+                // + 邻居列表信息(表103:TEI 12b + 类型 1b + 保留 3b + 载波信道质量 4b + 无线信道质量 4b = 3B/条)
                 if (b.size() < 9) break;
                 const int n = (int)get_bits(b, 8, 0, 8);
                 {
@@ -2011,7 +2029,7 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                         f.rel_start = head_size + 4 + off; f.rel_len = 2;
                         sg.children.append(f);
                         f.name = QStringLiteral("Type [1b]");
-                        // 表110:0x0=组成员 0x1=候选组代理
+                        // 表103:0x0=组成员 0x1=候选组代理
                         f.value = QStringLiteral("%1 - %2").arg(typ).arg(
                             (typ == 0) ? QStringLiteral("Group Member")
                                        : QStringLiteral("Candidate Group Proxy"));
@@ -2035,8 +2053,8 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                 break;
             }
             case GW_2026_MMeType::MME_GROUP_CNF: {
-                // MMeGroupCnf(分组确认,表111):组代理TEI(0,24) + 保留(3,0,40)
-                // + 组员个数(8,0,8) + 组员信息(表112:TEI 12b + 保留 4b = 2B/条)
+                // MMeGroupCnf(分组确认,表104):组代理TEI(0,24) + 保留(3,0,40)
+                // + 组员个数(8,0,8) + 组员信息(表105:TEI 12b + 保留 4b = 2B/条)
                 if (b.size() < 9) break;
                 const int n = (int)get_bits(b, 8, 0, 8);
                 {
@@ -2081,15 +2099,21 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                 }
                 break;
             }
+            case GW_2026_MMeType::MME_CHANNEL_ASSESS_PARAM_UPDATE: {
+                // MMeChannelAssessParamUpdate(信道评估参数更新,表99):体 = 表99-101
+                // 复用 parse_channel_eval(与简头 msg_type=1 同款解析),字段树挂 out.tree 顶层。
+                parse_channel_eval(out, b, head_size + 4);
+                break;
+            }
             case GW_2026_MMeType::MME_DIAGNOSE: {
-                // MMeDiagnose(网络诊断,表109):芯片厂商 ID(表110,0x00-0x14)+ 厂家自定义(可变长)
+                // MMeDiagnose(网络诊断,表80):芯片厂商 ID(表81,0x00-0x14)+ 厂家自定义(可变长)
                 add_fields(root.children, b, 0, kDiagnoseSpec, kDiagnoseSpecN,
                            head_size + 4);
                 for (auto& ch : root.children) {
                     if (!ch.name.startsWith(QStringLiteral("ChipManufacID")))
                         continue;
                     quint16 v = (quint16)get_bits(b, 0, 0, 16);
-                    // 表110 芯片厂商 ID:0x06 与 0x13 均为 "RS"(规约原文如此,非笔误)
+                    // 表81 芯片厂商 ID:0x06 与 0x13 均为 "RS"(规约原文如此,非笔误)
                     static const char* mf[] = {
                         "Reserved", "HS", "ES", "TC", "LH", "HT", "RS", "SW", "SC",
                         "YM", "QJ", "HZ", "ZC", "SP", "PE", "NR", "SL", "MT", "SI", "RS", "XY"};
@@ -2097,7 +2121,7 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                         ? QStringLiteral("%1 - %2").arg(v).arg(QLatin1String(mf[v]))
                         : QStringLiteral("%1 - Reserved").arg(v);
                 }
-                // 厂家自定义区(表109:byte2 起,可变长)——此前不可见,现以 hex 呈现
+                // 厂家自定义区(表80:byte2 起,可变长)——此前不可见,现以 hex 呈现
                 if (b.size() > 2) {
                     MsduFieldNode d;
                     d.name = QStringLiteral("Vendor Data [%1B]").arg(b.size() - 2);
@@ -2114,7 +2138,7 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                            kZeroCrossCollectSpecN, head_size + 4);
                 for (auto& ch : root.children) {
                     if (ch.name.startsWith(QStringLiteral("NTBCollectionMode"))) {
-                        // 采集站点(表105):0=指定单站点 1=指定全网站点 其他=保留 / 0=single,1=all,else reserved
+                        // 采集站点(表76):0=指定单站点 1=指定全网站点 其他=保留 / 0=single,1=all,else reserved
                         quint8 m = (quint8)get_bits(b, 2, 0, 8);
                         ch.value = QStringLiteral("%1 - %2").arg(m).arg(
                             m == 0 ? QStringLiteral("Appointed single STA")
@@ -2122,7 +2146,7 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                                    : QStringLiteral("Reserved"));
                     } else if (ch.name.startsWith(
                                    QStringLiteral("NTBCollectionPeriod"))) {
-                        // 采集周期(表106):0=二分之一电力线周期 1=一个电力线周期 其他=保留 / 0=half cycle,1=one cycle,else reserved
+                        // 采集周期(表77):0=二分之一电力线周期 1=一个电力线周期 其他=保留 / 0=half cycle,1=one cycle,else reserved
                         quint8 p = (quint8)get_bits(b, 3, 0, 8);
                         ch.value = QStringLiteral("%1 - %2").arg(p).arg(
                             p == 0 ? QStringLiteral("Half power line cycle")
@@ -2296,8 +2320,10 @@ struct I18nReg {
         trl::register_en("关联确认", "MMeAssocCnf");
         trl::register_en("关联汇总指示", "MMeAssocGatherInd");
         trl::register_en("关联请求", "MMeAssocReq");
-        trl::register_en("Bitloading训练请求", "MMeBitloadingTrainReq");
-        trl::register_en("Bitloading训练请求拒绝", "MMeBitloadingTrainReqReject");
+        trl::register_en("信道评估请求", "MMeChannelAssessReq");
+        trl::register_en("信道评估拒绝", "MMeChannelAssessReject");
+        trl::register_en("信道评估参数更新", "MMeChannelAssessParamUpdate");
+        trl::register_en("载荷调制参数 [5b]", "Payload Mod Param [5b]");
         trl::register_en("代理变更确认位图版", "MMeChangeProxyBitMapCnf");
         trl::register_en("代理变更确认", "MMeChangeProxyCnf");
         trl::register_en("代理变更请求", "MMeChangeProxyReq");

@@ -1,5 +1,5 @@
 /// @file bplcparser.cpp
-/// @brief GW_2026_Parser 实现(总控):物理头剥取 + FCH 公共头 + 帧分发
+/// @brief GW_2026_Parser 实现(总控):物理头剥取 + FC 公共头 + 帧分发
 /// @details 各帧型字段/载荷解析委托给独立模块:
 ///          BEACON -> GW_2026_BeaconParser(beacon/);SOF -> gw_2026_sof::assemble(sof/);
 ///          ACK -> gw_2026_ackp::parse_fch(ack/);COORD -> gw_2026_coordp::parse_fch(coord/)。
@@ -171,22 +171,22 @@ bool GW_2026_Parser::decode_envelope(const BplcFrame& in, Result& r) {
     return true;
 }
 
-// MPDU_BASE 公共头(FCH 前 16B:类型/网络/版本/FCH CRC24;HDC 2.0 表4)
+// MPDU_BASE 公共头(FC 前 16B:类型/网络/版本/FC CRC24;HDC 2.0 表4)
 bool GW_2026_Parser::parse_mpdu_base(const QByteArray& body, MpduInfo& info, QString& err) {
     if (body.size() < 16) { err = trl::L("MPDU_BASE 长度不足 16B"); return false; }
     const quint8* p = reinterpret_cast<const quint8*>(body.constData());
 
-// crc24_lsb 内部遍历 len-3 字节;此处传 16(FCH 全长)即校验前 13B,
+// crc24_lsb 内部遍历 len-3 字节;此处传 16(FC 全长)即校验前 13B,
 // 末 3B 为本 CRC 自身(crc.h 约定,勿传 13 否则少算 3B)
     quint32 calc_crc = crc24_lsb(p, 16);
-    // FCH CRC24 字段小端存储(字节 6c 13 2a → 0x2a136c)
+    // FC CRC24 字段小端存储(字节 6c 13 2a → 0x2a136c)
     quint32 fch_crc  = (quint32)p[13]
                      | ((quint32)p[14] << 8)
                      | ((quint32)p[15] << 16);
     info.fch_crc_ok = (calc_crc == fch_crc);
     info.fch_crc_checked = true;
     if (!info.fch_crc_ok) {
-        err = trl::L("FCH CRC24 错(calc=%1 rx=%2)")
+        err = trl::L("FC CRC24 错(calc=%1 rx=%2)")
               .arg(calc_crc, 6, 16, QChar('0')).arg(fch_crc, 6, 16, QChar('0'));
         return false;
     }
@@ -219,7 +219,7 @@ GW_2026_Parser::Result GW_2026_Parser::parse_inner(const BplcFrame& in, MsduStat
     const qint64 us_env = pt.nsecsElapsed() / 1000;
 
     // ── HDC 版本自适应(表4 标准版本号 byte12 bit4-7)──
-    // GW_2022(HDC 1.0)是 GW_2026 的字节序子集:FCH 校验通过且版本=0 的帧,
+    // GW_2022(HDC 1.0)是 GW_2026 的字节序子集:FC 校验通过且版本=0 的帧,
     // 委托 GW_2022 解析器按 HDC 1.0 布局解析展示(字段坐标/NID 24bit/表19 SOF 等),
     // 协议身份同步标记为 GW_2022(帧列表协议列/字段树/序列化一致);
     // 版本=1(HDC 2.0)走下方 GW_2026 新布局。直接透传 MsduState(重组状态跨协议共享)。
@@ -257,7 +257,7 @@ GW_2026_Parser::Result GW_2026_Parser::parse_inner(const BplcFrame& in, MsduStat
                     break;
             }
         }
-        // FCH 校验失败:不在此拒收,继续按 2.0 解析得到更具体的错误信息
+        // FC 校验失败:不在此拒收,继续按 2.0 解析得到更具体的错误信息
     }
 
     QString err;
@@ -274,7 +274,7 @@ GW_2026_Parser::Result GW_2026_Parser::parse_inner(const BplcFrame& in, MsduStat
         reinterpret_cast<const quint8*>(r.payload_for_log.constData());
 
     if (ft == GW_2026_FrameType::SOF) {
-        // SOF:FCH 字段 + 多 PB 重组(sof 模块)
+        // SOF:FC 字段 + 多 PB 重组(sof 模块)
         bool msdu_span_clean = false;
         err = gw_2026_sof::assemble(r.payload_for_log, r.mpdu, msdu, r.msdu_body,
                                     r.meta.is_rf ? 0xFF : (quint8)r.meta.channel,
@@ -288,7 +288,7 @@ GW_2026_Parser::Result GW_2026_Parser::parse_inner(const BplcFrame& in, MsduStat
             // (解析与展示保留;FAIL 仍走 parse 内 msdu_crc_gate 降级)。
             if (msdu_crc_state(r.msdu) == MsduCrcState::NotAvailable && !msdu_span_clean)
                 r.msdu = msdu_crc_strip_learning(r.msdu);
-            // MSDU body 起点在 payload_for_log 中的偏移:FCH 16B + 1B pb_head = 17。
+            // MSDU body 起点在 payload_for_log 中的偏移:FC 16B + 1B pb_head = 17。
             // 仅当单块(整条 MSDU 连续位于本帧 17..)时才能把字段映射到 raw 高亮;
             // 多块重组时各 pb_body 在 raw 中被 pb_head/CRC 隔断,不连续,置 -1。
             r.msdu_raw_base = (r.mpdu.pb_num == 1) ? 17 : -1;
@@ -310,11 +310,11 @@ GW_2026_Parser::Result GW_2026_Parser::parse_inner(const BplcFrame& in, MsduStat
                 merge_msdu_learn(r.msdu, candidate);
         }
     } else if (ft == GW_2026_FrameType::BEACON) {
-        // BEACON:FCH 摘要 + 载荷区解析(beacon 模块)
+        // BEACON:FC 摘要 + 载荷区解析(beacon 模块)
         r.mpdu.beacon_timestamp = (quint32)get_bits_unchecked(p, 4, 0, 32);
         r.mpdu.src_tei          = (quint16)get_bits_unchecked(p, 8, 0, 12);
         if (r.meta.is_rf) {
-            // 无线信标(表18):(9,4,4) 为 MCS、(10,0,4) 为载荷 PB 大小码,
+            // 无线信标(表17):(9,4,4) 为 MCS、(10,0,4) 为载荷 PB 大小码,
             // 其余 (10,4,4)+(11,0,8)+(12,0,4) 为保留,无符号数/相线字段
             r.mpdu.mcs          = (quint8) get_bits_unchecked(p, 9, 4, 4);
             r.mpdu.pb_num_field = (quint8) get_bits_unchecked(p, 10, 0, 4);   // 载荷 PB 大小码
@@ -325,7 +325,7 @@ GW_2026_Parser::Result GW_2026_Parser::parse_inner(const BplcFrame& in, MsduStat
             r.mpdu.beacon_rsv = (quint16)get_bits_unchecked(p, 10, 4, 16);    // 保留原始值(供字段树呈现)
         } else {
             // 载波信标(表5):PB 大小由分集拷贝模式(tmi)查表;
-            // 无效 TMI 不再把 -1 铸成 65535;FCH符号数(11,3,2) 跨字节
+            // 无效 TMI 不再把 -1 铸成 65535;FC符号数(11,3,2) 跨字节
             r.mpdu.tmi          = (quint8) get_bits_unchecked(p, 9, 4, 4);
             const int sz = gw_2026_pb_size(r.mpdu.tmi);
             r.mpdu.pb_size    = (quint16)(sz > 0 ? sz : 0);  // 单块帧块长
@@ -369,7 +369,7 @@ GW_2026_Parser::Result GW_2026_Parser::parse_inner(const BplcFrame& in, MsduStat
         gw_2026_coordp::parse_fch(p, r.mpdu);
     }
 
-    // parse 细分统计(成功路径):env=物理头/FCH, mpdu=MPDU 基础, body=MSDU/BEACON 字段树
+    // parse 细分统计(成功路径):env=物理头/FC, mpdu=MPDU 基础, body=MSDU/BEACON 字段树
     stats_account(us_env, us_mpdu, pt.nsecsElapsed() / 1000 - us_env - us_mpdu);
     r.accept = true;
     return r;
@@ -384,7 +384,7 @@ struct I18nRegParser {
         trl::register_en("剥头后载荷过短(<4B)", "Payload Too Short After Header (<4B)");
         trl::register_en("剥头后空载荷", "Empty Payload After Header");
         trl::register_en("MPDU_BASE 长度不足 16B", "MPDU_BASE shorter than 16B");
-        trl::register_en("FCH CRC24 错(calc=%1 rx=%2)", "FCH CRC24 Error (calc=%1 rx=%2)");
+        trl::register_en("FC CRC24 错(calc=%1 rx=%2)", "FC CRC24 Error (calc=%1 rx=%2)");
     }
 };
 const I18nRegParser g_i18n_reg_parser;

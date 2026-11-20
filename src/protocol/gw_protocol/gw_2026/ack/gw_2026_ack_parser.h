@@ -1,5 +1,5 @@
 /// @file ackparser.h
-/// @brief ACK 帧解析模块声明(选择确认帧:FCH ExtFrameType 0=选择确认,其他=保留)
+/// @brief ACK 帧解析模块声明(选择确认帧:FC ExtFrameType 0=选择确认,其他=保留)
 /// @details 按表14/表15,扩展帧类型仅 0=选择确认帧,其余为保留;无网络搜索/同步/切频分支。
 #ifndef BPLC_GW_2026_ACK_PARSER_H
 #define BPLC_GW_2026_ACK_PARSER_H
@@ -8,7 +8,7 @@
 
 namespace gw_2026_ackp {
 
-/// @brief 解析 ACK 帧 FCH 字段(相对 FCH 起点;ExtFrameType 于 bit(12,0,4))
+/// @brief 解析 ACK 帧 FC 字段(相对 FC 起点;ExtFrameType 于 bit(12,0,4))
 /// @param p  MPDU 数据指针(自 FrameType 起)
 /// @param m  [out] 填充 ack_ext_type 及对应分支字段
 void parse_fch(const quint8* p, MpduInfo& m);

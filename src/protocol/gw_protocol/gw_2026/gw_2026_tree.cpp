@@ -7,7 +7,7 @@
 
 namespace {
 
-// MCS 释义(HDC2.0 4-2 表18,与 gw_2026_mcs.h 中文 key 对应)+ 兜底词条
+// MCS 释义(4-1 表47,与 gw_2026_mcs.h 中文 key 对应)+ 兜底词条
 struct I18nReg {
     I18nReg() {
         trl::register_en("保留", "Reserved");
@@ -16,10 +16,11 @@ struct I18nReg {
         trl::register_en("非广播报文", "Non-Broadcast Frame");
         trl::register_en("重传报文", "Retransmitted Frame");
         trl::register_en("非重传报文", "Non-Retransmitted Frame");
-        trl::register_en("预留信息段", "Reserved for Future Encryption");
-        trl::register_en("信道探测帧无数据物理块, 表9 无 PB 字段",
+        trl::register_en("不加密", "Not Encrypted");
+        trl::register_en("加密", "Encrypted");
+        trl::register_en("信道评估帧无数据物理块, 表9 无 PB 字段",
                          "No Data PB in Channel Sounding Frame (Table 9 Has No PB Field)");
-        // 无线 MCS 释义(HDC2.0 4-2 表18:分集次数/调制方式/码率)
+        // 无线 MCS 释义(4-1 表47:分集次数/调制方式/码率)
         trl::register_en("分集4次 BPSK 码率1/2", "Diversity 4, BPSK, Code Rate 1/2");
         trl::register_en("分集2次 BPSK 码率1/2", "Diversity 2, BPSK, Code Rate 1/2");
         trl::register_en("分集2次 QPSK 码率1/2", "Diversity 2, QPSK, Code Rate 1/2");
@@ -66,7 +67,7 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
     }
     const QString fch_txt = !e.mpdu.fch_crc_checked ? QStringLiteral("N/A")
                           : (e.mpdu.fch_crc_ok ? QStringLiteral("OK") : QStringLiteral("FAIL"));
-    tree_add_bit_field(mpdu_base, "FCH CRC24", fch_txt, 13, 0, 24);
+    tree_add_bit_field(mpdu_base, "FC CRC24", fch_txt, 13, 0, 24);
 
     switch (static_cast<GW_2026_FrameType>(e.mpdu.frame_type)) {
     case GW_2026_FrameType::BEACON: {
@@ -76,7 +77,7 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         tree_add_bit_field(bcn, "Source TEI", QString::number(e.mpdu.src_tei), 8, 0, 12);
         {
             if (e.meta.is_rf) {
-                // 无线信标(HDC2.0 4-2 表18):MCS(9,4,4,释义表18)/载荷PB大小(10,0,4,表18)/保留16b
+                // 无线信标(HDC2.0 4-2 表17):MCS(9,4,4,释义4-1 表47)/载荷PB大小(10,0,4,表17)/保留16b
                 const quint8 mcs = e.mpdu.mcs;
                 const char* mcs_zh = gw_2026_mcs_desc(mcs);
                 const QString mcs_desc = mcs_zh ? trl::L(mcs_zh) : trl::L("保留");
@@ -96,19 +97,19 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 tree_add_bit_field(bcn, "TMI", QString::number(e.mpdu.tmi), 9, 4, 4);
                 tree_add_bit_field(bcn, "Symbol Num", QString::number(e.mpdu.symbol_num), 10, 0, 9);
                 {
-                    // FCH符号数(表5 (11,3,2)):0=短FCH 1=标准FCH 2=长FCH 3=保留
+                    // FC符号数(表5 (11,3,2)):0=标准FC 1=长FC 2=短FC 3=保留
                     const quint8 fs = e.mpdu.beacon_fch_sym;
                     QString fs_desc;
                     switch (static_cast<GW_2026_FchSymNum>(fs)) {
-                        case GW_2026_FchSymNum::SHORT:    fs_desc = QStringLiteral("0 - Short FCH"); break;
-                        case GW_2026_FchSymNum::STANDARD: fs_desc = QStringLiteral("1 - Standard FCH"); break;
-                        case GW_2026_FchSymNum::LONG:     fs_desc = QStringLiteral("2 - Long FCH"); break;
+                        case GW_2026_FchSymNum::SHORT:    fs_desc = QStringLiteral("2 - Short FC"); break;
+                        case GW_2026_FchSymNum::STANDARD: fs_desc = QStringLiteral("0 - Standard FC"); break;
+                        case GW_2026_FchSymNum::LONG:     fs_desc = QStringLiteral("1 - Long FC"); break;
                         default:                          fs_desc = QStringLiteral("%1 - Reserved").arg(fs); break;
                     }
-                    tree_add_bit_field(bcn, "FCH Symbol Num", fs_desc, 11, 3, 2);
+                    tree_add_bit_field(bcn, "FC Symbol Num", fs_desc, 11, 3, 2);
                 }
                 {
-                    // 相线(表18):0=未知相线 1=A 2=B 3=C / 0=unknown, 1=A, 2=B, 3=C
+                    // 相线(表5):0=未知相线 1=A 2=B 3=C / 0=unknown, 1=A, 2=B, 3=C
                     static const char* ph[] = {"Unknown", "LineA", "LineB", "LineC"};
                     const quint8 pl = e.mpdu.beacon_line;
                     tree_add_bit_field(bcn, "Line",
@@ -144,14 +145,14 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
         const int rsz = e.raw_bytes.size();
         tree_add_bit_field(sof, "Source TEI", QString::number(e.mpdu.src_tei), 4, 0, 12);
         tree_add_bit_field(sof, "Destination TEI", QString::number(e.mpdu.dst_tei), 5, 4, 12);
-        // 帧长单位:载波(表7/表9-13)10 微秒、无线(HDC2.0 4-2 表19)100 微秒
+        // 帧长单位:载波(表7/表9-13)10 微秒、无线(HDC2.0 4-2 表18)100 微秒
         tree_add_bit_field(sof, "Frame Length",
             QStringLiteral("%1 (%2)").arg(e.mpdu.frame_len)
                                       .arg(e.meta.is_rf ? QStringLiteral("x100us")
                                                         : QStringLiteral("x10us")),
             8, 0, 12);
         if (e.meta.is_rf) {
-            // 无线(HDC2.0 4-2 表19,布局同 HDC 1.0 表30):字节9 bit4-7 = 载荷PB大小(表19),
+            // 无线(HDC2.0 4-2 表18,布局同 HDC 1.0 表30):字节9 bit4-7 = 载荷PB大小(表19),
             // 字节10-11 bit0 = 保留,字节11 bit4-7 = MCS(表18),字节12 bit0-3 = 保留
             static const int kRfPbSize[] = {16, 40, 72, 136, 264, 520};
             const quint8  idx = e.mpdu.pb_num_field;
@@ -171,13 +172,13 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 default: dt_desc = QStringLiteral("%1 - Reserved").arg(e.mpdu.sof_data_type); break;
             }
             tree_add_bit_field(sof, "Frame Type", dt_desc, 7, 0, 3);
-            // 帧子类型专属布局:数据帧=表7 / 信道探测=表9 / OFDMA 下行=表10+11 / TDA 下行=表12+13
+            // 帧子类型专属布局:数据帧=表7 / 信道评估=表9 / OFDMA 下行=表10+11 / TDA 下行=表12+13
             static const int kEfcSym[] = {2, 4, 8, 12, 16};  // 扩展帧控制符号数取值(表10/表12)
             auto fch_sym_txt = [](quint8 fs) -> QString {
                 switch (static_cast<GW_2026_FchSymNum>(fs)) {
-                    case GW_2026_FchSymNum::SHORT:    return QStringLiteral("0 - Short FCH");
-                    case GW_2026_FchSymNum::STANDARD: return QStringLiteral("1 - Standard FCH");
-                    case GW_2026_FchSymNum::LONG:     return QStringLiteral("2 - Long FCH");
+                    case GW_2026_FchSymNum::SHORT:    return QStringLiteral("2 - Short FC");
+                    case GW_2026_FchSymNum::STANDARD: return QStringLiteral("0 - Standard FC");
+                    case GW_2026_FchSymNum::LONG:     return QStringLiteral("1 - Long FC");
                     default:                          return QStringLiteral("%1 - Reserved").arg(fs);
                 }
             };
@@ -212,13 +213,13 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     7, 3, 2);
                 tree_add_bit_field(sof, "TF Symbol Num",
                     tf_sym_txt(e.mpdu.sof_tf_symbol_num), 7, 5, 3);
-                // FCH符号数(表9 (9,4,2))——注意与表7 (9,7,2) 位置不同
-                tree_add_bit_field(sof, "FCH Symbol Num",
+                // FC符号数(表9 (9,4,2))——注意与表7 (9,7,2) 位置不同
+                tree_add_bit_field(sof, "FC Symbol Num",
                     fch_sym_txt(e.mpdu.sof_fch_sym_num), 9, 4, 2);
                 // 训练序列频段标识(表9 (9,6,3) 跨字节 9,6-7+10,0)
                 tree_add_bit_field(sof, "Training Seq Band",
                     band_txt((quint8)get_bits_unchecked(raw, 9, 6, 3)), 9, 6, 3);
-                // 信道探测训练序列符号数(表9 (10,1,7)):(v+1)*2
+                // 信道评估训练序列符号数(表9 (10,1,7)):(v+1)*2
                 const quint8 ts = (rsz > 10) ? (quint8)((raw[10] >> 1) & 0x7F) : 0;
                 tree_add_bit_field(sof, "Training Seq Symbol Num",
                     QStringLiteral("%1 (%2 symbols)").arg(ts).arg((ts + 1) * 2), 10, 1, 7);
@@ -230,12 +231,12 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 break;
             }
             case GW_2026_SofDataType::OFDMA: {
-                // 表10:站点数(7,3,2)/TF符号数(7,5-7)/FCH符号数(9,4-5)
+                // 表10:站点数(7,3,2)/TF符号数(7,5-7)/FC符号数(9,4-5)
                 const quint8 sn = e.mpdu.sof_tf_symbol_pos;  // (7,3,2)
                 tree_add_bit_field(sof, "Station Num", sta_num_txt(sn), 7, 3, 2);
                 tree_add_bit_field(sof, "TF Symbol Num",
                     tf_sym_txt(e.mpdu.sof_tf_symbol_num), 7, 5, 3);
-                tree_add_bit_field(sof, "FCH Symbol Num",
+                tree_add_bit_field(sof, "FC Symbol Num",
                     fch_sym_txt(e.mpdu.sof_fch_sym_num), 9, 4, 2);
                 // 数据载荷符号数(表10 (9,6,9) 跨字节,多站点取最大值)
                 tree_add_bit_field(sof, "Payload Symbol Num",
@@ -258,7 +259,7 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     QStringLiteral("0x%1").arg((quint8)get_bits_unchecked(raw, 12, 4, 4), 1, 16, QChar('0')),
                     12, 4, 4);
                 // eFC(表11,自 byte16):站点1-3 ×[TEI 12b/RU 4b/分集拷贝 5b/PB个数 1b/RSV 2b],每站 3B,
-                // 站点数由 FCH 站点数字段决定;其后加密标志位(eFC (9,0))+保留至 (12,0-7)
+                // 站点数由 FC 站点数字段决定;其后加密标志位(eFC (9,0))+保留至 (12,0-7)
                 // eFC(表11,固定 16B,内部字节 0-15,其中 13-15 为帧控制校验) ⇒ PB 自 byte32 起
                 // 帧长不足 32B 时 eFC 不存在,本站循环跳过(新 H1 纵深防御;截断帧
                 // 已由 assemble() 拒收,这里只防 get_bits_unchecked(raw, 16..27) 越界读),并标注截断。
@@ -287,24 +288,25 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 tree_add_bit_field(sof, "Station Num", sta_num_txt(sn), 7, 3, 2);
                 tree_add_bit_field(sof, "TF Symbol Num",
                     tf_sym_txt(e.mpdu.sof_tf_symbol_num), 7, 5, 3);
-                tree_add_bit_field(sof, "FCH Symbol Num",
+                tree_add_bit_field(sof, "FC Symbol Num",
                     fch_sym_txt(e.mpdu.sof_fch_sym_num), 9, 4, 2);
-                // 站点0数据载荷符号数(表12 (9,6,9) 跨字节)
+                // 站点0载荷符号数(表12 (9,6,9) 跨字节)
                 tree_add_bit_field(sof, "Sta0 Payload Symbol Num",
                     QString::number((quint16)get_bits_unchecked(raw, 9, 6, 9)), 9, 6, 9);
-                // 扩展帧控制符号数(表12 (10,7,3) 跨 11,0-1):0:2/1:4/2:8/3:12/4:16 符号
-                const quint8 ec = (quint8)get_bits_unchecked(raw, 10, 7, 3);
+                // 加密标志位(表12 (10,7,1)):0=不加密 1=加密
+                const quint8 enc = (quint8)get_bits_unchecked(raw, 10, 7, 1);
+                tree_add_bit_field(sof, "Encrypted (TDA)",
+                    QStringLiteral("%1 - %2").arg(enc)
+                        .arg(enc ? trl::L("加密") : trl::L("不加密")), 10, 7, 1);
+                // 扩展帧控制符号数(表12 (11,0,3)):0:2/1:4/2:8/3:12/4:16 符号
+                const quint8 ec = (quint8)get_bits_unchecked(raw, 11, 0, 3);
                 tree_add_bit_field(sof, "eFC Symbol Num",
                     (ec <= 4) ? QStringLiteral("%1 - %2 symbols").arg(ec).arg(kEfcSym[ec])
-                              : QStringLiteral("%1 - Reserved").arg(ec), 10, 7, 3);
-                // 加密标志位(表12 (11,2,1)):预留信息段
-                tree_add_bit_field(sof, "Encrypted (TDA)",
-                    QStringLiteral("%1 (%2)").arg((quint8)get_bits_unchecked(raw, 11, 2, 1))
-                        .arg(trl::L("预留信息段")), 11, 2, 1);
-                // 站点0分集拷贝模式(表12 (11,3,5))
-                tree_add_bit_field(sof, "Sta0 DivCopy",
+                              : QStringLiteral("%1 - Reserved").arg(ec), 11, 0, 3);
+                // 站点0载荷传输模式(表12 (11,3,5)):TMI
+                tree_add_bit_field(sof, "Sta0 Payload TMI",
                     QString::number((quint8)get_bits_unchecked(raw, 11, 3, 5)), 11, 3, 5);
-                // 站点0TF和数据载荷频段标识(表12 (12,0,3))
+                // 站点0TF和载荷频段标识(表12 (12,0,3))
                 tree_add_bit_field(sof, "Sta0 TF & Payload Band",
                     band_txt((quint8)get_bits_unchecked(raw, 12, 0, 3)), 12, 0, 3);
                 // 站点0TF标识(表12 (12,3,1)):0=携带 1=不携带(帧长不含站点0 TF 传输时间)
@@ -353,51 +355,56 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 tree_add_bit_field(sof, "TF Symbol Position", tp_desc, 7, 3, 2);
                 tree_add_bit_field(sof, "TF Symbol Num",
                     tf_sym_txt(e.mpdu.sof_tf_symbol_num), 7, 5, 3);
-                tree_add_bit_field(sof, "PB Num", QString::number(e.mpdu.pb_num), 10, 7, 2);
-                // FCH符号数(表7 (9,7,2) 跨字节):0=短FCH 1=标准FCH 2=长FCH
-                tree_add_bit_field(sof, "FCH Symbol Num",
-                    fch_sym_txt(e.mpdu.sof_fch_sym_num), 9, 7, 2);
-                // 调制方式标识(表7 (10,1)):0=分集拷贝 1=动态加载;调制参数含义随方式切换
+                tree_add_bit_field(sof, "PB Num", QString::number(e.mpdu.pb_num), 11, 0, 2);
+                // FC符号数(表7 (9,4,2)):0=标准FC 1=长FC 2=短FC
+                tree_add_bit_field(sof, "FC Symbol Num",
+                    fch_sym_txt(e.mpdu.sof_fch_sym_num), 9, 4, 2);
+                // 载荷子载波加载模式标识(表7 (10,0,2)):0=静态 1=动态功率 2=动态比特
                 const quint8 mm = e.mpdu.sof_mod_mode;
                 const quint8 mp = e.mpdu.sof_mod_param;
                 QString mm_desc;
                 switch (static_cast<GW_2026_ModMode>(mm)) {
-                    case GW_2026_ModMode::DIVERSITY_COPY:
-                        mm_desc = QStringLiteral("0 - Diversity Copy (TMI %1)").arg(mp);
+                    case GW_2026_ModMode::STATIC_LOAD:
+                        mm_desc = QStringLiteral("0 - Static (TMI %1)").arg(mp);
                         break;
-                    case GW_2026_ModMode::DYNAMIC_LOAD:
-                        mm_desc = QStringLiteral("1 - Dynamic Load (PB Type %1)").arg(mp);
+                    case GW_2026_ModMode::DYNAMIC_POWER:
+                        mm_desc = QStringLiteral("1 - Dynamic Power (TMI %1)").arg(mp);
+                        break;
+                    case GW_2026_ModMode::DYNAMIC_BIT:
+                        mm_desc = QStringLiteral("2 - Dynamic Bit (PB Spec %1)").arg(mp);
                         break;
                     default:
                         mm_desc = QStringLiteral("%1 - Reserved").arg(mm);
                         break;
                 }
-                tree_add_bit_field(sof, "Modulation Mode", mm_desc, 10, 1, 1);
+                tree_add_bit_field(sof, "Modulation Mode", mm_desc, 10, 0, 2);
                 tree_add_bit_field(sof, "Modulation Param", QString::number(mp), 10, 2, 5);
                 break;
             }
             }
         }
-        // 广播/重传/加密标志位(表19/表32/表7):仅无线与载波数据帧定义该组字段,
-        // 信道探测(表9)/OFDMA(表10)/TDA(表12)的 byte11-12 为子类型专属布局,不渲染
+        // 广播/重传/加密标志位(表7/表18):仅无线与载波数据帧定义该组字段,
+        // 信道评估(表9)/OFDMA(表10)/TDA(表12)的 byte11-12 为子类型专属布局,不渲染。
+        // 坐标按介质分:无线(表18)广播(11,1)/加密(11,3);载波(表7)广播(11,2)/加密(10,7);重传两表同在(11,3)。
         if (e.meta.is_rf || sof_st == GW_2026_SofDataType::DATA) {
         tree_add_bit_field(sof, "Broadcast",
             e.mpdu.bc_flag ? QStringLiteral("1 - %1").arg(trl::L("广播报文"))
                            : QStringLiteral("0 - %1").arg(trl::L("非广播报文")),
-            11, 1, 1);
-        // 重传标志位(表22/表33):0=非重传报文 1=重传报文
+            11, e.meta.is_rf ? 1 : 2, 1);
+        // 重传标志位(表7/表18):0=非重传报文 1=重传报文(两表同在 11,3)
         tree_add_bit_field(sof, "ReSend",
             e.mpdu.re_send_flag ? QStringLiteral("1 - %1").arg(trl::L("重传报文"))
                                 : QStringLiteral("0 - %1").arg(trl::L("非重传报文")),
-            11, 2, 1);
-        // 加密标志位:预留信息段(文档无 0/1 标准语义)
-        tree_add_bit_field(sof, "Encrypted",
-            QStringLiteral("%1 (%2)").arg(e.mpdu.encryp_flag).arg(trl::L("预留信息段")),
             11, 3, 1);
+        // 加密标志位(表7/表18):0=不加密 1=加密
+        tree_add_bit_field(sof, "Encrypted",
+            QStringLiteral("%1 - %2").arg(e.mpdu.encryp_flag)
+                .arg(e.mpdu.encryp_flag ? trl::L("加密") : trl::L("不加密")),
+            e.meta.is_rf ? 11 : 10, e.meta.is_rf ? 3 : 7, 1);
         }
         if (e.meta.is_rf) {
-            // 无线(HDC2.0 4-2 表19):字节11 bit4-7 = MCS(表18),字节12 bit0-3 = 保留
-            // 表18 MCS 取值:0-6 为分集次数/调制方式/码率组合,7 以上保留
+            // 无线(HDC2.0 4-2 表18):字节11 bit4-7 = MCS(4-1 表47),字节12 bit0-3 = 保留
+            // 4-1 表47 MCS 取值:0-6 为分集次数/调制方式/码率组合,7 以上保留
             const quint8 mcs = e.mpdu.mcs;
             const char* mcs_zh = gw_2026_mcs_desc(mcs);
             const QString mcs_desc = mcs_zh ? trl::L(mcs_zh) : trl::L("保留");
@@ -405,8 +412,8 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 QStringLiteral("%1 - %2").arg(mcs).arg(mcs_desc), 11, 4, 4);
             tree_add_bit_field(sof, "Reserved", QString::number(e.mpdu.tmi_ext), 12, 0, 4);
         } else if (sof_st == GW_2026_SofDataType::DATA) {
-            // 载波数据帧(表7):TF与数据载荷频段标识(11,4,3,取值表49)/数据载荷增益
-            // (11,7)+(12,0-2)/动态加载表ID标识(12,3);信道探测(表9)/OFDMA(表10)/TDA(表12)
+            // 载波数据帧(表7):TF与载荷频段标识(11,4,3,取值表49)/动态加载表ID标识(11,7)
+            // /数据载荷增益(12,0,4);信道评估(表9)/OFDMA(表10)/TDA(表12)
             // 的 byte9-12 为子类型专属布局,已在上方各分支渲染
             {
                 const quint8 bd = e.mpdu.sof_band;
@@ -421,9 +428,9 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
             tree_add_bit_field(sof, "Payload Gain",
                 QStringLiteral("%1 - %2").arg(e.mpdu.sof_gain)
                     .arg(1.0 + e.mpdu.sof_gain * 0.0625, 0, 'f', 4),
-                11, 7, 4);
+                12, 0, 4);
             tree_add_bit_field(sof, "Dynamic Load Table ID",
-                QString::number(e.mpdu.sof_load_table_id), 12, 3, 1);
+                QString::number(e.mpdu.sof_load_table_id), 11, 7, 1);
         }
         tree_add_item(sof, "PB Size", QString::number(e.mpdu.pb_size));
 
@@ -453,8 +460,8 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     tree_add_item(snode, "MSDU", QStringLiteral("%1 B").arg(st.msdu.size()));
             }
         } else if (e.mpdu.sof_data_type == 1) {
-            // ===== 信道探测帧（表9）：无数据物理块 =====
-            tree_add_item(sof, "PB", QStringLiteral("0 B (%1)").arg(trl::L("信道探测帧无数据物理块, 表9 无 PB 字段")));
+            // ===== 信道评估帧（表9）：无数据物理块 =====
+            tree_add_item(sof, "PB", QStringLiteral("0 B (%1)").arg(trl::L("信道评估帧无数据物理块, 表9 无 PB 字段")));
         } else {
             // ===== 单站点数据帧（表7）：现状逻辑保持不变 =====
             // 逐 PB 块渲染:国网 PB 头 1B + 数据 pb_size-4 B + CRC24 3B
@@ -593,27 +600,10 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                 }
             } else {
             {
-                // 接收结果(表14 (4,2,1)):0=接收成功 1=存在 PB CRC 失败
-                const quint8 rxres = e.mpdu.ack_rx_res;
-                QString rv;
-                switch (static_cast<GW_2026_AckRxRes>(rxres)) {
-                    case GW_2026_AckRxRes::RECEIPT_OK:
-                        rv = QStringLiteral("0 - Receipt OK (all PB CRC passed)");
-                        break;
-                    case GW_2026_AckRxRes::RECEIPT_FAIL:
-                        rv = QStringLiteral("1 - Receipt FAIL (≥1 PB CRC failed)");
-                        break;
-                    default:
-                        rv = QStringLiteral("%1 - Reserved").arg(rxres);
-                        break;
-                }
-                tree_add_bit_field(ack, "RxRes", rv, 4, 2, 1);
-            }
-            {
-                // 接收物理块个数(表14 (4,3,2)):0-3 = 1-4 个物理块
+                // 接收物理块个数(表14 (4,2,2)):0-3 = 1-4 个物理块
                 const quint8 pn = e.mpdu.ack_rx_pb_num;
                 tree_add_bit_field(ack, "RxPBNum",
-                    QStringLiteral("%1 (%2 PB)").arg(pn).arg(pn + 1), 4, 3, 2);
+                    QStringLiteral("%1 (%2 PB)").arg(pn).arg(pn + 1), 4, 2, 2);
             }
             {
                 const quint8 st = e.mpdu.ack_rx_status;
@@ -624,15 +614,15 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                     QStringLiteral("0x%1 (%2 CRC ok)")
                         .arg(st, 1, 16, QChar('0'))
                         .arg(oks.isEmpty() ? QStringLiteral("no PB") : oks.join(QLatin1String(", "))),
-                    4, 5, 4);
+                    4, 4, 4);
             }
-            tree_add_bit_field(ack, "Source TEI", QString::number(e.mpdu.src_tei), 5, 1, 12);
-            tree_add_bit_field(ack, "Destination TEI", QString::number(e.mpdu.dst_tei), 6, 5, 12);
-            tree_add_bit_field(ack, "RemainSTANum", QString::number(e.mpdu.ack_remain_sta_num), 8, 1, 2);
-            tree_add_bit_field(ack, "RSV0", QString::number(e.mpdu.ack_rsv0), 8, 3, 5);
-            tree_add_bit_field(ack, "ChannelQuality", QStringLiteral("%1 dB").arg(e.mpdu.ack_channel_quality), 9, 1, 8);
-            tree_add_bit_field(ack, "STALoad", QString::number(e.mpdu.ack_sta_load), 10, 1, 8);
-            tree_add_bit_field(ack, "RSV1", QString::number(e.mpdu.ack_rsv1), 11, 1, 8);
+            tree_add_bit_field(ack, "Source TEI", QString::number(e.mpdu.src_tei), 5, 0, 12);
+            tree_add_bit_field(ack, "Destination TEI", QString::number(e.mpdu.dst_tei), 6, 4, 12);
+            tree_add_bit_field(ack, "RemainSTANum", QString::number(e.mpdu.ack_remain_sta_num), 8, 0, 2);
+            tree_add_bit_field(ack, "RSV0", QString::number(e.mpdu.ack_rsv0), 8, 2, 6);
+            tree_add_bit_field(ack, "ChannelQuality", QStringLiteral("%1 dB").arg(e.mpdu.ack_channel_quality), 9, 0, 8);
+            tree_add_bit_field(ack, "STALoad", QString::number(e.mpdu.ack_sta_load), 10, 0, 8);
+            tree_add_bit_field(ack, "RSV1", QString::number(e.mpdu.ack_rsv1), 11, 0, 8);
             }
             tree_add_bit_field(ack, "ExtFrameType",
                 known ? QString::number(et)

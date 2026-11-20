@@ -15,7 +15,8 @@
 /// @brief 网络管理消息类型(MMe_BASE.MMType,HDC 2.0 表43,16bit 值取低 8bit)
 /// @note HDC 2.0 变更:0x0008 发现列表改保留(发现列表改经信标条目 0xC2/单跳帧
 ///       无线发现列表承载);0x0050-0x007F 整段保留(旧路由修复族 0x50-0x55 废弃);
-///       新增 0x0011/0x0012 Bitloading 训练请求/拒绝、0x0013/0x0014 分组请求/确认。
+///       新增 0x0011/0x0012 信道评估请求/拒绝、0x0013/0x0014 分组请求/确认、
+///       0x0015 信道评估参数更新。
 enum class GW_2026_MMeType : quint8 {
     MME_ASSOC_REQ                   = 0x00,
     MME_ASSOC_CNF                   = 0x01,
@@ -30,10 +31,11 @@ enum class GW_2026_MMeType : quint8 {
     MME_NETWORK_CONFLICT_REPORT     = 0x0A,
     MME_ZERO_CROSS_NTB_COLLECT_IND  = 0x0B,
     MME_ZERO_CROSS_NTB_REPORT       = 0x0C,
-    MME_BITLOADING_TRAIN_REQ        = 0x11,  ///< Bitloading 训练请求(表104)
-    MME_BITLOADING_TRAIN_REQ_REJECT = 0x12,  ///< Bitloading 训练请求拒绝(表105)
-    MME_GROUP_REQ                   = 0x13,  ///< 分组请求报文(表109/110)
-    MME_GROUP_CNF                   = 0x14,  ///< 分组确认报文(表111/112)
+    MME_CHANNEL_ASSESS_REQ          = 0x11,  ///< 信道评估请求(表97)
+    MME_CHANNEL_ASSESS_REJECT       = 0x12,  ///< 信道评估拒绝(表98)
+    MME_GROUP_REQ                   = 0x13,  ///< 分组请求报文(表102/103)
+    MME_GROUP_CNF                   = 0x14,  ///< 分组确认报文(表104/105)
+    MME_CHANNEL_ASSESS_PARAM_UPDATE = 0x15,  ///< 信道评估参数更新(表99)
     MME_DIAGNOSE                    = 0x4F,
     MME_RF_CHANNEL_CONFLICT_REPORT  = 0x80,
 };
@@ -89,7 +91,7 @@ enum class GW_2026_MsduType : quint8 {
 /// @brief 简头消息类型取值(MSDU_BASE_S.消息类型,8bit,表3/5.1.1.4)
 enum class GW_2026_MsduSType : quint8 {
     DISCOVERY_LIST    = 0x00,  // 无线发现列表消息(表3;载荷=表91 无线发现列表报文)
-    CHANNEL_EVAL      = 0x01,  // 信道评估参数更新报文(表3;载荷=表106-108)
+    CHANNEL_EVAL      = 0x01,  // 信道评估参数更新报文(表3;载荷=表99-101)
     CARRIER_DISCOVERY = 0x02,  // 载波发现列表消息(表3;载荷=表62 载波发现列表报文,表68/77 含 BRU 变体)
     APPLICATION       = 0x80,  // 应用层消息 (128)
     IPV4              = 0x81,  // IPv4 消息 (129)

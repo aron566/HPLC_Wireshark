@@ -257,6 +257,7 @@ struct I18nRegParser {
         trl::register_en("剥头后载荷过短(<4B)", "Payload Too Short After Header (<4B)");
         trl::register_en("剥头后空载荷", "Empty Payload After Header");
         trl::register_en("MPDU_BASE 长度不足 16B", "MPDU_BASE shorter than 16B");
+        trl::register_en("FCH CRC24 错(calc=%1 rx=%2)", "FCH CRC24 Error (calc=%1 rx=%2)");
     }
 };
 const I18nRegParser g_i18n_reg_parser;

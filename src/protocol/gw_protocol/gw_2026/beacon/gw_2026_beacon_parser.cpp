@@ -1,6 +1,6 @@
 /// @file beaconparser.cpp
 /// @brief BEACON 帧载荷区解析器实现(独立帧解析模块,beaconparser.pri)
-/// @details 输入 MPDU(payload_for_log,自 FrameType 起含 16B FCH),按 51242/
+/// @details 输入 MPDU(payload_for_log,自 FrameType 起含 16B FC),按 51242/
 ///          51243 解析载荷区:固定头 + 信标管理信息(条目)/PB Padding/
 ///          载荷 CRC32/PB CRC24。字段树复用 MsduFieldNode(见 bplcframe.h),
 ///          公共字段工具见 fieldspec.h。
@@ -14,9 +14,9 @@
 #include <functional>
 
 // ================= BEACON 载荷区(MPDU_BEACON_LOAD) =================
-// gbBeaconMPDU = payload[16 : 16+PBSize-3](PBSize 由 FCH 内 TMI 决定,回放 TMI=4→136B)。
+// gbBeaconMPDU = payload[16 : 16+PBSize-3](PBSize 由 FC 内 TMI 决定,回放 TMI=4→136B)。
 // 载荷固定头字段相对 gb 起点。解析输出与 Python log 对照:
-//   BeaconType/NetWorkingFlag/SimpleBeaconFlag/AssociationFlag/BeaconCEFlag
+//   BeaconType/NetWorkingFlag/SimpleBeaconFlag/RSV0/AssociationFlag/RSV1
 //   NetSN/CCO_MAC/BeaconPeriodCount/NetRfChannel/NetRfOption + ItemNum + 各条目
 // PB 物理块检查序列 CRC24:公共 crc24_lsb(fieldspec.h,poly=0xC60001、
 // init=0、LSB 先行);校验目标 = 帧载荷 + 帧载荷校验序列(块内前 len-3B)
@@ -105,27 +105,28 @@ static void slot_leaf(QVector<MsduFieldNode>& out, const QString& name,
 
 // gw_2026_pb_size 公共实现见 gw_2026_pb_table.h(供 parser/beacon 共用)
 
-// 载荷固定头(相对 gb)。依据 HDC 2.0 表38 标准信标数据载荷字段:
+// 载荷固定头(相对 gb)。依据 V6 表21 标准信标数据载荷字段:
 //   字节0:类型3b+组网1b+精简1b+保留1b+开始关联1b+保留1b
 //   字节1 组网序列号;2-7 CCO MAC;8-11 信标周期计数;12 本网络无线信道编号
-//   13 option2b+信标机制状态1b+发现信标使能1b+保留4b(HDC 2.0 新增 bit2-3);
-//   14-19 保留(48b);20+ 信标管理信息
+//   13 Option2b+信标机制状态1b+发现信标使能1b+保留4b;
+//   14 保留(8b);15 统计序号(8b);16+ 信标管理信息
 static const FieldSpec kBeaconLoadSpec[] = {
     {"BeaconType",        0, 0, 3,  Fmt::DEC},
     {"NetWorkingFlag",    0, 3, 1,  Fmt::DEC},
     {"SimpleBeaconFlag",  0, 4, 1,  Fmt::DEC},
     {"RSV0",              0, 5, 1,  Fmt::DEC},
     {"AssociationFlag",   0, 6, 1,  Fmt::DEC},
-    {"BeaconCEFlag",      0, 7, 1,  Fmt::DEC},
+    {"RSV1",              0, 7, 1,  Fmt::DEC},
     {"NetSN",             1, 0, 8,  Fmt::DEC},
     {"CCO_MACAddr",       2, 0, 48, Fmt::MAC},
     {"BeaconPeriodCount", 8, 0, 32, Fmt::DEC},
     {"NetRfChannel",     12, 0, 8,  Fmt::DEC},
     {"NetRfOption",      13, 0, 2,  Fmt::DEC},
-    {"BeaconMechState",  13, 2, 1,  Fmt::DEC},   ///< 信标机制状态(表38):0=固定信标 1=竞争信标
-    {"DiscoverBeaconEn", 13, 3, 1,  Fmt::DEC},   ///< 发现信标发送使能(表38):0=未使能 1=使能
+    {"BeaconMechState",  13, 2, 1,  Fmt::DEC},   ///< 信标机制状态(表21):0=固定信标 1=竞争信标
+    {"DiscoverBeaconEn", 13, 3, 1,  Fmt::DEC},   ///< 发现信标发送使能(表21):0=未使能 1=使能
     {"RSV1",             13, 4, 4,  Fmt::DEC},
-    {"RSV2",             14, 0, 48, Fmt::DEC},
+    {"RSV2",             14, 0, 8,  Fmt::DEC},
+    {"StatSeqNum",       15, 0, 8,  Fmt::DEC},   ///< 表21:统计序号(与发现列表统一计数,0=不参与统计)
 };
 static const int kBeaconLoadSpecN = int(sizeof(kBeaconLoadSpec) / sizeof(kBeaconLoadSpec[0]));
 
@@ -137,7 +138,7 @@ static const FieldSpec kBeaconLiteHeadSpec[] = {
     {"SimpleBeaconFlag",  0, 4, 1,  Fmt::DEC},
     {"RSV0",              0, 5, 1,  Fmt::DEC},
     {"AssociationFlag",   0, 6, 1,  Fmt::DEC},
-    {"BeaconCEFlag",      0, 7, 1,  Fmt::DEC},
+    {"RSV1",              0, 7, 1,  Fmt::DEC},
     {"NetSN",             1, 0, 8,  Fmt::DEC},
     {"CCO_MACAddr",       2, 0, 48, Fmt::MAC},
     {"BeaconPeriodCount", 8, 0, 32, Fmt::DEC},
@@ -145,9 +146,9 @@ static const FieldSpec kBeaconLiteHeadSpec[] = {
 static const int kBeaconLiteHeadSpecN =
     int(sizeof(kBeaconLiteHeadSpec) / sizeof(kBeaconLiteHeadSpec[0]));
 
-// STA Cap 条目(相对条目数据)。51242 表47 站点能力条目:TEI/代理TEI/
-// 路径最低通信成功率/发送信标站点MAC/角色/层级数/代理站点信道质量/相线/
-// 链路上RF跳数/保留(12,6,2)
+// STA Cap 条目(相对条目数据)。V6 表24 站点能力条目:TEI/代理TEI/
+// 路径最低通信成功率/发送信标站点MAC/角色/层级数/代理站点通信成功率/相线/
+// 链路上RF跳数/保留(12,6,2)/代理BRU SNR信息(13-16,32b)
 static const FieldSpec kStaCapSpec[] = {
     {"TEI",                  0, 0, 12, Fmt::DEC},
     {"PCOTEI",               1, 4, 12, Fmt::DEC},
@@ -155,10 +156,11 @@ static const FieldSpec kStaCapSpec[] = {
     {"SourceMAC",            4, 0, 48, Fmt::MAC},
     {"Role",                10, 0, 4,  Fmt::DEC},
     {"NetLevel",            10, 4, 4,  Fmt::DEC},
-    {"PCOChannelQuality",   11, 0, 8,  Fmt::DEC},
+    {"PCOCommSuccessRate",  11, 0, 8,  Fmt::DEC},   ///< 表24:代理站点通信成功率(旧"代理站点信道质量")
     {"STALine",             12, 0, 2,  Fmt::DEC},
     {"LinkRFHopNum",        12, 2, 4,  Fmt::DEC},
     {"RSV2",                12, 6, 2,  Fmt::DEC},
+    {"PCOBRUSNR",           13, 0, 32, Fmt::HEX8},  ///< 表24:代理BRU0-7 SNR值(表58,8×4bit)
 };
 static const int kStaCapSpecN = int(sizeof(kStaCapSpec) / sizeof(kStaCapSpec[0]));
 
@@ -237,41 +239,40 @@ static const int kBeaconSwitchSpecN =
 // 代理角色条目 0xC1(表37):网络内代理站点总数量(0,8)+ 代理节点 TEI 12b 打包序列
 // (N 为奇数时末条目高 4bit 为保留);条目内逐 TEI 展示由 case 分支完成
 
-// TSA/时隙分配条目头(相对条目数据)。51242 表50:含跨字节保留
-// (1,6,10)与(19,2,6);CSMASlotSplitLen 单位 10ms
+// TSA/时隙分配条目头(相对条目数据)。V6 表27(旧表28):固定头 17B + 槽信息
+// 变更:绑定CSMA相线个数 8bit(旧 byte6)→2bit(byte1 bit6-7);TDMA时隙长度/链路标识符
+// (旧 byte8/9)整体删除 ⇒ 信标周期起始网络基准时/长度/RF信标时隙长度整体 -3B(10→7/14→11/18→15)
 static const FieldSpec kTsaHeadSpec[] = {
-    {"NonCCOBeaconNum",        0, 0, 8,  Fmt::DEC},
-    {"CCOBeaconNum",           1, 0, 4,  Fmt::DEC},
-    {"CSMALineSupportNum",     1, 4, 2,  Fmt::DEC},
-    {"RSV1",                   1, 6, 10, Fmt::DEC},
-    {"PCOBeaconNum",           3, 0, 8,  Fmt::DEC},
-    {"BeaconSlotLen",          4, 0, 8,  Fmt::DEC},
-    {"CSMASlotSplitLen",       5, 0, 8,  Fmt::DEC},
-    {"BindingCSMALineNum",     6, 0, 8,  Fmt::DEC},
-    {"BindingCSMALinkID",      7, 0, 8,  Fmt::DEC},
-    {"TDMASlotLen",            8, 0, 8,  Fmt::DEC},
-    {"TDMALinkID",             9, 0, 8,  Fmt::DEC},
-    {"BeaconPeriodStartNTB",  10, 0, 32, Fmt::HEX8},
-    {"BeaconPeriod",          14, 0, 32, Fmt::DEC},
-    {"RfBeaconSlotLen",       18, 0, 10, Fmt::DEC},
-    {"RSV2",                  19, 2, 6,  Fmt::DEC},
+    {"NonCCOBeaconNum",        0, 0, 8,  Fmt::DEC},   // 表27: byte0
+    {"CCOBeaconNum",           1, 0, 4,  Fmt::DEC},   // 表27: byte1 bit0-3
+    {"CSMALineSupportNum",     1, 4, 2,  Fmt::DEC},   // 表27: byte1 bit4-5 (1-3)
+    {"BindingCSMALineNum",     1, 6, 2,  Fmt::DEC},   // 表27: byte1 bit6-7 (0-3)
+    {"RSV1",                   2, 0, 8,  Fmt::DEC},   // 表27: byte2 保留
+    {"PCOBeaconNum",           3, 0, 8,  Fmt::DEC},   // 表27: byte3
+    {"BeaconSlotLen",          4, 0, 8,  Fmt::DEC},   // 表27: byte4,单位 1ms
+    {"CSMASlotSplitLen",       5, 0, 8,  Fmt::DEC},   // 表27: byte5,单位 10ms
+    {"BindingCSMALinkID",      6, 0, 8,  Fmt::DEC},   // 表27: byte6 LID
+    {"BeaconPeriodStartNTB",   7, 0, 32, Fmt::HEX8},  // 表27: byte7-10 NTB
+    {"BeaconPeriod",          11, 0, 32, Fmt::DEC},   // 表27: byte11-14,单位 1ms
+    {"RfBeaconSlotLen",       15, 0, 10, Fmt::DEC},   // 表27: byte15-16,单位 1ms
+    {"RSV2",                  16, 2, 6,  Fmt::DEC},   // 表27: byte16 bit2-7 保留
 };
 static const int kTsaHeadSpecN = int(sizeof(kTsaHeadSpec) / sizeof(kTsaHeadSpec[0]));
 
 MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_rf) {
     MsduInfo out;
     out.present = false;
-    if (payload.size() < 40) return out;  // 16 FCH + 载荷头(预检;真正门在 16+pbsize 与 gb>=24)
+    if (payload.size() < 40) return out;  // 16 FC + 载荷头(预检;真正门在 16+pbsize 与 gb>=24)
     const quint8* p = reinterpret_cast<const quint8*>(payload.constData());
     int pbsize;
     if (is_rf) {
-        // 无线信标:(10,0,4) 为载荷 PB 大小码(表18),0-5=16/40/72/136/264/520;
+        // 无线信标:(10,0,4) 为载荷 PB 大小码(表17),0-5=16/40/72/136/264/520;
         // 信标载荷仅支持 40/72/136/264/520(码 1-5),码 0(16B)装不下精简头+CRC32,
         // 由后 gb<24 门拒收;(9,4,4) 为 MCS,不是 TMI,不可查载波表
         const quint8 code = (quint8)get_bits_unchecked(p, 10, 0, 4);
         pbsize = gw_2026_rf_pb_size(code);
     } else {
-        const quint8 tmi = (quint8)get_bits_unchecked(p, 9, 4, 4);   // BEACON TMI 在 FCH b9 高 4bit
+        const quint8 tmi = (quint8)get_bits_unchecked(p, 9, 4, 4);   // BEACON TMI 在 FC b9 高 4bit
         pbsize = gw_2026_pb_size(tmi);
     }
     if (pbsize <= 0 || payload.size() < 16 + pbsize) return out;
@@ -297,11 +298,11 @@ MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_r
 
     auto& root = group(out.tree, QStringLiteral("Beacon Load [%1B]").arg(gb.size()));
 
-    // 精简信标标志(字节0 bit4):标准信标管理区在字节20 起;精简信标
-    // (51243 表56)无字节12 信道编号与 13-19 保留,管理区在字节12 起
+    // 精简信标标志(字节0 bit4):标准信标管理区在字节16 起(表21);精简信标
+    // (表36)无字节12 信道编号与 13-15 保留,管理区在字节12 起
     const bool lite = ((quint8)gb[0] & 0x10) != 0;
 
-    // 固定头:标准 0..19 / 精简 0..11
+    // 固定头:标准 0..15 / 精简 0..11
     if (lite)
         add_fields(root.children, gb, 0, kBeaconLiteHeadSpec, kBeaconLiteHeadSpecN);
     else
@@ -329,17 +330,12 @@ MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_r
             ch.value = QStringLiteral("%1 - %2").arg(v).arg(
                 v ? trl::L("允许站点发起关联请求")
                   : trl::L("不允许站点发起关联请求"));
-        } else if (ch.name.startsWith(QStringLiteral("BeaconCEFlag"))) {
-            const quint8 v = (quint8)get_bits(gb, 0, 7, 1);
-            ch.value = QStringLiteral("%1 - %2").arg(v).arg(
-                v ? trl::L("允许使用信标进行信道评估")
-                  : trl::L("不允许使用信标进行信道评估"));
         }
     }
 
     // 管理区 = gb[mgmt_off : -4]:首字节 ItemNum,随后 head(1B)+len(1B)+内容。
     // 依 51242 表44 信标管理信息格式,集中展示为一个分组
-    const int item_num_off = lite ? 12 : 20;
+    const int item_num_off = lite ? 12 : 16;
     if (gb.size() <= item_num_off + 1) return out;
     quint8 item_num = (quint8)gb[item_num_off];
     auto& mgmt = group(root.children, QStringLiteral("Beacon Mgmt Info"));
@@ -405,7 +401,7 @@ MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_r
                         out.tei_mac_pairs.append({tei, mac});
                 }
                 annotate_unit(grp.children, "LinkMinCommSuccessRate", QStringLiteral("%"));
-                annotate_unit(grp.children, "PCOChannelQuality", QStringLiteral("dB"));
+                annotate_unit(grp.children, "PCOCommSuccessRate", QStringLiteral("%"));
                 for (auto& ch : grp.children) {
                     if (ch.name.startsWith(QStringLiteral("Role"))) {
                         quint8 r = (quint8)get_bits(it, 10, 0, 4);
@@ -547,18 +543,17 @@ MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_r
                 }
                 break;
             }
-            case GW_2026_BeaconItemType::TIME_SLOT_ALLOCATION: {  // TSA/时隙分配条目:头 20B + 槽信息
+            case GW_2026_BeaconItemType::TIME_SLOT_ALLOCATION: {  // TSA/时隙分配条目:头 17B(表27) + 槽信息
                 add_fields(grp.children, it, 0, kTsaHeadSpec, kTsaHeadSpecN, abs0);
                 // TSA 时长字段单位 ms(与 Python log "BeaconSlotLen: 30ms" 一致)
                 annotate_unit(grp.children, "BeaconSlotLen", QStringLiteral("ms"));
                 annotate_unit(grp.children, "CSMASlotSplitLen", QStringLiteral("10ms"));
-                annotate_unit(grp.children, "TDMASlotLen", QStringLiteral("ms"));
                 annotate_unit(grp.children, "BeaconPeriod [", QStringLiteral("ms"));
                 annotate_unit(grp.children, "RfBeaconSlotLen", QStringLiteral("ms"));
                 int noncco = (int)get_bits(it, 0, 0, 8);
                 int csma   = (int)get_bits(it, 1, 4, 2);
-                int bind   = (int)get_bits(it, 6, 0, 8);
-                int o = 20;
+                int bind   = (int)get_bits(it, 1, 6, 2);  // 表27:绑定CSMA相线个数(byte1 bit6-7,2bit)
+                int o = 17;
                 // 三段槽信息独立分组,槽内字段按 51242 表51/52/53 逐行展开
                 if (noncco > 0) {  // 非中央信标信息(2B/条):代理/发现站点时隙
                     auto& ng = group(grp.children,
@@ -701,8 +696,6 @@ struct I18nReg {
         trl::register_en("标准信标帧", "Standard beacon frame");
         trl::register_en("允许站点发起关联请求", "Association request allowed");
         trl::register_en("不允许站点发起关联请求", "Association request not allowed");
-        trl::register_en("允许使用信标进行信道评估", "Channel estimation allowed");
-        trl::register_en("不允许使用信标进行信道评估", "Channel estimation not allowed");
         trl::register_en("保留值", "Reserved value");
         trl::register_en("(x 发现列表周期)", " (x discovery-list period)");
         // 条目头含义(表46)

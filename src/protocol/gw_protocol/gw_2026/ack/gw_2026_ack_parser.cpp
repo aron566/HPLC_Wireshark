@@ -1,7 +1,7 @@
 /// @file ackparser.cpp
 /// @brief ACK 帧解析实现(独立帧解析模块,ackparser.pri)
 /// @details 移植自 BPLCMonitor/MPDU_Class.py 的 MPDU_ACK 逻辑:
-///          FCH ExtFrameType(bit 12,0,4) 按表14/表15:0=选择确认,其他=保留。
+///          FC ExtFrameType(bit 12,0,4) 按表14/表15:0=选择确认,其他=保留。
 ///          公共位域工具见 fieldspec.h。
 #include "gw_2026_ack_parser.h"
 #include "gw_2026_tree.h"
@@ -32,21 +32,19 @@ void parse_fch(const quint8* p, MpduInfo& m) {
         return;
     }
     // 表14(载波 不反馈SNR版)可变区域 68bit 连续位流(起点 byte4 bit0):
-    //   BRU(4,0,1) SATID(4,1,1) RxRes(4,2,1) RxPBNum(4,3,2)
-    //   RxStatus=(4,5,3)|(5,0,1)<<3 跨字节
-    //   SrcTEI(5,1,12) DstTEI(6,5,12) RemainSTANum(8,1,2) RSV0(8,3,5)
-    //   ChQ(9,1,8) Load(10,1,8) RSV1(11,1,8) ExtType(12,0,4)
-    m.ack_rx_res         = (quint8)get_bits_unchecked(p, 4, 2, 1);
-    m.ack_rx_pb_num      = (quint8)get_bits_unchecked(p, 4, 3, 2);
-    m.ack_rx_status      = (quint8)((get_bits_unchecked(p, 4, 5, 3))
-                                 | (get_bits_unchecked(p, 5, 0, 1) << 3));
-    m.src_tei            = (quint16)get_bits_unchecked(p, 5, 1, 12);
-    m.dst_tei            = (quint16)get_bits_unchecked(p, 6, 5, 12);
-    m.ack_remain_sta_num = (quint8)get_bits_unchecked(p, 8, 1, 2);
-    m.ack_rsv0           = (quint8)get_bits_unchecked(p, 8, 3, 5);
-    m.ack_channel_quality = (quint8)get_bits_unchecked(p, 9, 1, 8);
-    m.ack_sta_load       = (quint8)get_bits_unchecked(p, 10, 1, 8);
-    m.ack_rsv1           = (quint8)get_bits_unchecked(p, 11, 1, 8);
+    //   BRU(4,0,1) SATID(4,1,1) RxPBNum(4,2,2) RxStatus(4,4,4)
+    //   SrcTEI(5,0,12) DstTEI(6,4,12) RemainSTANum(8,0,2) RSV0(8,2,6)
+    //   ChQ(9,0,8) Load(10,0,8) RSV1(11,0,8) ExtType(12,0,4)
+    m.ack_rx_res         = 0;  // V6 表14 无独立「接收结果」字段(接收结果 4bit 见旧表20→V6 表19);旧代码自读的 1bit RxRes 系误读(该位实为「接收物理块个数」bit0)
+    m.ack_rx_pb_num      = (quint8)get_bits_unchecked(p, 4, 2, 2);
+    m.ack_rx_status      = (quint8)get_bits_unchecked(p, 4, 4, 4);
+    m.src_tei            = (quint16)get_bits_unchecked(p, 5, 0, 12);
+    m.dst_tei            = (quint16)get_bits_unchecked(p, 6, 4, 12);
+    m.ack_remain_sta_num = (quint8)get_bits_unchecked(p, 8, 0, 2);
+    m.ack_rsv0           = (quint8)get_bits_unchecked(p, 8, 2, 6);
+    m.ack_channel_quality = (quint8)get_bits_unchecked(p, 9, 0, 8);
+    m.ack_sta_load       = (quint8)get_bits_unchecked(p, 10, 0, 8);
+    m.ack_rsv1           = (quint8)get_bits_unchecked(p, 11, 0, 8);
 }
 
 }  // namespace gw_2026_ackp
