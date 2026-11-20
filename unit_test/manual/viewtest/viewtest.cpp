@@ -1077,23 +1077,14 @@ int main(int argc, char* argv[]) {
                 }
                 BplcFrame fr2;
                 fr2.data = unesc;
-                // BCD 标签位于帧外并由 SerialReader 消费；此处直接注入
-                // Reader 已建立的时间，避免把帧体误当成时间标签。
+                // 本循环只按 0x3C/0x3E 切帧,跳过了帧外 BCD 标签,无法还原时间;
+                // 时间链(帧外标签 + NTB)由 CI 的 roundtrip 探针经真实
+                // SerialReader 路径覆盖。这里只校验导出帧可解析且载荷一致。
                 fr2.meta.has_time_tag = false;
-                if (n_back < n_src) {
-                    fr2.meta.frame_time = entries[n_back].meta.frame_time;
-                    fr2.meta.epoch_ms = entries[n_back].epoch_ms;
-                    fr2.meta.replay_time_tag = entries[n_back].meta.replay_time_tag;
-                }
                 auto r2 = parser2.parse(fr2, msdu_state2, f0);
                 if (!r2.accept) break;                       // 导出帧必须可解析
-                if (n_back < n_src) {
-                    if (r2.payload_for_log != entries[n_back].raw_bytes) ++n_mismatch;
-                    // 时间标签应还原原始捕获时刻
-                    if (!r2.meta.frame_time.isValid() ||
-                        r2.meta.frame_time.toMSecsSinceEpoch() !=
-                            entries[n_back].epoch_ms) ++n_mismatch;
-                }
+                if (n_back < n_src &&
+                    r2.payload_for_log != entries[n_back].raw_bytes) ++n_mismatch;
                 ++n_back;
             }
             export_ok = (n_back == n_src && n_mismatch == 0);

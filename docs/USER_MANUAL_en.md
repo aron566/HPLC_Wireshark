@@ -375,7 +375,7 @@ db_path=
 | `com` | Serial port name |
 | `baud` | Baud rate |
 | `file_path` | Replay/import file path |
-| `time_tag` | Time-tag setting; the current format auto-detects BCD time tags |
+| `time_tag` | Reserved; not read by the program. BCD time tags are detected automatically |
 | `backend` | Crash backend: `auto` (default, prefers sentry), `sentry`, `crashpad` |
 | `dsn` | Sentry DSN; when set, crashes auto-upload; empty = local only |
 | `db_path` | Crash dump directory; empty = `crashpad_db` next to the exe |

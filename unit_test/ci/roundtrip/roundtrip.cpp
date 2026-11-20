@@ -369,6 +369,17 @@ void regressions() {
         check(realtime_false_bcd.size() == 1 && !realtime_false_bcd[0].meta.replay_time_tag,
               "real-time frame bytes shaped like BCD are not treated as a time tag");
 
+        // 帧体开头带 8B 合法 BCD(按旧布局拼出)也必须原样保留:时间只取帧外
+        // 标签,帧体不剥离。防止以后有人把帧内 BCD 剥离逻辑加回读取端。
+        QByteArray first_data;
+        playback::unescape_frame_data(first.mid(1, first.size() - 2), first_data);
+        const QByteArray inline_bcd_data = playback::bcd_time_tag(later) + first_data;
+        const QByteArray inline_bcd_frame = QByteArray(1, char(0x3c))
+            + playback::escape_frame_data(inline_bcd_data) + char(0x3e);
+        const auto inline_bcd_entries = read(tag + inline_bcd_frame, ReaderMode::FilePlayback);
+        check(inline_bcd_entries.size() == 1 && inline_bcd_entries[0].epoch_ms == base
+                  && inline_bcd_entries[0].raw_wire == inline_bcd_frame,
+              "BCD at the start of the frame body is kept and not used as time");
     }
 
     for (ReaderMode mode : {ReaderMode::FilePlayback, ReaderMode::RawHex}) {

@@ -383,7 +383,7 @@ db_path=
 | `com` | 串口名称 |
 | `baud` | 波特率 |
 | `file_path` | 回放或导入文件路径 |
-| `time_tag` | 时间标签设置；当前格式会自动识别 BCD 时间标签 |
+| `time_tag` | 保留字段，程序当前不读取；BCD 时间标签自动识别 |
 | `backend` | 崩溃转储后端：`auto`（默认，优先 sentry）、`sentry`、`crashpad` |
 | `dsn` | Sentry DSN，填了崩溃自动上报，空=只本地落盘 |
 | `db_path` | 崩溃转储目录，空=exe 同级 `crashpad_db` |

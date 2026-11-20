@@ -1638,7 +1638,7 @@ hplc &amp; beacon</div>
             <li><code>.bin</code> 必须使用 <code>0x3C … 0x3E</code> 帧格式；</li>
             <li>裸 hex 文本每行必须包含完整哨兵；</li>
             <li>检查文件是否为空，或数据是否被转换工具改写过；</li>
-            <li>裸 MPDU 行必须包含完整的 <code>0x3C/0x3E</code> 哨兵。</li>
+            <li>不带 <code>0x3C/0x3E</code> 哨兵的裸 MPDU 行会被直接忽略。</li>
           </ul>
         </div></div>
       </div>
