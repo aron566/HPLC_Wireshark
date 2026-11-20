@@ -655,6 +655,7 @@ QVariant PacketListModel::data_color(const PacketEntry& e) const {
             if ((e.protocol & 0x7F) == kProtocolGw2026)
                 return (e.mpdu.ack_rx_status == 0 && e.mpdu.ack_rx_pb_num > 0)
                            ? QColor(224, 64, 64) : QColor(196, 181, 79);
+            // 非 GW_2026(HDC1.0) 仍用 ack_rx_res;GW_2026 该字段恒 0(走上一分支)
             if (e.mpdu.ack_rx_res == 1) return QColor(224, 64, 64);
             return QColor(196, 181, 79);
         case 3: return QColor(140, 110, 190);   // COORD 协调帧:紫色(非异常,不用红)
