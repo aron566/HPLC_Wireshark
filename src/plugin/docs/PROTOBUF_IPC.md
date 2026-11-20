@@ -34,12 +34,27 @@ Envelope；既有 `plugin_serialization` 中复杂的帧、解析树、状态和
 ## 构建
 
 `3rdparty/protobuf/protobuf.pri` 独立负责 Protobuf C++ runtime 的 include/link
-设置；应用、独立宿主和 IPC 集成测试都引用该 pri。生成的 C++ 文件已纳入
-仓库，普通构建不需要 `protoc`：
+设置；应用、独立宿主和 IPC 集成测试都引用该 pri。runtime 来自源码编库
+（vendored protobuf v36.2 + abseil-cpp 20250512.1，静态链接，两个子库
+各钉一个 commit，见 `3rdparty/protobuf/README.md`）：
 
 ```sh
-protoc -Isrc/plugin/ipc --cpp_out=src/plugin/ipc src/plugin/ipc/plugin_wire.proto
+git submodule update --init --depth 1 3rdparty/protobuf-src 3rdparty/abseil-cpp
+bash 3rdparty/build_protobuf.sh
 ```
 
-如 Protobuf 安装在非系统前缀，设置 `PROTOBUF_ROOT` 指向其安装前缀。
-Windows 构建环境也必须提供 ABI 匹配的 Protobuf C++ runtime。
+产物装到 `3rdparty/install/{protobuf,absl}`。普通构建不需要手动跑脚本：
+`protobuf.pri` 会在哨兵缺失时在 qmake 期同步构建，失败则 `error()` 中断。
+生成的 C++ 文件已纳入仓库，普通构建不需要 `protoc`；重生成必须用子库
+编出的 `protoc`（签入代码是 protoc 36.2 产的，3.12/3.21 的生成代码与
+v36.2 头文件不兼容）：
+
+```sh
+./3rdparty/install/protobuf/bin/protoc -Isrc/plugin/ipc --cpp_out=src/plugin/ipc src/plugin/ipc/plugin_wire.proto
+```
+
+如需用外部安装前缀代替 vendored 库，设置 `PROTOBUF_ROOT` 指向其安装
+前缀（不要混用不同大版本的 protoc 生成代码与运行库）。
+子库升级是显式的人工动作，永不自动拉最新（流程见
+`3rdparty/protobuf/README.md`）。Windows 侧 MinGW 一次编过尚未实测，
+见该 README 与本仓库的待核实清单。
