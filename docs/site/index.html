@@ -1637,8 +1637,8 @@ hplc &amp; beacon</div>
           <ul>
             <li><code>.bin</code> 必须使用 <code>0x3C … 0x3E</code> 帧格式；</li>
             <li>裸 hex 文本每行必须包含完整哨兵；</li>
-            <li>检查文件是否为空，或数据是否被旧格式转换工具改写过；</li>
-            <li>旧版无 <code>0x3C/0x3E</code> 哨兵的裸 MPDU 行不再兼容，会被直接忽略。</li>
+            <li>检查文件是否为空，或数据是否被转换工具改写过；</li>
+            <li>不带 <code>0x3C/0x3E</code> 哨兵的裸 MPDU 行会被直接忽略。</li>
           </ul>
         </div></div>
       </div>
@@ -1654,7 +1654,7 @@ hplc &amp; beacon</div>
         <button class="faq-q">Delta 时间差看起来不对？<span class="ic">+</span></button>
         <div class="faq-a"><div class="faq-a-in">
           实时串口在长时间无报文或跨 171.8 秒 NTB 回绕后会标记新分段；
-          文件回放依赖 BCD / TIME 时间标签恢复绝对时间；没有时间标签的旧文件会回退到本地时间。
+          文件回放依赖 BCD / TIME 时间标签恢复绝对时间；没有时间标签时会回退到本地时间。
           选中两行时，状态栏中间会显示两帧时间差（优先用帧内 NTB 差值，偏差过大时降级为本地时间差）。
         </div></div>
       </div>

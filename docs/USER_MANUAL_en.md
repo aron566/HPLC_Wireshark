@@ -375,7 +375,7 @@ db_path=
 | `com` | Serial port name |
 | `baud` | Baud rate |
 | `file_path` | Replay/import file path |
-| `time_tag` | Legacy compatibility field; current formats auto-detect BCD time tags |
+| `time_tag` | Reserved; not read by the program. BCD time tags are detected automatically |
 | `backend` | Crash backend: `auto` (default, prefers sentry), `sentry`, `crashpad` |
 | `dsn` | Sentry DSN; when set, crashes auto-upload; empty = local only |
 | `db_path` | Crash dump directory; empty = `crashpad_db` next to the exe |
@@ -487,7 +487,7 @@ An independent 8-byte BCD time tag may appear at the file beginning or before a 
 - A standalone time line must parse as `yyyy-MM-dd HH:mm:ss[.zzz]`; the `TIME:` prefix is recommended.
 - A frame line must contain one complete raw frame with `0x3C` and `0x3E`.
 - Both `0x01 0xd5` and `01 d5` byte styles are accepted.
-- Legacy raw MPDU lines without `0x3C/0x3E` sentinels are no longer supported and are ignored.
+- Each frame line must contain the complete `0x3C/0x3E` sentinels.
 
 ## 11. Troubleshooting
 
@@ -502,7 +502,7 @@ An independent 8-byte BCD time tag may appear at the file beginning or before a 
 
 - `.bin` input must use the `0x3C ... 0x3E` frame format.
 - Every raw hex row must contain the complete sentinels.
-- Confirm the file is not empty and has not been rewritten into an unsupported legacy format.
+- Confirm the file is not empty or rewritten by a conversion tool.
 
 ### 11.3 Frames Are Marked DROP
 
@@ -520,7 +520,7 @@ Check the `Destination` or `Info` column for the rejection reason.
 
 - Live capture starts a new segment after a long silence or an NTB wrap around 171.8 seconds.
 - File replay depends on BCD/TIME tags to restore absolute time.
-- Older files without time tags fall back to local time.
+- Input without time tags falls back to local time.
 
 ### 11.5 A Protocol Field Cannot Be Highlighted
 
@@ -586,4 +586,3 @@ Output:
 ```text
 dist/BPLC_STA_Monitor_Setup_v1.3.0.exe
 ```
-
