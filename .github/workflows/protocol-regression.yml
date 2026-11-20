@@ -99,12 +99,14 @@ jobs:
           make -j2
           ./nw_mme_test
 
-      - name: Lossless bin/hex replay and export regression
+      - name: Lossless bin/hex replay, export and timeline regression
         run: |
           mkdir -p build/roundtrip
           cd build/roundtrip
           qmake ../../unit_test/ci/roundtrip/roundtrip.pro CONFIG+=release CONFIG-=debug
           make -j2
+          # roundtrip 探针同时覆盖重复 NTB、实时重复 NTB、倒退/超大间隔本地回退、
+          # BCD 形状误判、旧 epoch-ts 混排、逐帧 BCD 兼容，以及 bin/RawHex 时间一致性。
           ./roundtrip "$GITHUB_WORKSPACE/unit_test/ci/roundtrip/roundtrip_test.bin" "$GITHUB_WORKSPACE/unit_test/ci/roundtrip/roundtrip_test.txt"
 
       - name: NW2026 OFDMA type1 regression

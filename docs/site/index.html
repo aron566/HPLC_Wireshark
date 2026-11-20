@@ -1001,8 +1001,8 @@ footer{
           </div>
           <div class="step">
             <div class="step-n">3</div>
-            <div class="step-body"><h4>自动识别时间基准</h4><p>程序用 <code class="inline-code">looks_like_bcd_time()</code>
-                自动识别 8 字节 BCD 标签，恢复每帧原始捕获时刻；无标签的旧文件自动回退本地时间，无需手动配置。</p></div>
+            <div class="step-body"><h4>自动识别时间基准</h4><p>程序读取帧外 8 字节 BCD 标签作为时间基准，
+                段内按帧内 NTB 推进，恢复原始捕获时刻；无标签时自动回退本地时间，无需手动配置。</p></div>
           </div>
           <div class="step">
             <div class="step-n">4</div>

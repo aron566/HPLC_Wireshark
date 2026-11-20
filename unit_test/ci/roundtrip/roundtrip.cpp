@@ -245,6 +245,143 @@ void regressions() {
               "segment and export survive disk-block round-trip");
     }
 
+    {
+        // 相同 NTB 表示同一设备时钟刻度:不应因 dn==0 回退到快速回放时的本地时刻。
+        const QByteArray hex = time_line(base) + playback::hex_line_of(first)
+                               + playback::hex_line_of(first);
+        const auto hex_entries = read(hex, ReaderMode::RawHex);
+        check(hex_entries.size() == 2 && hex_entries[0].epoch_ms == base
+                  && hex_entries[1].epoch_ms == base
+                  && hex_entries[1].delta_us == 0,
+              "RawHex duplicate NTB keeps the previous replay time");
+
+        const QByteArray bin = tag + first + first;
+        const auto bin_entries = read(bin, ReaderMode::FilePlayback);
+        check(bin_entries.size() == 2 && bin_entries[0].epoch_ms == base
+                  && bin_entries[1].epoch_ms == base
+                  && bin_entries[1].delta_us == 0,
+              "bin duplicate NTB keeps the previous replay time");
+    }
+
+    {
+        // 无 raw_wire 的旧缓存也必须导出为新格式:时间标签在帧外,
+        // 不再生成逐帧 BCD。验证 bin 重读与 TIME + NTB 的 RawHex 导出一致。
+        PacketEntry a;
+        a.raw_bytes = first.mid(10);
+        a.epoch_ms = base;
+        a.meta.timestamp = 1000;
+        a.meta.phr_mcs = 0x02;
+        a.meta.option = 0xd5;
+        a.meta.channel = 1;
+        a.meta.is_rf = true;
+        PacketEntry b = a;
+        b.raw_bytes = second.mid(10);
+        b.epoch_ms = base + 40;
+        b.meta.timestamp = 26000;
+        const QVector<PacketEntry> fallback_entries{a, b};
+        const QByteArray fallback_bin = playback::build_playback_bin(fallback_entries);
+        const auto fallback_bin_read = read(fallback_bin, ReaderMode::FilePlayback);
+        const auto fallback_hex_read = read(playback::build_raw_hex_text(fallback_entries),
+                                          ReaderMode::RawHex);
+        check(fallback_bin_read.size() == 2 && fallback_hex_read.size() == 2
+                  && fallback_bin_read[0].epoch_ms == base
+                  && fallback_bin_read[1].epoch_ms == base + 40
+                  && fallback_hex_read[0].epoch_ms == base
+                  && fallback_hex_read[1].epoch_ms == base + 40,
+              "bin and RawHex exports preserve fallback local timestamps");
+        check(fallback_bin_read.size() == 2 && fallback_hex_read.size() == 2
+                  && fallback_bin_read[0].meta.timestamp == 1000
+                  && fallback_bin_read[1].meta.timestamp == 26000
+                  && fallback_hex_read[0].meta.timestamp == 1000
+                  && fallback_hex_read[1].meta.timestamp == 26000,
+              "bin and RawHex exports preserve NTB fields");
+        check(fallback_bin.startsWith(playback::bcd_time_tag(base)
+                                          + playback::frame_to_playback(a)),
+              "bin fallback export uses frame-external BCD, not inline BCD");
+    }
+
+    {
+        // 回退帧(无 raw_wire)后紧跟的 raw_wire 帧必须自带段标注:回退帧 ts
+        // 与 raw_wire 帧 NTB 来源不同,不能跨来源做 NTB 差。此处故意让差值
+        // 落在 60s 窗口内(1000→26000),缺标注时会静默得到 base+5000+1。
+        PacketEntry r;
+        r.raw_wire = first;
+        r.raw_bytes = first.mid(10);
+        r.epoch_ms = base;
+        r.meta.timestamp = 1000;
+        PacketEntry f;
+        f.raw_bytes = first.mid(10);
+        f.epoch_ms = base + 5000;
+        f.meta.timestamp = 1000;
+        f.meta.phr_mcs = 0x02;
+        f.meta.option = 0xd5;
+        f.meta.channel = 1;
+        f.meta.is_rf = true;
+        PacketEntry r2;
+        r2.raw_wire = second;
+        r2.raw_bytes = second.mid(10);
+        r2.epoch_ms = base + 9000;
+        r2.meta.timestamp = 26000;
+        const QVector<PacketEntry> mixed{r, f, r2};
+        const QByteArray expected = playback::bcd_time_tag(base) + first
+            + playback::bcd_time_tag(base + 5000) + playback::frame_to_playback(f)
+            + playback::bcd_time_tag(base + 9000) + second;
+        const QByteArray mixed_bin = playback::build_playback_bin(mixed);
+        check(mixed_bin == expected && streamed(mixed, false) == expected,
+              "raw_wire frame after fallback frame gets its own BCD tag");
+        const auto mixed_read = read(mixed_bin, ReaderMode::FilePlayback);
+        check(mixed_read.size() == 3 && mixed_read[0].epoch_ms == base
+                  && mixed_read[1].epoch_ms == base + 5000
+                  && mixed_read[2].epoch_ms == base + 9000,
+              "fallback/raw_wire mix keeps each frame's own time");
+
+        // 空帧(无 raw_bytes)不得留下悬空 BCD 标注
+        PacketEntry empty;
+        empty.epoch_ms = base;
+        check(playback::build_playback_bin({empty}).isEmpty()
+                  && streamed({empty}, false).isEmpty(),
+              "empty fallback entry writes no dangling BCD tag");
+    }
+
+    {
+        // 新格式帧的前 8B 可以偶然满足 BCD 日期范围;读取端已不兼容逐帧 BCD,
+        // 不得被误剥离或污染时间链。
+        QByteArray false_bcd_mpdu(272, char(0));
+        false_bcd_mpdu[0] = char(0x02);
+        false_bcd_mpdu[1] = char(0xd5);
+        QByteArray false_bcd(1, char(0x3c));
+        QByteArray false_bcd_data;
+        false_bcd_data.append(char(0x14)).append(char(0x01)); // dlen=0x0114
+        false_bcd_data.append(char(0x19)).append(char(0x14))
+            .append(char(0x32)).append(char(0x09));           // NTB bytes
+        false_bcd_data.append(char(0x05)).append(char(0x00)); // phr/option
+        false_bcd_data.append(false_bcd_mpdu);
+        false_bcd.append(playback::escape_frame_data(false_bcd_data)).append(char(0x3e));
+        const qint64 before = QDateTime::currentMSecsSinceEpoch();
+        const auto false_bcd_entries = read(false_bcd, ReaderMode::FilePlayback);
+        const qint64 after = QDateTime::currentMSecsSinceEpoch();
+        check(false_bcd_entries.size() == 1
+                  && !false_bcd_entries[0].meta.replay_time_tag
+                  && false_bcd_entries[0].epoch_ms >= before
+                  && false_bcd_entries[0].epoch_ms <= after,
+              "new-format BCD-shaped header is not treated as inline BCD");
+        const auto realtime_false_bcd = ReaderWorkerTestAccess::serial_frames(false_bcd);
+        check(realtime_false_bcd.size() == 1 && !realtime_false_bcd[0].meta.replay_time_tag,
+              "real-time BCD-shaped header is not treated as inline BCD");
+
+        // 历史逐帧 BCD 帧(结构完全符合旧 frame_to_playback 布局)也不再剥离:
+        // 帧体原样保留,时间取帧外标注,证明兼容读路径已删除。
+        QByteArray first_data;
+        playback::unescape_frame_data(first.mid(1, first.size() - 2), first_data);
+        const QByteArray old_data = playback::bcd_time_tag(later) + first_data;
+        const QByteArray old_frame = QByteArray(1, char(0x3c))
+            + playback::escape_frame_data(old_data) + char(0x3e);
+        const auto old_entries = read(tag + old_frame, ReaderMode::FilePlayback);
+        check(old_entries.size() == 1 && old_entries[0].epoch_ms == base
+                  && old_entries[0].raw_wire == old_frame,
+              "legacy inline BCD is no longer stripped on read");
+    }
+
     for (ReaderMode mode : {ReaderMode::FilePlayback, ReaderMode::RawHex}) {
         const bool hex = mode == ReaderMode::RawHex;
         const QByteArray gap = wire(1000 + 61u * 25000000u);
@@ -369,7 +506,7 @@ void serial_regressions() {
         {"exactly 60s", 1000, 60u * 25000000u, 60000, false},
         {"one tick beyond 60s", 1000, 60u * 25000000u + 1, 60000, true},
         {"61s matching local gap", 1000, 61u * 25000000u, 61000, true},
-        {"zero NTB delta", 1000, 0, 1, true},
+        {"zero NTB delta", 1000, 0, 1, false},
         {"backward NTB", 100000, quint32(-25000), 1, true},
         {"signed delta limit", 1000, 0x80000000u, 85899, true},
         {"short u32 wrap", 0xfffff000u, 25000, 1, false},

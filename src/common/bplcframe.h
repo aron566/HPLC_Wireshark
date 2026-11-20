@@ -52,7 +52,7 @@ struct MsduState {
 
 /// @brief 物理层元信息
 struct PhysicalMeta {
-    quint32  timestamp;       ///< STA 端 NTB 同步计数,25 kHz tick(40 µs/tick)
+    quint32  timestamp;       ///< STA 端 NTB 同步计数,25 MHz tick(40 ns/tick)
     quint8   phr_mcs;         ///< HRF 物理头速率(PLC 帧此字段为占位 0)
     quint8   option;          ///< HRF option(1=1M/2=500k/3=200k;PLC 占位)
     quint16  channel;         ///< HRF:信道索引;PLC:频段号(0-3)
@@ -64,8 +64,7 @@ struct PhysicalMeta {
                               ///< 供解析器回退显示时间用;不序列化,仅内存透传
                               ///< (解析线程收到时若为 0 则回退现取)
     bool     from_raw;        ///< 是否为裸 hex 文本导入(无哨兵封装)
-    bool     frame_ts_is_ntb; ///< ts 域为 NTB tick(实时串口;25kHz,40µs);
-                              ///< false=文件回放(ts=epoch ms 低 32 位,毫秒级)
+    bool     frame_ts_is_ntb; ///< ts 域为 NTB tick(实时串口/文件回放;25MHz,40ns)
     bool     seg_start;       ///< 仅实时串口:新采集段首帧(Delta 不计算)
     bool     replay_time_tag; ///< 仅文件回放:本帧前有原文件的 BCD/TIME 标注
 
