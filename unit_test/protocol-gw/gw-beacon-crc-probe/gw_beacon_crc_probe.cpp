@@ -62,15 +62,25 @@ static QByteArray gw_beacon_mpdu(int version, int variant) {
     set_bits(p, 11, 1, 2, 2);                       // beacon line
     set_bits(p, 12, 4, 4, version);                 // 0=HDC 1.0 / 1=HDC 2.0
     fix_fch_crc(p);
-    // gb(133B):固定头 20B + ItemNum + STA Cap 条目 + 零填充 + 载荷 CRC32
+    // gb(133B):国网信标载荷。HDC1.0(version=0)旧表22 固定头 20B(14-19 保留 48b);
+    // HDC2.0(version=1)V6 表21 固定头 16B(byte14 保留8b、byte15 统计序号8b、byte16 起管理信息)
     quint8* gb = p + 16;
     gb[1] = 1;                                      // NetSN
     put_u48le(gb + 2, 0xAABBCCDDEE01ULL);            // CCO MAC
     put_u32le(gb + 8, 1);                           // period count
-    gb[20] = 1;                                     // ItemNum = 1
-    gb[21] = 0x00;                                  // head: STA_CAPABILITY
-    gb[22] = 15;                                    // len_raw = 内容 13B + 2
-    quint8* it = gb + 23;
+    quint8* it;
+    if (version == 1) {
+        gb[15] = 0;                                 // V6 表21 统计序号(0=不参与统计)
+        gb[16] = 1;                                 // ItemNum = 1(固定头 16B)
+        gb[17] = 0x00;                              // head: STA_CAPABILITY
+        gb[18] = 15;                                // len_raw = 内容 13B + 2
+        it = gb + 19;
+    } else {
+        gb[20] = 1;                                 // ItemNum = 1(旧表22 固定头 20B)
+        gb[21] = 0x00;                              // head: STA_CAPABILITY
+        gb[22] = 15;                                // len_raw = 内容 13B + 2
+        it = gb + 23;
+    }
     set_bits(it, 0, 0, 12, 5);                      // TEI 5
     set_bits(it, 1, 4, 12, 2);                      // PCOTEI 2
     it[3] = 100;                                    // LinkMinCommSuccessRate

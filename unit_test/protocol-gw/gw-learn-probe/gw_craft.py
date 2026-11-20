@@ -97,12 +97,12 @@ def fch_base(dst_tei, sof_dt, src_tei=1):
 
 
 def data_sof(msdu, dst_tei, src_tei=1):
-    """Single-PB DATA SOF (diversity mode 2 -> PB 136, payload 132)."""
+    """Single-PB DATA SOF (static mode TMI=2 -> PB 136, payload 132)."""
     f = fch_base(dst_tei, 0, src_tei)
-    set_bits(f, 10, 1, 1, 0)   # mod_mode = diversity
+    set_bits(f, 10, 0, 2, 0)   # mod_mode = static load (V6 表7 (10,0,2))
     set_bits(f, 10, 2, 5, 2)   # mod_param (TMI) = 2 -> 136
-    set_bits(f, 10, 7, 1, 0)   # PB code bit0
-    set_bits(f, 11, 0, 1, 0)   # PB code bit1 -> 1 block
+    set_bits(f, 10, 7, 1, 0)   # encryp_flag = 0 (V6 表7 (10,7,1))
+    set_bits(f, 11, 0, 2, 0)   # PB code = 0 -> 1 block (V6 表7 (11,0,2))
     store_crc24(f, 0, 16)
     pb = build_pb_block(0xC0, msdu, 136)
     return bytes(f) + pb

@@ -23,7 +23,8 @@ static QByteArray build_beacon(int pbsize, quint8 fch9, quint8 fch10) {
     std::memcpy(gb + 2, mac, 6);
     gb[8] = 1;
     gb[12] = 36;   // 本网络无线信道编号
-    gb[20] = 0;    // ItemNum=0,无管理条目
+    gb[15] = 0;   // 表21 统计序号(0=不参与统计)
+    gb[16] = 0;   // ItemNum=0,无管理条目(V6 表21 固定头 16B)
     return payload;
 }
 
