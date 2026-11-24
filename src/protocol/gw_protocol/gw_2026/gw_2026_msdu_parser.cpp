@@ -542,33 +542,33 @@ static const int kMsduBaseSSpecN = int(sizeof(kMsduBaseSSpec) / sizeof(kMsduBase
 // 单跳帧(MSDU_BASE_S)消息类型0 = 无线发现列表(表123),TLV 结构。
 // 参考:§5.1.1.4 单跳MAC帧头(表11) / §5.13.23 无线发现列表报文(表123-137)。
 
-/// 邻居节点信道信息组合类型字段位宽(表95 非位图/表103 位图;载波发现列表用表68/表77)
+/// 邻居节点信道信息组合类型字段位宽(表88 非位图/表96 位图;载波发现列表用表62/表70)
 struct RfdlChCombo {
     quint8 rcv;   ///< 接收率位宽(0/6/8)
     quint8 snr;   ///< 平均信噪比位宽(0/4/6)
     quint8 rssi;  ///< 信号强度位宽(0/4/6/8)
-    quint8 bru;   ///< BRU SNR 位宽(0/32;表68 combo10/表77 combo11 载波发现列表专用,
-                  ///< 32bit=8×4bit,-10~35dB 3dB 步进,见表64)
+    quint8 bru;   ///< BRU SNR 位宽(0/32;表62 combo10/表70 combo11 载波发现列表专用,
+                  ///< 32bit=8×4bit,-10~35dB 3dB 步进,见表58)
 };
 
-// 表95(5.1.3.17 无线发现列表,单跳帧消息类型0):非位图版(每条固定含 TEI 12b),组合 0-9
+// 表88(5.1.3.17 无线发现列表,单跳帧消息类型0):非位图版(每条固定含 TEI 12b),组合 0-9
 static const RfdlChCombo kRfdlNonBitmap[] = {
     {8,0,0,0}, {0,4,0,0}, {0,0,8,0}, {0,0,4,0}, {8,4,0,0},
     {6,0,6,0}, {0,6,6,0}, {8,6,6,0}, {0,4,4,0}, {8,0,4,0},
 };
-// 表103(5.1.3.17):位图版(无 TEI,由位图索引定位),组合 0-10
+// 表96(5.1.3.17):位图版(无 TEI,由位图索引定位),组合 0-10
 static const RfdlChCombo kRfdlBitmap[] = {
     {8,0,0,0}, {0,4,0,0}, {0,0,8,0}, {0,0,4,0}, {8,4,0,0},
     {8,0,8,0}, {0,6,6,0}, {8,6,6,0}, {8,4,4,0}, {0,4,4,0}, {8,0,4,0},
 };
-// 表68(5.1.3.10 载波发现列表,单跳帧消息类型2):非位图版,组合 0-10,
-// combo10 = TEI12+BRUSNR32(表64),其余 0-9 与表95 相同
+// 表62(5.1.3.10 载波发现列表,单跳帧消息类型2):非位图版,组合 0-10,
+// combo10 = TEI12+BRUSNR32(表58),其余 0-9 与表88 相同
 static const RfdlChCombo kCarrierRfdlNonBitmap[] = {
     {8,0,0,0}, {0,4,0,0}, {0,0,8,0}, {0,0,4,0}, {8,4,0,0},
     {6,0,6,0}, {0,6,6,0}, {8,6,6,0}, {0,4,4,0}, {8,0,4,0},
     {0,0,0,32},
 };
-// 表77:载波位图版,组合 0-11,combo11 = BRUSNR32(表64),其余 0-10 与表103 相同
+// 表70:载波位图版,组合 0-11,combo11 = BRUSNR32(表58),其余 0-10 与表96 相同
 static const RfdlChCombo kCarrierRfdlBitmap[] = {
     {8,0,0,0}, {0,4,0,0}, {0,0,8,0}, {0,0,4,0}, {8,4,0,0},
     {8,0,8,0}, {0,6,6,0}, {8,6,6,0}, {8,4,4,0}, {0,4,4,0}, {8,0,4,0},
@@ -590,13 +590,13 @@ static QString rfdl_ie_name(quint8 t) {
     }
 }
 
-/// 路由类型(表98):0 错误 1 同级 2 上级 3 代理主路径 4 上上级
+/// 路由类型(表60):0 错误 1 同级 2 上级 3 代理主路径 4 上上级
 /// 经 trl::L 走 i18n(中/英),避免 QLatin1String 对 UTF-8 中文的误解码。
 static const char* kRfdlRouteType[] = {
     "错误路由类型", "同级路由类型", "上级路由类型",
     "代理主路径路由类型", "上上级路由类型"};
 
-// 站点属性信息(表92):14B 定长,字节对齐(无线发现列表 §5.1.3.17)
+// 站点属性信息(表85):14B 定长,字节对齐(无线发现列表 §5.1.3.17)
 static const FieldSpec kRfdlAttrSpec[] = {
     {"CCOMACAddr",       0, 0, 48, Fmt::MAC},
     {"ProxyTEI",         6, 0, 12, Fmt::DEC},
@@ -611,7 +611,7 @@ static const FieldSpec kRfdlAttrSpec[] = {
 };
 static const int kRfdlAttrSpecN = int(sizeof(kRfdlAttrSpec)/sizeof(kRfdlAttrSpec[0]));
 
-// 站点属性信息(表63):23B 定长,字节对齐(载波发现列表 §5.1.3.10)
+// 站点属性信息(表57):23B 定长,字节对齐(载波发现列表 §5.1.3.10)
 static const FieldSpec kCarrierRfdlAttrSpec[] = {
     {"STATEI",            0, 0, 12, Fmt::DEC},   // 发送站点 TEI
     {"ProxyTEI",          1, 4, 12, Fmt::DEC},   // 代理 TEI
@@ -626,7 +626,7 @@ static const FieldSpec kCarrierRfdlAttrSpec[] = {
     {"MinCommRate",       16, 0, 8, Fmt::DEC},   // 最小通信成功率 %
     {"RFDLPeriod",        17, 0, 8, Fmt::DEC},   // 发现列表周期(s)
     {"RcvAgingCycles",    18, 0, 8, Fmt::DEC},   // 接收率老化周期个数
-    {"ProxyBRUSnr",       19, 0, 32, Fmt::DEC},  // 代理 BRU SNR 信息(表64)
+    {"ProxyBRUSnr",       19, 0, 32, Fmt::DEC},  // 代理 BRU SNR 信息(表58)
 };
 static const int kCarrierRfdlAttrSpecN = int(sizeof(kCarrierRfdlAttrSpec)/sizeof(kCarrierRfdlAttrSpec[0]));
 
@@ -670,9 +670,9 @@ static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
         bp += cb.rcv;
     }
     if (cb.snr) {
-        // SNR 映射两簇不同(勿混):无线=表97(6bit 连续,量化值=SNR+6)/表98(4bit 非均匀,-6 起至 >25);
-        // 载波=表70(6bit 连续,量化值=SNR+10)/表71(4bit 3dB 步进,-10 起,15 档 >35)
-        // (表70/71/97/98 均为"≤起点时量化值=0,>起点时量化值=起点绝对值+X"式连续/分段映射,勿互套格式)
+        // SNR 映射两簇不同(勿混):无线=表90(6bit 连续,量化值=SNR+6)/表91(4bit 非均匀,-6 起至 >25);
+        // 载波=表64(6bit 连续,量化值=SNR+10)/表65(4bit 3dB 步进,-10 起,15 档 >35)
+        // (表64/65/90/91 均为"≤起点时量化值=0,>起点时量化值=起点绝对值+X"式连续/分段映射,勿互套格式)
         const quint64 v = get_bits(c, bp / 8, bp % 8, cb.snr);
         QString sv;
         if (v == 0) {
@@ -685,7 +685,7 @@ static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
         } else if (cb.snr == 6) {
             sv = QStringLiteral("%1 (SNR=%2dB)").arg(v).arg(int(v) - 6);
         } else {
-            // 表98 非均匀:1-11 档 2dB 步进,12-14 档 3dB 步进(上界 -4,-2,0,2,4,6,8,10,12,14,16,19,22,25)
+            // 表91 非均匀:1-11 档 2dB 步进,12-14 档 3dB 步进(上界 -4,-2,0,2,4,6,8,10,12,14,16,19,22,25)
             static const int hi[14] = { -4, -2, 0, 2, 4, 6, 8, 10, 12, 14, 16, 19, 22, 25 };
             const int lo = (v == 1) ? -6 : hi[v - 2];
             sv = (v == 15) ? QStringLiteral("%1 (SNR>25dB)").arg(v)
@@ -762,7 +762,7 @@ static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
         bp += cb.rssi;
     }
     if (cb.bru) {
-        // 表64:32bit = 8×4bit BRU SNR(BRU0-7),-10~35dB 3dB 步进,量化值 v → -10+3v dB
+        // 表58:32bit = 8×4bit BRU SNR(BRU0-7),-10~35dB 3dB 步进,量化值 v → -10+3v dB
         const quint64 v = get_bits(c, bp / 8, bp % 8, 32);
         QStringList dbs;
         for (int b = 0; b < 8; ++b)
@@ -776,14 +776,14 @@ static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
 }
 
 /// 解析无线/载波发现列表(RFDL)载荷,挂到 out.tree;rfdl=载荷本身,rel_base=其在 body 中的偏移;
-/// carrier=false: HDC2.0 4-2 表91 无线发现列表(单跳帧消息类型0,组合表 HDC2.0 4-2 表95/表103,无 BRU 变体);
-/// carrier=true : HDC2.0 4-2 表62 载波发现列表(单跳帧消息类型2,组合表 HDC2.0 4-2 表68/表77,combo10/11 含 BRUSNR32)
+/// carrier=false: HDC2.0 4-2 表84 无线发现列表(单跳帧消息类型0,组合表 HDC2.0 4-2 表88/表96,无 BRU 变体);
+/// carrier=true : HDC2.0 4-2 表56 载波发现列表(单跳帧消息类型2,组合表 HDC2.0 4-2 表62/表70,combo10/11 含 BRUSNR32)
 static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool carrier) {
     const QByteArray d = rfdl;
     if (d.size() < 7) { pa::warn("gw_2026:truncated", QStringLiteral("RFDL %1B<7B").arg(d.size())); append_summary(out, trl::L(" (RFDL 截断)")); return; }
 
-    // HDC2.0 4-2 表91/表62 头:站点MAC 6B + 统计序号 1B
-    // 发送节点 MAC(HDC2.0 4-2 表62/表91 头 @0-5):载波站点属性 IE 的 TEI 与之配对(见 IE0 载波分支)
+    // HDC2.0 4-2 表84/表56 头:站点MAC 6B + 统计序号 1B
+    // 发送节点 MAC(HDC2.0 4-2 表56/表84 头 @0-5):载波站点属性 IE 的 TEI 与之配对(见 IE0 载波分支)
     const quint64 sender_mac = (quint64)get_bits(d, 0, 0, 48);
     {
         MsduFieldNode mac;
@@ -832,11 +832,11 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
 
         // 按信息单元类型解析内容(表124)
         switch (ie_type) {
-        case 0: {  // 站点属性信息(无线:表92 14B / 载波:表63 23B)
+        case 0: {  // 站点属性信息(无线:表85 14B / 载波:表57 23B)
             auto& g = group(out.tree, QStringLiteral("IE[%1] Station Attribute [%2B]").arg(ie_idx).arg(elen));
             g.rel_start = content_abs; g.rel_len = elen;
             if (carrier) {
-                // 载波发现列表(msg_type 2)站点属性:HDC2.0 4-2 表63 23B
+                // 载波发现列表(msg_type 2)站点属性:HDC2.0 4-2 表57 23B
                 add_fields(g.children, content, 0, kCarrierRfdlAttrSpec, kCarrierRfdlAttrSpecN, content_abs);
                 // 截断 IE(<17B,最后读 MinCommRate@byte16)不采拓扑——越界读 0 会被当成
                 // 0% 成功率写进节点,TEI→MAC 学习也一并跳过(elen=8 时 sender_tei 读真值也会学进假对);
@@ -846,7 +846,7 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
                     append_summary(out, trl::L(" (站点属性截断)"));
                 } else {
                 // TEI→MAC 学习(HDC2.0 4-2 表62/表63:头 MAC@0-5 为发送节点 MAC,IE TEI@0 为发送节点 TEI):
-                // 单跳 MSDU 无 MSDU_BASE 头,头对覆盖不到;无线版 HDC2.0 4-2 表92 IE 无发送方 TEI,故仅载波分支学。
+                // 单跳 MSDU 无 MSDU_BASE 头,头对覆盖不到;无线版 HDC2.0 4-2 表85 IE 无发送方 TEI,故仅载波分支学。
                 const quint16 sender_tei = (quint16)get_bits(content, 0, 0, 12);
                 if (sender_tei && sender_mac) out.tei_mac_pairs.append({sender_tei, sender_mac});
                 out.topo_event.proxy_tei = (quint16)get_bits(content, 1, 4, 12);
@@ -864,7 +864,7 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
                 annotate_unit(g.children, "RouteTimeout", QStringLiteral("s"));
                 annotate_unit(g.children, "RFDLPeriod", QStringLiteral("s"));
             } else {
-                // 无线发现列表(msg_type 0)站点属性:表92 14B
+                // 无线发现列表(msg_type 0)站点属性:表85 14B
                 add_fields(g.children, content, 0, kRfdlAttrSpec, kRfdlAttrSpecN, content_abs);
                 // 截断 IE(<12B,最后读 MinRcvRate@byte11)不采拓扑——越界读 0 会被当成
                 // 0% 成功率写进节点,字段树仍由 add_fields 正常渲染(静默截断尾部字段)。
@@ -890,7 +890,7 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
             }
             break;
         }
-        case 1: {  // 站点路由信息(表127):每条 16b = TEI 12b + 路由类型 4b
+        case 1: {  // 站点路由信息(表86):每条 16b = TEI 12b + 路由类型 4b
             auto& g = group(out.tree, QStringLiteral("IE[%1] Station Route [%2B]").arg(ie_idx).arg(elen));
             g.rel_start = content_abs; g.rel_len = elen;
             const int n = elen / 2;
@@ -914,21 +914,21 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
             }
             break;
         }
-        case 2: {  // 邻居信道信息非位图版(表94 无线/表67 载波,组合表 表95/表68)
+        case 2: {  // 邻居信道信息非位图版(表87 无线/表61 载波,组合表 表88/表62)
             auto& g = group(out.tree, QStringLiteral("IE[%1] Neighbor Ch Info [%2B]").arg(ie_idx).arg(elen));
             g.rel_start = content_abs; g.rel_len = elen;
             if (content.size() < 1) { pa::warn("gw_2026:content_short", QStringLiteral("neighbor ch info <1B")); break; }
             const quint8 combo = (quint8)get_bits(content, 0, 0, 4);
             const RfdlChCombo* tbl = carrier ? kCarrierRfdlNonBitmap : kRfdlNonBitmap;
             const int tbl_n = carrier ? kCarrierRfdlNonBitmapN : kRfdlNonBitmapN;
-            if (combo >= tbl_n) {  // 组合类型越界(表95 仅0-9/表68 仅0-10):内容 hex 兜底,避免静默丢弃
+            if (combo >= tbl_n) {  // 组合类型越界(表88 仅0-9/表62 仅0-10):内容 hex 兜底,避免静默丢弃
                 pa::warn("gw_2026:combo_unsupported", QStringLiteral("non-bitmap combo=%1>%2").arg(combo).arg(tbl_n-1));
                 g.value = QString(content.toHex(' '));
                 break;
             }
             const RfdlChCombo& cb = tbl[combo];
             const int entry_bits = 12 + cb.rcv + cb.snr + cb.rssi + cb.bru;
-            // 表94/67 头:信道信息组合类型(0,0-3,4b)+保留(0,4-7,4b)——此前整字节跳过未渲染
+            // 表87/67 头:信道信息组合类型(0,0-3,4b)+保留(0,4-7,4b)——此前整字节跳过未渲染
             {
                 QStringList sem;
                 sem << QStringLiteral("TEI");
@@ -958,21 +958,21 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
             }
             break;
         }
-        case 3: {  // 邻居信道信息位图版(表102 无线/表76 载波,组合表 表103/表77)
+        case 3: {  // 邻居信道信息位图版(表95 无线/表69 载波,组合表 表96/表70)
             auto& g = group(out.tree, QStringLiteral("IE[%1] Neighbor Ch Bitmap [%2B]").arg(ie_idx).arg(elen));
             g.rel_start = content_abs; g.rel_len = elen;
             if (content.size() < 2) { pa::warn("gw_2026:content_short", QStringLiteral("neighbor ch bitmap %1B<2B").arg(content.size())); break; }
             const quint8 combo = (quint8)get_bits(content, 0, 0, 4);
             const RfdlChCombo* tbl = carrier ? kCarrierRfdlBitmap : kRfdlBitmap;
             const int tbl_n = carrier ? kCarrierRfdlBitmapN : kRfdlBitmapN;
-            if (combo >= tbl_n) {  // 组合类型越界(表103 仅0-10/表77 仅0-11):内容 hex 兜底,避免静默丢弃
+            if (combo >= tbl_n) {  // 组合类型越界(表96 仅0-10/表70 仅0-11):内容 hex 兜底,避免静默丢弃
                 pa::warn("gw_2026:combo_unsupported", QStringLiteral("bitmap combo=%1>%2").arg(combo).arg(tbl_n-1));
                 g.value = QString(content.toHex(' '));
                 break;
             }
             const RfdlChCombo& cb = tbl[combo];
             const int entry_bits = cb.rcv + cb.snr + cb.rssi + cb.bru;
-            // 表102/76 头:信道信息组合类型(0,0-3,4b)+保留(0,4-7,4b)——此前整字节跳过未渲染
+            // 表95/76 头:信道信息组合类型(0,0-3,4b)+保留(0,4-7,4b)——此前整字节跳过未渲染
             {
                 QStringList sem;
                 if (cb.rcv) sem << QStringLiteral("Rcv%1b").arg(cb.rcv);
@@ -1003,7 +1003,7 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
                         if (bmp[i] & (1u << j)) ++nk;
                 auto& kg = group(g.children, QStringLiteral("Group[%1] StartTEI=%2").arg(k).arg(start_tei));
                 kg.rel_start = content_abs + off; kg.rel_len = 3 + bmp_size + (nk * entry_bits + 7) / 8;
-                // 表102/76 组内:起始TEI 12b(off+0 起)+保留 4b(off+1 bit4-7)+位图大小 1B(off+2)
+                // 表95/76 组内:起始TEI 12b(off+0 起)+保留 4b(off+1 bit4-7)+位图大小 1B(off+2)
                 MsduFieldNode& st = group(kg.children, QStringLiteral("StartTEI"), QString::number(start_tei));
                 st.rel_start = content_abs + off; st.rel_len = 2;
                 MsduFieldNode& gr = group(kg.children, QStringLiteral("RSV [4b]"),
@@ -1012,7 +1012,7 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
                 MsduFieldNode& bl = group(kg.children, QStringLiteral("BitmapSize [8b]"), QString::number(bmp_size));
                 bl.rel_start = content_abs + off + 2; bl.rel_len = 1;
                 QVector<QPair<int,int>> bm_pos;   // 置位位(位图内字节,位)
-                // 位图[k] 本体显式成行(表102/表76):原始值 + 置位 TEI 推导,bit i = StartTEI+i
+                // 位图[k] 本体显式成行(表95/表69):原始值 + 置位 TEI 推导,bit i = StartTEI+i
                 {
                     QStringList teis;
                     for (int i = 0; i < bmp.size() * 8; ++i)
@@ -1029,7 +1029,7 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
                     bn.rel_start = content_abs + off + 3;
                     bn.rel_len   = bmp.size();
                     // 位图逐位(仅 bit=1,与下方条目一一对应):值标注该 bit 所在的
-                    // 字节号(位图内第 i/8 字节);TEI = 起始TEI + i(位序 LSB 在前,表103)
+                    // 字节号(位图内第 i/8 字节);TEI = 起始TEI + i(位序 LSB 在前,表96)
                     for (int i = 0; i < bmp.size() * 8; ++i)
                         if (bmp[i / 8] & (1u << (i % 8))) {
                             MsduFieldNode bp = group(bn.children,
@@ -1083,7 +1083,7 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
 
 // ── 信道评估参数更新报文(表99-101,单跳帧消息类型1 / MMe 0x0015) ──
 // byte0: BRUSNR有效标志(0,0,1) + SAT配置长度(0,1-7,0=无SAT配置);
-// 标志=1 时后随 4B BRU SNR 信息表(表64:8×4bit,-10+3v dB);
+// 标志=1 时后随 4B BRU SNR 信息表(表58:8×4bit,-10+3v dB);
 // SAT 配置(sat_len 字节)固定头 2B(表99):
 //   byte0: SAT ID(0,0,1b) + SAT模式(0,1,1b) + 单子载波组大小(0,2-3,2b) + 保留(0,4-7)
 //   byte1: TMI(1,0-3,4b) + 数据载荷增益(1,4-7,4b)
@@ -1100,7 +1100,7 @@ static void parse_channel_eval(MsduInfo& out, const QByteArray& c, int rel_base)
         f0.rel_start = rel_base; f0.rel_len = 1;
     }
     int off = 1;
-    if (bru_valid) {  // BRU SNR 信息表(表64)
+    if (bru_valid) {  // BRU SNR 信息表(表58)
         if (off + 4 > c.size()) { pa::warn("gw_2026:content_short", QStringLiteral("BRU SNR @%1 exceeds %2").arg(off).arg(c.size())); return; }
         const quint64 v = get_bits(c, off, 0, 32);
         QStringList dbs;
@@ -1119,8 +1119,8 @@ static void parse_channel_eval(MsduInfo& out, const QByteArray& c, int rel_base)
     const int sat_id   = (int)get_bits(sat, 0, 0, 1);   // 表99:四字段共 1B,非整字节 ID
     const int sat_mode = (int)get_bits(sat, 0, 1, 1);
     const int grp_size = (int)get_bits(sat, 0, 2, 2);
-    // 载荷调制参数(表99,5bit):sat[0] bit7(高位)+sat[1] bit0-3(低4位);sat[0] bit4-6 为保留
-    const int tmi      = (int)((get_bits(sat, 0, 7, 1) << 4) | get_bits(sat, 1, 0, 4));
+    // 载荷调制参数(表99,5bit,LSB-first):sat[0] bit7(低位)+sat[1] bit0-3(高4位);sat[0] bit4-6 为保留
+    const int tmi      = (int)(get_bits(sat, 0, 7, 1) | (get_bits(sat, 1, 0, 4) << 1));
     const int gain     = (int)get_bits(sat, 1, 4, 4);
     MsduFieldNode& s0 = group(sc.children, QStringLiteral("SAT ID"), QString::number(sat_id));
     s0.rel_start = rel_base + off; s0.rel_len = 1;
@@ -1240,8 +1240,8 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
             out.summary = trl::L("发现列表消息");
             parse_rfdl(out, msdu_body, 4, /*carrier=*/false);   // RFDL 载荷自单跳头(4B)之后
         } else if (st == GW_2026_MsduSType::CARRIER_DISCOVERY) {
-            // 消息类型2 = 载波发现列表(HDC2.0 4-2 表62),结构与无线版同构,
-            // 差异仅在组合类型表(HDC2.0 4-2 表68/表77 多 BRU 变体 combo10/11)
+            // 消息类型2 = 载波发现列表(HDC2.0 4-2 表56),结构与无线版同构,
+            // 差异仅在组合类型表(HDC2.0 4-2 表62/表70 多 BRU 变体 combo10/11)
             out.summary = trl::L("载波发现列表消息");
             parse_rfdl(out, msdu_body, 4, /*carrier=*/true);
         } else if (st == GW_2026_MsduSType::CHANNEL_EVAL) {
