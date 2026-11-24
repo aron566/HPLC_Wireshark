@@ -2,11 +2,11 @@
     packet-gw_2026.lua
     国网 GW_2026 双模通信(高速载波+无线) 数据链路层协议 dissector (HDC 2.0)
     依据: 《双模通信互联互通技术规范 第4-2部分：数据链路层通信协议》HDC 2.0 版
-          (FCH 表4 / SOF 表7-13 / SACK 表14 / MAC 表2-3 / MMe 表43+ / 信标 表38+ /
-           单跳无线发现列表 表91-103 / 载波发现列表 表62-77 / 信道评估 表106-108)
+          (FC 表4 / SOF 表7-13 / SACK 表14 / MAC 表2-3 / MMe 表43+ / 信标 表38+ /
+           单跳无线发现列表 表91-103 / 载波发现列表 表62-77 / 信道评估 表99-101)
 
     ★ 与 GW_2022(HDC 1.0) 的关系: 版本自适应委托 —— 本文件不注册 wtap_encap,
-      由 packet-gw_2022.lua 入口读 FCH 标准版本号(byte12 bit4-7):
+      由 packet-gw_2022.lua 入口读 FC 标准版本号(byte12 bit4-7):
       版本=0(HDC 1.0) → 旧布局就地解析; 版本=1(HDC 2.0) → 本文件解析。
       (与上位机 GW_2026_Parser 委托 GW_2022_Parser 的架构互为镜像)
 
@@ -17,18 +17,19 @@
       - 时间戳(BTS/基准NTB)=NTB值, 25MHz时钟, 40ns/tick, 约171.8s回绕
 
     HDC 2.0 相对 1.0 的差异(本文件已体现):
-      - FCH 表4: NID 24→16bit(byte1-2), byte3 保留
+      - FC 表4: NID 24→16bit(byte1-2), byte3 保留
       - SOF 可变区域 表7: byte7 帧类型3b/TF符号位置2b/TF符号数3b, 帧长FL 12b,
-        FCH符号数(9,7)+(10,0), 调制方式(10,1)+参数(10,2-5), PB个数 2b 编码
-        (10,7)+(11,0), 广播/加密/重传(11,1-3), 频段(11,4-6), 增益(11,7)+(12,0-2),
-        动态加载表ID(12,3); 链路标识符移至 MAC 头 byte15
+        FC符号数(9,4,2), 载荷子载波加载模式(10,0,2)+调制参数(10,2,5), 加密(10,7),
+        PB个数(11,0,2), 广播(11,2)/重传(11,3), 频段(11,4,3), 动态加载表ID(11,7),
+        增益(12,0,4); 链路标识符移至 MAC 头 byte15
       - SACK 可变区域 表14: 68bit 连续位流(RxStatus 跨字节等)
       - MAC 头 表2: 新增 聚合MAC帧标识(4,5) / 发送帧序号(11,4,12) / 链路标识符(byte15)
-      - 单跳头 表3: 新增 聚合MAC帧标识(3,7); 消息类型 1=信道评估参数更新(表106-108)
+      - 单跳头 表3: 新增 聚合MAC帧标识(3,7); 消息类型 1=信道评估参数更新(表99-101)
         / 2=载波发现列表(表62,组合表 表68/77 含 BRU 变体)
       - 无线发现列表 表91-103: IE 内容逐字段(站点属性/路由/邻居信道非位图/位图版)
-      - MMe 表43: 0x0008 发现列表改保留(改经单跳帧承载), 新增 0x0011-0x0014
-        Bitloading训练请求/拒绝(表104/105)与分组请求/确认(表109-112),
+      - MMe 表43: 0x0008 发现列表改保留(改经单跳帧承载), 新增 0x0011-0x0015
+        信道评估请求/拒绝(表97/98)与分组请求(表102/103)/确认(表104/105)、
+        信道评估参数更新(表99-101),
         0x0050-0x0055 旧路由族废弃; 关联确认/汇总指示 载波频段 2→3bit(表47/52)
       - 信标 表38: 固定头 byte13 新增 信标机制状态(bit2)/发现信标使能(bit3);
         条目新增 0x06 万年历/0x07 信道评估参数/0x08 信标机制切换/0xC1 代理角色
@@ -355,10 +356,11 @@ local mgmt_type_vals = {
     [0x000A] = T("网络冲突上报 NetworkConflictReport", "NetworkConflictReport"),
     [0x000B] = T("过零NTB采集指示 ZeroCrossNTBCollectInd", "ZeroCrossNTBCollectInd"),
     [0x000C] = T("过零NTB上报 ZeroCrossNTBReport", "ZeroCrossNTBReport"),
-    [0x0011] = T("Bitloading训练请求 BitloadingTrainReq", "BitloadingTrainReq"),
-    [0x0012] = T("Bitloading训练请求拒绝 BitloadingTrainReqReject", "BitloadingTrainReqReject"),
+    [0x0011] = T("信道评估请求 MMeChannelAssessReq", "MMeChannelAssessReq"),
+    [0x0012] = T("信道评估拒绝 MMeChannelAssessReject", "MMeChannelAssessReject"),
     [0x0013] = T("分组请求 GroupReq", "GroupReq"),
     [0x0014] = T("分组确认 GroupCnf", "GroupCnf"),
+    [0x0015] = T("信道评估参数更新 MMeChannelAssessParamUpdate", "MMeChannelAssessParamUpdate"),
     [0x004F] = T("网络诊断报文 Diagnose", "Diagnose"),
     [0x0050] = T("保留(1.0 路由请求)", "Reserved (was RouteRequest in 1.0)"),
     [0x0051] = T("保留(1.0 路由回复)", "Reserved (was RouteReply in 1.0)"),
@@ -597,8 +599,8 @@ f.sack15_dst = ProtoField.uint16 ("gw_2026.sack15.dst", T("目的TEI(表15 6,4,1
 f.sack15_bru = ProtoField.uint8 ("gw_2026.sack15.bru", T("BRU SNR(表15 档位)", "BRU SNR (level)"), base.DEC)
 f.sof_fl = ProtoField.uint16 ("gw_2026.sof.fl", T("帧长(FL,×10µs)", "Frame Length (FL, ×10µs)"), base.DEC)
 f.sof_fl_rsv = ProtoField.uint8 ("gw_2026.sof.fl_rsv", T("保留(byte9 bit4-6)", "Reserved (byte9 bit4-6)"), base.HEX, nil, 0x70)
-f.sof_fch_sym_num = ProtoField.uint8 ("gw_2026.sof.fch_sym_num", T("FCH符号数", "FCH Symbol Count"), base.DEC, {
-    [0] = T("短FCH", "Short FCH"), [1] = T("标准FCH", "Standard FCH"), [2] = T("长FCH", "Long FCH"),
+f.sof_fch_sym_num = ProtoField.uint8 ("gw_2026.sof.fch_sym_num", T("FC符号数", "FC Symbol Count"), base.DEC, {
+    [0] = T("短FC", "Short FC"), [1] = T("标准FC", "Standard FC"), [2] = T("长FC", "Long FC"),
 }, nil)
 f.sof_mod_mode = ProtoField.uint8 ("gw_2026.sof.mod_mode", T("数据载荷调制方式", "Payload Modulation Mode"), base.DEC, {
     [0] = T("分集拷贝模式", "Diversity copy"), [1] = T("动态加载模式", "Dynamic loading"),
@@ -836,14 +838,14 @@ f.ncr_nbr_cnt = ProtoField.uint8 ("gw_2026.ncr.nbr_cnt", T("邻居网络个数",
 f.ncr_nid_width = ProtoField.uint8 ("gw_2026.ncr.nid_width", T("网络号字节宽度", "Network ID Byte Width"), base.DEC)
 f.ncr_nbr_nid = ProtoField.uint24 ("gw_2026.ncr.nbr_nid", T("邻居网络号", "Neighbor Network ID"), base.HEX)
 
--- 过零NTB采集指示 (表104-106)
+-- 过零NTB采集指示 (表75-77)
 f.zc_tei = ProtoField.uint16 ("gw_2026.zc.tei", T("TEI", "TEI"), base.DEC)
 f.zc_tei_rsv = ProtoField.uint8 ("gw_2026.zc.tei_rsv", T("保留(4bit)", "Reserved (4bit)"), base.HEX)
 f.zc_collect_site = ProtoField.uint8 ("gw_2026.zc.collect_site", T("采集站点", "Collect Site"), base.DEC, collect_site_vals)
 f.zc_collect_period = ProtoField.uint8 ("gw_2026.zc.collect_period", T("采集周期", "Collect Period"), base.DEC, collect_period_vals)
 f.zc_collect_cnt = ProtoField.uint8 ("gw_2026.zc.collect_cnt", T("采集数量", "Collect Count"), base.DEC)
 
--- 过零NTB上报 (表107-108)
+-- 过零NTB上报 (表78-79)
 f.zr_tei = ProtoField.uint16 ("gw_2026.zr.tei", T("TEI", "TEI"), base.DEC)
 f.zr_tei_rsv = ProtoField.uint8 ("gw_2026.zr.tei_rsv", T("保留(4bit)", "Reserved (4bit)"), base.HEX)
 f.zr_total_cnt = ProtoField.uint8 ("gw_2026.zr.total_cnt", T("告知总数量", "Report Total Count"), base.DEC)
@@ -855,40 +857,40 @@ f.zr_ph1_diff = ProtoField.uint16 ("gw_2026.zr.ph1_diff", T("相线1过零NTB差
 f.zr_ph2_diff = ProtoField.uint16 ("gw_2026.zr.ph2_diff", T("相线2过零NTB差值", "Line 2 Zero-Cross NTB Diff"), base.DEC)
 f.zr_ph3_diff = ProtoField.uint16 ("gw_2026.zr.ph3_diff", T("相线3过零NTB差值", "Line 3 Zero-Cross NTB Diff"), base.DEC)
 
--- 网络诊断 (表109-110)
+-- 网络诊断 (表80-81)
 f.diag_vendor_id = ProtoField.uint16 ("gw_2026.diag.vendor_id", T("芯片厂商ID", "Chip Vendor ID"), base.HEX, chip_vendor_vals)
 f.diag_custom = ProtoField.bytes ("gw_2026.diag.custom", T("厂家自定义", "Vendor Custom"), base.NONE)
 
--- 路由请求 (表111-113)
+-- 路由请求 (1.0 旧路由族,0x0050 保留)
 f.rreq_version = ProtoField.uint8 ("gw_2026.rreq.version", T("版本", "Version"), base.DEC)
 f.rreq_seq = ProtoField.uint32 ("gw_2026.rreq.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
 f.rreq_path_pref = ProtoField.bool ("gw_2026.rreq.path_pref", T("路径优选标志", "Path Preference Flag"), 8, nil, 0x10)
 f.rreq_payload_type = ProtoField.uint8 ("gw_2026.rreq.payload_type", T("负载数据类型", "Payload Data Type"), base.DEC, payload_type_vals, 0x0F)
 f.rreq_payload_len = ProtoField.uint8 ("gw_2026.rreq.payload_len", T("负载数据长度", "Payload Data Length"), base.DEC)
 
--- 路由回复 (表114-116)
+-- 路由回复 (1.0 旧路由族,0x0051 保留)
 f.rrep_version = ProtoField.uint8 ("gw_2026.rrep.version", T("版本", "Version"), base.DEC)
 f.rrep_seq = ProtoField.uint32 ("gw_2026.rrep.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
 f.rrep_payload_type = ProtoField.uint8 ("gw_2026.rrep.payload_type", T("负载数据类型", "Payload Data Type"), base.DEC, payload_type_vals, 0x0F)
 f.rrep_payload_len = ProtoField.uint8 ("gw_2026.rrep.payload_len", T("负载数据长度", "Payload Data Length"), base.DEC)
 
--- 路由错误 (表117)
+-- 路由错误 (1.0 旧路由族,0x0052 保留)
 f.rerr_version = ProtoField.uint8 ("gw_2026.rerr.version", T("版本", "Version"), base.DEC)
 f.rerr_seq = ProtoField.uint32 ("gw_2026.rerr.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
 f.rerr_unreach_cnt = ProtoField.uint8 ("gw_2026.rerr.unreach_cnt", T("不可达站点数量", "Unreachable STA Count"), base.DEC)
 f.rerr_unreach_tei = ProtoField.uint16 ("gw_2026.rerr.unreach_tei", T("不可达站点TEI", "Unreachable STA TEI"), base.DEC)
 
--- 路由应答 (表118)
+-- 路由应答 (1.0 旧路由族,0x0053 保留)
 f.rack_version = ProtoField.uint8 ("gw_2026.rack.version", T("版本", "Version"), base.DEC)
 f.rack_seq = ProtoField.uint32 ("gw_2026.rack.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
 
--- 链路确认请求 (表119)
+-- 链路确认请求 (1.0 旧路由族,0x0054 保留)
 f.lcreq_version = ProtoField.uint8 ("gw_2026.lcreq.version", T("版本", "Version"), base.DEC)
 f.lcreq_seq = ProtoField.uint32 ("gw_2026.lcreq.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
 f.lcreq_sta_cnt = ProtoField.uint8 ("gw_2026.lcreq.sta_cnt", T("确认站点数量", "Confirm STA Count"), base.DEC)
 f.lcreq_sta_tei = ProtoField.uint16 ("gw_2026.lcreq.sta_tei", T("确认站点TEI", "Confirm STA TEI"), base.DEC)
 
--- 链路确认回应 (表120)
+-- 链路确认回应 (1.0 旧路由族,0x0055 保留)
 f.lcrsp_version = ProtoField.uint8 ("gw_2026.lcrsp.version", T("版本", "Version"), base.DEC)
 f.lcrsp_level = ProtoField.uint8 ("gw_2026.lcrsp.level", T("层级", "Level"), base.DEC)
 f.lcrsp_chan_qual = ProtoField.uint8 ("gw_2026.lcrsp.chan_qual", T("信道质量", "Channel Quality"), base.DEC)
@@ -897,7 +899,7 @@ f.lcrsp_seq = ProtoField.uint32 ("gw_2026.lcrsp.seq", T("路由请求序列号",
 
 -- 无线信道冲突上报 (表121-122)
 f.rfccr_cco_mac = ProtoField.ether ("gw_2026.rfccr.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
--- HDC 2.0 新增 MMe 报文体字段(表104-112)
+-- HDC 2.0 新增 MMe 报文体字段(表97-105)
 f.mme_bl_src_tei = ProtoField.uint16 ("gw_2026.mme.bl.src_tei", T("源 TEI", "Source TEI"), base.DEC)
 f.mme_bl_dst_tei = ProtoField.uint16 ("gw_2026.mme.bl.dst_tei", T("目的 TEI", "Destination TEI"), base.DEC)
 f.mme_bl_param = ProtoField.uint8 ("gw_2026.mme.bl.param", T("子载波分组大小/拒绝原因", "Subcarrier Group Size / Reject Reason"), base.DEC)
@@ -957,7 +959,7 @@ f.rfdl_nbr_brusnr = ProtoField.uint32 ("gw_2026.rfdl.nbr.brusnr", T("BRU SNR(32b
 f.rfdl_grp_tei = ProtoField.uint16 ("gw_2026.rfdl.grp.tei", T("位图起始 TEI", "Bitmap Start TEI"), base.DEC)
 f.rfdl_grp_size = ProtoField.uint8 ("gw_2026.rfdl.grp.size", T("位图大小(B)", "Bitmap Size (bytes)"), base.DEC)
 f.rfdl_grp_bitmap = ProtoField.bytes ("gw_2026.rfdl.grp.bitmap", T("位图", "Bitmap"), base.NONE)
--- HDC 2.0 信道评估参数更新报文(表106-108, 单跳帧消息类型1)
+-- HDC 2.0 信道评估参数更新报文(表99-101, 单跳帧消息类型1)
 f.ce_bru_valid = ProtoField.uint8 ("gw_2026.ce.bru_valid", T("BRUSNR 有效标志", "BRUSNR Valid Flag"), base.DEC, nil, 0x01)
 f.ce_sat_len = ProtoField.uint8 ("gw_2026.ce.sat_len", T("SAT 配置长度", "SAT Config Length"), base.DEC, nil, 0xFE)
 f.ce_bru_snr = ProtoField.uint32 ("gw_2026.ce.bru_snr", T("BRU SNR 信息表(32bit)", "BRU SNR Table (32bit)"), base.HEX)
@@ -966,7 +968,7 @@ f.ce_sat_mode = ProtoField.uint8 ("gw_2026.ce.sat_mode", T("SAT 模式", "SAT Mo
     [0] = T("子载波选择表", "Subcarrier Select Table"), [1] = T("比特加载表", "Bit Loading Table"),
 }, 0x02)
 f.ce_grp_size = ProtoField.uint8 ("gw_2026.ce.grp_size", T("单子载波组大小", "Subcarrier Group Size"), base.DEC, nil, 0x0C)
-f.ce_tmi = ProtoField.uint8 ("gw_2026.ce.tmi", T("TMI", "TMI"), base.DEC, nil, 0x0F)
+f.ce_tmi = ProtoField.uint8 ("gw_2026.ce.tmi", T("载荷调制参数", "Payload Mod Param"), base.DEC)
 f.ce_gain = ProtoField.uint8 ("gw_2026.ce.gain", T("数据载荷增益", "Data Payload Gain"), base.DEC, nil, 0xF0)
 f.ce_table = ProtoField.bytes ("gw_2026.ce.table", T("SAT 表", "SAT Table"), base.NONE)
 
@@ -1219,7 +1221,7 @@ end
 -- =========================================================================
 
 -- TMI → PB 块大小 (字节)。与 Qt beacon_pb_size 一致 (51242 物理块大小表)
--- TMI 即 FCH 字节9 高4bit 的"分集拷贝基本模式"
+-- TMI 即 表5 byte9 bit4-7 载荷传输模式(分集拷贝基本模式)
 local function beacon_pb_size(tmi)
     if tmi == 0 or tmi == 1 then return 520 end
     if tmi >= 2 and tmi <= 6 then return 136 end
@@ -1249,7 +1251,7 @@ local function sof_pb_num_decode(code)
     return code + 1
 end
 
--- 信标帧可变区域 (表17 载波, 起始于 FCH 字节4)
+-- 信标帧可变区域 (表17 载波, 起始于 FC 字节4)
 local function dissect_beacon_vf(tvb, tree, is_rf)
     local bts_raw = tvb(4, 4):le_uint()
     tree:add(f.beacon_bts, tvb(4, 4), bts_raw)
@@ -1273,7 +1275,7 @@ local function dissect_beacon_vf(tvb, tree, is_rf)
     end
 end
 
--- SOF 帧可变区域 (起始于 FCH 字节4; HDC 2.0 载波 表7(数据帧,帧子类型 分派 表9-13) / 无线 表21)
+-- SOF 帧可变区域 (起始于 FC 字节4; HDC 2.0 载波 表7(数据帧,帧子类型 分派 表9-13) / 无线 表21)
 local sof_frame_type_vals = { [0]="Data", [1]="ChannelProbe", [2]="OFDMA-DL", [3]="TDA-DL" }
 local function dissect_sof_vf(tvb, tree, is_rf)
     add_val(tree, f.sof_src_tei, tvb, 4, 2, read_bits(tvb, 4*8, 12))
@@ -1294,7 +1296,7 @@ local function dissect_sof_vf(tvb, tree, is_rf)
         add_val(tree, f.sof_fl, tvb, 8, 2, read_bits(tvb, 8*8, 12))
         if ftype == 1 then
             -- 信道探测帧(表9): 子载波分组(7,3-4,0=4个/1=6个一组)/TF符号数(7,5-7)/
-            -- FCH符号数(9,4-5)——注意与表7 (9,7)+(10,0) 位置不同/训练序列频段标识(9,6-7+10,0)/
+            -- FC符号数(9,4-5)——注意与表7 (9,4,2) 位置不同/训练序列频段标识(9,6-7+10,0)/
             -- 训练序列符号数(10,1-7,(v+1)*2)/扩展目的TEI(11,0,12)
             tree:add(f.sof_subc_group, tvb(7, 1))
             tree:add(f.sof_tf_sym_num, tvb(7, 1))
@@ -1419,7 +1421,7 @@ local function dissect_sack_vf(tvb, tree)
     tree:add(f.sack_ext_type, tvb(12, 1))        -- (12,1,4)
 end
 
--- 网间协调帧可变区域 (表26, 起始于 FCH 字节4)
+-- 网间协调帧可变区域 (表26, 起始于 FC 字节4)
 local function dissect_coord_vf(tvb, tree)
     add_le(tree, f.coord_duration, tvb, 4, 2)
     add_le(tree, f.coord_bw_offset, tvb, 6, 2)
@@ -1591,13 +1593,13 @@ local function dissect_beacon_mgmt_info(tvb, tree, off)
     return pos
 end
 
--- 标准信标帧载荷 (表38)。off = 载荷起始(16, FCH 之后)
+-- 标准信标帧载荷 (表38)。off = 载荷起始(16, FC 之后)
 -- 结构(与 Qt beaconparser 一致):
---   整帧 MPDU = FCH(16B) + PB块(PBSize, 由 FCH 字节9 高4bit TMI 查表)
+--   整帧 MPDU = FC(16B) + PB块(PBSize, 由 表5 byte9 bit4-7 载荷传输模式(TMI)查表)
 --   PB块 = 帧载荷(pbsize-3) + PB CRC24(3B)
 --   帧载荷 = 固定头(标准20B) + 管理区 + PB Padding + CRC32(尾4B)
 local function dissect_beacon_payload(tvb, tree, off)
-    local tmi = read_bits(tvb, 9*8+4, 4)   -- FCH 字节9 高4bit
+    local tmi = read_bits(tvb, 9*8+4, 4)   -- 表5 byte9 bit4-7 载荷传输模式(TMI)
     local pbsize = beacon_pb_size(tmi)
     if pbsize <= 0 then
         tree:add_expert_info(PI_MALFORMED, PI_WARN, T("TMI 无效", "Invalid TMI"))
@@ -1953,7 +1955,7 @@ local function dissect_net_conflict(tvb, tree, off)
     end
 end
 
--- 过零NTB采集指示 (表104)
+-- 过零NTB采集指示 (表75)
 local function dissect_zc_collect(tvb, tree, off)
     local raw16 = tvb(off, 2):le_uint()
     local tei = band(raw16, 0x0FFF)
@@ -1968,7 +1970,7 @@ local function dissect_zc_collect(tvb, tree, off)
     tree:add(f.zc_collect_cnt, tvb(off+4, 1))
 end
 
--- 过零NTB上报 (表107)
+-- 过零NTB上报 (表78)
 local function dissect_zc_report(tvb, tree, off)
     local raw16 = tvb(off, 2):le_uint()
     local tei = band(raw16, 0x0FFF)
@@ -2000,13 +2002,13 @@ local function dissect_zc_report(tvb, tree, off)
     add_diffs(f.zr_ph3_diff, ph3)
 end
 
--- 网络诊断 (表109)
+-- 网络诊断 (表80)
 local function dissect_diag(tvb, tree, off)
     add_le(tree, f.diag_vendor_id, tvb, off, 2)
     add_span(tree, f.diag_custom, tvb, off+2, nil)
 end
 
--- 路由请求 (表111)
+-- 路由请求 (1.0 旧路由族,0x0050 保留)
 local function dissect_rreq(tvb, tree, off)
     tree:add(f.rreq_version, tvb(off, 1))
     add_le(tree, f.rreq_seq, tvb, off+1, 4)
@@ -2015,7 +2017,7 @@ local function dissect_rreq(tvb, tree, off)
     tree:add(f.rreq_payload_len, tvb(off+6, 1))
 end
 
--- 路由回复 (表114)
+-- 路由回复 (1.0 旧路由族,0x0051 保留)
 local function dissect_rrep(tvb, tree, off)
     tree:add(f.rrep_version, tvb(off, 1))
     add_le(tree, f.rrep_seq, tvb, off+1, 4)
@@ -2023,7 +2025,7 @@ local function dissect_rrep(tvb, tree, off)
     tree:add(f.rrep_payload_len, tvb(off+6, 1))
 end
 
--- 路由错误 (表117)
+-- 路由错误 (1.0 旧路由族,0x0052 保留)
 local function dissect_rerr(tvb, tree, off)
     tree:add(f.rerr_version, tvb(off, 1))
     add_le(tree, f.rerr_seq, tvb, off+1, 4)
@@ -2034,13 +2036,13 @@ local function dissect_rerr(tvb, tree, off)
     end
 end
 
--- 路由应答 (表118)
+-- 路由应答 (1.0 旧路由族,0x0053 保留)
 local function dissect_rack(tvb, tree, off)
     tree:add(f.rack_version, tvb(off, 1))
     add_le(tree, f.rack_seq, tvb, off+4, 4)
 end
 
--- 链路确认请求 (表119)
+-- 链路确认请求 (1.0 旧路由族,0x0054 保留)
 local function dissect_lcreq(tvb, tree, off)
     tree:add(f.lcreq_version, tvb(off, 1))
     add_le(tree, f.lcreq_seq, tvb, off+1, 4)
@@ -2051,7 +2053,7 @@ local function dissect_lcreq(tvb, tree, off)
     end
 end
 
--- 链路确认回应 (表120)
+-- 链路确认回应 (1.0 旧路由族,0x0055 保留)
 local function dissect_lcrsp(tvb, tree, off)
     tree:add(f.lcrsp_version, tvb(off, 1))
     tree:add(f.lcrsp_level, tvb(off+1, 1))
@@ -2370,10 +2372,10 @@ local function dissect_rfdl(tvb, tree, off, carrier, limit)
     end
 end
 
--- 信道评估参数更新报文 (表106-108, 单跳帧消息类型1)
+-- 信道评估参数更新报文 (表99-101, 单跳帧消息类型1)
 -- byte0: BRUSNR有效标志(0,0,1)+SAT配置长度(0,1-7); 标志=1 后随 4B BRU SNR(表64);
--- SAT 配置固定头 2B: byte0 ID(1b)+模式(1b)+组大小(2b)+保留, byte1 TMI(4b)+增益(4b);
--- 段数自 byte2(4b/5b 按 表107/108), 后随 N+1 段位图
+-- SAT 配置固定头 2B: byte0 ID(1b)+模式(1b)+组大小(2b)+保留, byte0 bit7 载荷调制参数高位+byte1 载荷调制参数低4b+增益4b;
+-- 段数自 byte2(4b/5b 按 表100/101), 后随 N+1 段位图
 local function dissect_ch_eval(tvb, tree, off)
     local bru_valid = band(tvb(off, 1):uint(), 0x01)
     local sat_len = math.floor(band(tvb(off, 1):uint(), 0xFE) / 2)
@@ -2396,8 +2398,8 @@ local function dissect_ch_eval(tvb, tree, off)
     stree:add(f.ce_sat_mode, sat(0, 1))
     local grp = math.floor(band(sat(0, 1):uint(), 0x0C) / 4)
     stree:add(f.ce_grp_size, sat(0, 1)):append_text(
-        string.format(T(" (%d 个/组)", " (%d/group)"), (grp <= 3) and (grp + 1) * 4 or 0))
-    stree:add(f.ce_tmi, sat(1, 1))
+        string.format(T(" (%d 个/组)", " (%d/group)"), (grp <= 3) and ({4,6,8,12})[grp + 1] or 0))
+    stree:add(f.ce_tmi, sat(0, 2), read_bits(sat, 7, 5))
     stree:add(f.ce_gain, sat(1, 1))
     if sat_len >= 3 then
         local mode = band(sat(0, 1):uint(), 0x02) / 2
@@ -2406,7 +2408,7 @@ local function dissect_ch_eval(tvb, tree, off)
         local tbl_bytes = math.min(1 + seg_cnt, sat_len - 2)
         local tbl_item = stree:add(f.ce_table, sat(2, tbl_bytes)):
             append_text(string.format(T(" [%d 段]", " [%d segments]"), seg_cnt))
-        -- 表107(位图,1bit/组)/表108(阶数,2bit/组)逐位/逐组(与 C++ parse_channel_eval 对齐)
+        -- 表100(位图,1bit/组)/表101(阶数,2bit/组)逐位/逐组(与 C++ parse_channel_eval 对齐)
         local meaning = { T("不使用", "unused"), T("BPSK", "BPSK"), T("QPSK", "QPSK"), T("16QAM", "16QAM") }
         for k = 0, tbl_bytes - 2 do
             local b = sat(3 + k, 1):uint()
@@ -2430,8 +2432,8 @@ local function dissect_ch_eval(tvb, tree, off)
     end
 end
 
--- Bitloading 训练请求(表104)/拒绝(表105): 4B = 源TEI(0,12) + 目的TEI(2,12) + byte3
--- (请求: 子载波分组大小 0-3=4/8/12/16 个一组; 拒绝: 0x0 未定义/0x1 节点正在训练/0x2 训练节点已满)
+-- 信道评估请求(表97)/拒绝(表98): 4B = 源TEI(0,12) + 目的TEI(2,12) + byte3
+-- (请求: 子载波分组大小 0-3=4/6/8/12 个一组; 拒绝: 0x0 未定义/0x1 节点正在训练/0x2 训练节点已满)
 local function dissect_bitloading_train(tvb, tree, off, is_reject)
     add_val(tree, f.mme_bl_src_tei, tvb, off, 2, read_bits(tvb, off*8, 12))
     add_val(tree, f.mme_bl_dst_tei, tvb, off+1, 2, read_bits(tvb, (off+1)*8+4, 12))
@@ -2439,7 +2441,7 @@ local function dissect_bitloading_train(tvb, tree, off, is_reject)
     local it = tree:add(f.mme_bl_param, tvb(off+3, 1), v)
     if not is_reject then
         it:append_text((v <= 3) and
-            string.format(T(" (%d 个子载波一组)", " (%d subcarriers/group)"), (v+1)*4)
+            string.format(T(" (%d 个子载波一组)", " (%d subcarriers/group)"), ({4,6,8,12})[v+1])
             or T(" (保留)", " (Reserved)"))
     else
         local rs = { T("未定义", "Undefined"), T("节点正在训练", "Node training in progress"), T("训练节点已满", "Training node full") }
@@ -2447,7 +2449,7 @@ local function dissect_bitloading_train(tvb, tree, off, is_reject)
     end
 end
 
--- 分组请求(表109/110): 保留 8B + 邻居个数(8,8) + 邻居列表 每条 3B
+-- 分组请求(表102/103): 保留 8B + 邻居个数(8,8) + 邻居列表 每条 3B
 -- (TEI 12b + 类型 1b + 保留 3b + 载波信道质量 4b + 无线信道质量 4b)
 local function dissect_group_req(tvb, tree, off)
     if off + 9 > tvb:len() then return end
@@ -2459,7 +2461,7 @@ local function dissect_group_req(tvb, tree, off)
         if p + 3 > tvb:len() then break end
         local it = tree:add(gw, string.format(T("Neighbour[%d] (3B)", "Neighbour[%d] (3B)"), i))
         add_val(it, f.mme_grp_tei, tvb, p, 2, read_bits(tvb, p*8, 12))
-        -- 类型 1b (byte+1 bit4, 表110: 0=组成员/1=候选组代理), 与 C++ get_bits(b,off+1,4,1) 一致
+        -- 类型 1b (byte+1 bit4, 表103: 0=组成员/1=候选组代理), 与 C++ get_bits(b,off+1,4,1) 一致
         add_val(it, f.mme_grp_type, tvb, p+1, 1, read_bits(tvb, (p+1)*8+4, 1))
         add_val(it, f.mme_grp_qplc, tvb, p+2, 1, band(tvb(p+2,1):uint(), 0x0F))
         add_val(it, f.mme_grp_qrf, tvb, p+2, 1, math.floor(band(tvb(p+2,1):uint(), 0xF0) / 16))
@@ -2467,7 +2469,7 @@ local function dissect_group_req(tvb, tree, off)
     end
 end
 
--- 分组确认(表111/112): 组代理TEI(0,24) + 保留(3,40) + 组员个数(8,8) + 组员 每条 2B(TEI 12b+保留4b)
+-- 分组确认(表104/105): 组代理TEI(0,24) + 保留(3,40) + 组员个数(8,8) + 组员 每条 2B(TEI 12b+保留4b)
 local function dissect_group_cnf(tvb, tree, off)
     if off + 9 > tvb:len() then return end
     tree:add(f.mme_gc_proxy_tei, tvb(off, 3), tvb(off, 3):le_uint())
@@ -2555,7 +2557,7 @@ function gw.dissector(tvb, pinfo, tree)
     -- 源/目的地址列 (Source/Destination 列): 按帧类型提取 TEI
     local src_tei, dst_tei
     if dt == 0 then
-        src_tei = read_bits(tvb, 8*8, 12)      -- 信标源TEI (FCH 字节8)
+        src_tei = read_bits(tvb, 8*8, 12)      -- 信标源TEI (FC 字节8)
     elseif dt == 1 then
         src_tei = read_bits(tvb, 4*8, 12)      -- SOF 源TEI
         dst_tei = read_bits(tvb, 5*8+4, 12)    -- SOF 目的TEI
@@ -2598,7 +2600,7 @@ function gw.dissector(tvb, pinfo, tree)
     local root = tree:add(gw, tvb())
 
     -- MPDU 帧控制 16B (表4)
-    local fc_tree = root:add(gw, tvb(0, 16), T("MPDU 帧控制 (FCH)", "MPDU Frame Control (FCH)"))
+    local fc_tree = root:add(gw, tvb(0, 16), T("MPDU 帧控制 (FC)", "MPDU Frame Control (FC)"))
     fc_tree:add(f.fc_dt, tvb(0, 1))
     fc_tree:add(f.fc_net_type, tvb(0, 1))
     fc_tree:add(f.fc_nid, tvb(1, 2), nid)
@@ -2616,7 +2618,7 @@ function gw.dissector(tvb, pinfo, tree)
     end
 
     fc_tree:add(f.fc_std_ver, tvb(12, 1))
-    -- FCCS CRC24: 校验 FCH 前 13 字节(0-12), 存储值字节 13-15
+    -- FCCS CRC24: 校验 FC 前 13 字节(0-12), 存储值字节 13-15
     local fccs_rx = tvb(13, 3):le_uint()
     local fccs_calc = crc24_lsb(tvb, 0, 16)
     fc_tree:add(f.fc_fccs, tvb(13, 3), fccs_rx)
@@ -2625,7 +2627,7 @@ function gw.dissector(tvb, pinfo, tree)
 
     -- 信标帧载荷 (dt=0)
     if dt == 0 and tvb:len() > 16 then
-        -- 信标物理块无物理块头, 载荷直接跟在 FCH 后
+        -- 信标物理块无物理块头, 载荷直接跟在 FC 后
         -- 块大小: 载波由 TMI 定(表17); 无线由载荷PB大小码(10,0,4)查表29
         local bpbsize
         if is_rf then
@@ -2760,7 +2762,7 @@ function gw.dissector(tvb, pinfo, tree)
         -- MAC 帧解析基准: 多块时 MSDU 跨物理块(中间夹块尾CRC24/下块头),
         -- 用"块体逻辑视图"把重组坐标映射回原帧 — 不生成新数据源, hex 始终完整显示原始帧
         local mac_tvb = tvb
-        local mac_off = 17  -- 单块路径: 第一块体起始 = FCH16 + 头1 (块体连续, 直接用原帧)
+        local mac_off = 17  -- 单块路径: 第一块体起始 = FC16 + 头1 (块体连续, 直接用原帧)
         if pbsz > 0 and pb_count >= 1 and pb_count <= 4 then
             local blocks_done = 0
             for i = 0, pb_count - 1 do
@@ -2804,7 +2806,7 @@ function gw.dissector(tvb, pinfo, tree)
                 msdu_off = mac_off + hdr_len
             elseif version == 1 then
                 -- 单跳帧(表3,4B 头): 消息类型 0=无线发现列表(表91) / 1=信道评估参数
-                -- 更新(表106-108) / 2=载波发现列表(表62) / 128=应用层 / 129=IPv4
+                -- 更新(表99-101) / 2=载波发现列表(表62) / 128=应用层 / 129=IPv4
                 local hdr_len = dissect_sh_mac_hdr(mac_tvb, mac_tree, mac_off)
                 msdu_off = mac_off + hdr_len
                 -- 单跳 MSDU 长度(表3, 11bit @byte2): IE 解析上界(不含尾部 MSDU CRC32 4B)
@@ -2963,7 +2965,7 @@ function gw.dissector(tvb, pinfo, tree)
 end
 
 -- =========================================================================
--- 注册:仅注册协议名(供 packet-gw_2022.lua 按 FCH 标准版本号委托调用),
+-- 注册:仅注册协议名(供 packet-gw_2022.lua 按 FC 标准版本号委托调用),
 -- 不注册 wtap_encap —— 入口分发在 packet-gw_2022.lua(版本 0=1.0 / 1=2.0)
 -- =========================================================================
 
