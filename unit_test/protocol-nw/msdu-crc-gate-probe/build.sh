@@ -76,6 +76,7 @@ g++ -std=c++17 -O1 -fPIC $INC \
   "$GW22/beacon/gw_2022_beacon_parser.cpp" "$GW22/sof/gw_2022_sof_parser.cpp" \
   "$GW22/coord/gw_2022_coord_parser.cpp" "$GW22/ack/gw_2022_ack_parser.cpp" \
   "$REPO_ROOT/src/protocol/protocol_tree_builder.cpp" \
+  "$REPO_ROOT/src/protocol/protocolfactory.cpp" \
   "$REPO_ROOT/src/common/i18n.cpp" "$REPO_ROOT/src/ui/packetlistmodel.cpp" \
   $QSLOG build/moc_QsLogDestFunctor.cpp build/moc_packetlistmodel.cpp \
   -L"$QT/lib" -lQt6Widgets -lQt6Gui -lQt6Core -lQt6Concurrent \

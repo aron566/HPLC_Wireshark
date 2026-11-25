@@ -25,6 +25,7 @@ g++ -std=c++17 -fPIC \
   "$REPO_ROOT/3rdparty/qslog/QsLogDestConsole.cpp" "$REPO_ROOT/3rdparty/qslog/QsLogDestFile.cpp" \
   "$REPO_ROOT/3rdparty/qslog/QsLogDestFunctor.cpp" \
   "$REPO_ROOT/src/protocol/protocol_tree_builder.cpp" \
+  "$REPO_ROOT/src/protocol/protocolfactory.cpp" \
   "$NW26/nw_2026_parser.cpp" "$NW26/nw_2026_msdu_parser.cpp" \
   "$NW26/nw_2026_beacon_parser.cpp" "$NW26/nw_2026_tree.cpp" \
   "$NW21/nw_2021_parser.cpp" "$NW21/nw_2021_msdu_parser.cpp" \

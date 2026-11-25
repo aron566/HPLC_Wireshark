@@ -91,6 +91,7 @@ g++ $CXXFLAGS \
   $R/3rdparty/qslog/QsLogDestConsole.cpp $R/3rdparty/qslog/QsLogDestFile.cpp \
   $R/3rdparty/qslog/QsLogDestFunctor.cpp \
   $R/src/protocol/protocol_tree_builder.cpp \
+  $R/src/protocol/protocolfactory.cpp \
   $R/src/protocol/gw_protocol/gw_2026/gw_2026_parser.cpp \
   $R/src/protocol/gw_protocol/gw_2026/gw_2026_msdu_parser.cpp \
   $R/src/protocol/gw_protocol/gw_2026/beacon/gw_2026_beacon_parser.cpp \
