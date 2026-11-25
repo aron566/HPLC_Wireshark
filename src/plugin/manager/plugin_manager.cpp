@@ -506,13 +506,20 @@ void PluginManager::handle_message(const QString& plugin_id,
             rt->ready = true;
             // 注册到协议注册表(协议 id → 代理;显示名取自 plugin.json,供界面协议列表)
             // 归属 = 插件 protocol_id(写覆盖层);同归属重复握手不再重复登记
-            // (防引用计数膨胀),影子覆盖内置同名 id 时注册表内告警(A4)。
+            // (防引用计数膨胀)。外置路径:与内置同名共存为 Ext 条目,永不影子内置;
+            // 同 id 已被另一插件登记时注册失败(先到先得),本插件仍保持 ready
+            // (仍可作二次分析),只是协议不进下拉框。
             const QString pid = rt->manifest.protocol_id;
             if (protocol_owner_plugin_id(pid) != pid) {
-                register_parser_provider(pid, rt->manifest.display_name,
-                                         rt->manifest.display_name_en,
-                                         [pid]() { return make_plugin_parser(pid); },
-                                         200, pid);
+                if (!register_external_parser_provider(
+                        pid, rt->manifest.display_name,
+                        rt->manifest.display_name_en,
+                        [pid]() { return make_plugin_parser(pid); },
+                        200, pid)) {
+                    qWarning() << "PluginManager: plugin" << plugin_id
+                               << "failed to register external protocol" << pid
+                               << "(id already held by another plugin)";
+                }
             }
             emit plugin_status_changed(plugin_id, QStringLiteral("ready"));
         } else if (!ok) {

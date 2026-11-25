@@ -578,12 +578,12 @@ void MainWindow::reset_dispatcher() {
 
 /// @brief 插件状态变化 → 分发器热回退(A-8):注销立即重建回退内置解析器,
 ///        注册到达仅空闲时切换(采集中不打断在途 MSDU 重组)。
-/// @details PluginManager 在握手成功后发 "ready"(已按归属注册覆盖层),
+/// @details PluginManager 在握手成功后发 "ready"(已按归属注册外置解析器),
 ///          在禁用/超时/协议错误时发 "disabled: ..."/"timeout-disabled"/
-///          "protocol-error-disabled"(发之前已按归属注销覆盖层)。注销后
+///          "protocol-error-disabled"(发之前已按归属注销外置条目)。注销后
 ///          若不重建,分发器继续握着已死代理逐帧拒收,直到用户手动重启采集。
 ///          重建即 reset_dispatcher():丢弃积压帧 + 按当前注册表重建解析器
-///          (注销后 make_parser_by_id 回退内置;注册到达后取覆盖层插件)
+///          (注销后按归属查找回退内置;注册到达后按(协议 id + 归属)取外置解析器)
 ///          + 插件引擎状态清零;在途 MSDU 重组丢失是已知代价(不对称时序:
 ///          注销立即重建、注册到达只在空闲时切换)。
 void MainWindow::on_plugin_status_changed(const QString& plugin_id, const QString& status) {

@@ -4,10 +4,11 @@
 /// @details 探针在 FrameDispatcher 层复现 MainWindow::on_plugin_status_changed
 ///          的三个分支(槽本身是 3 行分发,行为链在此验证):
 ///          - 注销 → 重建分发器(即 reset_dispatcher 的分发器部分):
-///            新分发器经 make_parser_by_id 回退内置,下一帧正常解析;
+///            新分发器经按归属查找回退内置,下一帧正常解析;
 ///          - 注册到达 + 采集中 → 不重建:运行中的分发器持有旧解析器实例,
 ///            继续用内置解析,不打断在途 MSDU 重组;
-///          - 注册到达 + 空闲 → 重建:新分发器取到覆盖层插件解析器。
+///          - 注册到达 + 空闲 → 重建:新分发器按 (协议 id + 归属) 取到外置解析器
+///            (下拉框选择 "gw_2022@probe-plugin")。
 ///          对照信号:内置 GW_2022 拒收坏 FCH CRC 帧(计 dropped),替身插件
 ///          解析器恒接受并计数调用次数。prepare_entry 用探针内桩(只搬
 ///          accept/mpdu/meta,免链接整个 UI/entrybuilder→topo),与
@@ -150,19 +151,22 @@ int main(int argc, char** argv) {
     check("baseline: builtin rejected bad CRC (dropped 1)", dropped_of(d) == 1);
 
     // ---- 2. 注册到达 + 采集中:不重建,运行中的分发器继续用内置 ----
-    check("register: shadow GW_2022 by probe-plugin",
-          register_parser_provider(QStringLiteral("GW_2022"),
-                                   QStringLiteral("探针插件"),
-                                   QStringLiteral("Probe Plugin"),
-                                   []() { return std::make_unique<FakePluginParser>(); },
-                                   200, QStringLiteral("probe-plugin")));
+    // 外置注册:与内置 GW_2022 同名共存为 Ext 条目,永不影子内置
+    check("register: external GW_2022 by probe-plugin",
+          register_external_parser_provider(QStringLiteral("GW_2022"),
+                                            QStringLiteral("探针插件"),
+                                            QStringLiteral("Probe Plugin"),
+                                            []() { return std::make_unique<FakePluginParser>(); },
+                                            200, QStringLiteral("probe-plugin")));
     emit src.frame_ready(bad, 0);
     check("capturing: second bad frame parsed", wait_total(d, 2));
     check("capturing: no switch mid-capture (plugin calls still 0)",
           FakePluginParser::s_calls.load() == 0);
     check("capturing: still builtin (dropped 2)", dropped_of(d) == 2);
 
-    // ---- 3. 注册到达 + 空闲:重建,新分发器取到插件解析器 ----
+    // ---- 3. 注册到达 + 空闲:重建,新分发器按 (协议 id + 归属) 取到外置解析器 ----
+    // 下拉框选择外置条目 "gw_2022@probe-plugin",重建后分发器取插件解析器
+    appcfg::set_protocol(QStringLiteral("gw_2022@probe-plugin"));
     d = rebuild(d, src);
     check("idle-switch: dispatcher rebuilt", d->statistics() != nullptr);
     emit src.frame_ready(bad, 0);
@@ -171,7 +175,8 @@ int main(int argc, char** argv) {
           FakePluginParser::s_calls.load() == 1);
     check("idle-switch: plugin accepted (dropped 0)", dropped_of(d) == 0);
 
-    // ---- 4. 注销:按归属摘除覆盖层 → 重建回退内置,下一帧正常解析 ----
+    // ---- 4. 注销:按归属摘除外置条目 → 重建回退内置,下一帧正常解析 ----
+    // 选择仍是 "gw_2022@probe-plugin",归属条目已注销,按归属查找回退同 id 内置
     check("unregister: override removed by owner",
           unregister_parser_for_owner(QStringLiteral("GW_2022"),
                                       QStringLiteral("probe-plugin")));
