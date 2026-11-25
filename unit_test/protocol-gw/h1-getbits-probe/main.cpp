@@ -330,13 +330,13 @@ int main(int argc, char* argv[]) {
     }
 
     // --- (d6) GW2026 载波发现列表 RFDL IE elen=8 (msdu:826-870) ---
-    // msg_type 2 = CARRIER_DISCOVERY;IE 头同样在 body[11..12];elen=8<17 截断:
+    // msg_type 1 = CARRIER_DISCOVERY(V6 表3);IE 头同样在 body[11..12];elen=8<17 截断:
     // sender TEI=5 与 proxy TEI=5 均为陷阱值,门应跳过 TEI→MAC 学习与拓扑采集。
     {
         QByteArray body(21, 0);
         quint8* p = reinterpret_cast<quint8*>(body.data());
         p[0] = 0x01;
-        p[1] = 0x02;                   // CARRIER_DISCOVERY
+        p[1] = 0x01;                   // CARRIER_DISCOVERY(V6 表3:1=载波发现)
         p[2] = 0x11; p[3] = 0x00;      // msdu_len=17 (2,0,11);载荷=7+2+8
         // 头 MAC body[4..9] = 发送节点 MAC(陷阱),序号 body[10]
         p[4] = 0x00; p[5] = 0x11; p[6] = 0x22; p[7] = 0x33; p[8] = 0x44; p[9] = 0x55;

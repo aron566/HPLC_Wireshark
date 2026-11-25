@@ -9,6 +9,8 @@ INCLUDEPATH += $$REPO/src $$REPO/src/common $$REPO/src/protocol \
                $$REPO/src/protocol/common \
                $$REPO/src/protocol/gw_protocol/gw_2026 \
                $$REPO/src/protocol/gw_protocol/gw_2026/sof \
+               $$REPO/src/protocol/gw_protocol/gw_2026/ack \
+               $$REPO/src/protocol/gw_protocol/gw_2026/coord \
                $$REPO/3rdparty/qslog
 DEFINES += QsLog_STATIC
 
@@ -20,6 +22,8 @@ HEADERS += $$REPO/3rdparty/qslog/QsLog.h \
 
 SOURCES += gw_multi_crc_probe.cpp \
     $$REPO/src/protocol/gw_protocol/gw_2026/sof/gw_2026_sof_parser.cpp \
+    $$REPO/src/protocol/gw_protocol/gw_2026/ack/gw_2026_ack_parser.cpp \
+    $$REPO/src/protocol/gw_protocol/gw_2026/coord/gw_2026_coord_parser.cpp \
     $$REPO/src/common/i18n.cpp \
     $$REPO/3rdparty/qslog/QsLog.cpp \
     $$REPO/3rdparty/qslog/QsLogDest.cpp \

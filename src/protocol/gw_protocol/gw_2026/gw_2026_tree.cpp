@@ -274,11 +274,9 @@ void GW_2026_TreeBuilder::build(QTreeWidgetItem* root, const PacketEntry& e) {
                         QString::number((quint8)get_bits_unchecked(raw, b + 1, 4, 4)), b + 1, 4, 4);
                     tree_add_bit_field(sof, QString("eFC Sta%1 DivCopy").arg(s),
                         QString::number((quint8)get_bits_unchecked(raw, b + 2, 0, 5)), b + 2, 0, 5);
-                    tree_add_bit_field(sof, QString("eFC Sta%1 PBNum").arg(s),
-                        QString::number((quint8)get_bits_unchecked(raw, b + 2, 5, 1) + 1), b + 2, 5, 1);
                     tree_add_bit_field(sof, QString("eFC Sta%1 RSV").arg(s),
-                        QStringLiteral("0x%1").arg((quint8)get_bits_unchecked(raw, b + 2, 6, 2), 1, 16, QChar('0')),
-                        b + 2, 6, 2);
+                        QStringLiteral("0x%1").arg((quint8)get_bits_unchecked(raw, b + 2, 5, 3), 1, 16, QChar('0')),
+                        b + 2, 5, 3);
                 }
                 break;
             }

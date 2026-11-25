@@ -37,16 +37,14 @@ static QString beacon_item_head_name(quint8 h) {
         case GW_2026_BeaconItemType::STA_CAPABILITY:       return QStringLiteral("STA Capability Item");
         case GW_2026_BeaconItemType::ROUTE_PARAMETER:      return QStringLiteral("Route Parameter Item");
         case GW_2026_BeaconItemType::BAND_CHANGE:          return QStringLiteral("Band Change Item");
-        case GW_2026_BeaconItemType::RF_ROUTE_PARAMETER:   return QStringLiteral("RF Route Parameter Item");
         case GW_2026_BeaconItemType::RF_CHANNEL_CHANGE:    return QStringLiteral("RF Channel Change Item");
         case GW_2026_BeaconItemType::LITE_STA_INFO_SLOT:   return QStringLiteral("Lite STA Info & Slot Item");
         case GW_2026_BeaconItemType::PERPETUAL_CALENDAR:   return QStringLiteral("Perpetual Calendar Item");
-        case GW_2026_BeaconItemType::CHANNEL_ASSESS_PARAM: return QStringLiteral("Channel Assess Param Item");
         case GW_2026_BeaconItemType::BEACON_SWITCH:        return QStringLiteral("Beacon Mechanism Switch Item");
         case GW_2026_BeaconItemType::TIME_SLOT_ALLOCATION: return QStringLiteral("Time Slot Allocation Item");
         case GW_2026_BeaconItemType::PROXY_ROLE:           return QStringLiteral("Proxy Role Item");
         case GW_2026_BeaconItemType::DISCOVER_LIST:        return QStringLiteral("Discover List Item");
-        default:   return QStringLiteral("Reserved");  // 0x09-0xBF / 0xC3-0xFF
+        default:   return QStringLiteral("Reserved");  // 0x03/0x08-0xBF / 0xC3-0xFF
     }
 }
 
@@ -56,11 +54,9 @@ static QString beacon_item_head_desc(quint8 h) {
         case GW_2026_BeaconItemType::STA_CAPABILITY:       return trl::L("站点能力条目(标准信标必选)");
         case GW_2026_BeaconItemType::ROUTE_PARAMETER:      return trl::L("路由参数条目(标准信标必选)");
         case GW_2026_BeaconItemType::BAND_CHANGE:          return trl::L("频段变更条目(可选)");
-        case GW_2026_BeaconItemType::RF_ROUTE_PARAMETER:   return trl::L("无线路由参数条目(标准信标必选)");
         case GW_2026_BeaconItemType::RF_CHANNEL_CHANGE:    return trl::L("无线信道变更条目(可选)");
         case GW_2026_BeaconItemType::LITE_STA_INFO_SLOT:   return trl::L("精简信标站点信息及时隙条目(精简信标必选)");
         case GW_2026_BeaconItemType::PERPETUAL_CALENDAR:   return trl::L("万年历条目(可选)");
-        case GW_2026_BeaconItemType::CHANNEL_ASSESS_PARAM: return trl::L("信道评估参数条目(可选)");
         case GW_2026_BeaconItemType::BEACON_SWITCH:        return trl::L("信标机制切换条目(可选)");
         case GW_2026_BeaconItemType::TIME_SLOT_ALLOCATION: return trl::L("时隙分配条目(TSA,标准信标必选)");
         case GW_2026_BeaconItemType::PROXY_ROLE:           return trl::L("代理角色条目(可选)");
@@ -164,12 +160,14 @@ static const FieldSpec kStaCapSpec[] = {
 };
 static const int kStaCapSpecN = int(sizeof(kStaCapSpec) / sizeof(kStaCapSpec[0]));
 
-// Route Param 条目(相对条目数据)。51242 表48 路由参数通知条目(全部 16b,单位 s)
+// Route Param 条目(相对条目数据)。V6 表25 路由参数通知条目:16+16+8+8+8+8
 static const FieldSpec kRouteParamSpec[] = {
-    {"RoutePeriod",            0, 0, 16, Fmt::DEC},
-    {"NextRouteEstimationTime",2, 0, 16, Fmt::DEC},
-    {"PCODiscoveryListPeriod", 4, 0, 16, Fmt::DEC},
-    {"STADiscoveryListPeriod", 6, 0, 16, Fmt::DEC},
+    {"RoutePeriod",             0, 0, 16, Fmt::DEC},  // s
+    {"NextRouteEstimationTime", 2, 0, 16, Fmt::DEC},  // s
+    {"DiscoveryListPeriod",     4, 0, 8,  Fmt::DEC},  // s
+    {"RcvRateAgePeriodNum",     5, 0, 8,  Fmt::DEC},  // x 发现列表周期
+    {"RfDiscoveryListPeriod",   6, 0, 8,  Fmt::DEC},  // s
+    {"RfRateAgePeriodNum",      7, 0, 8,  Fmt::DEC},  // x 无线发现列表周期
 };
 static const int kRouteParamSpecN = int(sizeof(kRouteParamSpec) / sizeof(kRouteParamSpec[0]));
 
@@ -180,18 +178,13 @@ static const FieldSpec kBandChangeSpec[] = {
 };
 static const int kBandChangeSpecN = int(sizeof(kBandChangeSpec) / sizeof(kBandChangeSpec[0]));
 
-// 无线路由参数条目 0x03(51242 表54):无线发现列表周期(0,8,s)+
-// 无线接收率老化周期个数(1,8,单位=无线发现列表周期)
-static const FieldSpec kRfRouteSpec[] = {
-    {"RfDiscoveryListPeriod", 0, 0, 8, Fmt::DEC},
-    {"RfRateAgePeriodNum",    1, 0, 8, Fmt::DEC},
-};
-static const int kRfRouteSpecN = int(sizeof(kRfRouteSpec) / sizeof(kRfRouteSpec[0]));
-
-// 无线信道变更条目 0x04(51242 表55):目标信道(0,8)+信道切换剩余时间(1,32,ms)
+// 无线信道变更条目 0x04(表31):目标无线 Option 模式(0,0,2)+保留(0,2,6)+
+// 目标信道(1,0,8)+信道切换剩余时间(2,0,32,ms)
 static const FieldSpec kRfChChangeSpec[] = {
-    {"TargetChannel",      0, 0, 8,  Fmt::DEC},
-    {"ChSwitchRemainTime", 1, 0, 32, Fmt::DEC},
+    {"TargetRfOption",     0, 0, 2,  Fmt::DEC},
+    {"RSV",                0, 2, 6,  Fmt::DEC},
+    {"TargetChannel",      1, 0, 8,  Fmt::DEC},
+    {"ChSwitchRemainTime", 2, 0, 32, Fmt::DEC},
 };
 static const int kRfChChangeSpecN = int(sizeof(kRfChChangeSpec) / sizeof(kRfChChangeSpec[0]));
 
@@ -217,18 +210,7 @@ static const FieldSpec kPerpetualCalendarSpec[] = {
 static const int kPerpetualCalendarSpecN =
     int(sizeof(kPerpetualCalendarSpec) / sizeof(kPerpetualCalendarSpec[0]));
 
-// 信道评估参数条目 0x07(表35):主动/被动评估使能(0,0/1)+保留+被动评估周期(2,8,单位10s)
-static const FieldSpec kChAssessParamSpec[] = {
-    {"ActiveAssessEn",   0, 0, 1,  Fmt::DEC},
-    {"PassiveAssessEn",  0, 1, 1,  Fmt::DEC},
-    {"RSV0",             0, 2, 6,  Fmt::DEC},
-    {"RSV1",             1, 0, 8,  Fmt::DEC},
-    {"PassiveAssessPeriod", 2, 0, 8, Fmt::DEC},
-};
-static const int kChAssessParamSpecN =
-    int(sizeof(kChAssessParamSpec) / sizeof(kChAssessParamSpec[0]));
-
-// 信标机制切换条目 0x08(表36):切换目标机制ID(0,8)+切换NTB时刻(1,32)
+// 信标机制切换条目 0x07(表33):切换目标机制ID(0,8)+切换NTB时刻(1,32)
 static const FieldSpec kBeaconSwitchSpec[] = {
     {"TargetMechanismID", 0, 0, 8,  Fmt::DEC},
     {"SwitchNTB",         1, 0, 32, Fmt::DEC},
@@ -423,8 +405,15 @@ MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_r
                 // 周期/时间单位(与 Python log "RoutePeriod: 80s" 一致)
                 annotate_unit(grp.children, "RoutePeriod", QStringLiteral("s"));
                 annotate_unit(grp.children, "NextRouteEstimationTime", QStringLiteral("s"));
-                annotate_unit(grp.children, "PCODiscoveryListPeriod", QStringLiteral("s"));
-                annotate_unit(grp.children, "STADiscoveryListPeriod", QStringLiteral("s"));
+                annotate_unit(grp.children, "DiscoveryListPeriod", QStringLiteral("s"));
+                annotate_unit(grp.children, "RfDiscoveryListPeriod", QStringLiteral("s"));
+                // 老化周期个数单位 = 对应发现列表周期
+                for (auto& ch : grp.children) {
+                    if (ch.name.startsWith(QStringLiteral("RcvRateAgePeriodNum")))
+                        ch.value += QLatin1Char(' ') + trl::L("(x 发现列表周期)");
+                    else if (ch.name.startsWith(QStringLiteral("RfRateAgePeriodNum")))
+                        ch.value += QLatin1Char(' ') + trl::L("(x 无线发现列表周期)");
+                }
                 break;
             }
             case GW_2026_BeaconItemType::BAND_CHANGE: {  // 频段通知条目(51242 表49)
@@ -441,16 +430,7 @@ MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_r
                 }
                 break;
             }
-            case GW_2026_BeaconItemType::RF_ROUTE_PARAMETER: {  // 无线路由参数条目(51242 表54,必选)
-                add_fields(grp.children, it, 0, kRfRouteSpec, kRfRouteSpecN, abs0);
-                annotate_unit(grp.children, "RfDiscoveryListPeriod", QStringLiteral("s"));
-                // 老化周期个数的单位 = 无线发现列表周期
-                for (auto& ch : grp.children)
-                    if (ch.name.startsWith(QStringLiteral("RfRateAgePeriodNum")))
-                        ch.value += QLatin1Char(' ') + trl::L("(x 发现列表周期)");
-                break;
-            }
-            case GW_2026_BeaconItemType::RF_CHANNEL_CHANGE: {  // 无线信道变更条目(51242 表55)
+            case GW_2026_BeaconItemType::RF_CHANNEL_CHANGE: {  // 无线信道变更条目(表31)
                 add_fields(grp.children, it, 0, kRfChChangeSpec, kRfChChangeSpecN, abs0);
                 annotate_unit(grp.children, "ChSwitchRemainTime", QStringLiteral("ms"));
                 break;
@@ -481,24 +461,7 @@ MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_r
                 annotate_unit(grp.children, "CalendarSeconds", QStringLiteral("s"));
                 break;
             }
-            case GW_2026_BeaconItemType::CHANNEL_ASSESS_PARAM: {  // 信道评估参数条目(表35,3B)
-                add_fields(grp.children, it, 0, kChAssessParamSpec,
-                           kChAssessParamSpecN, abs0);
-                annotate_unit(grp.children, "PassiveAssessPeriod", QStringLiteral("10s"));
-                for (auto& ch : grp.children) {
-                    if (ch.name.startsWith(QStringLiteral("ActiveAssessEn"))) {
-                        const quint8 v = (quint8)get_bits(it, 0, 0, 1);
-                        ch.value = QStringLiteral("%1 - %2").arg(v).arg(
-                            v ? trl::L("使能评估") : trl::L("禁止评估"));
-                    } else if (ch.name.startsWith(QStringLiteral("PassiveAssessEn"))) {
-                        const quint8 v = (quint8)get_bits(it, 0, 1, 1);
-                        ch.value = QStringLiteral("%1 - %2").arg(v).arg(
-                            v ? trl::L("使能评估") : trl::L("禁止评估"));
-                    }
-                }
-                break;
-            }
-            case GW_2026_BeaconItemType::BEACON_SWITCH: {  // 信标机制切换条目(表36,5B)
+            case GW_2026_BeaconItemType::BEACON_SWITCH: {  // 信标机制切换条目(表33,5B)
                 add_fields(grp.children, it, 0, kBeaconSwitchSpec,
                            kBeaconSwitchSpecN, abs0);
                 for (auto& ch : grp.children) {
@@ -525,12 +488,13 @@ MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_r
                 if (n > 0) {
                     auto& pg = group(grp.children,
                                      QStringLiteral("ProxyTEIList [%1]").arg(n));
-                    // TEI 12b 连续打包:偶序号吃低 12bit,奇序号吃高 12bit(跨字节);
-                    // N 为奇数时最后一个 nibble 为保留(表37)
+                    // TEI 12b 连续打包:节点1 TEI = byte1 bit0-7 + byte2 bit0-3,
+                    // 节点2 TEI = byte2 bit4-7 + byte3 bit0-7,依次 12bit 连续;
+                    // N 为奇数时末尾 4bit 保留(表34)
                     for (int i = 0; i < n; ++i) {
-                        const int bit_off = (1 + i) * 12;   // 首字节为数量,TEI 自 bit12 起
+                        const int bit_off = 8 + i * 12;   // 首字节为数量,TEI 自 bit8 起
                         const int byte_off = bit_off / 8;
-                        if (byte_off + 2 > it.size()) break;
+                        if ((bit_off + 12 + 7) / 8 > it.size()) break;  // 越界判断
                         const quint16 tei = (quint16)get_bits(it, byte_off,
                                                               bit_off % 8, 12);
                         MsduFieldNode f;
@@ -580,42 +544,42 @@ MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_r
                         o += 2;
                     }
                 }
-                if (csma > 0) {  // CSMA 时隙信息(4B/条)
+                if (csma > 0) {  // CSMA 时隙信息(V6 表29,3B/条)
                     auto& cg = group(grp.children,
                         QStringLiteral("CSMASlotInfo [%1]").arg(csma));
-                    for (int i = 0; i < csma && o + 4 <= it.size(); ++i) {
+                    for (int i = 0; i < csma && o + 3 <= it.size(); ++i) {
                         auto& sg = group(cg.children,
-                            QStringLiteral("CSMA[%1] (4B)").arg(i), QString());
-                        quint32 len = (quint32)get_bits(it, o, 0, 24);
-                        quint8  ln  = (quint8)get_bits(it, o + 3, 0, 2);
-                        quint8  rsv = (quint8)get_bits(it, o + 3, 2, 6);
-                        slot_leaf(sg.children, QStringLiteral("CSMA Slot Len [24b]"),
-                                  QStringLiteral("%1 ms").arg(len), abs0 + o, 3);
+                            QStringLiteral("CSMA[%1] (3B)").arg(i), QString());
+                        quint16 len = (quint16)get_bits(it, o, 0, 16);
+                        quint8  ln  = (quint8)get_bits(it, o + 2, 0, 2);
+                        quint8  rsv = (quint8)get_bits(it, o + 2, 2, 6);
+                        slot_leaf(sg.children, QStringLiteral("CSMA Slot Len [16b]"),
+                                  QStringLiteral("%1 ms").arg(len), abs0 + o, 2);
                         slot_leaf(sg.children, QStringLiteral("CSMA Slot Line [2b]"),
                                   QStringLiteral("%1 - %2").arg(ln).arg(line_name(ln)),
-                                  abs0 + o + 3, 1);
+                                  abs0 + o + 2, 1);
                         slot_leaf(sg.children, QStringLiteral("RSV [6b]"),
-                                  QString::number(rsv), abs0 + o + 3, 1);
-                        o += 4;
+                                  QString::number(rsv), abs0 + o + 2, 1);
+                        o += 3;
                     }
                 }
-                if (bind > 0) {  // 绑定 CSMA 时隙信息(4B/条)
+                if (bind > 0) {  // 绑定 CSMA 时隙信息(V6 表30,3B/条)
                     auto& bg = group(grp.children,
                         QStringLiteral("BindingCSMASlotInfo [%1]").arg(bind));
-                    for (int i = 0; i < bind && o + 4 <= it.size(); ++i) {
+                    for (int i = 0; i < bind && o + 3 <= it.size(); ++i) {
                         auto& sg = group(bg.children,
-                            QStringLiteral("Binding[%1] (4B)").arg(i), QString());
-                        quint32 len = (quint32)get_bits(it, o, 0, 24);
-                        quint8  ln  = (quint8)get_bits(it, o + 3, 0, 2);
-                        quint8  rsv = (quint8)get_bits(it, o + 3, 2, 6);
-                        slot_leaf(sg.children, QStringLiteral("Binding Slot Len [24b]"),
-                                  QStringLiteral("%1 ms").arg(len), abs0 + o, 3);
+                            QStringLiteral("Binding[%1] (3B)").arg(i), QString());
+                        quint16 len = (quint16)get_bits(it, o, 0, 16);
+                        quint8  ln  = (quint8)get_bits(it, o + 2, 0, 2);
+                        quint8  rsv = (quint8)get_bits(it, o + 2, 2, 6);
+                        slot_leaf(sg.children, QStringLiteral("Binding Slot Len [16b]"),
+                                  QStringLiteral("%1 ms").arg(len), abs0 + o, 2);
                         slot_leaf(sg.children, QStringLiteral("Binding Slot Line [2b]"),
                                   QStringLiteral("%1 - %2").arg(ln).arg(line_name(ln)),
-                                  abs0 + o + 3, 1);
+                                  abs0 + o + 2, 1);
                         slot_leaf(sg.children, QStringLiteral("RSV [6b]"),
-                                  QString::number(rsv), abs0 + o + 3, 1);
-                        o += 4;
+                                  QString::number(rsv), abs0 + o + 2, 1);
+                        o += 3;
                     }
                 }
                 break;
@@ -698,23 +662,20 @@ struct I18nReg {
         trl::register_en("不允许站点发起关联请求", "Association request not allowed");
         trl::register_en("保留值", "Reserved value");
         trl::register_en("(x 发现列表周期)", " (x discovery-list period)");
-        // 条目头含义(表46)
+        trl::register_en("(x 无线发现列表周期)", " (x RF discovery-list period)");
+        // 条目头含义(V6 表23)
         trl::register_en("站点能力条目(标准信标必选)", "STA Capability Item (mandatory, standard beacon)");
         trl::register_en("路由参数条目(标准信标必选)", "Route Parameter Item (mandatory, standard beacon)");
         trl::register_en("频段变更条目(可选)", "Band Change Item (optional)");
-        trl::register_en("无线路由参数条目(标准信标必选)", "RF Route Parameter Item (mandatory, standard beacon)");
         trl::register_en("无线信道变更条目(可选)", "RF Channel Change Item (optional)");
         trl::register_en("精简信标站点信息及时隙条目(精简信标必选)", "Lite STA Info & Slot Item (mandatory, lite beacon)");
         trl::register_en("万年历条目(可选)", "Perpetual Calendar Item (optional)");
-        trl::register_en("信道评估参数条目(可选)", "Channel Assess Param Item (optional)");
         trl::register_en("信标机制切换条目(可选)", "Beacon Mechanism Switch Item (optional)");
         trl::register_en("时隙分配条目(TSA,标准信标必选)", "Time Slot Allocation Item (mandatory, standard beacon)");
         trl::register_en("代理角色条目(可选)", "Proxy Role Item (optional)");
         trl::register_en("发现列表条目(可选)", "Discover List Item (optional)");
         trl::register_en("保留", "Reserved");
-        // 信道评估参数条目(表35)/信标机制切换条目(表36)
-        trl::register_en("使能评估", "Assessment enabled");
-        trl::register_en("禁止评估", "Assessment disabled");
+        // 信标机制切换条目(表33)
         trl::register_en("固定信标机制", "Fixed beacon mechanism");
         trl::register_en("竞争信标机制", "Contention beacon mechanism");
         trl::register_en("发现信标", "Discovery Beacon");

@@ -31,12 +31,12 @@ enum class GW_2026_BeaconItemType : quint8 {
     STA_CAPABILITY       = 0x00,  ///< 站点能力条目
     ROUTE_PARAMETER      = 0x01,  ///< 路由参数条目
     BAND_CHANGE          = 0x02,  ///< 频段变更条目
-    RF_ROUTE_PARAMETER   = 0x03,  ///< 无线路由参数条目
+    // 0x03 保留(V6 表23;旧版无线路由参数条目已删除)
     RF_CHANNEL_CHANGE    = 0x04,  ///< 无线信道变更条目
     LITE_STA_INFO_SLOT   = 0x05,  ///< 精简信标站点信息及时隙条目
-    PERPETUAL_CALENDAR   = 0x06,  ///< 万年历条目(表34,可选)
-    CHANNEL_ASSESS_PARAM = 0x07,  ///< 信道评估参数条目(表35,可选)
-    BEACON_SWITCH        = 0x08,  ///< 信标机制切换条目(表36,可选)
+    PERPETUAL_CALENDAR   = 0x06,  ///< 万年历条目
+    BEACON_SWITCH        = 0x07,  ///< 信标机制切换条目
+    // 0x08-0xBF 保留
     TIME_SLOT_ALLOCATION = 0xC0,  ///< 时隙分配条目(TSA)
     PROXY_ROLE           = 0xC1,  ///< 代理角色条目(表37,可选)
     DISCOVER_LIST        = 0xC2,  ///< 发现列表条目(表38,可选)

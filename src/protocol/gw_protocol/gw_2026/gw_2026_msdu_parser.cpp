@@ -836,7 +836,7 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
             auto& g = group(out.tree, QStringLiteral("IE[%1] Station Attribute [%2B]").arg(ie_idx).arg(elen));
             g.rel_start = content_abs; g.rel_len = elen;
             if (carrier) {
-                // 载波发现列表(msg_type 2)站点属性:HDC2.0 4-2 表57 23B
+                // 载波发现列表(msg_type 1)站点属性:HDC2.0 4-2 表57 23B
                 add_fields(g.children, content, 0, kCarrierRfdlAttrSpec, kCarrierRfdlAttrSpecN, content_abs);
                 // 截断 IE(<17B,最后读 MinCommRate@byte16)不采拓扑——越界读 0 会被当成
                 // 0% 成功率写进节点,TEI→MAC 学习也一并跳过(elen=8 时 sender_tei 读真值也会学进假对);
@@ -1221,12 +1221,11 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
     if (simple) {
         out.simple_head = true;
         add_fields(out.tree, body, 0, kMsduBaseSSpec, kMsduBaseSSpecN);
-        // 消息类型简头字典(表3/5.1.1.4):0 无线发现列表 1 信道评估参数更新
-        // 2 载波发现列表 3-127 保留(管理扩展) 128 应用层 129 IPv4
+        // 消息类型简头字典(表3):0 无线发现列表 1 载波发现列表
+        // 2-127 保留(管理扩展) 128 应用层 129 IPv4
         translate_enum_sparse(out.tree, "MSDUType", {
             {0, QStringLiteral("Discovery List Message")},
-            {1, QStringLiteral("Channel Evaluation Param Update")},
-            {2, QStringLiteral("Carrier Discovery List Message")},
+            {1, QStringLiteral("Carrier Discovery List Message")},
             {128, QStringLiteral("Application Level Message")},
             {129, QStringLiteral("IPv4 Message")},
         });
@@ -1236,18 +1235,14 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
         QByteArray msdu_body = body.mid(4, msdu_len);
         const auto st = static_cast<GW_2026_MsduSType>(msdu_type);
         if (st == GW_2026_MsduSType::DISCOVERY_LIST) {
-            // 消息类型0 = 无线发现列表(HDC2.0 4-2 表91),按 TLV 逐字段解析
+            // 消息类型0 = 无线发现列表(HDC2.0 4-2 表84),按 TLV 逐字段解析
             out.summary = trl::L("发现列表消息");
             parse_rfdl(out, msdu_body, 4, /*carrier=*/false);   // RFDL 载荷自单跳头(4B)之后
         } else if (st == GW_2026_MsduSType::CARRIER_DISCOVERY) {
-            // 消息类型2 = 载波发现列表(HDC2.0 4-2 表56),结构与无线版同构,
+            // 消息类型1 = 载波发现列表(HDC2.0 4-2 表56),结构与无线版同构,
             // 差异仅在组合类型表(HDC2.0 4-2 表62/表70 多 BRU 变体 combo10/11)
             out.summary = trl::L("载波发现列表消息");
             parse_rfdl(out, msdu_body, 4, /*carrier=*/true);
-        } else if (st == GW_2026_MsduSType::CHANNEL_EVAL) {
-            // 消息类型1 = 信道评估参数更新报文(表99-101)
-            out.summary = trl::L("信道评估参数更新");
-            parse_channel_eval(out, msdu_body, 4);
         } else {
             out.summary = trl::L("单跳 MSDU 类型 %1").arg(msdu_type);
         }
@@ -1267,6 +1262,7 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                                         msdu_len + 4);
                 MsduFieldNode crc;
                 crc.name = QStringLiteral("MSDU CRC32");
+            // 2-127 保留(用于管理消息类型扩展)、128 应用层、129 IPv4
                 crc.value = QStringLiteral("0x%1 %2")
                     .arg(stored, 8, 16, QChar('0'))
                     .arg(stored == calc ? QStringLiteral("OK") : QStringLiteral("FAIL"));

@@ -153,6 +153,186 @@ static void assert_case(const char* tag, const PacketEntry& e, int want,
     }
 }
 
+// 递归查找字段树中名字以 prefix 开头的节点值(空=未找到)
+static QString find_value(const QVector<MsduFieldNode>& nodes, const QString& prefix) {
+    for (const MsduFieldNode& n : nodes) {
+        if (n.name.startsWith(prefix)) return n.value;
+        const QString r = find_value(n.children, prefix);
+        if (!r.isEmpty()) return r;
+    }
+    return QString();
+}
+static bool find_name(const QVector<MsduFieldNode>& nodes, const QString& piece) {
+    for (const MsduFieldNode& n : nodes) {
+        if (n.name.contains(piece)) return true;
+        if (find_name(n.children, piece)) return true;
+    }
+    return false;
+}
+static bool any_value_contains(const QVector<MsduFieldNode>& nodes, const QString& piece) {
+    for (const MsduFieldNode& n : nodes) {
+        if (n.value.contains(piece)) return true;
+        if (any_value_contains(n.children, piece)) return true;
+    }
+    return false;
+}
+
+// 构造 GW_2026 载波信标帧(TMI=2/PB136),附带任意管理条目。
+// items: 每一项 = {head, 内容字节};head>=0xC0 走 2B 长度,否则 1B。内容须落前 129B。
+static QByteArray gw_beacon_with_items(
+    const QList<QPair<quint8, QByteArray>>& items) {
+    QByteArray mpdu(16 + 136, 0);
+    quint8* p = reinterpret_cast<quint8*>(mpdu.data());
+    p[0] = 0x00;
+    set_bits(p, 1, 0, 24, 0x1234);
+    set_bits(p, 8, 0, 12, 1);
+    set_bits(p, 9, 4, 4, 2);                     // TMI=2 -> PB 136
+    set_bits(p, 10, 0, 9, 300);
+    set_bits(p, 11, 1, 2, 2);
+    set_bits(p, 12, 4, 4, 1);                    // version=1 HDC2.0
+    fix_fch_crc(p);
+    quint8* gb = p + 16;
+    gb[1] = 1;
+    put_u48le(gb + 2, 0xAABBCCDDEE01ULL);
+    put_u32le(gb + 8, 1);
+    gb[15] = 0;                                  // V6 表21 统计序号
+    gb[16] = quint8(items.size());               // ItemNum(固定头 16B)
+    int o = 17;
+    for (const auto& it : items) {
+        const quint8 head = it.first;
+        const QByteArray& content = it.second;
+        gb[o++] = head;
+        if (head >= 0xC0) {                      // 2B 长度:len_raw = 内容 + 3
+            const quint16 len_raw = quint16(content.size() + 3);
+            gb[o++] = quint8(len_raw & 0xFF);
+            gb[o++] = quint8((len_raw >> 8) & 0xFF);
+        } else {                                  // 1B 长度:len_raw = 内容 + 2
+            gb[o++] = quint8(content.size() + 2);
+        }
+        std::memcpy(gb + o, content.constData(), size_t(content.size()));
+        o += content.size();
+    }
+    put_u32le(gb + 129, crc32_le(gb, 133));       // 载荷 CRC32(覆盖前 129B)
+    quint8* blk = p + 16;
+    put_u32le(blk + 133, 0);
+    const quint32 pb = crc24_lsb(blk, 136);
+    blk[133] = quint8(pb & 0xFF); blk[134] = quint8((pb >> 8) & 0xFF);
+    blk[135] = quint8((pb >> 16) & 0xFF);
+    return mpdu;
+}
+
+// 走完整解析器解析 GW_2026 载波信标,返回 beacon(树/对/摘要)
+static MsduInfo parse_gw2026_beacon(const QByteArray& mpdu) {
+    GW_2026_Parser parser;
+    BplcFrame in; in.meta.from_raw = true;
+    in.data = QByteArray(1, char(0)) + mpdu;
+    MsduState st; ParseFilter f;
+    const ParseResult r = parser.parse(in, st, f);
+    return r.beacon;
+}
+
+static void h3456_items_cases() {
+    // --- H3 信标条目类型:0x07 应为「信标机制切换条目」,0x03 应显示「保留」 ---
+    {
+        QByteArray sw(5, 0);
+        set_bits(reinterpret_cast<quint8*>(sw.data()), 0, 0, 8, 1);          // 竞争信标机制
+        set_bits(reinterpret_cast<quint8*>(sw.data()), 1, 0, 32, 0x12345678u);
+        const QByteArray rsv(2, 0);                                          // 0x03 保留条目
+        const MsduInfo b = parse_gw2026_beacon(gw_beacon_with_items({
+            {0x03, rsv}, {0x07, sw}
+        }));
+        check("H3 beacon-switch(0x07) head name",
+              any_value_contains(b.tree, QStringLiteral("Beacon Mechanism Switch")));
+        check("H3 beacon-switch(0x07) has TargetMechanismID",
+              find_name(b.tree, QStringLiteral("TargetMechanismID")));
+        check("H3 beacon-switch(0x07) NOT ChannelAssess",
+              !find_name(b.tree, QStringLiteral("Assess")));
+        check("H3 0x03 reserved head",
+              find_value(b.tree, QStringLiteral("ItemHead")).contains(QStringLiteral("Reserved")));
+    }
+    // --- H4 路由参数条目 0x01:16+16+8+8+8+8 = 8B ---
+    {
+        QByteArray rp(8, 0);
+        quint8* it = reinterpret_cast<quint8*>(rp.data());
+        set_bits(it, 0, 0, 16, 80);            // RoutePeriod s
+        set_bits(it, 2, 0, 16, 17);            // NextRouteEstimationTime s
+        it[4] = 12;                            // DiscoveryListPeriod s
+        it[5] = 5;                             // RcvRateAgePeriodNum
+        it[6] = 30;                            // RfDiscoveryListPeriod s
+        it[7] = 7;                             // RfRateAgePeriodNum
+        const MsduInfo b = parse_gw2026_beacon(gw_beacon_with_items({{0x01, rp}}));
+        check("H4 route-param has DiscoveryListPeriod",
+              find_name(b.tree, QStringLiteral("DiscoveryListPeriod")));
+        check("H4 route-param has RcvRateAgePeriodNum",
+              find_name(b.tree, QStringLiteral("RcvRateAgePeriodNum")));
+        check("H4 route-param has RfRateAgePeriodNum",
+              find_name(b.tree, QStringLiteral("RfRateAgePeriodNum")));
+        check("H4 route-param DiscoveryListPeriod=12",
+              find_value(b.tree, QStringLiteral("DiscoveryListPeriod")).contains(QStringLiteral("12")));
+    }
+    // --- H5 TSA CSMA 时隙:表29 每条 3B(长度 16bit) ---
+    {
+        QByteArray tsa(17 + 3, 0);             // 17B 头 + 1 条 CSMA 3B
+        quint8* it = reinterpret_cast<quint8*>(tsa.data());
+        set_bits(it, 1, 4, 2, 1);              // CSMA 相线个数=1
+        set_bits(it, 1, 6, 2, 0);              // 绑定=0
+        set_bits(it, 17, 0, 16, 25);           // CSMA 时隙长度 25ms
+        set_bits(it, 19, 0, 2, 2);             // 相线 B
+        const MsduInfo b = parse_gw2026_beacon(gw_beacon_with_items({{0xC0, tsa}}));
+        check("H5 TSA has CSMA Slot Len [16b]",
+              find_name(b.tree, QStringLiteral("CSMA Slot Len [16b]")));
+        check("H5 TSA CSMA len=25ms",
+              find_value(b.tree, QStringLiteral("CSMA Slot Len")).contains(QStringLiteral("25")));
+        check("H5 TSA no [24b] residue",
+              !find_name(b.tree, QStringLiteral("[24b]")));
+    }
+    // --- H6 代理角色 0xC1:TEI 自 bit8 起 12bit 打包 ---
+    {
+        QByteArray pr(4, 0);                   // 数量 1B + 2×TEI 12b(3B)
+        quint8* it = reinterpret_cast<quint8*>(pr.data());
+        it[0] = 2;                             // 代理站点总数
+        set_bits(it, 1, 0, 12, 0x321);         // TEI1 = byte1 bit0-7 + byte2 bit0-3
+        set_bits(it, 2, 4, 12, 0x654);         // TEI2 = byte2 bit4-7 + byte3 bit0-7
+        const MsduInfo b = parse_gw2026_beacon(gw_beacon_with_items({{0xC1, pr}}));
+        check("H6 proxy TEI1=0x321",
+              find_value(b.tree, QStringLiteral("ProxyTEI[1]")).contains(QStringLiteral("801")));
+        check("H6 proxy TEI2=0x654",
+              find_value(b.tree, QStringLiteral("ProxyTEI[2]")).contains(QStringLiteral("1620")));
+    }
+    // --- M6 站点能力条目 PCOBRUSNR(表24,13-16,32b) 档位渲染 ---
+    // 8×4bit:BRU0=1(-10~-7dB])、BRU1=15(32~35dB])、BRU2-7=0(Invalid)。
+    {
+        QByteArray cap(17, 0);                 // 覆盖 byte13-16 PCOBRUSNR
+        quint8* it = reinterpret_cast<quint8*>(cap.data());
+        set_bits(it, 0, 0, 12, 5);             // TEI 5
+        put_u32le(it + 13, 0x000000F1);        // PCOBRUSNR = BRU0=1, BRU1=15, 余 0
+        const MsduInfo b = parse_gw2026_beacon(gw_beacon_with_items({{0x00, cap}}));
+        const QString pbr = find_value(b.tree, QStringLiteral("PCOBRUSNR"));
+        check("M6 PCOBRUSNR has Invalid for 0", pbr.contains(QStringLiteral("Invalid")));
+        check("M6 PCOBRUSNR BRU0=-10~-7", pbr.contains(QStringLiteral("-10~-7dB]")));
+        check("M6 PCOBRUSNR BRU1=32~35", pbr.contains(QStringLiteral("32~35dB]")));
+    }
+    // --- L1 载波信标 FC 符号数(表5 (11,3,1),1bit:0标准/1长) ---
+    // 旧代码读 2bit(11,3,2),当 (11,3)=1 且 (11,4)=1 时会读成 3(bit3+bit4<<1);
+    // 新代码读 1bit=1。bit4 属保留域,置 1 不改变合法 FC 语义。
+    {
+        QByteArray mpdu = gw_beacon_with_items({});
+        quint8* p = reinterpret_cast<quint8*>(mpdu.data());
+        set_bits(p, 11, 3, 1, 1);          // FC 符号数 = 1(长 FC)
+        set_bits(p, 11, 4, 1, 1);          // 保留 bit4 = 1(旧 2bit 误读触发位)
+        fix_fch_crc(p);
+        GW_2026_Parser parser;
+        BplcFrame in; in.meta.from_raw = true;
+        in.data = QByteArray(1, char(0)) + mpdu;
+        MsduState st; ParseFilter f;
+        const ParseResult r = parser.parse(in, st, f);
+        check("L1 beacon-fch-sym==1 (1bit, not 2bit==3)",
+              r.mpdu.beacon_fch_sym == 1);
+        check("L1 beacon-line==2", r.mpdu.beacon_line == 2);
+        check("L1 beacon accepted", r.accept);
+    }
+}
+
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     // GW:完整解析器(载波信标)。version 0 走 GW2022,version 1 走 GW2026。
@@ -207,6 +387,9 @@ int main(int argc, char** argv) {
             check(tag, e.beacon.tei_mac_pairs.isEmpty());
         }
     }
+
+    // H3/H4/H5/H6 条目级 V6 构造测试帧
+    h3456_items_cases();
 
     std::printf(g_fails ? "RESULT: %d FAIL\n" : "RESULT: ALL PASS\n", g_fails);
     return g_fails ? 1 : 0;

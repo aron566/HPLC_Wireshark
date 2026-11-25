@@ -113,14 +113,12 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
                 if (si == 0) {
                     st.tei = info.dst_tei;                 // 表10 (5,4,12) 站点0 TEI = 目的 TEI
                     copy_mode = (quint8)get_bits_unchecked(p, 11, 3, 5);           // 表10 (11,3,5)
-                    if (is_ofdma) st_pb_num = (quint8)(get_bits_unchecked(p, 11, 2, 1) + 1);  // 表10 (11,2,1):0→1块 1→2块
                 } else {
                     const int b = is_ofdma ? (16 + (si - 1) * 3) : (16 + (si - 1) * 4);
                     st.tei = (quint16)get_bits_unchecked(p, b, 0, 12);             // 表11/13 各站 TEI (b,0,12)
                     copy_mode = is_ofdma
                                 ? (quint8)get_bits_unchecked(p, b + 2, 0, 5)       // 表11 (b+2,0,5)
                                 : (quint8)get_bits_unchecked(p, b + 3, 0, 5);      // 表13 (b+3,0,5)
-                    if (is_ofdma) st_pb_num = (quint8)(get_bits_unchecked(p, b + 2, 5, 1) + 1);  // 表11 (b+2,5,1)
                 }
                 st.copy_mode = copy_mode;
                 st.pb_num    = st_pb_num;

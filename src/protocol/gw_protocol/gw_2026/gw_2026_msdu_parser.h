@@ -90,9 +90,8 @@ enum class GW_2026_MsduType : quint8 {
 
 /// @brief 简头消息类型取值(MSDU_BASE_S.消息类型,8bit,表3/5.1.1.4)
 enum class GW_2026_MsduSType : quint8 {
-    DISCOVERY_LIST    = 0x00,  // 无线发现列表消息(表3;载荷=表84 无线发现列表报文)
-    CHANNEL_EVAL      = 0x01,  // 信道评估参数更新报文(表3;载荷=表99-101)
-    CARRIER_DISCOVERY = 0x02,  // 载波发现列表消息(表3;载荷=表56 载波发现列表报文,表62/70 含 BRU 变体)
+    DISCOVERY_LIST    = 0x00,  // 无线发现列表消息(表3;载荷=表84)
+    CARRIER_DISCOVERY = 0x01,  // 载波发现列表消息(表3;载荷=表56,组合表62/70)
     APPLICATION       = 0x80,  // 应用层消息 (128)
     IPV4              = 0x81,  // IPv4 消息 (129)
 };

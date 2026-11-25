@@ -161,9 +161,9 @@ def gather_body():
     return bytes(b)
 
 
-def discover_body(msdu_type=2, tamper_icv=False, truncate_icv=0):
-    # single-hop header: version 1 (byte0 low 4b), type 2 (carrier) or 0
-    # (wireless; HDC 1.0 simple-head table 12 has no carrier type), len 11b
+def discover_body(msdu_type=1, tamper_icv=False, truncate_icv=0):
+    # single-hop header: version 1 (byte0 low 4b), type 1 (carrier) or 0
+    # (wireless); V6 表3:0 无线发现/1 载波发现/2-127 保留
     disc = bytearray()
     disc += mac_bytes(0xAABBCCDDEE09)  # sender MAC
     disc.append(1)  # seq
@@ -195,30 +195,30 @@ def app_msdu(dst_tei, dst_mac):
 
 
 def ofdma_frame():
-    total = 16 + 16 + 3 * 136
+    # V6 表10/11:OFDMA 下行,2 站,每站恒 1 块 136B(分集拷贝模式 2;V6 无「站点 PB 个数」字段)
+    total = 16 + 16 + 2 * 136
     f = bytearray(total)
     f[0:16] = fch_base(2, 2)
-    set_bits(f, 7, 3, 2, 1)   # 2 stations
-    set_bits(f, 7, 5, 3, 2)   # TF symbol num
-    set_bits(f, 9, 4, 2, 1)   # FCH symbol num
-    set_bits(f, 9, 6, 9, 212)
-    set_bits(f, 10, 7, 3, 2)  # eFC symbol num
-    set_bits(f, 11, 2, 1, 1)  # sta0 PB num bit -> 2 blocks
-    set_bits(f, 11, 3, 5, 2)  # sta0 DivCopy -> 136
-    set_bits(f, 12, 0, 4, 5)  # sta0 RU
+    set_bits(f, 7, 3, 2, 1)   # 站点数 (表10 (7,3,2)):1 -> 2 站
+    set_bits(f, 7, 5, 3, 2)   # TF 符号数
+    set_bits(f, 9, 4, 2, 1)   # FC 符号数 (表10 (9,4,2))
+    set_bits(f, 9, 6, 9, 212) # 数据载荷符号数 (表10 (9,6,9) 跨字节)
+    set_bits(f, 10, 7, 1, 0)  # 加密标志 (表10 (10,7,1))
+    set_bits(f, 11, 0, 3, 2)  # eFC 符号数 (表10 (11,0,3))
+    set_bits(f, 11, 3, 5, 2)  # 站点0 TMI (表10 (11,3,5)) -> 136
+    set_bits(f, 12, 0, 4, 5)  # 站点0 RU (表10 (12,0,4))
     set_bits(f, 12, 4, 4, 1)  # std version
     store_crc24(f, 0, 16)
-    set_bits(f, 16, 0, 12, 3)  # sta1 TEI
-    set_bits(f, 17, 4, 4, 6)   # sta1 RU
-    set_bits(f, 18, 0, 5, 2)   # sta1 DivCopy -> 136
-    set_bits(f, 18, 5, 1, 0)   # sta1 PB num -> 1 block
-    store_crc24(f, 16, 16)     # eFC FCS
+    set_bits(f, 16, 0, 12, 3)  # sta1 TEI (表11 (16,0,12))
+    set_bits(f, 17, 4, 4, 6)   # sta1 RU (表11 (17,4,4))
+    set_bits(f, 18, 0, 5, 2)   # sta1 TMI/分集拷贝 (表11 (18,0,5)) -> 136
+    # sta1 RSV (表11 (18,5,3)) = 0
+    store_crc24(f, 16, 16)     # eFC FCS -> bytes 29..31
     sta0 = app_msdu(2, 0xAABBCCDDEE02)
     sta1 = app_msdu(3, 0xAABBCCDDEE03)
     off = 32
-    for head, chunk in ((0x40, sta0[:132]), (0x81, sta0[132:264]),
-                        (0xC0, sta1)):
-        f[off:off + 136] = build_pb_block(head, chunk, 136)
+    for chunk in (sta0, sta1):
+        f[off:off + 136] = build_pb_block(0xC0, chunk, 136)
         off += 136
     assert off == total
     return bytes(f)
