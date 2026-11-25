@@ -35,19 +35,15 @@ NW_2026_Parser::NW_2026_Parser() {
 }
 
 /// @brief BPLC 版帧委托解析(标准版本号≠2 的整帧转交)
-/// @details 内置 NW_2021_Parser 走 parse_inner(不做显示时间判定,委托方统一做,
-///          与改动前 m_legacy.parse_inner 完全一致);影子解析器走公开 parse()
-///          并转发显示上下文。
+/// @details 委托恒走内置 NW_2021_Parser::parse_inner(不做显示时间判定,委托方统一做,
+///          与改动前 m_legacy.parse_inner 完全一致);no-shadow 规则下影子解析器
+///          不可能出现,故无公开 parse() 分支。
 NW_2026_Parser::Result NW_2026_Parser::parse_legacy(const BplcFrame& in,
                                                    MsduState& msdu,
                                                    const Filter& f) {
     if (m_legacy_nw2021)
         return m_legacy_nw2021->parse_inner(in, msdu, f);
-    if (m_legacy) {
-        m_legacy->set_display_context(m_display_ctx);
-        return m_legacy->parse(in, msdu, f);
-    }
-    // 不可达:构造时已保证 m_legacy 非空;防御性回退
+    // 不可达:构造时已保证 m_legacy 为内置 NW_2021_Parser;防御性回退
     NW_2021_Parser fallback;
     return fallback.parse_inner(in, msdu, f);
 }

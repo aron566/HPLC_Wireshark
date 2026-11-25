@@ -1,11 +1,13 @@
 /// @file protocolfactory.cpp
 /// @brief 协议注册表实现(分层:内置层 + 插件覆盖层)+ 字段树构建器工厂
 /// @details 本文件不认识任何具体协议:内置协议由各自 <proto>_provider.cpp
-///          静态自注册(归属为空 → 内置层),插件协议由 PluginManager 注册
-///          (归属为插件 protocol_id → 覆盖层)。新增协议版本时本文件无需改动。
+///          静态自注册(归属为空 → 内置层),插件协议由 PluginManager 在握手时
+///          注册(归属为插件 protocol_id → 覆盖层)。新增协议版本时本文件无需改动。
 ///          内置层只读:写内置层拒绝覆盖已登记的内置 id(A-7 守卫),注销只删
-///          覆盖层,插件永远删不掉内置协议;影子覆盖内置同名 id 是经批准的
-///          覆盖层路径,注册时告警并带归属插件 id(A4)。
+///          覆盖层,插件永远删不掉内置协议;no-shadow(用户 2026-11-20 定):
+///          影子覆盖路径已去掉,覆盖层只许注册新 id,注册内置 id 直接拒绝并告警
+///          (A4);与内置同名共存只能走外置路径(register_external_protocol),
+///          Ext 条目永不参与按 id 的查找,按 id 查找恒为内置优先。
 #include "protocolfactory.h"
 #include "protocol_tree_builder.h"
 
@@ -30,7 +32,9 @@ struct OverrideEntry {
     int                 ref_count = 0;
 };
 
-/// @brief 插件覆盖层:插件协议(含影子覆盖内置同名 id 的条目),随插件装卸增删
+/// @brief 插件覆盖层:插件协议(新 id 或与内置同名共存的 Ext 条目),随插件装卸增删
+/// @details 条目以 (协议 id + 归属) 区分:同 id 至多一条,先到先得;Ext 条目与内置
+///          同名时并列存在,按 id 查找恒取内置(见 find_protocol_locked)。
 QMap<QString, OverrideEntry>& override_registry() {
     static QMap<QString, OverrideEntry> r;
     return r;
@@ -42,7 +46,7 @@ QMutex& registry_mutex() {
 }
 
 /// @brief 内置协议 id 静态名单(四内置变体,与注册表内容无关)
-/// @details A-7 守卫与 A4 影子告警的判定依据:不依赖内置层是否已登记,
+/// @details A-7 守卫与 no-shadow 拒绝的判定依据:不依赖内置层是否已登记,
 ///          单测只链接本文件时同样生效。
 bool is_builtin_id(const QString& id_upper) {
     static const QStringList kBuiltinIds = {
@@ -50,6 +54,17 @@ bool is_builtin_id(const QString& id_upper) {
         QStringLiteral("GW_2026"), QStringLiteral("NW_2026"),
     };
     return kBuiltinIds.contains(id_upper);
+}
+
+/// @brief 按 id 查协议(调用方已持锁):内置优先、其次覆盖层
+/// @details no-shadow 的第二道防线:即使覆盖层里有内置同名 Ext 条目,按 id
+///          查找也恒取内置;插件新 id 无内置可取时才落到覆盖层。
+ProtocolProviderPtr find_protocol_locked(const QString& id_upper) {
+    auto bit = builtin_registry().find(id_upper);
+    if (bit != builtin_registry().end()) return bit.value();
+    auto oit = override_registry().find(id_upper);
+    return (oit == override_registry().end()) ? ProtocolProviderPtr()
+                                               : oit->provider;
 }
 
 /// @brief 仅提供解析器的协议(插件协议用)
@@ -115,11 +130,21 @@ bool register_override_protocol(ProtocolProviderPtr provider,
     if (!provider) return false;
     const QString id = provider->id().toUpper();
     if (id.isEmpty()) return false;
+    if (is_builtin_id(id)) {
+        // no-shadow(A4:拒绝 + 告警):影子覆盖路径已去掉,覆盖层只许注册新 id;
+        // 与内置同名共存请走外置路径 register_external_protocol
+        qWarning() << "register_protocol refuses shadow of builtin protocol" << id
+                   << "(rejected owner:"
+                   << (owner_plugin_id.isEmpty() ? QStringLiteral("<unknown>")
+                                                 : owner_plugin_id)
+                   << ")";
+        return false;
+    }
     QMutexLocker l(&registry_mutex());
     auto it = override_registry().find(id);
     if (it != override_registry().end()) {
         if (it->owner_plugin_id != owner_plugin_id) {
-            // 后注册拒绝:先到先得,不同归属抢占已被影子的 id 直接拒绝
+            // 后注册拒绝:先到先得,不同归属抢占已登记的 id 直接拒绝
             qWarning() << "register_protocol refuses override of protocol" << id
                        << "owned by plugin" << it->owner_plugin_id
                        << "(rejected owner:" << owner_plugin_id << ")";
@@ -129,13 +154,35 @@ bool register_override_protocol(ProtocolProviderPtr provider,
         it->provider = std::move(provider);
         return true;
     }
-    if (is_builtin_id(id)) {
-        // A4:影子覆盖告警,带归属插件 id(两插件撞同一 id 时可分清是谁覆盖的)
-        qWarning() << "plugin protocol" << id
-                   << "shadows builtin protocol (override layer), owner plugin:"
-                   << (owner_plugin_id.isEmpty() ? QStringLiteral("<unknown>")
-                                                 : owner_plugin_id);
+    OverrideEntry entry;
+    entry.provider = std::move(provider);
+    entry.owner_plugin_id = owner_plugin_id;
+    entry.ref_count = 1;
+    override_registry().insert(id, std::move(entry));
+    return true;
+}
+
+bool register_external_protocol(ProtocolProviderPtr provider,
+                                const QString& owner_plugin_id) {
+    if (!provider) return false;
+    const QString id = provider->id().toUpper();
+    if (id.isEmpty()) return false;
+    QMutexLocker l(&registry_mutex());
+    auto it = override_registry().find(id);
+    if (it != override_registry().end()) {
+        if (it->owner_plugin_id != owner_plugin_id) {
+            // 后注册拒绝:先到先得,不同归属抢占已登记的 id 直接拒绝
+            qWarning() << "register_protocol refuses external protocol" << id
+                       << "owned by plugin" << it->owner_plugin_id
+                       << "(rejected owner:" << owner_plugin_id << ")";
+            return false;
+        }
+        it->ref_count += 1;
+        it->provider = std::move(provider);
+        return true;
     }
+    // Ext 条目与内置同名是经批准的共存(不告警):它永不参与按 id 的查找,
+    // 只经按归属查找取用,下拉框里与内置并列显示并带 " (Ext)" 标记
     OverrideEntry entry;
     entry.provider = std::move(provider);
     entry.owner_plugin_id = owner_plugin_id;
@@ -190,19 +237,16 @@ int override_ref_count(const QString& protocol_id) {
 QVector<ProtocolProviderPtr> registered_protocols() {
     QVector<ProtocolProviderPtr> out;
     QMutexLocker l(&registry_mutex());
-    // 内置在前:内置层 id 按 (order, id) 排,影子覆盖的 id 只出现一次
-    // (取覆盖层生效条目,位置仍按内置 order)。
+    // 内置在前:内置层 id 按 (order, id) 排;同名 Ext 条目不替换内置,
+    // 而是与内置并列出现在覆盖层一段(下拉框据此显示两条,各带归属)。
     QVector<ProtocolProviderPtr> builtins = builtin_registry().values().toVector();
     std::sort(builtins.begin(), builtins.end(),
               [](const ProtocolProviderPtr& a, const ProtocolProviderPtr& b) {
                   if (a->order() != b->order()) return a->order() < b->order();
                   return a->id() < b->id();
               });
-    for (const ProtocolProviderPtr& b : builtins) {
-        auto it = override_registry().find(b->id().toUpper());
-        out.append((it == override_registry().end()) ? b : it->provider);
-    }
-    // 覆盖层独有 id(非影子)在后,同样按 (order, id) 排
+    for (const ProtocolProviderPtr& b : builtins) out.append(b);
+    // 覆盖层全部条目在后,同样按 (order, id) 排(含与内置同名的 Ext 条目)
     QVector<OverrideEntry> overrides = override_registry().values().toVector();
     std::sort(overrides.begin(), overrides.end(),
               [](const OverrideEntry& a, const OverrideEntry& b) {
@@ -210,20 +254,30 @@ QVector<ProtocolProviderPtr> registered_protocols() {
                       return a.provider->order() < b.provider->order();
                   return a.provider->id() < b.provider->id();
               });
-    for (const OverrideEntry& e : overrides) {
-        if (!builtin_registry().contains(e.provider->id().toUpper()))
-            out.append(e.provider);
-    }
+    for (const OverrideEntry& e : overrides) out.append(e.provider);
     return out;
 }
 
 ProtocolProviderPtr find_protocol(const QString& protocol_id) {
     QMutexLocker l(&registry_mutex());
+    return find_protocol_locked(protocol_id.toUpper());
+}
+
+ProtocolProviderPtr find_protocol_for_owner(const QString& protocol_id,
+                                            const QString& owner_plugin_id) {
+    QMutexLocker l(&registry_mutex());
     const QString id = protocol_id.toUpper();
-    auto oit = override_registry().find(id);
-    if (oit != override_registry().end()) return oit->provider;
-    auto bit = builtin_registry().find(id);
-    return (bit == builtin_registry().end()) ? ProtocolProviderPtr() : bit.value();
+    if (!owner_plugin_id.isEmpty()) {
+        auto oit = override_registry().find(id);
+        if (oit != override_registry().end()
+            && oit->owner_plugin_id == owner_plugin_id)
+            return oit->provider;
+        // 归属条目不存在(插件已卸载/未注册):只回退同 id 内置,绝不取另一归属的条目
+        auto bit = builtin_registry().find(id);
+        return (bit == builtin_registry().end()) ? ProtocolProviderPtr()
+                                                 : bit.value();
+    }
+    return find_protocol_locked(id);
 }
 
 QStringList registered_protocol_ids() {
@@ -238,11 +292,36 @@ std::unique_ptr<IProtocolParser> make_parser_by_id(const QString& protocol_id) {
     return p ? p->create_parser() : nullptr;
 }
 
+std::unique_ptr<IProtocolParser> make_parser_by_id_for_owner(
+    const QString& protocol_id, const QString& owner_plugin_id) {
+    ProtocolProviderPtr p = find_protocol_for_owner(protocol_id, owner_plugin_id);
+    return p ? p->create_parser() : nullptr;
+}
+
+QString encode_protocol_selection(const QString& protocol_id,
+                                  const QString& owner_plugin_id) {
+    const QString id = protocol_id.toLower();
+    if (owner_plugin_id.isEmpty()) return id;
+    return id + QStringLiteral("@") + owner_plugin_id;
+}
+
+ProtocolSelection decode_protocol_selection(const QString& encoded) {
+    ProtocolSelection sel;
+    const int at = encoded.indexOf(QLatin1Char('@'));
+    if (at < 0) {
+        sel.protocol_id = encoded.toUpper();
+        return sel;
+    }
+    sel.protocol_id = encoded.left(at).toUpper();
+    sel.owner_plugin_id = encoded.mid(at + 1);
+    return sel;
+}
+
 /// @brief 按变体创建字段树构建器(声明在 protocol_tree_builder.h)
 /// @details 取第一个"变体匹配且确实提供构建器"的协议;内置层优先于覆盖层——
-///          影子覆盖只换解析器,不换字段树(插件协议本就不提供 QTreeWidget 构建器)。
-///          注意:不能直接遍历 registered_protocols(),因为影子 id 在那里取覆盖层
-///          生效条目,会抢在内置之前。
+///          插件协议不提供 QTreeWidget 构建器,故 Ext 条目也抢不走字段树。
+///          注意:不能直接遍历 registered_protocols(),因为同名 Ext 条目在那里
+///          与内置并列,须显式先内置后覆盖。
 std::unique_ptr<IProtocolTreeBuilder> make_tree_builder(ProtocolVariant v) {
     QVector<ProtocolProviderPtr> builtins;
     QVector<ProtocolProviderPtr> overrides;
@@ -279,6 +358,18 @@ bool register_parser_provider(const QString& protocol_id,
                               int order,
                               const QString& owner_plugin_id) {
     return register_override_protocol(
+        std::make_shared<ParserOnlyProvider>(protocol_id, display_zh, display_en,
+                                             order, std::move(fn), owner_plugin_id),
+        owner_plugin_id);
+}
+
+bool register_external_parser_provider(const QString& protocol_id,
+                                       const QString& display_zh,
+                                       const QString& display_en,
+                                       ParserFactoryFn fn,
+                                       int order,
+                                       const QString& owner_plugin_id) {
+    return register_external_protocol(
         std::make_shared<ParserOnlyProvider>(protocol_id, display_zh, display_en,
                                              order, std::move(fn), owner_plugin_id),
         owner_plugin_id);

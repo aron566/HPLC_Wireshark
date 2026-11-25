@@ -40,13 +40,11 @@ private:
     /// @brief BPLC 版委托解析器(标准版本号≠2 帧整帧转交;见 parse() 版本自适应段)
     /// @details 构造时经注册表 make_parser_by_id("NW_2021") 取实例缓存,免逐帧
     ///          栈上构造;解析器由 DispatcherWorker 单线程持有,成员缓存无并发问题。
-    ///          委托走注册表是默认选择(用户 review 时确认或推翻):影子覆盖对
-    ///          NW_2026 的 BPLC 版帧同样生效。注册表取不到时(如单测只链接本解析器)
-    ///          回退直接构造 NW_2021_Parser,解析行为不变。
-    ///          委托走 NW_2021_Parser::parse_inner(不做显示时间判定,委托方统一做);
-    ///          影子解析器非 NW_2021_Parser 时走公开 parse() 并转发显示上下文。
+    ///          no-shadow:注册表取到的恒为内置 NW_2021_Parser,故 m_legacy_nw2021
+    ///          恒非空;注册表取不到时回退直接构造 NW_2021_Parser,解析行为不变。
+    ///          委托走 NW_2021_Parser::parse_inner(不做显示时间判定,委托方统一做)。
     std::unique_ptr<IProtocolParser> m_legacy;
-    NW_2021_Parser* m_legacy_nw2021 = nullptr;  ///< m_legacy 的 NW_2021_Parser 视图(影子覆盖时为空)
+    NW_2021_Parser* m_legacy_nw2021 = nullptr;  ///< m_legacy 的 NW_2021_Parser 视图
     Result parse_legacy(const BplcFrame& in, MsduState& msdu, const Filter& f);
 
     // ---- UL-OFDMA trigger 上下文(A2 方案:按 SNID 分桶记录最近 trigger eFC) ----
