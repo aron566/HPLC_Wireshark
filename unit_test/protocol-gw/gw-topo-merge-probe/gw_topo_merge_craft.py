@@ -170,16 +170,16 @@ def ofdma_frame_11(sta0_tei, sta0_msdu, sta1_tei, sta1_msdu):
     set_bits(f, 7, 5, 3, 2)   # TF symbol num
     set_bits(f, 9, 4, 2, 1)   # FCH symbol num
     set_bits(f, 9, 6, 9, 212)
-    set_bits(f, 10, 7, 3, 2)  # eFC symbol num
-    set_bits(f, 11, 2, 1, 0)  # sta0 PB num bit -> 1 block
-    set_bits(f, 11, 3, 5, 2)  # sta0 DivCopy -> 136
-    set_bits(f, 12, 0, 4, 5)  # sta0 RU
+    set_bits(f, 10, 7, 1, 0)  # 加密标志(表10 (10,7,1))
+    set_bits(f, 11, 0, 3, 2)  # 扩展帧控制符号数(表10 (11,0,3))=2
+    set_bits(f, 11, 3, 5, 2)  # sta0 载荷传输模式(表10 (11,3,5))-> 136
+    set_bits(f, 12, 0, 4, 5)  # sta0 RU(表10 (12,0,4))
     set_bits(f, 12, 4, 4, 1)  # std version
     store_crc24(f, 0, 16)
-    set_bits(f, 16, 0, 12, sta1_tei)  # sta1 TEI
-    set_bits(f, 17, 4, 4, 6)   # sta1 RU
-    set_bits(f, 18, 0, 5, 2)   # sta1 DivCopy -> 136
-    set_bits(f, 18, 5, 1, 0)   # sta1 PB num -> 1 block
+    set_bits(f, 16, 0, 12, sta1_tei)  # sta1 TEI(表11 (16,0,12))
+    set_bits(f, 17, 4, 4, 6)   # sta1 RU(表11 (17,4,4))
+    set_bits(f, 18, 0, 5, 2)   # sta1 载荷传输模式(表11 (18,0,5))-> 136
+    # 表11 (18,5,3) 保留,不写
     store_crc24(f, 16, 16)     # eFC FCS
     off = 32
     for chunk in (sta0_msdu, sta1_msdu):
@@ -194,20 +194,20 @@ def tda_frame_11(sta0_tei, sta0_msdu, sta1_tei, sta1_msdu):
     f = bytearray(total)
     f[0:16] = fch_base(sta0_tei, 3)
     set_bits(f, 7, 3, 2, 1)   # 2 stations
-    set_bits(f, 7, 5, 3, 2)
-    set_bits(f, 9, 4, 2, 1)
-    set_bits(f, 9, 6, 9, 212)
-    set_bits(f, 10, 7, 3, 0)
-    set_bits(f, 11, 2, 1, 0)
-    set_bits(f, 11, 3, 5, 2)  # sta0 DivCopy -> 136
-    set_bits(f, 12, 0, 3, 0)
-    set_bits(f, 12, 3, 1, 0)
+    set_bits(f, 7, 5, 3, 2)   # TF symbol num
+    set_bits(f, 9, 4, 2, 1)   # 帧控制符号数(表12 (9,4,2))
+    set_bits(f, 9, 6, 9, 212) # 站点0载荷符号数(表12 (9,6,9))
+    set_bits(f, 10, 7, 1, 0)  # 加密标志(表12 (10,7,1))
+    set_bits(f, 11, 0, 3, 0)  # 扩展帧控制符号数(表12 (11,0,3))
+    set_bits(f, 11, 3, 5, 2)  # sta0 载荷传输模式(表12 (11,3,5))-> 136
+    set_bits(f, 12, 0, 3, 0)  # 站点0TF和载荷频段标识(表12 (12,0,3))
+    set_bits(f, 12, 3, 1, 0)  # 站点0TF标识(表12 (12,3,1))
     set_bits(f, 12, 4, 4, 1)
     store_crc24(f, 0, 16)
-    set_bits(f, 16, 0, 12, sta1_tei)  # sta1 TEI
-    set_bits(f, 17, 4, 9, 50)
-    set_bits(f, 18, 5, 3, 0)
-    set_bits(f, 19, 0, 5, 2)   # sta1 DivCopy -> 136
+    set_bits(f, 16, 0, 12, sta1_tei)  # sta1 TEI(表13 (16,0,12))
+    set_bits(f, 17, 4, 9, 50)  # 站点1载荷符号数(表13 (17,4,9))
+    set_bits(f, 18, 5, 3, 0)   # 站点1 TF与载荷频段标识(表13 (18,5,3))
+    set_bits(f, 19, 0, 5, 2)   # sta1 载荷传输模式(表13 (19,0,5))-> 136
     store_crc24(f, 16, 16)     # eFC FCS(与 ofdma_frame_11() 同款;无 FCS 会被 eFC CRC24 门整帧拒收)
     off = 32
     for chunk in (sta0_msdu, sta1_msdu):

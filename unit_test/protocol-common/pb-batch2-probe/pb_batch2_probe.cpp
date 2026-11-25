@@ -39,63 +39,50 @@ static quint64 mac6(quint8 a, quint8 b, quint8 c, quint8 d, quint8 e, quint8 f) 
          | ((quint64)d << 24) | ((quint64)e << 32) | ((quint64)f << 40);
 }
 
-// 逐站序列号可控的多站帧(块体填充 = 序列号,便于验证体序)
-// cut_last=true 时把最后一站的最后一块从帧里截掉(真截断)
+// 多站 OFDMA 帧构造(V6 表10/11:每站恒 1 块)。seqs 仅以 size() 定站点数,
+// 块头 seq 恒 0、START|END 恒置(0xC0),体填充 = 站点索引。
+// cut_last=true 时把最后一站的块从帧里截掉(真截断)
 static QByteArray gw_ofdma_seq(const QVector<QVector<int>>& seqs, bool cut_last,
                                int copy_mode = 3) {
-    const int sz = (copy_mode == 2) ? 136 : 72;   // 表18:2→136B,3→72B
-    int total = 0;
-    for (const auto& s : seqs) total += s.size();
-    QByteArray f(32 + total * sz, 0);
+    const int sz = (copy_mode == 2) ? 136 : 72;   // 表13 分集拷贝模式:2→136B,3→72B
+    const int n_sites = seqs.size();               // 站点数(V6 表10/11 每站恒 1 块,无每站 PB 个数)
+    QByteArray f(32 + n_sites * sz, 0);
     quint8* p = reinterpret_cast<quint8*>(f.data());
     set_bits(p, 4, 0, 12, 1);          // src TEI = CCO
     set_bits(p, 5, 4, 12, 27);         // dst TEI = 站0 TEI(表10 (5,4,12))
     set_bits(p, 7, 0, 3, 2);           // 帧子类型 2 = OFDMA 下行(表7)
-    set_bits(p, 7, 3, 2, seqs.size() - 1);  // 站点数编码(表10 (7,3,2))
+    set_bits(p, 7, 3, 2, n_sites - 1); // 站点数编码(表10 (7,3,2))
     set_bits(p, 8, 0, 12, 100);        // 帧长
-    set_bits(p, 11, 2, 1, seqs[0].size() - 1);   // 站0 PB 个数(表10 (11,2,1))
-    set_bits(p, 11, 3, 5, copy_mode);            // 站0 分集拷贝模式(表18)
-    quint8* e = p + 16;                          // eFC(表11)
-    if (seqs.size() > 1) {
-        set_bits(e, 0, 0, 12, 42);               // 站1 TEI(表11 (16,0,12))
-        set_bits(e, 2, 0, 5, copy_mode);         // 站1 分集拷贝模式
-        set_bits(e, 2, 5, 1, seqs[1].size() - 1);// 站1 PB 个数
+    set_bits(p, 11, 3, 5, copy_mode);  // 站0 分集拷贝模式(表10 (11,3,5));每站恒 1 块
+    quint8* e = p + 16;                // eFC(表11)
+    if (n_sites > 1) {
+        set_bits(e, 0, 0, 12, 42);     // 站1 TEI(表11 (16,0,12))
+        set_bits(e, 2, 0, 5, copy_mode);// 站1 分集拷贝模式(表11 (18,0,5))
     }
     // eFC FCS -> bytes 29..31:无 FCS 会被 eFC CRC24 门整帧拒收(877f838 引入;
     // 与 build_gw2026_ofdma_tda_sim.py 的 build_ofdma() 同款 store_crc24(f, 16, 16))
     // 写在 PB 循环前:截断(cut_last)只截 PB 块,头 32B 始终完整。
     put_crc24(p + 16, 16);
     int off = 32;
-    for (int i = 0; i < seqs.size(); ++i) {
-        for (int j = 0; j < seqs[i].size(); ++j) {
-            if (cut_last && i == seqs.size() - 1 && j == seqs[i].size() - 1) {
-                f.truncate(off);            // 最后一块不在帧内
-                return f;
-            }
-            quint8* b = reinterpret_cast<quint8*>(f.data()) + off;
-            const int s = seqs[i][j];
-            quint8 h = quint8(s & 0x3F);
-            if (s == 0) h |= 0x40;                  // START 挂在 seq0
-            if (s == seqs[i].size() - 1) h |= 0x80; // END 挂在末 seq
-            b[0] = h;
-            std::memset(b + 1, quint8(s & 0xFF), size_t(sz - 4));  // 体填充 = 序列号
-            put_crc24(b, sz);
-            off += sz;
+    for (int i = 0; i < n_sites; ++i) {
+        if (cut_last && i == n_sites - 1) {
+            f.truncate(off);            // 最后一站块不在帧内
+            return f;
         }
+        quint8* b = reinterpret_cast<quint8*>(f.data()) + off;
+        // 每站单块:seq 恒 0(单块 pb_num=1,seq 只能 0),START|END 恒置(0xC0);
+        // 体填充 = 站点索引,供用例按首字节区分站点。
+        quint8 h = 0xC0;
+        b[0] = h;
+        std::memset(b + 1, quint8(i & 0xFF), size_t(sz - 4));  // 体填充 = 站点索引
+        put_crc24(b, sz);
+        off += sz;
     }
     return f;
 }
 
 // 顺序帧构造(旧用例复用):每站 seq 0..blocks[i]-1
-static QByteArray gw_ofdma(int n_sites, const int* blocks, bool cut_last) {
-    QVector<QVector<int>> seqs;
-    for (int i = 0; i < n_sites; ++i) {
-        QVector<int> s;
-        for (int j = 0; j < blocks[i]; ++j) s.append(j);
-        seqs.append(s);
-    }
-    return gw_ofdma_seq(seqs, cut_last);
-}
+// V6 表10/11 每站恒 1 块,blocks[i] 语义已失效——此包装不再使用,直接调 gw_ofdma_seq。
 
 static PacketEntry gw_entry(const MpduInfo& mp, const QByteArray& raw, quint8 version) {
     PacketEntry e;
@@ -114,15 +101,19 @@ static QString info_text(PacketListModel& m, int row) {
     return m.data(m.index(row, PacketListModel::COL_INFO), Qt::DisplayRole).toString();
 }
 
-// ── ①/② OFDMA 多站 ──
+// ── ①/② OFDMA 多站(V6 表10/11 每站恒 1 块) ──
 static void test_ofdma(PacketListModel& model, int& row) {
-    const int b1[2] = {1, 1};
-    const int b2[2] = {2, 2};
-    struct Case { const int* blocks; bool cut; const char* tag; };
-    const Case cases[] = {{b1, false, "1blk"}, {b2, false, "2blk"}, {b1, true, "cut"}};
+    // V6 表10/11 明文「每个站点载荷数据只支持 1 个物理块」:OFDMA 每站恒 1 块。
+    // 站内多块乱序/uniform/oob 场景由单站数据帧(表7 (11,0,2))承载,见 pb-reorder-probe。
+    struct Case { QVector<QVector<int>> seqs; bool cut; const char* tag; };
+    const Case cases[] = {
+        {QVector<QVector<int>>{{0}, {0}}, false, "1blk"},
+        {QVector<QVector<int>>{{0}, {0}}, false, "2blk"},   // 2 站各 1 块(=「2blk」历史名)
+        {QVector<QVector<int>>{{0}, {0}}, true,  "cut"},
+    };
 
     for (const Case& c : cases) {
-        const QByteArray raw = gw_ofdma(2, c.blocks, c.cut);
+        const QByteArray raw = gw_ofdma_seq(c.seqs, c.cut);
         MpduInfo info; MsduState msdu; QByteArray complete;
         const QString err = gw_2026_sof::assemble(raw, info, msdu, complete, 0, false);
         const bool full = QString::fromLatin1(c.tag) != QLatin1String("cut");
@@ -133,7 +124,7 @@ static void test_ofdma(PacketListModel& model, int& row) {
         check(buf, info.sof_stations.size() == 2);
         std::snprintf(buf, sizeof(buf), "ofdma/%s: station0 data preserved", c.tag);
         check(buf, !info.sof_stations.isEmpty()
-                   && info.sof_stations[0].pb_crc_oks.size() == c.blocks[0]);
+                   && info.sof_stations[0].pb_crc_oks.size() == 1);   // 每站恒 1 块
         std::snprintf(buf, sizeof(buf), "ofdma/%s: frame pb_crc_ok == %d", c.tag, full ? 1 : 0);
         check(buf, info.pb_crc_ok == full);
 
@@ -508,74 +499,46 @@ static void test_nw_parse_gate() {
     }
 }
 
-// ── ⑪ GW 多站逐站序列号落位(P2 修复) ──
+// ── ⑪ GW 多站逐站序列号落位(P2 修复;V6 表10/11 每站恒 1 块) ──
 static void test_gw_multi_reorder() {
     auto asm_one = [](const QByteArray& raw, MpduInfo& info) {
         MsduState msdu;
         QByteArray cp;
         return gw_2026_sof::assemble(raw, info, msdu, cp, 0, false);
     };
-    {   // 站0 两块按 seq[1,0] 到达(站内乱序);站1 顺序
-        const QByteArray raw = gw_ofdma_seq(QVector<QVector<int>>{{1, 0}, {0, 1}}, false);
+    // V6 表10/11 明文「每个站点载荷只支持 1 个物理块」:多站 OFDMA 每站恒 1 块,
+    // 站内不再有「乱序/重复/越界」概念(单块 seq 恒 0)。站内多块乱序/uniform/oob
+    // 由单站数据帧(表7 (11,0,2),1-4 块)承载,见 pb-reorder-probe(test_reorder_core
+    // /test_oob/test_uniform)。本节验证多站每站单块的核心行为。
+    {   // 2 站各 1 块:站0 体=0x00,站1 体=0x01(经块体首字节区分)
+        const QByteArray raw = gw_ofdma_seq(QVector<QVector<int>>{{0}, {1}}, false);
         MpduInfo info;
         const QString err = asm_one(raw, info);
-        check("gw-multi/reorder: accept", err.isEmpty());
-        check("gw-multi/reorder: 2 stations", info.sof_stations.size() == 2);
+        check("gw-multi/2sta: accept", err.isEmpty());
+        check("gw-multi/2sta: 2 stations", info.sof_stations.size() == 2);
+        const int blen = 72 - 4;   // 块体 = pb_size - PB头1B - CRC24 3B
         const bool st0_ok = info.sof_stations.size() == 2
-                            && info.sof_stations[0].msdu.size() > 0
+                            && info.sof_stations[0].msdu.size() == blen
                             && quint8(info.sof_stations[0].msdu[0]) == 0;
-        check("gw-multi/reorder: st0 body reordered (seq0 first)", st0_ok);
-        check("gw-multi/reorder: st1 body ordered (seq0 first)",
-              info.sof_stations.size() == 2 && info.sof_stations[1].msdu.size() > 0
-              && quint8(info.sof_stations[1].msdu[0]) == 0);
-        // Info 文案必须与实际重组一致(旧实现:显示「已重排」但体没重排)
+        check("gw-multi/2sta: st0 body (seq0 fill)", st0_ok);
+        const bool st1_ok = info.sof_stations.size() == 2
+                            && info.sof_stations[1].msdu.size() == blen
+                            && quint8(info.sof_stations[1].msdu[0]) == 1;
+        check("gw-multi/2sta: st1 body (seq1 fill)", st1_ok);
+        check("gw-multi/2sta: frame pb_crc_ok true", info.pb_crc_ok);
         PacketListModel model;
         model.append_packets(QVector<PacketEntry>{gw_entry(info, raw, 1)});
         const QString t = info_text(model, 0);
-        check("gw-multi/reorder: Info shows 'reordered'", t.contains(QStringLiteral("乱序已重排")));
-        check("gw-multi/reorder: Info claim matches actual body order", st0_ok);
-        check("gw-multi/reorder: frame pb_crc_ok true", info.pb_crc_ok);
+        check("gw-multi/2sta: Info shows CRC OK", t.contains(QStringLiteral("CRC OK")));
     }
-    // 说明:GW 多站站内 PB 个数仅 1 bit(表10/表11 → 最多 2 块),
-    // 「重复 seq」在 2 块时必然同时是「全同」,会命中兼容兜底(设备未填序列号的主流
-    // 情形:按到达位置拼接)。故此处断言兜底语义,序号异常用越界用例覆盖。
+    // 截断:站1 块缺失 → 帧级 pb_crc_ok false(空站1 已 append,故 2 站含空站)
     {
-        const QByteArray raw = gw_ofdma_seq(QVector<QVector<int>>{{0, 0}, {0, 1}}, false);
+        const QByteArray raw = gw_ofdma_seq(QVector<QVector<int>>{{0}, {0}}, true);
         MpduInfo info;
         const QString err = asm_one(raw, info);
-        check("gw-multi/uniform-seq: accept", err.isEmpty());
-        check("gw-multi/uniform-seq: fallback keeps body (positional)",
-              info.sof_stations.size() == 2
-              && info.sof_stations[0].msdu.size() == 2 * (72 - 4));
-        check("gw-multi/uniform-seq: frame pb_crc_ok true", info.pb_crc_ok);
-        PacketListModel model;
-        model.append_packets(QVector<PacketEntry>{gw_entry(info, raw, 1)});
-        const QString t = info_text(model, 0);
-        check("gw-multi/uniform-seq: Info NOT sequence error",
-              !t.contains(QStringLiteral("PB 序号异常")));
-    }
-    struct Bad { QVector<QVector<int>> seqs; const char* tag; };
-    const QVector<Bad> bads{
-        {QVector<QVector<int>>{{0, 9}, {0, 1}}, "oob"},
-    };
-    for (const Bad& b : bads) {
-        const QByteArray raw = gw_ofdma_seq(b.seqs, false);
-        MpduInfo info;
-        const QString err = asm_one(raw, info);
-        char buf[150];
-        std::snprintf(buf, sizeof(buf), "gw-multi/%s: accept (keep complete stations)", b.tag);
-        check(buf, err.isEmpty());
-        std::snprintf(buf, sizeof(buf), "gw-multi/%s: bad station msdu empty (no learn)", b.tag);
-        check(buf, info.sof_stations.size() == 2 && info.sof_stations[0].msdu.isEmpty());
-        std::snprintf(buf, sizeof(buf), "gw-multi/%s: good station msdu kept", b.tag);
-        check(buf, info.sof_stations.size() == 2 && !info.sof_stations[1].msdu.isEmpty());
-        std::snprintf(buf, sizeof(buf), "gw-multi/%s: frame pb_crc_ok false", b.tag);
-        check(buf, !info.pb_crc_ok);
-        PacketListModel model;
-        model.append_packets(QVector<PacketEntry>{gw_entry(info, raw, 1)});
-        const QString t = info_text(model, 0);
-        std::snprintf(buf, sizeof(buf), "gw-multi/%s: Info reports PB sequence error", b.tag);
-        check(buf, t.contains(QStringLiteral("PB 序号异常")));
+        check("gw-multi/cut: accept (st0 kept)", err.isEmpty());
+        check("gw-multi/cut: 2 stations (st1 empty)", info.sof_stations.size() == 2);
+        check("gw-multi/cut: frame pb_crc_ok false", !info.pb_crc_ok);
     }
 }
 
@@ -608,10 +571,9 @@ static QByteArray gw_single_2blk_2026(const QByteArray& b0, bool bad0,
     set_bits(p, 5, 4, 12, 27);         // dst TEI
     set_bits(p, 7, 0, 3, 0);           // 帧子类型 0 = 数据帧(表7)
     set_bits(p, 8, 0, 12, 100);        // 帧长
-    set_bits(p, 10, 1, 1, 0);          // 调制方式 0 = 分集拷贝
-    set_bits(p, 10, 2, 5, 3);          // 分集拷贝模式 3 → 72B(表18)
-    set_bits(p, 10, 7, 1, 1);          // PB 个数 2b 跨字节:(10,7)=1、(11,0)=0 → 2 块
-    set_bits(p, 11, 0, 1, 0);
+    set_bits(p, 10, 0, 2, 0);          // 载荷子载波加载模式 0 = 静态(表7 (10,0,2))
+    set_bits(p, 10, 2, 5, 3);          // 载荷调制参数 3 = 分集拷贝模式 → 72B(表13)
+    set_bits(p, 11, 0, 2, 1);          // PB 个数 2bit(表7 (11,0,2)),1 = 2 块
     set_bits(p, 11, 4, 3, 0);          // band 0(gw_2026_pb_num_table[0][3]=4)
     const QByteArray bs[2] = {b0, b1};
     const bool bads[2] = {bad0, bad1};
@@ -753,87 +715,49 @@ static void test_gw_span_caliber() {
 }
 
 // ── ⑬ GW 多站学习门:到达序 CRC × seq 序体流**配对**回归 ──
-// st.pb_heads/st.pb_crc_oks 是到达序(UI 依赖),st.msdu 是 seq 序体流;
-// 直接拿到达序下标当 seq 号去判 span,乱序时两向都错:
-//   坏块在 seq 前段 → 误放行(坏块字节进 tei_mac_pairs/orig/topology)
-//   坏块在 seq 后段 → 误拒
+// V6 表10/11 每站恒 1 块:站内不再有「乱序到达」,配对门退化为平凡语义
+// (单块 CRC 好 → 可学;坏 → 不可学)。站内多块乱序配对由单站数据帧承载,
+// 见 pb-reorder-probe test_single_bad_crc_span_gate(单站 2 块坏 CRC span 门)。
 static void test_gw_multi_station_pairing() {
-    const int sz = 136;                    // 分集拷贝模式 2 → 136B(表18)
-    // 站0 = 2 块 ×136B,到达序 seq1(0x81) → seq0(0x40);站1 = 1 块全好
-    const auto make_frame = [&](bool bad_seq0) {
-        QByteArray f = gw_ofdma_seq(QVector<QVector<int>>{{1, 0}, {0}}, false, 2);
+    const int sz = 72;                     // 分集拷贝模式 3 → 72B(表13)
+    const auto make_frame = [&](bool bad_st0) {
+        QByteArray f = gw_ofdma_seq(QVector<QVector<int>>{{0}, {0}}, false, 3);
         quint8* p = reinterpret_cast<quint8*>(f.data());
-        quint8* body_seq1 = p + 32 + 0 * sz + 1;   // 到达序第 1 块 = seq1
-        quint8* body_seq0 = p + 32 + 1 * sz + 1;   // 到达序第 2 块 = seq0
-        std::memset(body_seq1, 0xB0, size_t(sz - 4));
-        std::memset(body_seq0, 0xA0, size_t(sz - 4));
-        // MSDU 简头放在 **seq0** 块体起点:len=60 → 真实 span = 4+60+4 = 68
-        // 68 ≤ 块体 132 ⇒ 只覆盖 seq0 块,不触及 seq1
-        body_seq0[0] = 0x01;
-        body_seq0[1] = 0;
-        body_seq0[2] = 60;
-        body_seq0[3] = 0;
-        put_crc24(p + 32 + 0 * sz, sz);
-        put_crc24(p + 32 + 1 * sz, sz);
-        // 坏块:seq0 → 到达序下标 1;seq1 → 到达序下标 0
-        const int bad_arrival = bad_seq0 ? 1 : 0;
-        p[32 + bad_arrival * sz + sz - 1]
-            = quint8(p[32 + bad_arrival * sz + sz - 1] ^ 0xFF);
+        // 站0 块体首字节写简头(0x01),证明 station_msdu_parseable 走国网口径
+        quint8* body_st0 = p + 32 + 1;
+        body_st0[0] = 0x01;                // 简头标记
+        body_st0[1] = 0;
+        body_st0[2] = 8;                   // len=8 → span 4+8+4=16 ≤ 68 块体
+        body_st0[3] = 0;
+        put_crc24(p + 32, sz);             // 站0 重算 CRC(体改过)
+        if (bad_st0) p[32 + sz - 1] = quint8(p[32 + sz - 1] ^ 0xFF);  // 坏站0 块
         return f;
     };
-    const auto run = [&](bool bad_seq0, bool want_parseable, const char* label) {
-        const QByteArray raw = make_frame(bad_seq0);
-        MpduInfo info;
-        MsduState msdu;
-        QByteArray cp;
+    const auto run = [&](bool bad_st0, bool want_parseable, const char* label) {
+        const QByteArray raw = make_frame(bad_st0);
+        MpduInfo info; MsduState msdu; QByteArray cp;
         const QString err = gw_2026_sof::assemble(raw, info, msdu, cp, 0, false);
         const QByteArray lbl(label);
         check((lbl + ": assemble ok").constData(), err.isEmpty());
         check((lbl + ": 2 stations").constData(), info.sof_stations.size() == 2);
         if (info.sof_stations.size() != 2) return;
         const SofStationPb st0 = info.sof_stations.value(0);
-        // 体流必须按 seq 序:首字节是 seq0 的 0x01(简头)、次字节 0xA0(seq0 填充);
-        // 若按到达序拼接,首字节会是 seq1 的 0xB0
-        check((lbl + ": st.msdu is seq order (seq0 block first)").constData(),
-              st0.msdu.size() == 2 * (sz - 4)
-              && quint8(st0.msdu[0]) == 0x01    // seq0 块体的简头首字节
-              && quint8(st0.msdu[4]) == 0xA0    // 简头 4B 之后是 seq0 的填充
-              && quint8(st0.msdu[sz - 4]) == 0xB0);   // 第二块 = seq1 的填充
-        // 块头与 CRC 必须留在到达序(UI「乱序已重排」与逐块 CRC 显示依赖)
-        check((lbl + ": pb_heads stay arrival order (0x81,0x40)").constData(),
-              st0.pb_heads.size() == 2
-              && quint8(st0.pb_heads[0]) == 0x81 && quint8(st0.pb_heads[1]) == 0x40);
-        check((lbl + ": pb_crc_oks stay arrival order").constData(),
-              st0.pb_crc_oks.size() == 2
-              && st0.pb_crc_oks[bad_seq0 ? 1 : 0] == false
-              && st0.pb_crc_oks[bad_seq0 ? 0 : 1] == true);
-        // 核心断言:seq 归位后 span(68)只覆盖 seq0 块
+        check((lbl + ": st0 single block").constData(),
+              st0.pb_heads.size() == 1 && st0.pb_crc_oks.size() == 1);
+        check((lbl + ": st0 head START|END single block").constData(),
+              quint8(st0.pb_heads[0]) == 0xC0);
+        // 单块:CRC 好 → 可学,坏 → 不可学(配对门平凡语义)
         check((lbl + (want_parseable ? ": station_msdu_parseable == true (learn)"
                                      : ": station_msdu_parseable == false (no learn)")).constData(),
               gw_2026_sof::station_msdu_parseable(st0) == want_parseable);
-        // 反证:旧实现拿**到达序** CRC 直接配对,结论与现在相反 ——
-        // 证明本用例确实能抓到该缺陷(A 误放行 / B 误拒),不是自证。
-        const bool old_verdict = pb_asm::msdu_span_avoids_bad_blocks(
-            st0.msdu, st0.pb_crc_oks, sz - 4, pb_asm::SpanLayout::Gw);
-        check((lbl + ": old arrival-order pairing gives the opposite verdict").constData(),
-              old_verdict != want_parseable);
+        check((lbl + ": frame pb_crc_ok follows st0").constData(),
+              info.pb_crc_ok == !bad_st0);
         // 站1 单块全好 → 始终可学
         check((lbl + ": station1 (all good) parseable").constData(),
               gw_2026_sof::station_msdu_parseable(info.sof_stations.value(1)));
     };
-    run(true,  false, "pairing/bad=seq0");
-    run(false, true,  "pairing/bad=seq1");
-    // 单站点路径别动:全好时也走同一判据(全好直接放行)
-    {
-        MpduInfo info;
-        MsduState msdu;
-        QByteArray cp;
-        gw_2026_sof::assemble(gw_ofdma_seq(QVector<QVector<int>>{{0, 1}, {0}}, false, 2),
-                              info, msdu, cp, 0, false);
-        check("pairing/all-good station parseable",
-              info.sof_stations.size() == 2
-              && gw_2026_sof::station_msdu_parseable(info.sof_stations.value(0)));
-    }
+    run(true,  false, "pairing/bad=st0");
+    run(false, true,  "pairing/good");
 }
 
 // ── H1:OFDMA/TDA eFC 截断(帧长 < 32B)不得越界读 ──

@@ -232,9 +232,9 @@ def tda_frame():
     set_bits(f, 7, 5, 3, 2)
     set_bits(f, 9, 4, 2, 1)
     set_bits(f, 9, 6, 9, 212)
-    set_bits(f, 10, 7, 3, 0)
-    set_bits(f, 11, 2, 1, 0)
-    set_bits(f, 11, 3, 5, 2)  # sta0 DivCopy -> 136
+    set_bits(f, 10, 7, 1, 0)  # 加密标志(表12 (10,7,1))
+    set_bits(f, 11, 0, 3, 0)  # 扩展帧控制符号数(表12 (11,0,3))
+    set_bits(f, 11, 3, 5, 2)  # sta0 载荷传输模式(表12 (11,3,5)) -> 136
     set_bits(f, 12, 0, 3, 0)
     set_bits(f, 12, 3, 1, 0)
     set_bits(f, 12, 4, 4, 1)

@@ -14,13 +14,17 @@ QT=C:/Qt/6.11.2/mingw_64 ./build.sh          # Windows
 
 ## 用例清单
 
-### ① 完整 2 站 OFDMA（表7 帧子类型=2，表10/表11）
+### ① 完整 2 站 OFDMA（表7 帧子类型=2，表10/表11；V6 每站恒 1 块）
+
+> V6 表10/表11 明文「每个站点载荷数据应只支持 1 个物理块载荷数据」，故 OFDMA/TDA 每站
+> 恒 1 块（`st_pb_num=1`，产品代码 H2 已删每站 PB 个数读取）。站内多块乱序/uniform/oob
+> 由单站数据帧（表7 `(11,0,2)` 1–4 块）承载，见 pb-reorder-probe。
 
 | 断言 | 说明 |
 |---|---|
 | 不拒收 | `assemble()` 返回空串（旧实现无错，但…） |
 | 2 站解析 | `sof_stations.size()==2` |
-| 站点 0 数据保留 | `pb_crc_oks.size()==声明块数` |
+| 站点 0 数据保留 | `pb_crc_oks.size()==1`（每站恒 1 块） |
 | 帧级 `pb_crc_ok==true` | 旧实现恒 false（从不设），本轮修复点 |
 | Info 无「截断 / 重组失败 / PB 块超出帧长」 | `version=0`(HDC1.0) 与 `1`(HDC2.0) 都要过 |
 | Info 含 `CRC OK` 且含 `DL-OFDMA` | 完整帧不得出现「(截断)」 |
@@ -96,29 +100,30 @@ NW_2021 载波 SOF（TMI=3 → 136B，块 = PB头4B 表133 + 体 + 保留 1B + C
 > （帧已标红但树里是垃圾）。四协议统一改用 `pb_asm::body_parseable(res)`
 > （= `reassembly_ok && !msdu_body.isEmpty()`）。
 
-### ⑪ GW 多站逐站序列号落位（P2 修复）
+### ⑪ GW 多站逐站序列号落位（P2 修复；V6 每站恒 1 块）
 
-国网 OFDMA 多站帧（表10/表11）此前按到达位置切片（`off = blk + j*sz`），
-`st.pb_heads` 存了序列号却只用于展示 → 站内乱序时体序错，UI 仍显示「乱序已重排」，
-学习还会解析错序体。现改为逐站 `pb_asm::assemble_pb_blocks` 落位。
+> V6 表10/表11「每个站点载荷数据只支持 1 个物理块」：多站 OFDMA/TDA 每站恒 1 块，
+> 站内不再有「乱序/重复/越界」概念（单块 seq 恒 0）。站内多块乱序/uniform/oob 由
+> **单站数据帧**（表7 `(11,0,2)` 1–4 块）承载，见 pb-reorder-probe（`test_reorder_core`
+> /`test_oob`/`test_uniform`）。本节验证多站每站单块的核心行为。
 
 | 用例 | 帧 | 断言 |
 |---|---|---|
-| `reorder` | 站 0 按 `seq[1,0]` 到达（体填充 = 序列号），站 1 顺序 | 不拒收、2 站；**站 0 体首字节 = 0（seq0 在前）**；站 1 仍 0；Info 含「乱序已重排」且**与实际体序一致**；帧级 `pb_crc_ok=true` |
-| `uniform-seq` | 站 0 `seq[0,0]` | 命中「全同 → 按位置拼接」兜底：体保留（2×68B）、帧级 `pb_crc_ok=true`、Info **不报**「PB 序号异常」 |
-| `oob` | 站 0 `seq[0,9]`（越界） | 不拒收（保留已完整站点）；**坏站 `msdu` 为空 → 学习门跳过**；好站体保留；帧级 `pb_crc_ok=false`；Info 报「PB 序号异常」 |
+| `2sta` | 2 站各 1 块（体填充 = 站点索引 0/1） | 不拒收、2 站；站 0 体首字节 = 0、站 1 = 1；帧级 `pb_crc_ok=true`；Info 含 `CRC OK` |
+| `cut` | 站 1 块被截掉 | 不拒收（保留站 0）；2 站（站 1 空）；帧级 `pb_crc_ok=false` |
 
-> `st.pb_heads` / `st.pb_crc_oks` 按**到达序（线序）**保存（`pb_asm::arrival_order_blocks`），
-> 体流按 **seq 序**。UI 的「乱序已重排」判定依赖线序块头——若两者都用拼接序，
-> 重排后 `pb_heads[i]==i` 将看不出乱序，提示永久失效（本轮实测踩到）。
->
-> 「重复 seq」在 GW 多站**不可构造**：站内 PB 个数只有 1 bit（表10/表11 → 最多 2 块），
-> 2 块时「重复」必然同时是「全同」，命中兜底。故用 `uniform-seq` 断言兜底语义，
-> 序号异常由 `oob` 覆盖。
->
-> 同类修正：`analyze_pb_seq_heads` 在「收到的块数 == 声明块数 且序列号全同」时
-> 清空 `dup/missing/oob/reordered`，与 `seq_uniform_fallback` 同口径——否则设备未填
-> 序列号的正常帧会被 UI 误标「PB 序号异常」而树里正常解析。
+> `st.pb_heads` / `st.pb_crc_oks` 仍按**到达序（线序）**保存（`pb_asm::arrival_order_blocks`），
+> 体流按 seq 序——单块时两者恒等，序列号落位语义见 pb-reorder-probe。
+
+### ⑬ GW 多站学习门：到达序 CRC × seq 序体流**配对**回归（V6 每站恒 1 块）
+
+> 单块时「到达序 == seq 序」，「配对」退化为平凡语义（块 CRC 好 → 可学、坏 → 不可学）。
+> 站内多块乱序配对由单站数据帧承载，见 pb-reorder-probe `test_single_bad_crc_span_gate`。
+
+| 用例 | 帧 | 断言 |
+|---|---|---|
+| `pairing/bad=st0` | 站 0 单块坏 CRC | 站 0 `pb_heads==0xC0`（单块 START\|END）；`station_msdu_parseable(st0)==false`；帧级 `pb_crc_ok==false` |
+| `pairing/good` | 两站单块全好 | 站 0 `station_msdu_parseable==true`；站 1 恒可学；帧级 `pb_crc_ok==true` |
 
 ### ⑫ 国网 MSDU span 口径回归（P1：此前误用南网公式，两向都错）
 
@@ -153,34 +158,6 @@ GW2026（5 条，含 28B 头）与 GW2022（4 条）各一份，共 9 条断言�
 
 > 实现已收口到 `pb_asm::msdu_span_avoids_bad_blocks(body, crc_oks, block_body_len,
 > SpanLayout{Nw,Gw})`；3 参版本是南网口径的兼容入口，注释里写明「国网禁用」。
-
-### ⑬ GW 多站学习门的「到达序 CRC × seq 序体流」配对（实质缺陷）
-
-`st.pb_heads` / `st.pb_crc_oks` 是**到达序**（UI 的 `analyze_pb_seq_heads` 与逐块 CRC
-成对显示依赖它），而 `st.msdu` 是**序列号重排后的 seq 序**体流。旧实现直接把到达序
-CRC 的下标当 seq 号去和 seq 序体流的偏移比较，站内乱序时**两向都错**：
-
-| 站0 两块 136B，到达序 seq1(0x81)→seq0(0x40)，MSDU 简头在 seq0 块体起点 len=60（span=68） | 旧行为 | 应有行为 |
-|---|---|---|
-| 坏块 = **seq0**（到达序 `crc={1,0}`） | 解析 → **误放行**（坏块字节进 `tei_mac_pairs`/orig/topology） | 不解析 |
-| 坏块 = **seq1**（到达序 `crc={0,1}`） | 不解析 → **误拒** | 解析 |
-
-修法：把配对收进 `gw_2026_sof::station_msdu_parseable(st, seq_mask=0x3F)` ——
-按 `seq = st.pb_heads[i] & mask` 把到达序 CRC 归位成 **seq 序数组**，再用国网口径
-（`SpanLayout::Gw`，块体长 = `pb_size-4`）算 span；`pb_heads`/`pb_crc_oks` 仍留到达序。
-`gw_2026_parser.cpp` 的学习门改为只调这一个函数（不再自己按下标配对）。
-
-> 序列号**全同**（设备未填，`pb_asm` 走 `seq_uniform_fallback` 按位置拼接）时，
-> 体流序 == 到达序，此时直接用到达序 CRC —— 否则会把 1..n-1 号槽全当坏块，反过来
-> 把正常帧判死。这条兜底与 `pb_asm` 的分支判断完全同口径。
-
-| 断言（15 条） | 内容 |
-|---|---|
-| `st.msdu` 序 | 264B，`[0]=0x01`（seq0 简头）、`[4]=0xA0`（seq0 填充）、`[132]=0xB0`（seq1 填充） |
-| `pb_heads` 序 | 仍是到达序 `0x81,0x40` |
-| `pb_crc_oks` 序 | 仍是到达序（A: `{1,0}`；B: `{0,1}`） |
-| 核心 | A `station_msdu_parseable==false`（不学习）；B `==true`（学习） |
-| 回归 | 站1（单块全好）恒可学；全好站点直接放行 |
 
 ## 说明
 
