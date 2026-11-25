@@ -26,7 +26,7 @@ enum class GW_2026_PhaseLine : quint8 {
     LINE_C    = 3,  ///< C 相线
 };
 
-/// @brief 信标管理条目类型(51242 表46)
+/// @brief 信标管理条目类型(V6 表23)
 enum class GW_2026_BeaconItemType : quint8 {
     STA_CAPABILITY       = 0x00,  ///< 站点能力条目
     ROUTE_PARAMETER      = 0x01,  ///< 路由参数条目
@@ -38,17 +38,20 @@ enum class GW_2026_BeaconItemType : quint8 {
     BEACON_SWITCH        = 0x07,  ///< 信标机制切换条目
     // 0x08-0xBF 保留
     TIME_SLOT_ALLOCATION = 0xC0,  ///< 时隙分配条目(TSA)
-    PROXY_ROLE           = 0xC1,  ///< 代理角色条目(表37,可选)
-    DISCOVER_LIST        = 0xC2,  ///< 发现列表条目(表38,可选)
+    PROXY_ROLE           = 0xC1,  ///< 代理角色条目
+    DISCOVER_LIST        = 0xC2,  ///< 发现列表条目
 };
 
-/// @brief 无线信标发送模式(51242 表51):载波信标与无线信标的发送组合方式
+/// @brief 无线信标发送模式(51242 表51→V6 表28):载波信标与无线信标的发送组合方式
 enum class GW_2026_BeaconSendMode : quint8 {
     CARRIER_ONLY             = 0,  ///< 仅发送高速载波信标
     RF_STANDARD_ONLY         = 1,  ///< 仅发送无线标准信标
     CARRIER_THEN_RF_STANDARD = 2,  ///< 载波信标后发无线标准信标
     CARRIER_THEN_RF_LITE     = 3,  ///< 载波信标后发无线精简信标
     CARRIER_CSMA_RF_LITE     = 4,  ///< 载波信标+CSMA时隙发无线精简信标
+    CARRIER_SAME_SLOT_RF_STANDARD = 5,  ///< 发送高速载波信标,并在该时隙发送无线标准信标
+    CARRIER_SAME_SLOT_RF_LITE     = 6,  ///< 发送高速载波信标,并在该时隙发送无线精简信标
+    // 0x07 保留
 };
 
 /// @brief BEACON 载荷解析器(纯静态,无状态)

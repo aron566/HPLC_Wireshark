@@ -49,15 +49,17 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
 
     int pb_size;
     if (is_rf) {
-        // 无线 SOF(HDC2.0 4-2 表18,布局同 HDC 1.0 表30):固定 1 块;字节9 bit4-7 为
-        // 载荷PB大小(表18),字节11 bit4-7 为 MCS(4-1 表47),其余保留(存原始值)
+        // 无线 SOF(HDC2.0 4-2 表18):字节9 bit4-7 = 载荷PB大小码,字节10 bit0-1 = PB 块个数
+        // (0-3 = 1-4 个物理块),字节10 bit2-7 + 字节11 bit0 = 保留,字节11 bit1/2/3 =
+        // 广播/重传/加密,字节11 bit4-7 = MCS(4-1 表47),字节12 bit0-3 = 保留(存原始值)
         info.pb_num_field = (quint8) get_bits_unchecked(p, 9, 4, 4);
+        const quint8 pb_code = (quint8) get_bits_unchecked(p, 10, 0, 2);
+        info.pb_num       = pb_code + 1;   // 表18 (10,0,2):0-3 = 1-4 个物理块
         info.bc_flag      = (bool)   get_bits_unchecked(p, 11, 1, 1);
         info.re_send_flag = (bool)   get_bits_unchecked(p, 11, 2, 1);
         info.encryp_flag  = (bool)   get_bits_unchecked(p, 11, 3, 1);
         info.mcs          = (quint8) get_bits_unchecked(p, 11, 4, 4);
-        info.pb_num       = 1;
-        info.symbol_num = (quint16)get_bits_unchecked(p, 10, 0, 9);   // 保留(原始值)
+        info.symbol_num = (quint16)get_bits_unchecked(p, 10, 2, 7);   // 保留 (10,2,7) 跨到 (11,0)
         info.tmi_ext    = (quint8) get_bits_unchecked(p, 12, 0, 4);   // 保留(原始值)
         pb_size         = sof_rf_pb_size(info.pb_num_field);
     } else {
@@ -248,7 +250,8 @@ QString assemble(const QByteArray& body, MpduInfo& info, MsduState& msdu,
     }
 
     const int max_pb_num = gw_2026_max_pb_num(band, info.tmi);  // -1=频段/模式越界(查表自判)
-    // 块数合法性只约束载波;RF 生效块数恒 1(见上);PB 大小非法(-1)对载波/无线均拒收。
+    // 块数合法性只约束载波(max_pb_num 按载波频段+模式查);RF 块数由表18 (10,0,2) 自读,
+    // 1-4 块均可,仅 PB 大小码合法(0-5)即可;PB 大小非法(-1)对载波/无线均拒收。
     // max_pb_num==0(该频段+模式不支持,如 band3)时 pb_num>=1 即超限拒收。
     if (pb_size <= 0
         || (!is_rf && (info.pb_num == 0 || info.pb_num > max_pb_num))) {

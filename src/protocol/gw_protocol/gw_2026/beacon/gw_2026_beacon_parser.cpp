@@ -31,7 +31,7 @@ static QString beacon_type_name(quint8 t) {
     }
 }
 
-// 条目头英文全称(HDC 2.0 表46)
+// 条目头英文全称(V6 表23)
 static QString beacon_item_head_name(quint8 h) {
     switch (static_cast<GW_2026_BeaconItemType>(h)) {
         case GW_2026_BeaconItemType::STA_CAPABILITY:       return QStringLiteral("STA Capability Item");
@@ -48,7 +48,7 @@ static QString beacon_item_head_name(quint8 h) {
     }
 }
 
-// 条目头中文含义(表46 定义说明)
+// 条目头中文含义(V6 表23 定义说明)
 static QString beacon_item_head_desc(quint8 h) {
     switch (static_cast<GW_2026_BeaconItemType>(h)) {
         case GW_2026_BeaconItemType::STA_CAPABILITY:       return trl::L("站点能力条目(标准信标必选)");
@@ -84,6 +84,8 @@ static QString rf_wireless_desc(quint8 rf) {
         case GW_2026_BeaconSendMode::CARRIER_THEN_RF_STANDARD: return trl::L("载波信标后发无线标准信标");
         case GW_2026_BeaconSendMode::CARRIER_THEN_RF_LITE:     return trl::L("载波信标后发无线精简信标");
         case GW_2026_BeaconSendMode::CARRIER_CSMA_RF_LITE:     return trl::L("载波信标+CSMA时隙发无线精简信标");
+        case GW_2026_BeaconSendMode::CARRIER_SAME_SLOT_RF_STANDARD: return trl::L("发送高速载波信标并在该时隙发送无线标准信标");
+        case GW_2026_BeaconSendMode::CARRIER_SAME_SLOT_RF_LITE:     return trl::L("发送高速载波信标并在该时隙发送无线精简信标");
         default: return trl::L("保留");
     }
 }
@@ -99,7 +101,8 @@ static void slot_leaf(QVector<MsduFieldNode>& out, const QString& name,
     out.append(n);
 }
 
-// gw_2026_pb_size 公共实现见 gw_2026_pb_table.h(供 parser/beacon 共用)
+// 载波信标 PB 大小按 V6 表5 载荷传输模式(分集拷贝模式)查表(gw_2026_diversity_pb_size,
+// 见 gw_2026_pb_table.h);无线信标按表17 载荷 PB 大小码查(gw_2026_rf_pb_size)。
 
 // 载荷固定头(相对 gb)。依据 V6 表21 标准信标数据载荷字段:
 //   字节0:类型3b+组网1b+精简1b+保留1b+开始关联1b+保留1b
@@ -110,9 +113,9 @@ static const FieldSpec kBeaconLoadSpec[] = {
     {"BeaconType",        0, 0, 3,  Fmt::DEC},
     {"NetWorkingFlag",    0, 3, 1,  Fmt::DEC},
     {"SimpleBeaconFlag",  0, 4, 1,  Fmt::DEC},
-    {"RSV0",              0, 5, 1,  Fmt::DEC},
+    {"RSV_B0b5",          0, 5, 1,  Fmt::DEC},
     {"AssociationFlag",   0, 6, 1,  Fmt::DEC},
-    {"RSV1",              0, 7, 1,  Fmt::DEC},
+    {"RSV_B0b7",          0, 7, 1,  Fmt::DEC},
     {"NetSN",             1, 0, 8,  Fmt::DEC},
     {"CCO_MACAddr",       2, 0, 48, Fmt::MAC},
     {"BeaconPeriodCount", 8, 0, 32, Fmt::DEC},
@@ -120,8 +123,8 @@ static const FieldSpec kBeaconLoadSpec[] = {
     {"NetRfOption",      13, 0, 2,  Fmt::DEC},
     {"BeaconMechState",  13, 2, 1,  Fmt::DEC},   ///< 信标机制状态(表21):0=固定信标 1=竞争信标
     {"DiscoverBeaconEn", 13, 3, 1,  Fmt::DEC},   ///< 发现信标发送使能(表21):0=未使能 1=使能
-    {"RSV1",             13, 4, 4,  Fmt::DEC},
-    {"RSV2",             14, 0, 8,  Fmt::DEC},
+    {"RSV_B13",          13, 4, 4,  Fmt::DEC},
+    {"RSV_B14",          14, 0, 8,  Fmt::DEC},
     {"StatSeqNum",       15, 0, 8,  Fmt::DEC},   ///< 表21:统计序号(与发现列表统一计数,0=不参与统计)
 };
 static const int kBeaconLoadSpecN = int(sizeof(kBeaconLoadSpec) / sizeof(kBeaconLoadSpec[0]));
@@ -132,9 +135,9 @@ static const FieldSpec kBeaconLiteHeadSpec[] = {
     {"BeaconType",        0, 0, 3,  Fmt::DEC},
     {"NetWorkingFlag",    0, 3, 1,  Fmt::DEC},
     {"SimpleBeaconFlag",  0, 4, 1,  Fmt::DEC},
-    {"RSV0",              0, 5, 1,  Fmt::DEC},
+    {"RSV_B0b5",          0, 5, 1,  Fmt::DEC},
     {"AssociationFlag",   0, 6, 1,  Fmt::DEC},
-    {"RSV1",              0, 7, 1,  Fmt::DEC},
+    {"RSV_B0b7",          0, 7, 1,  Fmt::DEC},
     {"NetSN",             1, 0, 8,  Fmt::DEC},
     {"CCO_MACAddr",       2, 0, 48, Fmt::MAC},
     {"BeaconPeriodCount", 8, 0, 32, Fmt::DEC},
@@ -218,7 +221,7 @@ static const FieldSpec kBeaconSwitchSpec[] = {
 static const int kBeaconSwitchSpecN =
     int(sizeof(kBeaconSwitchSpec) / sizeof(kBeaconSwitchSpec[0]));
 
-// 代理角色条目 0xC1(表37):网络内代理站点总数量(0,8)+ 代理节点 TEI 12b 打包序列
+// 代理角色条目 0xC1(表34):网络内代理站点总数量(0,8)+ 代理节点 TEI 12b 打包序列
 // (N 为奇数时末条目高 4bit 为保留);条目内逐 TEI 展示由 case 分支完成
 
 // TSA/时隙分配条目头(相对条目数据)。V6 表27(旧表28):固定头 17B + 槽信息
@@ -254,8 +257,10 @@ MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_r
         const quint8 code = (quint8)get_bits_unchecked(p, 10, 0, 4);
         pbsize = gw_2026_rf_pb_size(code);
     } else {
-        const quint8 tmi = (quint8)get_bits_unchecked(p, 9, 4, 4);   // BEACON TMI 在 FC b9 高 4bit
-        pbsize = gw_2026_pb_size(tmi);
+        const quint8 tmi = (quint8)get_bits_unchecked(p, 9, 4, 4);   // BEACON TMI 在 FC b9 高 4bit(表5,4bit,0-15)
+        // 载波信标载荷 PB 大小按分集拷贝模式查表(V6 表13),非 TMI→PB 表(表10);
+        // TMI 为 4bit 天然 0-15,不越 diversity 表(0-28)边界
+        pbsize = gw_2026_diversity_pb_size(tmi);
     }
     if (pbsize <= 0 || payload.size() < 16 + pbsize) return out;
 
@@ -384,6 +389,22 @@ MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_r
                 }
                 annotate_unit(grp.children, "LinkMinCommSuccessRate", QStringLiteral("%"));
                 annotate_unit(grp.children, "PCOCommSuccessRate", QStringLiteral("%"));
+                // PCOBRUSNR(表24,13-16,32b):8×4bit BRU SNR 档位渲染(表58)
+                for (auto& ch : grp.children) {
+                    if (ch.name.startsWith(QStringLiteral("PCOBRUSNR"))) {
+                        const quint64 v = get_bits(it, 13, 0, 32);
+                        QStringList dbs;
+                        for (int b = 0; b < 8; ++b) {
+                            const quint8 s = quint8((v >> (4 * b)) & 0xF);
+                            // 与 msdu_parser 的 bru_snr_desc 同口径:0=无效,1-15 区间 (-13+3v,-10+3v] dB
+                            dbs << ((s == 0) ? QStringLiteral("0 - Invalid")
+                                             : QStringLiteral("%1 (%2~%3dB]")
+                                                   .arg(s).arg(-13 + 3 * s).arg(-10 + 3 * s));
+                        }
+                        ch.value = QStringLiteral("0x%1 (dB: %2)")
+                                       .arg(v, 8, 16, QChar('0')).arg(dbs.join(QLatin1String(",")));
+                    }
+                }
                 for (auto& ch : grp.children) {
                     if (ch.name.startsWith(QStringLiteral("Role"))) {
                         quint8 r = (quint8)get_bits(it, 10, 0, 4);
@@ -400,7 +421,7 @@ MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_r
                 }
                 break;
             }
-            case GW_2026_BeaconItemType::ROUTE_PARAMETER: {  // Route Param(8B)
+            case GW_2026_BeaconItemType::ROUTE_PARAMETER: {  // Route Param(V6 表25,8B)
                 add_fields(grp.children, it, 0, kRouteParamSpec, kRouteParamSpecN, abs0);
                 // 周期/时间单位(与 Python log "RoutePeriod: 80s" 一致)
                 annotate_unit(grp.children, "RoutePeriod", QStringLiteral("s"));
@@ -468,7 +489,7 @@ MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_r
                     if (!ch.name.startsWith(QStringLiteral("TargetMechanismID")))
                         continue;
                     const quint8 v = (quint8)get_bits(it, 0, 0, 8);
-                    // 表36:0=固定信标机制 1=竞争信标机制,其他保留
+                    // 表33:0=固定信标机制 1=竞争信标机制,其他保留
                     ch.value = (v <= 1)
                         ? QStringLiteral("%1 - %2").arg(v).arg(
                               (v == 0) ? trl::L("固定信标机制") : trl::L("竞争信标机制"))
@@ -476,7 +497,7 @@ MsduInfo GW_2026_BeaconParser::parse_beacon(const QByteArray& payload, bool is_r
                 }
                 break;
             }
-            case GW_2026_BeaconItemType::PROXY_ROLE: {  // 代理角色条目(表37):数量 1B + TEI 12b 打包序列
+            case GW_2026_BeaconItemType::PROXY_ROLE: {  // 代理角色条目(表34):数量 1B + TEI 12b 打包序列
                 if (it.isEmpty()) break;
                 const int n = (quint8)it[0];
                 MsduFieldNode nn;
@@ -691,6 +712,8 @@ struct I18nReg {
         trl::register_en("载波信标后发无线标准信标", "Carrier then RF standard beacon");
         trl::register_en("载波信标后发无线精简信标", "Carrier then RF lite beacon");
         trl::register_en("载波信标+CSMA时隙发无线精简信标", "Carrier + RF lite beacon in CSMA slot");
+        trl::register_en("发送高速载波信标并在该时隙发送无线标准信标", "Carrier beacon and RF standard beacon in same slot");
+        trl::register_en("发送高速载波信标并在该时隙发送无线精简信标", "Carrier beacon and RF lite beacon in same slot");
         // 带占位符文案(与 trl::L 原文 key 一致,调用方再 .arg)
         trl::register_en("%1 (内容 %2B)", "%1 (%2B content)");
         trl::register_en("Item[%1] %2 (内容 %3B)", "Item[%1] %2 (%3B content)");

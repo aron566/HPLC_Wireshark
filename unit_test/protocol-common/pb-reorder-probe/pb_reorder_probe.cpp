@@ -330,10 +330,9 @@ static QByteArray gw2026_frame(const int* seqs, int n) {
     set_bits(p, 5, 4, 12, 0xFFF);      // dst TEI
     set_bits(p, 7, 0, 3, 0);           // 帧子类型 0 = 数据帧
     set_bits(p, 8, 0, 12, 100);        // 帧长
-    set_bits(p, 10, 1, 1, 0);          // 调制方式 0 = 分集拷贝
-    set_bits(p, 10, 2, 5, 3);          // 分集拷贝模式 3 → 72B(表18)
-    set_bits(p, 10, 7, 1, (n - 1) & 1);        // PB 个数 2b 编码
-    set_bits(p, 11, 0, 1, ((n - 1) >> 1) & 1);
+    set_bits(p, 10, 0, 2, 0);          // 载荷子载波加载模式 0=静态(2bit,表7 (10,0,2))
+    set_bits(p, 10, 2, 5, 3);          // 载荷调制参数 = 分集拷贝模式 3 → 72B(表13)
+    set_bits(p, 11, 0, 2, (n - 1) & 0x3);  // PB 个数 2bit(表7 (11,0,2),0-3=1-4块)
     set_bits(p, 11, 4, 3, 0);          // 频段 band0
     for (int i = 0; i < n; ++i) {
         quint8* blk = p + 16 + i * pbsz;

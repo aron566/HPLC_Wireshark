@@ -85,6 +85,19 @@ static QString assoc_result_str(quint8 v) {
     return QString::number(v);
 }
 
+// BRU SNR 档位描述(表58/表15):0=无效;v(1-15) 区间 (-13+3v, -10+3v] dB
+static QString bru_snr_desc(quint8 v) {
+    if (v == 0) return QStringLiteral("0 - Invalid");
+    return QStringLiteral("%1 (%2~%3dB]").arg(v).arg(-13 + 3 * v).arg(-10 + 3 * v);
+}
+// 将 32bit(8×4bit) BRU SNR 值渲染为逗号分隔档位串
+static QString bru_snr_32_desc(quint64 v) {
+    QStringList dbs;
+    for (int b = 0; b < 8; ++b)
+        dbs << bru_snr_desc(quint8((v >> (4 * b)) & 0xF));
+    return dbs.join(QLatin1String(","));
+}
+
 /// 枚举字典翻译:name 命中则替换 value 为 "值 - 含义"
 static void translate_enum(QVector<MsduFieldNode>& nodes, const char* field,
                            const char* const* dict, int dict_size) {
@@ -626,7 +639,7 @@ static const FieldSpec kCarrierRfdlAttrSpec[] = {
     {"MinCommRate",       16, 0, 8, Fmt::DEC},   // 最小通信成功率 %
     {"RFDLPeriod",        17, 0, 8, Fmt::DEC},   // 发现列表周期(s)
     {"RcvAgingCycles",    18, 0, 8, Fmt::DEC},   // 接收率老化周期个数
-    {"ProxyBRUSnr",       19, 0, 32, Fmt::DEC},  // 代理 BRU SNR 信息(表58)
+    {"ProxyBRUSnr",       19, 0, 32, Fmt::HEX8},  // 代理 BRU SNR 信息(表58,8×4bit;档位渲染见下)
 };
 static const int kCarrierRfdlAttrSpecN = int(sizeof(kCarrierRfdlAttrSpec)/sizeof(kCarrierRfdlAttrSpec[0]));
 
@@ -762,14 +775,11 @@ static int rfdl_neighbour_bits(MsduFieldNode& parent, const QByteArray& c,
         bp += cb.rssi;
     }
     if (cb.bru) {
-        // 表58:32bit = 8×4bit BRU SNR(BRU0-7),-10~35dB 3dB 步进,量化值 v → -10+3v dB
+        // 表58:32bit = 8×4bit BRU SNR(BRU0-7),档位 0=无效;1-15 区间 (-13+3v,-10+3v] dB
         const quint64 v = get_bits(c, bp / 8, bp % 8, 32);
-        QStringList dbs;
-        for (int b = 0; b < 8; ++b)
-            dbs << QString::number(-10 + 3 * (int)((v >> (4 * b)) & 0xF));
         rfdl_bit_field(parent, "BRUSNR", c, bp, 32, cbase_abs,
                        QStringLiteral("0x%1 (dB: %2)")
-                           .arg(v, 8, 16, QChar('0')).arg(dbs.join(QLatin1String(","))));
+                           .arg(v, 8, 16, QChar('0')).arg(bru_snr_32_desc(v)));
         bp += 32;
     }
     return bp;
@@ -863,6 +873,14 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
                 annotate_unit(g.children, "ProxyChannelQuality", QStringLiteral("dB"));
                 annotate_unit(g.children, "RouteTimeout", QStringLiteral("s"));
                 annotate_unit(g.children, "RFDLPeriod", QStringLiteral("s"));
+                // 代理 BRU SNR(表58,byte19-22,32b):8×4bit 档位渲染,0=无效/1-15 区间 (-13+3v,-10+3v] dB
+                for (auto& ch : g.children) {
+                    if (ch.name.startsWith(QStringLiteral("ProxyBRUSnr"))) {
+                        const quint64 v = get_bits(content, 19, 0, 32);
+                        ch.value = QStringLiteral("0x%1 (dB: %2)")
+                                       .arg(v, 8, 16, QChar('0')).arg(bru_snr_32_desc(v));
+                    }
+                }
             } else {
                 // 无线发现列表(msg_type 0)站点属性:表85 14B
                 add_fields(g.children, content, 0, kRfdlAttrSpec, kRfdlAttrSpecN, content_abs);
@@ -1081,9 +1099,9 @@ static void parse_rfdl(MsduInfo& out, const QByteArray& rfdl, int rel_base, bool
     }
 }
 
-// ── 信道评估参数更新报文(表99-101,单跳帧消息类型1 / MMe 0x0015) ──
+// ── 信道评估参数更新报文(MMeChannelAssessParamUpdate,表99-101;MMe 0x0015) ──
 // byte0: BRUSNR有效标志(0,0,1) + SAT配置长度(0,1-7,0=无SAT配置);
-// 标志=1 时后随 4B BRU SNR 信息表(表58:8×4bit,-10+3v dB);
+// 标志=1 时后随 4B BRU SNR 信息表(表58:8×4bit,档位 0=无效/1-15 区间 (-13+3v,-10+3v] dB);
 // SAT 配置(sat_len 字节)固定头 2B(表99):
 //   byte0: SAT ID(0,0,1b) + SAT模式(0,1,1b) + 单子载波组大小(0,2-3,2b) + 保留(0,4-7)
 //   byte1: TMI(1,0-3,4b) + 数据载荷增益(1,4-7,4b)
@@ -1103,11 +1121,8 @@ static void parse_channel_eval(MsduInfo& out, const QByteArray& c, int rel_base)
     if (bru_valid) {  // BRU SNR 信息表(表58)
         if (off + 4 > c.size()) { pa::warn("gw_2026:content_short", QStringLiteral("BRU SNR @%1 exceeds %2").arg(off).arg(c.size())); return; }
         const quint64 v = get_bits(c, off, 0, 32);
-        QStringList dbs;
-        for (int b = 0; b < 8; ++b)
-            dbs << QString::number(-10 + 3 * (int)((v >> (4 * b)) & 0xF));
         MsduFieldNode& br = group(h.children, QStringLiteral("BRU SNR [32b]"),
-            QStringLiteral("0x%1 (dB: %2)").arg(v, 8, 16, QChar('0')).arg(dbs.join(QLatin1String(","))));
+            QStringLiteral("0x%1 (dB: %2)").arg(v, 8, 16, QChar('0')).arg(bru_snr_32_desc(v)));
         br.rel_start = rel_base + off; br.rel_len = 4;
         off += 4;
     }
@@ -1119,6 +1134,8 @@ static void parse_channel_eval(MsduInfo& out, const QByteArray& c, int rel_base)
     const int sat_id   = (int)get_bits(sat, 0, 0, 1);   // 表99:四字段共 1B,非整字节 ID
     const int sat_mode = (int)get_bits(sat, 0, 1, 1);
     const int grp_size = (int)get_bits(sat, 0, 2, 2);
+    // 表99:单子载波组大小 0/1/2/3 = 4/6/8/12 个一组(V6 表97,非 4/8/12/16)
+    static const int kGrpSizePerGroup[] = {4, 6, 8, 12};
     // 载荷调制参数(表99,5bit,LSB-first):sat[0] bit7(低位)+sat[1] bit0-3(高4位);sat[0] bit4-6 为保留
     const int tmi      = (int)(get_bits(sat, 0, 7, 1) | (get_bits(sat, 1, 0, 4) << 1));
     const int gain     = (int)get_bits(sat, 1, 4, 4);
@@ -1129,7 +1146,8 @@ static void parse_channel_eval(MsduInfo& out, const QByteArray& c, int rel_base)
             ? QStringLiteral("Subcarrier Select Table") : QStringLiteral("Bit Loading Table")));
     s1.rel_start = rel_base + off; s1.rel_len = 1;
     MsduFieldNode& s2 = group(sc.children, QStringLiteral("Subcarrier Group Size"),
-        QStringLiteral("%1 (%2/group)").arg(grp_size).arg(4 + 2 * grp_size));  // 0/1/2 → 4/6/8 个一组
+        QStringLiteral("%1 (%2/group)").arg(grp_size)
+            .arg((grp_size >= 0 && grp_size <= 3) ? kGrpSizePerGroup[grp_size] : 0));  // 0/1/2/3 → 4/6/8/12 个一组
     s2.rel_start = rel_base + off; s2.rel_len = 1;
     MsduFieldNode& s3 = group(sc.children, trl::L("载荷调制参数 [5b]"), QString::number(tmi));
     s3.rel_start = rel_base + off + 1; s3.rel_len = 1;
@@ -1244,6 +1262,7 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
             out.summary = trl::L("载波发现列表消息");
             parse_rfdl(out, msdu_body, 4, /*carrier=*/true);
         } else {
+            // 2-127 保留(用于管理消息类型扩展)、128 应用层、129 IPv4
             out.summary = trl::L("单跳 MSDU 类型 %1").arg(msdu_type);
         }
         // ---- 单跳帧尾 4B ICV(CRC32)校验(HDC2.0 §5.1.1.6/§5.2.5.2:完整性校验针对 MAC 帧、
@@ -1262,7 +1281,6 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                                         msdu_len + 4);
                 MsduFieldNode crc;
                 crc.name = QStringLiteral("MSDU CRC32");
-            // 2-127 保留(用于管理消息类型扩展)、128 应用层、129 IPv4
                 crc.value = QStringLiteral("0x%1 %2")
                     .arg(stored, 8, 16, QChar('0'))
                     .arg(stored == calc ? QStringLiteral("OK") : QStringLiteral("FAIL"));
@@ -2097,7 +2115,7 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
             }
             case GW_2026_MMeType::MME_CHANNEL_ASSESS_PARAM_UPDATE: {
                 // MMeChannelAssessParamUpdate(信道评估参数更新,表99):体 = 表99-101
-                // 复用 parse_channel_eval(与简头 msg_type=1 同款解析),字段树挂 out.tree 顶层。
+                // 复用 parse_channel_eval,字段树挂 out.tree 顶层。
                 parse_channel_eval(out, b, head_size + 4);
                 break;
             }

@@ -324,15 +324,15 @@ GW_2026_Parser::Result GW_2026_Parser::parse_inner(const BplcFrame& in, MsduStat
             r.mpdu.beacon_line = 0;
             r.mpdu.beacon_rsv = (quint16)get_bits_unchecked(p, 10, 4, 16);    // 保留原始值(供字段树呈现)
         } else {
-            // 载波信标(表5):PB 大小由分集拷贝模式(tmi)查表;
-            // 无效 TMI 不再把 -1 铸成 65535;FC符号数(11,3,2) 跨字节
+            // 载波信标(表5):PB 大小由分集拷贝模式(tmi)查表(表13);
+            // 无效 TMI 不再把 -1 铸成 65535;FC符号数(11,3,1) 0标准/1长
             r.mpdu.tmi          = (quint8) get_bits_unchecked(p, 9, 4, 4);
-            const int sz = gw_2026_pb_size(r.mpdu.tmi);
+            const int sz = gw_2026_diversity_pb_size(r.mpdu.tmi);   // 表5 载荷传输模式=分集拷贝模式(表13)
             r.mpdu.pb_size    = (quint16)(sz > 0 ? sz : 0);  // 单块帧块长
             r.mpdu.symbol_num = (quint16)get_bits_unchecked(p, 10, 0, 9);
-            r.mpdu.beacon_fch_sym = (quint8)((get_bits_unchecked(p, 11, 3, 2)));
+            r.mpdu.beacon_fch_sym = (quint8)((get_bits_unchecked(p, 11, 3, 1)));  // 表5 (11,3,1):0标准/1长
             r.mpdu.beacon_line = (quint8) get_bits_unchecked(p, 11, 1, 2);
-            r.mpdu.beacon_rsv = (quint16)get_bits_unchecked(p, 11, 5, 7);     // 保留原始值(供字段树呈现)
+            r.mpdu.beacon_rsv = (quint16)get_bits_unchecked(p, 11, 4, 8);     // 表5 (11,4,8) 跨字节保留
         }
         r.beacon = GW_2026_BeaconParser::parse_beacon(r.payload_for_log, r.meta.is_rf);
         if (r.beacon.present) {
@@ -362,8 +362,8 @@ GW_2026_Parser::Result GW_2026_Parser::parse_inner(const BplcFrame& in, MsduStat
             r.mpdu.beacon_item_num   = (quint8)get_bits(gb, 16 + (lite ? 12 : 20), 0, 8);
         }
     } else if (ft == GW_2026_FrameType::ACK) {
-        // ACK(ack 模块)
-        gw_2026_ackp::parse_fch(p, r.mpdu);
+        // ACK(ack 模块):载波表14/15,无线表19
+        gw_2026_ackp::parse_fch(p, r.mpdu, r.meta.is_rf);
     } else if (ft == GW_2026_FrameType::COORD) {
         // 网间协调帧 COORD(coord 模块)
         gw_2026_coordp::parse_fch(p, r.mpdu);

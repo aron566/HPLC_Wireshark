@@ -10,8 +10,26 @@
 
 namespace gw_2026_ackp {
 
-void parse_fch(const quint8* p, MpduInfo& m) {
+void parse_fch(const quint8* p, MpduInfo& m, bool is_rf) {
     m.ack_ext_type = (quint8)get_bits_unchecked(p, 12, 0, 4);
+    if (is_rf) {
+        // 表19(无线选择确认帧):(4,0,2) 保留,无 BRU/SAT ID 标志;接收物理块个数(4,2,2)
+        //   接收状态(4,4,4) 源TEI(5,0,12) 目的TEI(6,4,12) (8,0,8) 保留
+        //   信道质量=信号强度(9,0,8) 站点负载(10,0,8) (11,0,8) 保留 ExtType(12,0,4)
+        m.ack_bru_snr_flag   = 0;
+        m.ack_sat_id_flag    = 0;
+        m.ack_rx_res         = 0;
+        m.ack_rx_pb_num      = (quint8)get_bits_unchecked(p, 4, 2, 2);
+        m.ack_rx_status      = (quint8)get_bits_unchecked(p, 4, 4, 4);
+        m.src_tei            = (quint16)get_bits_unchecked(p, 5, 0, 12);
+        m.dst_tei            = (quint16)get_bits_unchecked(p, 6, 4, 12);
+        m.ack_remain_sta_num = 0;
+        m.ack_rsv0           = (quint8)get_bits_unchecked(p, 8, 0, 8);   // 表19 (8,0,8) 保留
+        m.ack_channel_quality = (quint8)get_bits_unchecked(p, 9, 0, 8);  // 表19 信道质量=信号强度
+        m.ack_sta_load       = (quint8)get_bits_unchecked(p, 10, 0, 8);
+        m.ack_rsv1           = (quint8)get_bits_unchecked(p, 11, 0, 8);
+        return;
+    }
     // 表14/表15:0=选择确认帧,其他=保留;未知扩展帧类型默认按选择确认帧解析。
     m.ack_bru_snr_flag   = (quint8)get_bits_unchecked(p, 4, 0, 1);
     m.ack_sat_id_flag    = (quint8)get_bits_unchecked(p, 4, 1, 1);

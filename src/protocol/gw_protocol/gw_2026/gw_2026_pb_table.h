@@ -17,6 +17,8 @@ inline int gw_2026_rf_pb_size(quint8 code) {
 }
 
 /// 国网 TMI → PB 块大小(字节)。-1 = TMI 无效
+/// @deprecated V6 表5/表7 的「载荷传输模式」实为分集拷贝模式(表13),应改用
+///   gw_2026_diversity_pb_size();本函数保留仅作 HDC1.0 口径参考,勿在新解析路径调用。
 inline int gw_2026_pb_size(quint8 tmi) {
     if (tmi == 0 || tmi == 1)       return 520;
     if (tmi >= 2 && tmi <= 6)       return 136;
