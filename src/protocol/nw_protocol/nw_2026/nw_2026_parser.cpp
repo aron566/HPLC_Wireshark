@@ -24,8 +24,10 @@
 
 
 NW_2026_Parser::NW_2026_Parser() {
-    // BPLC 版委托解析器走注册表(影子覆盖同样生效,见头文件);注册表未登记
-    // 内置协议时回退直接构造(单测只链接本解析器时仍可工作)
+    // BPLC 版委托解析器走注册表(no-shadow:取到的恒为内置 NW_2021);注册表未登记
+    // 内置协议时回退直接构造。NW_2026 始终要求编译/链接 NW_2021:注册表委托与
+    // 直接构造回退都依赖 NW_2021_Parser,单编本文件链接不过(须同时编
+    // protocolfactory.cpp 与 nw_2021_parser.cpp);这不是链接可选依赖。
     m_legacy = make_parser_by_id(QStringLiteral("NW_2021"));
     m_legacy_nw2021 = dynamic_cast<NW_2021_Parser*>(m_legacy.get());
     if (!m_legacy) {
