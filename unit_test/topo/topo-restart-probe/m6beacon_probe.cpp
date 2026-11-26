@@ -55,11 +55,18 @@ int main(int argc, char** argv) {
         MsduInfo r = GW_2026_BeaconParser::parse_beacon(f, false);
         CHECK("M6 carrier TMI=2 -> present", r.present && !r.tree.isEmpty());
     }
-    // CAR2:载波 TMI=15 无效 -> 拒收
+    // CAR2:载波 TMI=15 在 V6 表5 有效(仅使用模式 0-15),表13 模式15->72B
     {
-        QByteArray f = build_beacon(136, 0xF0, 0x00);
+        QByteArray f = build_beacon(72, 0xF0, 0x00);
         MsduInfo r = GW_2026_BeaconParser::parse_beacon(f, false);
-        CHECK("M6 carrier TMI=15 -> rejected", !r.present);
+        CHECK("M6 carrier TMI=15 -> present (V6 0-15 valid, 72B)",
+              r.present && !r.tree.isEmpty());
+    }
+    // CAR3:载波 TMI=15(72B) 但载荷不足 16+72 -> 按 PB 大小门拒收
+    {
+        QByteArray f = build_beacon(40, 0xF0, 0x00);
+        MsduInfo r = GW_2026_BeaconParser::parse_beacon(f, false);
+        CHECK("M6 carrier TMI=15 short payload -> rejected", !r.present);
     }
     std::printf(g_fail ? "RESULT: %d FAIL\n" : "RESULT: ALL PASS\n", g_fail);
     return g_fail ? 1 : 0;
