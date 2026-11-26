@@ -72,7 +72,7 @@ struct DisplayTimeAnchor {
         }
         if (have_anchor) {
             const qint64 dn = qint32(r.meta.timestamp - anchor_ntb);  // 回绕安全
-            if (dn > 0 && dn <= 25000000LL * 60) {
+            if (dn >= 0 && dn <= 25000000LL * 60) {
                 const qint64 dus = dn * 40 / 1000;  // tick(40ns) → µs
                 const qint64 epoch = anchor_epoch_ms + dus / 1000;
                 r.meta.frame_time = QDateTime::fromMSecsSinceEpoch(epoch);
@@ -86,7 +86,7 @@ struct DisplayTimeAnchor {
                 return;
             }
         }
-        // 回退:此前无好帧,或偏差超限(≤0 或 >60s)——用 reader 收帧时取的本地时间
+        // 回退:此前无好帧,或偏差超限(<0 或 >60s)——用 reader 收帧时取的本地时间
         // (队列积压时比解析时现取更接近收帧时刻,回退误差更小)
         r.meta.frame_time = QDateTime::fromMSecsSinceEpoch(ctx.now_ms);
         r.meta.epoch_ms = ctx.now_ms;

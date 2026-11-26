@@ -3,12 +3,12 @@
 /// @details 每帧 = 0x3C + 转义(data) + 0x3E;
 ///          data = [dlen2LE][ts4LE][phr_mcs][option][channel][isRF][MPDU]。
 ///          读取端(serialreader try_extract_frame)只按 0x3C/0x3E 切帧并对
-///          0x3D 反转义,dlen 字段不校验;因此 dlen 填 MPDU+6 即可被重新解析。
+///          0x3D 反转义,dlen 字段不校验;dlen 按固件口径填 MPDU+4。
 ///
-///          导出的文件在 data 最前面带 8 字节 BCD 绝对时间标签
-///          (年月日时分秒毫秒,与解码器 has_time_tag 头同构):
-///          data = [bcd_time8][dlen2LE][ts4LE][phr][option][channel][isRF][MPDU]。
-///          原始捕获时刻;老文件(无该字段)回退到本地时间。
+///          导出的文件在帧外带独立的 8 字节 BCD 绝对时间标签
+///          (年月日时分秒毫秒);帧体始终使用新格式:
+///          data = [dlen2LE][ts4LE][phr][option][channel][isRF][MPDU]。
+///          绝对时间由帧外标签承载。
 #ifndef BPLC_PLAYBACKWRITER_H
 #define BPLC_PLAYBACKWRITER_H
 
@@ -41,14 +41,6 @@ inline bool looks_like_bcd8(const QByteArray& d) {
     if (!bcd_ok(at(6), 9)) return false;   // 毫秒百位
     if (!bcd_ok(at(7), 99)) return false;
     return true;
-}
-
-/// @brief 自动识别帧 data 开头是否带 8B BCD 时间标签(旧格式,帧体 ≥28B)
-/// @note  仅旧格式逐帧 BCD 标签识别用(无 raw_wire 数据的 frame_to_playback
-///        回退路径 + viewtest 往返测试);新格式段头/段间标注用 looks_like_bcd8。
-inline bool looks_like_bcd_time(const QByteArray& d) {
-    if (d.size() < 28) return false;
-    return looks_like_bcd8(d);
 }
 
 inline QByteArray escape_frame_data(const QByteArray& data) {
@@ -171,7 +163,7 @@ inline QByteArray bcd_time_tag(qint64 epoch_ms) {
     return out;
 }
 
-/// @brief 单帧 → 回放 bin 帧字节(含 0x3C/0x3E 转义与 8B 起始时间标签)
+/// @brief 单帧 → 新格式回放 bin 帧字节(不含帧外 BCD 时间标签)
 inline QByteArray frame_to_playback(const PacketEntry& e) {
     // raw_bytes = 纯 MPDU(串口/回放/裸 hex 导入均已在解析层剥去封装头)
     const QByteArray mpdu = e.raw_bytes;
@@ -179,14 +171,14 @@ inline QByteArray frame_to_playback(const PacketEntry& e) {
 
     // dlen = 数据长度字段(2B LE,反转义后偏移 0-1)。定义:从 phr_mcs 字段
     // (偏移 6)到帧末的字节数 = 物理元数据 4B + MPDU 长(与固件帧 dlen=MPDU+4
-    // 一致)。本监控器读取端不校验该字段,仅按 0x3C/0x3E 切帧。
-    // ts 域 = epoch ms 低 32 位(导出时刻);绝对时刻由 8B BCD 时间标签承载
+    // 一致)。读取端只按 0x3C/0x3E 切帧,不校验 dlen。
+    // ts 域统一为帧内 NTB tick;
+    // 绝对时刻由帧外 8B BCD 时间标签承载。
+    // 回放端会把该字段用于相邻帧时间推进,不能写 epoch ms 低位。
     const quint16 dlen = quint16(mpdu.size() + 4);
-    const quint32 ts   = quint32(e.epoch_ms & 0xFFFFFFFFu);
+    const quint32 ts   = e.meta.timestamp;
     QByteArray data;
-    data.reserve(mpdu.size() + 18);
-    // 起始(帧)时间标签:回放时据此恢复原始捕获时刻
-    data.append(bcd_time_tag(e.epoch_ms));
+    data.reserve(mpdu.size() + 10);
     data.append(char(dlen & 0xFF)).append(char(dlen >> 8));
     data.append(char(ts & 0xFF)).append(char((ts >> 8) & 0xFF))
         .append(char((ts >> 16) & 0xFF)).append(char((ts >> 24) & 0xFF));
@@ -203,8 +195,8 @@ inline QByteArray frame_to_playback(const PacketEntry& e) {
 
 /// @brief 全部帧 → 完整回放 bin 文件内容(空帧自动跳过)
 /// @details 实时串口断段认 seg_start,回放原有标注认 replay_time_tag,
-///          不用 NTB 差兜底(多设备 NTB
-///          基准不同,差不可靠)。段首前写 8B BCD 标注,帧本身 raw_wire 原样。
+///          不用 NTB 差兜底(多设备 NTB 基准不同,差不可靠)。
+///          帧外写 8B BCD 标注,帧体始终使用新格式。
 inline QByteArray build_playback_bin(const QVector<PacketEntry>& entries) {
     QByteArray buf;
     buf.reserve(entries.size() * 72);
@@ -216,8 +208,15 @@ inline QByteArray build_playback_bin(const QVector<PacketEntry>& entries) {
             buf.append(e.raw_wire);
             have = true;
         } else {
+            // 无 raw_wire 的回退帧:在帧前写帧外时间标签(帧体 ts 来源不可与相邻
+            // raw_wire 帧做 NTB 差)。have 置 false,强制下一个 raw_wire 帧
+            // 自带段标注,不与回退帧的 ts 跨来源差分。空帧不写标注。
             const QByteArray fr = frame_to_playback(e);
-            if (!fr.isEmpty()) buf.append(fr);
+            if (!fr.isEmpty()) {
+                buf.append(bcd_time_tag(e.epoch_ms));
+                buf.append(fr);
+                have = false;
+            }
         }
     }
     return buf;
@@ -244,7 +243,7 @@ inline QByteArray build_raw_hex_text(const QVector<PacketEntry>& entries) {
             buf.append(ts_hdr);
         }
         // 帧字节:优先 raw_wire 原样(与 bin 导出一致,保证 round-trip 无损);
-        // 无 raw_wire(旧数据)才重新构造
+        // 无 raw_wire 的缓存条目才重新构造
         QByteArray frame;
         if (!e.raw_wire.isEmpty()) {
             frame = e.raw_wire;   // 0x3C + 转义体 + 0x3E 原样
@@ -289,8 +288,13 @@ public:
             dev_->write(e.raw_wire);
             have_ = true;
         } else {
+            // 同 build_playback_bin:回退帧前写帧外时间标签,并强制下一 raw_wire 帧带标注
             const QByteArray fr = frame_to_playback(e);
-            if (!fr.isEmpty()) dev_->write(fr);
+            if (!fr.isEmpty()) {
+                dev_->write(bcd_time_tag(e.epoch_ms));
+                dev_->write(fr);
+                have_ = false;
+            }
         }
     }
 
