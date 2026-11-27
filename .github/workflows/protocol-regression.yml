@@ -147,12 +147,14 @@ jobs:
 
           (cd unit_test/protocol-common/pb-reorder-probe && bash build.sh)
           (cd unit_test/protocol-common/pb-batch2-probe && bash build.sh)
+          (cd unit_test/protocol-gw/gw2026-mme-probe && bash build.sh)
           (cd unit_test/filter/info-crc-probe && bash build.sh)
           (cd unit_test/filter/orig-src-probe && bash build.sh)
           (cd unit_test/filter/mac-filter-probe && bash build.sh)
 
           unit_test/protocol-common/pb-reorder-probe/build/pb_reorder_probe/pb_reorder_probe
           unit_test/protocol-common/pb-batch2-probe/build/pb_batch2_probe/pb_batch2_probe
+          unit_test/protocol-gw/gw2026-mme-probe/build/gw2026_mme_probe
           unit_test/filter/info-crc-probe/build/info_crc_probe
           unit_test/filter/orig-src-probe/build/orig_src_probe \
             "$GITHUB_WORKSPACE/unit_test/protocol-gw/gw-topo-merge-probe/gw_topo_merge.bin"
