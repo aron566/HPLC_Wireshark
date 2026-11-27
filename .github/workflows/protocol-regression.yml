@@ -584,6 +584,15 @@ jobs:
           bash unit_test/wireshark-lua/lang-path-test/run.sh | tee "$RUNNER_TEMP/lang-path.out"
           grep -qF "RESULT: ALL PASS (76/76 passed, 0 failures)" "$RUNNER_TEMP/lang-path.out"
 
+      # gw2026 Lua 解码探针(无头, 不依赖 tshark): stub tvb/TreeItem, 喂 V6 构造帧,
+      # 断言 A 批 A1-A6 字段值(时隙分配/表83邻居Option/表73-74 NID宽度/表79差分取位/
+      # 表78相位游标/body截断)。防「Lua 解码零防线」回归。
+      - name: Wireshark Lua gw2026 dissector field regression (gw2026-dissect-probe)
+        run: |
+          set -e
+          bash unit_test/wireshark-lua/gw2026-dissect-probe/run.sh | tee "$RUNNER_TEMP/gw2026-dissect.out"
+          grep -qF "RESULT: ALL PASS (28/28 pass)" "$RUNNER_TEMP/gw2026-dissect.out"
+
   # ---------------------------------------------------------------------------
   # L6 libFuzzer 目标(unit_test/fuzz):帧解析入口 get_bits / PB 组装 / add_fields,
   # 默认 30 秒有界短跑。CI 镜像本身无 clang/libFuzzer,但 ubuntu-24.04 runner 有

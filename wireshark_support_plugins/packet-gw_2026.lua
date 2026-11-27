@@ -507,10 +507,8 @@ f.ent_csma_phase_cnt = ProtoField.uint8 ("gw_2026.beacon.slot.csma_phase_cnt", T
 f.ent_proxy_beacon_cnt = ProtoField.uint8 ("gw_2026.beacon.slot.proxy_beacon_cnt", T("代理信标时隙总数", "Proxy Beacon Slot Count"), base.DEC)
 f.ent_beacon_slot_len = ProtoField.uint8 ("gw_2026.beacon.slot.beacon_slot_len", T("信标时隙长度(ms)", "Beacon Slot Length (ms)"), base.DEC)
 f.ent_csma_slice_len = ProtoField.uint8 ("gw_2026.beacon.slot.csma_slice_len", T("CSMA时隙分片长度(10ms)", "CSMA Slot Slice Length (10ms)"), base.DEC)
-f.ent_bcsma_phase_cnt = ProtoField.uint8 ("gw_2026.beacon.slot.bcsma_phase_cnt", T("绑定CSMA时隙相线个数", "Binding CSMA Slot Line Count"), base.DEC)
+f.ent_bcsma_phase_cnt = ProtoField.uint8 ("gw_2026.beacon.slot.bcsma_phase_cnt", T("绑定CSMA时隙相线个数", "Binding CSMA Slot Line Count"), base.DEC, nil, 0xC0)
 f.ent_bcsma_lid = ProtoField.uint8 ("gw_2026.beacon.slot.bcsma_lid", T("绑定CSMA时隙链路标识符", "Binding CSMA Slot LID"), base.DEC)
-f.ent_tdma_slot_len = ProtoField.uint8 ("gw_2026.beacon.slot.tdma_slot_len", T("TDMA时隙长度(ms)", "TDMA Slot Length (ms)"), base.DEC)
-f.ent_tdma_lid = ProtoField.uint8 ("gw_2026.beacon.slot.tdma_lid", T("TDMA时隙链路标识符", "TDMA Slot LID"), base.DEC)
 f.ent_bp_start_ntb = ProtoField.uint32 ("gw_2026.beacon.slot.bp_start_ntb", T("信标周期起始网络基准时", "Beacon Period Start NTB"), base.DEC)
 f.ent_bp_len = ProtoField.uint32 ("gw_2026.beacon.slot.bp_len", T("信标周期长度(ms)", "Beacon Period Length (ms)"), base.DEC)
 f.ent_rf_beacon_len = ProtoField.uint16 ("gw_2026.beacon.slot.rf_beacon_len", T("RF信标时隙长度(ms)", "RF Beacon Slot Length (ms)"), base.DEC)
@@ -520,12 +518,12 @@ f.ent_ncb_tei = ProtoField.uint16 ("gw_2026.beacon.ncb.tei", T("TEI", "TEI"), ba
 f.ent_ncb_type = ProtoField.uint8 ("gw_2026.beacon.ncb.type", T("信标类型", "Beacon Type"), base.DEC, {[0]=T("发现信标", "Discovery Beacon"),[1]=T("代理信标", "Proxy Beacon")}, 0x10)
 f.ent_ncb_rf_flag = ProtoField.uint8 ("gw_2026.beacon.ncb.rf_flag", T("无线信标标志", "RF Beacon Flag"), base.DEC, nil, 0xE0)
 
--- CSMA时隙信息 (表52)
-f.ent_csma_len = ProtoField.uint24 ("gw_2026.beacon.csma.len", T("CSMA时隙长度(ms)", "CSMA Slot Length (ms)"), base.DEC)
+-- CSMA时隙信息 (表29)
+f.ent_csma_len = ProtoField.uint16 ("gw_2026.beacon.csma.len", T("CSMA时隙长度(ms)", "CSMA Slot Length (ms)"), base.DEC)
 f.ent_csma_phase = ProtoField.uint8 ("gw_2026.beacon.csma.phase", T("CSMA时隙相线", "CSMA Slot Line"), base.DEC, phase_vals, 0x03)
 
--- 绑定CSMA时隙信息 (表53)
-f.ent_bcsma_len = ProtoField.uint24 ("gw_2026.beacon.bcsma.len", T("绑定CSMA时隙长度(ms)", "Binding CSMA Slot Length (ms)"), base.DEC)
+-- 绑定CSMA时隙信息 (表30)
+f.ent_bcsma_len = ProtoField.uint16 ("gw_2026.beacon.bcsma.len", T("绑定CSMA时隙长度(ms)", "Binding CSMA Slot Length (ms)"), base.DEC)
 f.ent_bcsma_phase = ProtoField.uint8 ("gw_2026.beacon.bcsma.phase", T("绑定CSMA时隙相线", "Binding CSMA Slot Line"), base.DEC, phase_vals, 0x03)
 
 -- 无线路由参数条目 (表54)
@@ -917,6 +915,7 @@ f.mme_gc_num = ProtoField.uint8 ("gw_2026.mme.gc.num", T("组员个数", "Member
 f.mme_gc_tei = ProtoField.uint16 ("gw_2026.mme.gc.tei", T("组员 TEI", "Member TEI"), base.DEC)
 f.rfccr_nbr_cnt = ProtoField.uint8 ("gw_2026.rfccr.nbr_cnt", T("邻居网络个数", "Neighbor Network Count"), base.DEC)
 f.rfccr_nbr_ch = ProtoField.uint8 ("gw_2026.rfccr.nbr_ch", T("冲突信道号", "Conflict Channel Number"), base.DEC)
+f.rfccr_nbr_opt = ProtoField.uint8 ("gw_2026.rfccr.nbr_opt", T("Option模式", "Option Mode"), base.DEC)
 
 -- 无线发现列表 (表123-137)
 f.rfdl_sta_mac = ProtoField.ether ("gw_2026.rfdl.sta_mac", T("站点MAC地址", "STA MAC Address"))
@@ -1001,7 +1000,7 @@ gw.fields = {
     f.ent_target_band, f.ent_band_remain,
     f.ent_nc_beacon_cnt, f.ent_c_beacon_cnt, f.ent_csma_phase_cnt,
     f.ent_proxy_beacon_cnt, f.ent_beacon_slot_len, f.ent_csma_slice_len,
-    f.ent_bcsma_phase_cnt, f.ent_bcsma_lid, f.ent_tdma_slot_len, f.ent_tdma_lid,
+    f.ent_bcsma_phase_cnt, f.ent_bcsma_lid,
     f.ent_bp_start_ntb, f.ent_bp_len, f.ent_rf_beacon_len,
     f.ent_ncb_tei, f.ent_ncb_type, f.ent_ncb_rf_flag,
     f.ent_csma_len, f.ent_csma_phase, f.ent_bcsma_len, f.ent_bcsma_phase,
@@ -1078,7 +1077,7 @@ gw.fields = {
     f.rack_version, f.rack_seq,
     f.lcreq_version, f.lcreq_seq, f.lcreq_sta_cnt, f.lcreq_sta_tei,
     f.lcrsp_version, f.lcrsp_level, f.lcrsp_chan_qual, f.lcrsp_path_pref, f.lcrsp_seq,
-    f.rfccr_cco_mac, f.rfccr_nbr_cnt, f.rfccr_nbr_ch,
+    f.rfccr_cco_mac, f.rfccr_nbr_cnt, f.rfccr_nbr_ch, f.rfccr_nbr_opt,
     f.rfdl_sta_mac, f.rfdl_seq, f.rfdl_ie_type, f.rfdl_ie_ltype,
     f.rfdl_ie_len, f.rfdl_ie_data,
     f.rfdl_attr_cco_mac, f.rfdl_attr_proxy_tei, f.rfdl_attr_role, f.rfdl_attr_level,
@@ -1156,15 +1155,23 @@ local function make_block_view(tvb, base, pbsz, n)
 end
 
 -- 逻辑视图的子视图 (坐标平移, 供管理消息体/APP 体; 替代 range:tvb() 子集)
-local function view_slice(v, delta)
+-- 可选 max_len: 视图总长上限(管理消息体按 body_len 截断, 防止计数偏大读进 CRC32/填充字节)
+local function view_slice(v, delta, max_len)
     local s = setmetatable({}, {
         __call = function(_, off, len)
             off = off or 0
-            if len == nil then len = v.len() - delta - off end
+            if len == nil then
+                len = v:len() - delta - off
+                if max_len and len > max_len - off then len = max_len - off end
+            end
             return v(off + delta, len)
         end,
     })
-    s.len = function() return v:len() - delta end
+    s.len = function()
+        local total = v:len() - delta
+        if max_len and total > max_len then total = max_len end
+        return total
+    end
     if type(v) == "table" then s.body = v.body end   -- 真实 tvb 无 body(无需分段)
     return s
 end
@@ -1460,43 +1467,47 @@ local function dissect_entry_band_change(tvb, tree, off)
     add_le(tree, f.ent_band_remain, tvb, off+1, 4)
 end
 
--- 时隙分配条目 (表50)
+-- 时隙分配条目 (表27)
 local function dissect_entry_slot_alloc(tvb, tree, off)
+    -- 固定头 17B(表27): byte0 非中央信标总数 / byte1 bit0-3 中央信标·bit4-5 CSMA相线数·
+    -- bit6-7 绑定CSMA相线数 / byte2 保留 / byte3 代理信标总数 / byte4 信标时隙长度 /
+    -- byte5 CSMA分片长度 / byte6 绑定CSMA链路标识符 / byte7-10 NTB / byte11-14 周期长度 /
+    -- byte15+byte16 bit0-1 RF信标时隙长度(10bit) / byte16 bit2-7 保留
     local nc_beacon_cnt = tvb(off, 1):uint()
-    local csma_phase_cnt = band(tvb(off+1, 1):uint(), 0x30) / 16  -- bit4-5 → 1-3
-    local bcsma_phase_cnt = tvb(off+6, 1):uint()
+    local byte1 = tvb(off+1, 1):uint()
+    local csma_phase_cnt = band(byte1, 0x30) / 16   -- bit4-5 → 1-3
+    local bcsma_phase_cnt = band(byte1, 0xC0) / 64  -- bit6-7 → 0-3
     tree:add(f.ent_nc_beacon_cnt, tvb(off, 1))
     tree:add(f.ent_c_beacon_cnt, tvb(off+1, 1))
     tree:add(f.ent_csma_phase_cnt, tvb(off+1, 1))
+    tree:add(f.ent_bcsma_phase_cnt, tvb(off+1, 1))
+    -- byte2 保留
     tree:add(f.ent_proxy_beacon_cnt, tvb(off+3, 1))
     tree:add(f.ent_beacon_slot_len, tvb(off+4, 1))
     tree:add(f.ent_csma_slice_len, tvb(off+5, 1))
-    tree:add(f.ent_bcsma_phase_cnt, tvb(off+6, 1))
-    tree:add(f.ent_bcsma_lid, tvb(off+7, 1))
-    tree:add(f.ent_tdma_slot_len, tvb(off+8, 1))
-    tree:add(f.ent_tdma_lid, tvb(off+9, 1))
-    add_le(tree, f.ent_bp_start_ntb, tvb, off+10, 4)
-    add_le(tree, f.ent_bp_len, tvb, off+14, 4)
-    add_val(tree, f.ent_rf_beacon_len, tvb, off+18, 2, read_bits(tvb, (off+18)*8, 10))
-    -- 非中央信标信息: 每条 2 字节 (表51: TEI 12b + 信标类型1b + RF标志3b)
-    local pos = off + 20
+    tree:add(f.ent_bcsma_lid, tvb(off+6, 1))
+    add_le(tree, f.ent_bp_start_ntb, tvb, off+7, 4)
+    add_le(tree, f.ent_bp_len, tvb, off+11, 4)
+    add_val(tree, f.ent_rf_beacon_len, tvb, off+15, 2, read_bits(tvb, (off+15)*8, 10))
+    -- 非中央信标信息 (表28): 每条 2 字节 (TEI 12b + 信标类型 1b + 无线信标标志 3b)
+    local pos = off + 17
     for i = 1, nc_beacon_cnt do
         add_val(tree, f.ent_ncb_tei, tvb, pos, 2, read_bits(tvb, pos*8, 12))
         tree:add(f.ent_ncb_type, tvb(pos+1, 1))
         tree:add(f.ent_ncb_rf_flag, tvb(pos+1, 1))
         pos = pos + 2
     end
-    -- CSMA时隙信息: 每条 4 字节
+    -- CSMA时隙信息 (表29): 每条 3 字节 (长度 16b + 相线 2b + 保留 6b)
     for i = 1, csma_phase_cnt do
-        tree:add(f.ent_csma_len, tvb(pos, 3), tvb(pos, 3):le_uint())
-        tree:add(f.ent_csma_phase, tvb(pos+3, 1))
-        pos = pos + 4
+        add_le(tree, f.ent_csma_len, tvb, pos, 2)
+        tree:add(f.ent_csma_phase, tvb(pos+2, 1))
+        pos = pos + 3
     end
-    -- 绑定CSMA时隙信息: 每条 4 字节
+    -- 绑定CSMA时隙信息 (表30): 每条 3 字节 (长度 16b + 相线 2b + 保留 6b)
     for i = 1, bcsma_phase_cnt do
-        tree:add(f.ent_bcsma_len, tvb(pos, 3), tvb(pos, 3):le_uint())
-        tree:add(f.ent_bcsma_phase, tvb(pos+3, 1))
-        pos = pos + 4
+        add_le(tree, f.ent_bcsma_len, tvb, pos, 2)
+        tree:add(f.ent_bcsma_phase, tvb(pos+2, 1))
+        pos = pos + 3
     end
 end
 
@@ -1944,14 +1955,20 @@ local function dissect_succ_rate(tvb, tree, off)
     end
 end
 
--- 网络冲突上报 (表102)
+-- 网络冲突上报 (表73/74)
 local function dissect_net_conflict(tvb, tree, off)
     tree:add(f.ncr_cco_mac, tvb(off, 6))
     local cnt = tvb(off+6, 1):uint()
+    local nid_sz = tvb(off+7, 1):uint()   -- 网络号字节宽度(表73 byte7),默认 2
+    if nid_sz == 0 then nid_sz = 2 end
     tree:add(f.ncr_nbr_cnt, tvb(off+6, 1))
     tree:add(f.ncr_nid_width, tvb(off+7, 1))
+    -- 表74:邻居网络条目 = 每条 NID 按 byte7 宽度字段取(1/2/3B 都对)
+    local p = off + 8
     for i = 0, cnt - 1 do
-        tree:add(f.ncr_nbr_nid, tvb(off+8+i*3, 3), tvb(off+8+i*3, 3):le_uint())
+        if p + nid_sz > tvb:len() then break end
+        add_le(tree, f.ncr_nbr_nid, tvb, p, nid_sz)
+        p = p + nid_sz
     end
 end
 
@@ -1988,18 +2005,30 @@ local function dissect_zc_report(tvb, tree, off)
     tree:add(f.zr_ph2_cnt, tvb(off+4, 1))
     tree:add(f.zr_ph3_cnt, tvb(off+5, 1))
     add_le(tree, f.zr_base_ntb, tvb, off+6, 4)
-    -- 过零NTB差值: 12bit 字段, 每 1.5 字节
-    local pos = off + 10
-    local function add_diffs(field, cnt)
+    -- 过零NTB差值(表79): 12bit 连续打包, 全局字节游标跨相线连续(与 C++ read12 同口径)。
+    -- 偶序号 = cur 字节全 8bit + cur+1 低 4bit(吃 1B); 奇序号 = cur 高 4bit + cur+1 全 8bit(吃 2B)。
+    -- 跨相线 start_even 由前序相线累计条数奇偶决定, 避免某相奇数条时下一相首条与末条共用字节。
+    local cur = 0   -- 相对 off+10 的字节游标
+    local function add_diffs(field, cnt, start_even)
         for i = 0, cnt - 1 do
-            add_val(tree, field, tvb, pos, 2, read_bits(tvb, pos*8 + (i % 2) * 4, 12))
-            -- 每两个 12bit 占 3 字节
-            if i % 2 == 1 then pos = pos + 3 end
+            -- even = 当前条目是否为"偶序号"打包位; start_even 决定该相线首条奇偶。
+            -- 用 == 而非 a and b or c(后者在 b 为 false 时误回退到 c)
+            local even = (i % 2 == 0) == start_even
+            local base_off = off + 10 + cur
+            local v
+            if even then
+                v = read_bits(tvb, base_off * 8, 12)       -- cur 全 8bit + cur+1 低 4bit
+                cur = cur + 1
+            else
+                v = read_bits(tvb, base_off * 8 + 4, 12)   -- cur 高 4bit + cur+1 全 8bit
+                cur = cur + 2
+            end
+            add_val(tree, field, tvb, base_off, 2, v)
         end
     end
-    add_diffs(f.zr_ph1_diff, ph1)
-    add_diffs(f.zr_ph2_diff, ph2)
-    add_diffs(f.zr_ph3_diff, ph3)
+    add_diffs(f.zr_ph1_diff, ph1, true)
+    add_diffs(f.zr_ph2_diff, ph2, (ph1 % 2) == 0)
+    add_diffs(f.zr_ph3_diff, ph3, ((ph1 + ph2) % 2) == 0)
 end
 
 -- 网络诊断 (表80)
@@ -2062,16 +2091,17 @@ local function dissect_lcrsp(tvb, tree, off)
     add_le(tree, f.lcrsp_seq, tvb, off+4, 4)
 end
 
--- 无线信道冲突上报 (表121/122)
+-- 无线信道冲突上报 (表82/83)
 local function dissect_rfccr(tvb, tree, off)
     tree:add(f.rfccr_cco_mac, tvb(off, 6))
     local cnt = tvb(off+6, 1):uint()
     tree:add(f.rfccr_nbr_cnt, tvb(off+6, 1))
-    -- 表122:邻居网络条目 = 每邻居 1 字节(该邻居无线信道号), 无 TEI/option
+    -- 表83:邻居网络条目 = 每邻居 2 字节(无线信道号 @2i + Option模式 @2i+1);完整性 7+2cnt
     for i = 0, cnt - 1 do
-        local entry_off = off + 7 + i
-        if entry_off + 1 > tvb:len() then break end
+        local entry_off = off + 7 + 2 * i
+        if entry_off + 2 > tvb:len() then break end
         tree:add(f.rfccr_nbr_ch, tvb(entry_off, 1))
+        tree:add(f.rfccr_nbr_opt, tvb(entry_off + 1, 1))
     end
 end
 
@@ -2908,8 +2938,9 @@ function gw.dissector(tvb, pinfo, tree)
                 if body_len > 0 then
                     local avail = mac_tvb:len() - body_off
                     if avail > 0 then
-                        -- 子视图(坐标平移到消息体起点, off 从 0 起; 不生成新数据源)
-                        local body_tvb = view_slice(mac_tvb, body_off)
+                        -- 子视图(坐标平移到消息体起点, off 从 0 起; 不生成新数据源;
+                        -- 长度截到 body_len, 防止计数偏大读进 MSDU 尾 CRC32/填充字节)
+                        local body_tvb = view_slice(mac_tvb, body_off, body_len)
                         local ok, err = pcall(dissect_mgmt_body, body_tvb, mgmt_tree, 0, mmtype)
                         if not ok then
                             mgmt_tree:add_expert_info(PI_MALFORMED, PI_WARN,
