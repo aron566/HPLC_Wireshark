@@ -12,12 +12,12 @@
 
 #include "bplcframe.h"
 
-/// @brief 网络管理消息类型(MMe_BASE.MMType,HDC 2.0 表43,16bit 值取低 8bit)
+/// @brief 网络管理消息类型(MMe_BASE.MMType,HDC 2.0 表43,16bit)
 /// @note HDC 2.0 变更:0x0008 发现列表改保留(发现列表改经信标条目 0xC2/单跳帧
 ///       无线发现列表承载);0x0050-0x007F 整段保留(旧路由修复族 0x50-0x55 废弃);
 ///       新增 0x0011/0x0012 信道评估请求/拒绝、0x0013/0x0014 分组请求/确认、
-///       0x0015 信道评估参数更新。
-enum class GW_2026_MMeType : quint8 {
+///       0x0015 信道评估参数更新。高字节非 0 即未定义(不深解析)。
+enum class GW_2026_MMeType : quint16 {
     MME_ASSOC_REQ                   = 0x00,
     MME_ASSOC_CNF                   = 0x01,
     MME_ASSOC_GATHER_IND            = 0x02,

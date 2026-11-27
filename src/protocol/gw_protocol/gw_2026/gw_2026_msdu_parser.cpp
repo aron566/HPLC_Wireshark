@@ -46,8 +46,8 @@ static const FieldSpec kMsduMacSpec[] = {
     {"DestinationMACAddr", 22, 0, 48, Fmt::MAC},
 };
 
-// ================= MMe 公共头(MMe_BASE):MMType(0,0,8) RSV(2,0,8) =================
-static QString mme_type_name(quint8 t) {
+// ================= MMe 公共头(MMe_BASE):MMType(0,0,16) RSV(2,0,16) =================
+static QString mme_type_name(quint16 t) {
     switch (static_cast<GW_2026_MMeType>(t)) {
         case GW_2026_MMeType::MME_ASSOC_REQ: return trl::L("关联请求");
         case GW_2026_MMeType::MME_ASSOC_CNF: return trl::L("关联确认");
@@ -69,7 +69,7 @@ static QString mme_type_name(quint8 t) {
         case GW_2026_MMeType::MME_CHANNEL_ASSESS_PARAM_UPDATE: return trl::L("信道评估参数更新");
         case GW_2026_MMeType::MME_DIAGNOSE: return trl::L("网络诊断");
         case GW_2026_MMeType::MME_RF_CHANNEL_CONFLICT_REPORT: return trl::L("无线信道冲突上报");
-        default:   return QStringLiteral("Unknown(0x%1)").arg(t, 2, 16, QChar('0'));
+        default:   return QStringLiteral("Unknown(0x%1)").arg(t, 4, 16, QChar('0'));
     }
 }
 
@@ -1343,7 +1343,7 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
             out.summary = trl::L("MMe (截断)");
             return out;
         }
-        quint8 mm_type = (quint8)get_bits(msdu_body, 0, 0, 8);
+        quint16 mm_type = (quint16)get_bits(msdu_body, 0, 0, 16);
         out.mme_type = mm_type;
         out.summary = mme_type_name(mm_type);
         auto& root = group(out.tree, QStringLiteral("MMe: %1").arg(out.summary));
@@ -1496,7 +1496,7 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                     quint16 pco_sum  = (quint16)get_bits(b, off + 2, 0, 16);
                     quint16 route_sz = (quint16)get_bits(b, off + 4, 0, 16);
                     quint16 rsv3     = (quint16)get_bits(b, off + 6, 0, 16);
-                    // 路由信息头(表74):直连站点数/直连代理数/路由表大小/保留
+                    // 路由信息头(表45):直连站点数/直连代理数/路由表大小/保留
                     auto& route = group(root.children, QStringLiteral("RouteInfo"),
                                         QStringLiteral("%1 B").arg(route_sz));
                     MsduFieldNode r1;
@@ -1520,7 +1520,7 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                     r4.rel_start = rel0 + 6; r4.rel_len = 2;
                     route.children.append(r4);
                     off += 8;
-                    // 直连站点表(表75 前半):2B/条 = TEI(12b)+链路类型(1b)+保留(3b)
+                    // 直连站点表(表46 前半):2B/条 = TEI(12b)+链路类型(1b)+保留(3b)
                     for (int i = 0; i < sta_sum && off + 2 <= b.size(); ++i) {
                         quint16 e = (quint16)get_bits(b, off, 0, 16);
                         off += 2;
@@ -1532,8 +1532,9 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                         sn.rel_len   = 2;
                         route.children.append(sn);
                     }
-                    // 直连代理表(表75 后半):代理 2B(TEI12+链路1+保留3)+子站点数
-                    // 2B + 子站点 2B/条(TEI12+保留4b)
+                    // 直连代理表(表46 后半):代理 2B(TEI12+链路1+保留3)+子站点数
+                    // 2B + 子站点 2B/条(TEI12+保留4b);代理[i] 起点 = 8 + 2N + Σ(4+2Mk)
+                    int child_acc = 0;   // 前序代理的子站点数累计(表46 变长条目)
                     for (int i = 0; i < pco_sum && off + 4 <= b.size(); ++i) {
                         quint16 tei    = (quint16)get_bits(b, off + 0, 0, 12);
                         quint8  plink  = (quint8)get_bits(b, off + 1, 4, 1);
@@ -1542,9 +1543,10 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                         pn.name = QStringLiteral("PCO[%1]").arg(tei);
                         pn.value = QStringLiteral("LinkType=%1 childSum=%2")
                                        .arg(plink).arg(child);
-                        pn.rel_start = rel0 + 8 + 2 * sta_sum + i * 4;
+                        pn.rel_start = rel0 + 8 + 2 * sta_sum + 4 * i + 2 * child_acc;
                         pn.rel_len   = 4;
                         route.children.append(pn);
+                        MsduFieldNode& pn_ref = route.children.last();
                         off += 4;
                         for (int j = 0; j < child && off + 2 <= b.size(); ++j) {
                             quint16 ctei = (quint16)get_bits(b, off, 0, 16);
@@ -1552,10 +1554,11 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                             MsduFieldNode cn;
                             cn.name = QStringLiteral("Child[%1]").arg(j);
                             cn.value = QStringLiteral("TEI=%1").arg(ctei & 0x0FFF);
-                            cn.rel_start = pn.rel_start + 4 + 2 * j;
+                            cn.rel_start = pn_ref.rel_start + 4 + 2 * j;
                             cn.rel_len   = 2;
-                            pn.children.append(cn);
+                            pn_ref.children.append(cn);
                         }
+                        child_acc += child;
                     }
                 }
                 break;
@@ -1941,25 +1944,35 @@ MsduInfo GW_2026_MsduParser::parse(const QByteArray& body) {
                 break;
             }
             case GW_2026_MMeType::MME_RF_CHANNEL_CONFLICT_REPORT: {
-                // MMeRFChannelConflictReport(无线信道冲突上报,表121/122):CCO MAC + 邻居数;
-                // 邻居网络条目 = 每邻居 1 字节(该邻居无线信道号)
+                // MMeRFChannelConflictReport(无线信道冲突上报,表82/83):CCO MAC + 邻居数;
+                // 邻居网络条目 = 每邻居 2 字节(无线信道号 ch + Option 模式 opt),2i/2i+1 交错
                 add_fields(root.children, b, 0, kRFChannelConflictSpec,
                            kRFChannelConflictSpecN, head_size + 4);
                 int cnt = (int)get_bits(b, 6, 0, 8);
                 int ch_off = 7;
-                if (cnt > 0 && ch_off + cnt <= b.size()) {
+                if (cnt > 0 && ch_off + 2 * cnt <= b.size()) {
                     auto& rg = group(root.children,
                                      QStringLiteral("NeighbourRFNetworkList [%1]")
                                          .arg(cnt));
                     for (int i = 0; i < cnt; ++i) {
-                        quint8 ch = (quint8)b[ch_off + i];
+                        quint8 ch  = (quint8)b[ch_off + 2 * i];
+                        quint8 opt = (quint8)b[ch_off + 2 * i + 1];
                         MsduFieldNode nd;
                         nd.name  = QStringLiteral("Neighbour[%1]").arg(i);
-                        nd.value = QStringLiteral("ch=%1").arg(ch);
-                        nd.rel_start = head_size + 4 + ch_off + i;
-                        nd.rel_len   = 1;
+                        nd.value = QStringLiteral("ch=%1 opt=%2").arg(ch).arg(opt);
+                        nd.rel_start = head_size + 4 + ch_off + 2 * i;
+                        nd.rel_len   = 2;
                         rg.children.append(nd);
                     }
+                } else if (cnt > 0) {
+                    // 声明了邻居但体不足 7 + 2*cnt 字节:补截断节点,不读越界
+                    const int kNeed = ch_off + 2 * cnt;
+                    const QString note = truncated_note(kNeed, b.size());
+                    pa::warn("gw_2026:truncated",
+                             QStringLiteral("rf channel conflict %1B<%2B")
+                                 .arg(b.size()).arg(kNeed));
+                    append_summary(out, trl::L(" (信道冲突截断)"));
+                    add_truncated_node(root.children, note);
                 }
                 break;
             }
@@ -2356,6 +2369,7 @@ struct I18nReg {
         trl::register_en(" (关联请求截断)", " (Assoc Request truncated)");
         trl::register_en(" (代理变更确认截断)", " (Change Proxy Confirm truncated)");
         trl::register_en(" (关联汇总截断)", " (Assoc Gather truncated)");
+        trl::register_en(" (信道冲突截断)", " (Channel Conflict truncated)");
         trl::register_en("发现列表消息", "Discovery List Message");
         trl::register_en("载波发现列表消息", "Carrier Discovery List Message");
         trl::register_en("信道评估参数更新", "Channel Evaluation Param Update");
