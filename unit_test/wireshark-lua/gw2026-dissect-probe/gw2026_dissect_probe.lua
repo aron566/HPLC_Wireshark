@@ -303,13 +303,20 @@ local function check(name, got, expect)
         name, tostring(got), tostring(expect)))
 end
 
--- 文案断言 (显示实际文案, 便于对照)
+-- 文案断言 (显示实际文案, 便于对照; expect 可为 table → 集合成员匹配, 兼容 zh/en locale)
 local function check_txt(name, got, expect)
     total = total + 1
-    local ok = (got == expect)
+    local ok
+    if type(expect) == "table" then
+        ok = false
+        for _, e in ipairs(expect) do if got == e then ok = true break end end
+    else
+        ok = (got == expect)
+    end
     if not ok then fails = fails + 1 end
+    local exp_str = type(expect) == "table" and ("[" .. table.concat(expect, "|") .. "]") or expect
     print(string.format("  %s %-55s got='%s' expect='%s'", ok and "PASS" or "FAIL",
-        name, tostring(got), tostring(expect)))
+        name, tostring(got), exp_str))
 end
 
 -- 从 records 提取某字段的 value 序列 (按出现顺序)
@@ -703,7 +710,7 @@ do
     local rec = run_dissector(dissector_fn, build_sof(0x0000, body))
     local ph = field_vals(rec, "gw_2026.assoc_req.phase")
     check("P7R ar_phase=0 值仍为 0", ph[1], 0)
-    check_txt("P7R ar_phase=0 文案=未知", field_texts(rec, "gw_2026.assoc_req.phase"), "未知")
+    check_txt("P7R ar_phase=0 文案=未知", field_texts(rec, "gw_2026.assoc_req.phase"), {"未知", "Unknown"})
 end
 do
     -- ent_phase=0 → 文案「全相线」 (表24 站点能力条目, 挂 phase_vals_all_lines)
@@ -711,14 +718,14 @@ do
     local rec = run_dissector(dissector_fn, build_beacon({{etype = 0x00, data = cap}}))
     local ph = field_vals(rec, "gw_2026.beacon.cap.phase")
     check("P7R ent_phase=0 值仍为 0", ph[1], 0)
-    check_txt("P7R ent_phase=0 文案=全相线", field_texts(rec, "gw_2026.beacon.cap.phase"), "全相线")
+    check_txt("P7R ent_phase=0 文案=全相线", field_texts(rec, "gw_2026.beacon.cap.phase"), {"全相线", "All lines"})
 end
 do
     -- beacon_phase=0 → 文案「未知」 (表5 byte11 bit1-2, 右移后 0-3)
     local rec = run_dissector(dissector_fn, build_beacon({{etype = 0x01, data = hex("50 00 3C 00 1E 05 14 03")}}))
     local ph = field_vals(rec, "gw_2026.beacon.phase")
     check("P7R beacon_phase=0 值仍为 0", ph[1], 0)
-    check_txt("P7R beacon_phase=0 文案=未知", field_texts(rec, "gw_2026.beacon.phase"), "未知")
+    check_txt("P7R beacon_phase=0 文案=未知", field_texts(rec, "gw_2026.beacon.phase"), {"未知", "Unknown"})
 end
 
 print(string.format("\nRESULT: %s (%d/%d pass)", fails == 0 and "ALL PASS" or (fails .. " FAIL"), total - fails, total))
