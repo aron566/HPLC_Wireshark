@@ -140,6 +140,7 @@ void PluginManager::stop_all() {
         rt->retired.store(true);
         wake_waiters(rt);
         fail_async(rt);   // 在途异步图形请求以失败结束(排队回调;上下文已销毁则丢弃)
+        // 停机清理:强制摘除覆盖层条目(忽略引用计数/归属,内置层本就不受影响)
         unregister_parser(rt->manifest.protocol_id);
     }
     // 第二遍(IPC 线程,同步):发 Shutdown、断开并释放 socket/server。
@@ -504,10 +505,22 @@ void PluginManager::handle_message(const QString& plugin_id,
             touch_activity(rt);   // 刚握手算活动:新插件前 idle_ms 内仍按活动间隔 Ping
             rt->ready = true;
             // 注册到协议注册表(协议 id → 代理;显示名取自 plugin.json,供界面协议列表)
+            // 归属 = 插件 protocol_id(写覆盖层);同归属重复握手不再重复登记
+            // (防引用计数膨胀)。外置路径:与内置同名共存为 Ext 条目,永不影子内置;
+            // 同 id 已被另一插件登记时注册失败(先到先得),本插件仍保持 ready
+            // (仍可作二次分析),只是协议不进下拉框。
             const QString pid = rt->manifest.protocol_id;
-            register_parser_provider(pid, rt->manifest.display_name,
-                                     rt->manifest.display_name_en,
-                                     [pid]() { return make_plugin_parser(pid); });
+            if (protocol_owner_plugin_id(pid) != pid) {
+                if (!register_external_parser_provider(
+                        pid, rt->manifest.display_name,
+                        rt->manifest.display_name_en,
+                        [pid]() { return make_plugin_parser(pid); },
+                        200, pid)) {
+                    qWarning() << "PluginManager: plugin" << plugin_id
+                               << "failed to register external protocol" << pid
+                               << "(id already held by another plugin)";
+                }
+            }
             emit plugin_status_changed(plugin_id, QStringLiteral("ready"));
         } else if (!ok) {
             disable_plugin(plugin_id, QStringLiteral("handshake failed"));
@@ -635,19 +648,25 @@ bool PluginManager::parse_via_plugin(const QString& protocol_id,
         if (rt->disabled.load() || !rt->connected.load()) return false;  // 已停用/断线:状态已另行上报
         // 超时很可能意味着 host 挂了;响应损坏说明插件不守协议:都禁用插件
         // 注意:不能在 worker 线程直接调 disable_plugin(涉及信号),标记即可;
-        // 排队的 GUI 部分再收尾:除注销协议/发状态外,还要退役运行时并异步杀
-        // 进程(见 shutdown_runtime)。状态字符串保持原样(ipc-decode-probe
+        // 注册表注销是纯互斥操作,可在工作线程内同步完成(见下);排队的 GUI
+        // 部分再收尾:发状态、退役运行时并异步杀进程(见 shutdown_runtime)。
+        // 状态字符串保持原样(ipc-decode-probe
         // 断言了 "timeout-disabled" / "protocol-error-disabled"),不要改成
         // disable_plugin 的 "disabled: ..." 形式。
         if (rt->disabled.exchange(true)) return false;
         rt->ready = false;
         wake_waiters(rt);   // 同插件其他等待者立即返回
         fail_async(rt);     // 同插件在途异步图形请求排队失败回调
+        // A3(移植 parser 分支):超时/损坏后在工作线程内同步注销注册表条目。
+        // 注册表操作全程持 registry_mutex,工作线程调安全;不能等排队的 GUI
+        // lambda:超时与 GUI 事件泵之间的窗口里条目仍在,代理继续拒帧、按归属
+        // 取解析器仍拿到已死代理。GUI lambda 只保留状态/退役收尾,不再注销
+        // (重复注销无害,但单点更清晰;GUI disable_plugin 路径的注销照旧)。
+        unregister_parser_for_owner(rt->manifest.protocol_id, protocol_id);
         const QString reason = r.reject_reason;
         QMetaObject::invokeMethod(this, [this, rt, protocol_id, reason, corrupt]() {
             if (rt->retired.load()) return;
             rt->disable_reason = reason;
-            unregister_parser(rt->manifest.protocol_id);
             emit plugin_status_changed(protocol_id, corrupt ? QStringLiteral("protocol-error-disabled")
                                                             : QStringLiteral("timeout-disabled"));
             shutdown_runtime(rt);
@@ -684,7 +703,8 @@ void PluginManager::disable_plugin(const QString& plugin_id,
     rt->ready = false;
     wake_waiters(rt);   // 等待中的请求立即失败返回,不必等满超时
     fail_async(rt);     // 在途异步图形请求排队失败回调(不在本调用内重入回调)
-    unregister_parser(rt->manifest.protocol_id);
+    // 按归属注销:只摘本插件的覆盖条目(引用计数 -1),不动他人/内置
+    unregister_parser_for_owner(rt->manifest.protocol_id, plugin_id);
     emit plugin_status_changed(plugin_id, QStringLiteral("disabled: ") + reason);
     shutdown_runtime(rt);
 }

@@ -153,7 +153,9 @@ void CommConfigDialog::build_ui() {
             [](bool on) { appcfg::set_auto_check(on); });
 
     // 协议/Protocol:列表完全来自协议注册表(IProtocolProvider 自述 id/显示名/排序)
-    // 界面不硬编码任何协议名;插件协议按其 plugin.json 的 display_name 显示
+    // 界面不硬编码任何协议名;插件协议按其 plugin.json 的 display_name 显示并带
+    // " (Ext)" 标记,与内置同名条目并列(条目以 (协议 id + 归属) 区分,下拉框数据
+    // 存编码后的选择:内置为小写 id,外置为小写 id + "@" + 归属插件 id)
     auto* proto_row = new QHBoxLayout;
     proto_row->addWidget(new QLabel(trl::L("协议/Protocol:"), opt_group));
     m_cmb_protocol = new QComboBox(opt_group);
@@ -162,7 +164,11 @@ void CommConfigDialog::build_ui() {
         // 英文名由协议自己提供,这里只做登记:界面不再维护协议中英对照表
         trl::register_en(p->display_name_zh().toUtf8().constData(),
                          p->display_name_en().toUtf8().constData());
-        m_cmb_protocol->addItem(trl::L(p->display_name_zh()), p->id().toLower());
+        const QString owner = p->owner_plugin_id();
+        const QString text = owner.isEmpty()
+            ? trl::L(p->display_name_zh())
+            : trl::L(p->display_name_zh()) + QStringLiteral(" (Ext)");
+        m_cmb_protocol->addItem(text, encode_protocol_selection(p->id(), owner));
     }
     m_cmb_protocol->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     m_cmb_protocol->setMinimumContentsLength(12);

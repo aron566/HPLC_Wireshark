@@ -7,6 +7,8 @@ R = $$PWD/../../../src
 INCLUDEPATH += $$R $$R/common $$R/protocol $$R/protocol/common $$R/protocol/nw_protocol/nw_2026 $$R/protocol/nw_protocol/nw_2021 $$PWD/../../../3rdparty/qslog
 SOURCES += main.cpp \
            $$R/protocol/nw_protocol/nw_2026/nw_2026_parser.cpp \
+           # NW_2026_Parser 构造时经注册表取委托解析器
+           $$R/protocol/protocolfactory.cpp \
            $$R/protocol/nw_protocol/nw_2026/nw_2026_msdu_parser.cpp \
            $$R/protocol/nw_protocol/nw_2026/nw_2026_beacon_parser.cpp \
            $$R/protocol/nw_protocol/nw_2026/nw_2026_tree.cpp \

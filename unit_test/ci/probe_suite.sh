@@ -203,6 +203,13 @@ p_protocol_nw_nw2026_frame_test() {
     build protocol-nw/nw2026-frame-test && run nw2026-frame 30 "$UT/protocol-nw/nw2026-frame-test/build/probe/frame_test" \
         "$UT/topo/topo-route-verify/user_frame_container.bin" 0 && has "frame 1 accept=1 fch_ok=1" "msdu_present=1"
 }
+p_protocol_nw_nw2026_delegate_probe() {   # NW_2026 委托走注册表(no-shadow):内置委托与裸 NW_2021 一致、外置注册不影响委托
+    build protocol-nw/nw2026-delegate-probe && run nw2026-delegate 60 "$UT/protocol-nw/nw2026-delegate-probe/build/nw2026_delegate_probe/nw2026_delegate_probe" \
+        "$UT/topo/topo-route-verify/user_frame_container.bin" && has "RESULT: ALL PASS (0 failures)"
+}
+p_protocol_nw_nw2021_frametype_probe() {   # NW_2021 枚举独立头(A5):不依赖 QtWidgets 也能编过
+    build protocol-nw/nw2021-frametype-probe && run nw2021-frametype 60 "$UT/protocol-nw/nw2021-frametype-probe/build/nw2021_frametype_probe/nw2021_frametype_probe" && has "RESULT: ALL PASS (0 failures)"
+}
 p_protocol_nw_nw2026_ul_probe() {
     build protocol-nw/nw2026-ul-probe && run nw2026-ul 30 "$UT/protocol-nw/nw2026-ul-probe/build/probe/nw2026_ul_probe" \
         "$FP/nw2026_trigger.bin" "$FP/nw2026_ul_ofdma_data.bin" "$FP/nw2026_dl_sack.bin" \
@@ -239,6 +246,10 @@ p_io_reader_garbage_probe() {   # 回放切帧 + Reader 生命周期(M5/L4/L5)
     cp "$UT/io/reader-garbage-probe/build/reader_garbage_probe/reader_garbage_probe" "$d/" || return 1
     (cd "$d" && run reader-garbage 180 ./reader_garbage_probe) && OUT="$LOGD/reader-garbage.out" && has "reader_garbage_probe: OK (0 failures)" && lacks "FAIL "
 }
+p_io_reader_envelope_probe() {   # Reader 信封必填(A-6):3C/裸 hex 好帧必填 meta,与解析器复核恒等
+    build io/reader-envelope-probe || return 1
+    run reader-envelope 60 "$UT/io/reader-envelope-probe/build/reader_envelope_probe/reader_envelope_probe" && has "RESULT: ALL PASS (0 failures)" && lacks " FAIL"
+}
 p_ui_paging_race_probe() {   # PacketListModel 盘块换页竞态(M2/M3/M4)
     build ui/paging-race-probe || return 1
     local d; d=$(rundir paging-race)
@@ -253,6 +264,10 @@ p_app_frame_dispatcher_lifetime_probe() {   # FrameDispatcher 重建生命周期
     (cd "$d" && ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 run frame-dispatcher-lifetime 180 ./frame_dispatcher_lifetime_probe) \
         && OUT="$LOGD/frame-dispatcher-lifetime.out" \
         && has "frame_dispatcher_lifetime_probe: OK" && lacks "ERROR: AddressSanitizer" && lacks "runtime error:"
+}
+p_app_plugin_unregister_fallback_probe() {   # 插件注销热回退(A-8):注销重建回退内置;注册到达采集中不切换、空闲时切换
+    build app/plugin-unregister-fallback-probe || return 1
+    run plugin-unregister-fallback 120 "$UT/app/plugin-unregister-fallback-probe/build/plugin_unregister_fallback_probe/plugin_unregister_fallback_probe" && has "RESULT: ALL PASS (0 failures)" && lacks " FAIL"
 }
 p_app_downloader_rename_probe() {   # Downloader 重命名失败发 downloadFailed(M6)、不装错文件
     build app/downloader-rename-probe || return 1
@@ -276,6 +291,10 @@ p_plugin_ipc_decode_probe() {   # 插件 IPC 反序列化防护(M2 深度/节点
     cp "$UT/plugin/ipc-decode-probe/build/ipc_decode_probe/ipc_decode_probe" "$d/" || return 1
     (cd "$d" && run ipc-decode 180 ./ipc_decode_probe) && OUT="$LOGD/ipc-decode.out" \
         && has "RESULT: ALL PASS (0 failures)" "e2e hugecount: parse refused" && lacks " FAIL"
+}
+p_plugin_protocol_registry_probe() {   # 分层注册表(no-shadow/Ext):内置只读/影子拒绝/归属+引用计数/外置共存/(id+归属)选择
+    build plugin/protocol-registry-probe || return 1
+    run protocol-registry 60 "$UT/plugin/protocol-registry-probe/build/protocol_registry_probe/protocol_registry_probe" && has "RESULT: ALL PASS (0 failures)" && lacks " FAIL"
 }
 p_plugin_host_exit_uaf_probe() {   # 宿主退出/崩溃时 QProcess 在自身信号里被 delete(UAF),ASan+UBSan + 释放填充
     build plugin/host-exit-uaf-probe || return 1

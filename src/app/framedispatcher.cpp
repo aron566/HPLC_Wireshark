@@ -88,9 +88,12 @@ void DispatcherWorker::on_frame(const BplcFrame& frame, quint64 credit_gen) {
 
 FrameDispatcher::FrameDispatcher(QObject* parent)
     : QObject(parent), m_thread(nullptr), m_worker(nullptr) {
-    // 按 config.ini 协议选择实例化解析器(内置国网/南网,或插件协议)
-    // 协议键统一转大写为注册表 id: "gw_2022"→"GW_2022",插件协议直接存大写 id
-    auto parser = make_parser_by_id(appcfg::protocol().toUpper());
+    // 按 config.ini 协议选择实例化解析器:选择以 (协议 id + 归属) 编码
+    // (内置 "gw_2026",外置 "nw_2026@<归属插件 id>");归属条目已注销时
+    // 回退同 id 内置,无内置则回退国网 2026
+    const ProtocolSelection sel = decode_protocol_selection(appcfg::protocol());
+    auto parser = make_parser_by_id_for_owner(sel.protocol_id,
+                                              sel.owner_plugin_id);
     if (!parser)  // 未知协议回退国网 2026
         parser = make_parser_by_id(QStringLiteral("GW_2026"));
     if (!parser) {  // 国网 2026 亦缺失(注册表损坏):不建 worker/线程,防 on_frame 空指针解引用

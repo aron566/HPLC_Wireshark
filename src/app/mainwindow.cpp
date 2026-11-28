@@ -576,6 +576,29 @@ void MainWindow::reset_dispatcher() {
     if (m_plugin_engine) m_plugin_engine->reset_all();  // 新采集/回放:插件状态清零
 }
 
+/// @brief 插件状态变化 → 分发器热回退(A-8):注销立即重建回退内置解析器,
+///        注册到达仅空闲时切换(采集中不打断在途 MSDU 重组)。
+/// @details PluginManager 在握手成功后发 "ready"(已按归属注册外置解析器),
+///          在禁用/超时/协议错误时发 "disabled: ..."/"timeout-disabled"/
+///          "protocol-error-disabled"(发之前已按归属注销外置条目)。注销后
+///          若不重建,分发器继续握着已死代理逐帧拒收,直到用户手动重启采集。
+///          重建即 reset_dispatcher():丢弃积压帧 + 按当前注册表重建解析器
+///          (注销后按归属查找回退内置;注册到达后按(协议 id + 归属)取外置解析器)
+///          + 插件引擎状态清零;在途 MSDU 重组丢失是已知代价(不对称时序:
+///          注销立即重建、注册到达只在空闲时切换)。
+void MainWindow::on_plugin_status_changed(const QString& plugin_id, const QString& status) {
+    Q_UNUSED(plugin_id);
+    if (status == QLatin1String("ready")) {
+        // 注册到达:仅空闲时切换;采集中分发器持有旧解析器实例直至重建,
+        // 下次开始/协议切换/导入重建时自然取到新插件解析器
+        if (!m_capture->is_running())
+            reset_dispatcher();
+        return;
+    }
+    // 注销(禁用/超时/协议错误):立即重建回退内置
+    reset_dispatcher();
+}
+
 /// @brief 协议切换立即生效:停止当前采集/回放 → 清空 → 用新协议重建解析器
 void MainWindow::rebuild_dispatcher() {
     m_capture->stop();
@@ -1047,6 +1070,11 @@ void MainWindow::setup_plugin_ui() {
     m_plugin_engine = new LocalPluginEngine(this);
     connect(m_plugin_engine, &LocalPluginEngine::plugin_loaded,
             this, &MainWindow::on_plugin_loaded, Qt::QueuedConnection);
+    // A-8:监听解析器插件状态变化(PluginManager 的 host 宿主):注销立即重建
+    // 分发器回退内置,注册到达仅空闲时切换(见 on_plugin_status_changed)。
+    // 信号也可能来自 IPC/超时线程,排队到 GUI 线程执行重建。
+    connect(&PluginManager::instance(), &PluginManager::plugin_status_changed,
+            this, &MainWindow::on_plugin_status_changed, Qt::QueuedConnection);
 
     // 插件功能面板 dock(每个插件一个 tab,右置)
     m_plugin_dock = new QDockWidget(trl::L("插件"), this);

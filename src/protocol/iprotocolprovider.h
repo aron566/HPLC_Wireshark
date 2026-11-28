@@ -29,6 +29,9 @@ public:
     virtual int order() const { return 200; }
     /// @brief 本协议对应的变体(帧协议身份 / 字段树分派键)
     virtual ProtocolVariant variant() const = 0;
+    /// @brief 归属插件 id(注册表分流键):空 = 内置协议(写内置层);
+    ///        非空 = 插件协议(写覆盖层),取插件清单 protocol_id
+    virtual QString owner_plugin_id() const { return QString(); }
 
     /// @brief 创建解析器实例(调用方拥有所有权)
     virtual std::unique_ptr<IProtocolParser> create_parser() const = 0;

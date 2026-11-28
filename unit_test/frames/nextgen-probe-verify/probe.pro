@@ -6,6 +6,7 @@ INCLUDEPATH += $$PWD/../../../src $$PWD/../../../src/common $$PWD/../../../src/p
 SOURCES += main.cpp
 SOURCES += $$PWD/../../../src/protocol/nw_protocol/nw_2021/nw_2021_parser.cpp $$PWD/../../../src/protocol/nw_protocol/nw_2021/nw_2021_msdu_parser.cpp $$PWD/../../../src/protocol/nw_protocol/nw_2021/nw_2021_beacon_parser.cpp
 SOURCES += $$PWD/../../../src/protocol/nw_protocol/nw_2026/nw_2026_parser.cpp $$PWD/../../../src/protocol/nw_protocol/nw_2026/nw_2026_msdu_parser.cpp $$PWD/../../../src/protocol/nw_protocol/nw_2026/nw_2026_beacon_parser.cpp
+SOURCES += $$PWD/../../../src/protocol/protocolfactory.cpp  # NW_2026_Parser 构造时经注册表取委托解析器
 SOURCES += $$PWD/../../../src/common/i18n.cpp
 
 INCLUDEPATH += $$PWD/../../../src/protocol/gw_protocol/gw_2022 $$PWD/../../../src/protocol/gw_protocol/gw_2022/beacon $$PWD/../../../src/protocol/gw_protocol/gw_2022/sof $$PWD/../../../src/protocol/gw_protocol/gw_2022/ack $$PWD/../../../src/protocol/gw_protocol/gw_2022/coord $$PWD/../../../src/protocol/gw_protocol/gw_2026 $$PWD/../../../src/protocol/gw_protocol/gw_2026/beacon $$PWD/../../../src/protocol/gw_protocol/gw_2026/sof $$PWD/../../../src/protocol/gw_protocol/gw_2026/ack $$PWD/../../../src/protocol/gw_protocol/gw_2026/coord

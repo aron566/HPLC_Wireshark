@@ -20,6 +20,8 @@ HEADERS += $$REPO/3rdparty/qslog/QsLog.h \
 
 SOURCES += nw_ul_crc_probe.cpp \
     $$REPO/src/protocol/nw_protocol/nw_2026/nw_2026_parser.cpp \
+    # NW_2026_Parser 构造时经注册表取委托解析器
+    $$REPO/src/protocol/protocolfactory.cpp \
     $$REPO/src/protocol/nw_protocol/nw_2026/nw_2026_msdu_parser.cpp \
     $$REPO/src/protocol/nw_protocol/nw_2026/nw_2026_beacon_parser.cpp \
     $$REPO/src/protocol/nw_protocol/nw_2026/nw_2026_tree.cpp \
