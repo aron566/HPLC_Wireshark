@@ -2,8 +2,8 @@
     packet-gw_2026.lua
     国网 GW_2026 双模通信(高速载波+无线) 数据链路层协议 dissector (HDC 2.0)
     依据: 《双模通信互联互通技术规范 第4-2部分：数据链路层通信协议》HDC 2.0 版
-          (FC 表4 / SOF 表7-13 / SACK 表14 / MAC 表2-3 / MMe 表43+ / 信标 表38+ /
-           单跳无线发现列表 表91-103 / 载波发现列表 表62-77 / 信道评估 表99-101)
+          (FC 表4 / SOF 表7-13 / SACK 表14 / MAC 表2-3 / MMe 表39+ / 信标 表21+ /
+           单跳无线发现列表 表84-96 / 载波发现列表 表62-77 / 信道评估 表97-101)
 
     ★ 与 GW_2022(HDC 1.0) 的关系: 版本自适应委托 —— 本文件不注册 wtap_encap,
       由 packet-gw_2022.lua 入口读 FC 标准版本号(byte12 bit4-7):
@@ -26,13 +26,13 @@
       - MAC 头 表2: 新增 聚合MAC帧标识(4,5) / 发送帧序号(11,4,12) / 链路标识符(byte15)
       - 单跳头 表3: 新增 聚合MAC帧标识(3,7); 消息类型 1=信道评估参数更新(表99-101)
         / 2=载波发现列表(表62,组合表 表68/77 含 BRU 变体)
-      - 无线发现列表 表91-103: IE 内容逐字段(站点属性/路由/邻居信道非位图/位图版)
-      - MMe 表43: 0x0008 发现列表改保留(改经单跳帧承载), 新增 0x0011-0x0015
+      - 无线发现列表 表84-96: IE 内容逐字段(站点属性/路由/邻居信道非位图/位图版)
+      - MMe 表39: 0x0008 发现列表改保留(改经单跳帧承载), 新增 0x0011-0x0015
         信道评估请求/拒绝(表97/98)与分组请求(表102/103)/确认(表104/105)、
         信道评估参数更新(表99-101),
-        0x0050-0x0055 旧路由族废弃; 关联确认/汇总指示 载波频段 2→3bit(表47/52)
-      - 信标 表38: 固定头 byte13 新增 信标机制状态(bit2)/发现信标使能(bit3);
-        条目新增 0x06 万年历/0x07 信道评估参数/0x08 信标机制切换/0xC1 代理角色
+        0x0050-0x0055 旧路由族废弃; 关联确认/汇总指示 载波频段 2→3bit(表43/47)
+      - 信标 表21: 固定头 byte13 新增 信标机制状态(bit2)/发现信标使能(bit3);
+              条目新增 0x06 万年历/0x07 信标机制切换/0xC1 代理角色
 
     使用:
       tshark -r capture.pcap -X lua_script:packet-gw_2022.lua -X lua_script:packet-gw_2026.lua -V
@@ -497,7 +497,7 @@ f.beacon_ent_type = ProtoField.uint8 ("gw_2026.beacon.ent.type", T("信标条目
 f.beacon_ent_len = ProtoField.uint16 ("gw_2026.beacon.ent.len", T("信标条目长度", "Beacon Item Length"), base.DEC)
 f.beacon_ent_data = ProtoField.bytes ("gw_2026.beacon.ent.data", T("信标条目内容", "Beacon Item Content"), base.NONE)
 
--- 站点能力条目 (表47)
+-- 站点能力条目 (表24, 旧表47)
 f.ent_tei = ProtoField.uint16 ("gw_2026.beacon.cap.tei", T("TEI", "TEI"), base.DEC)
 f.ent_proxy_tei = ProtoField.uint16 ("gw_2026.beacon.cap.proxy_tei", T("代理站点TEI", "Proxy TEI"), base.DEC)
 f.ent_path_rate = ProtoField.uint8 ("gw_2026.beacon.cap.path_rate", T("路径最低通信成功率(%)", "Path Min Comm Rate (%)"), base.DEC)
@@ -508,17 +508,17 @@ f.ent_proxy_qual = ProtoField.uint8 ("gw_2026.beacon.cap.proxy_qual", T("代理�
 f.ent_phase = ProtoField.uint8 ("gw_2026.beacon.cap.phase", T("相线", "Line"), base.DEC, phase_vals_all_lines, 0x03)
 f.ent_rf_hop = ProtoField.uint8 ("gw_2026.beacon.cap.rf_hop", T("链路上RF跳数", "RF Hops on Path"), base.DEC, nil, 0x3C)
 
--- 路由参数条目 (表48)
+-- 路由参数条目 (表25, 旧表48)
 f.ent_route_period = ProtoField.uint16 ("gw_2026.beacon.rp.route_period", T("路由周期(秒)", "Route Period (s)"), base.DEC)
 f.ent_route_remain = ProtoField.uint16 ("gw_2026.beacon.rp.route_remain", T("路由评估剩余时间(秒)", "Route Estimate Remaining (s)"), base.DEC)
 f.ent_disc_list_period = ProtoField.uint8 ("gw_2026.beacon.rp.disc_list_period", T("发现列表周期(秒)", "Discovery List Period (s)"), base.DEC)
 f.ent_rate_age_cnt = ProtoField.uint8 ("gw_2026.beacon.rp.rate_age_cnt", T("接收率老化周期个数", "Rcv Rate Age Period Count"), base.DEC)
 
--- 频段变更条目 (表49)
+-- 频段变更条目 (表26, 旧表49)
 f.ent_target_band = ProtoField.uint8 ("gw_2026.beacon.bc.target_band", T("目标频段", "Target Band"), base.HEX)
 f.ent_band_remain = ProtoField.uint32 ("gw_2026.beacon.bc.band_remain", T("频段切换剩余时间(ms)", "Band Switch Remaining (ms)"), base.DEC)
 
--- 时隙分配条目 (表50)
+-- 时隙分配条目 (表27, 旧表50)
 f.ent_nc_beacon_cnt = ProtoField.uint8 ("gw_2026.beacon.slot.nc_beacon_cnt", T("非中央信标时隙总数", "Non-CCO Beacon Slot Count"), base.DEC)
 f.ent_c_beacon_cnt = ProtoField.uint8 ("gw_2026.beacon.slot.c_beacon_cnt", T("中央信标时隙总数", "CCO Beacon Slot Count"), base.DEC, nil, 0x0F)
 f.ent_csma_phase_cnt = ProtoField.uint8 ("gw_2026.beacon.slot.csma_phase_cnt", T("CSMA时隙支持相线个数", "CSMA Slot Line Count"), base.DEC, nil, 0x30)
@@ -531,7 +531,7 @@ f.ent_bp_start_ntb = ProtoField.uint32 ("gw_2026.beacon.slot.bp_start_ntb", T("�
 f.ent_bp_len = ProtoField.uint32 ("gw_2026.beacon.slot.bp_len", T("信标周期长度(ms)", "Beacon Period Length (ms)"), base.DEC)
 f.ent_rf_beacon_len = ProtoField.uint16 ("gw_2026.beacon.slot.rf_beacon_len", T("RF信标时隙长度(ms)", "RF Beacon Slot Length (ms)"), base.DEC)
 
--- 非中央信标信息 (表51)
+-- 非中央信标信息 (表28, 旧表51)
 f.ent_ncb_tei = ProtoField.uint16 ("gw_2026.beacon.ncb.tei", T("TEI", "TEI"), base.DEC)
 f.ent_ncb_type = ProtoField.uint8 ("gw_2026.beacon.ncb.type", T("信标类型", "Beacon Type"), base.DEC, {[0]=T("发现信标", "Discovery Beacon"),[1]=T("代理信标", "Proxy Beacon")}, 0x10)
 f.ent_ncb_rf_flag = ProtoField.uint8 ("gw_2026.beacon.ncb.rf_flag", T("无线信标标志", "RF Beacon Flag"), base.DEC, rf_beacon_flag_vals, 0xE0)
@@ -544,7 +544,7 @@ f.ent_csma_phase = ProtoField.uint8 ("gw_2026.beacon.csma.phase", T("CSMA时隙�
 f.ent_bcsma_len = ProtoField.uint16 ("gw_2026.beacon.bcsma.len", T("绑定CSMA时隙长度(ms)", "Binding CSMA Slot Length (ms)"), base.DEC)
 f.ent_bcsma_phase = ProtoField.uint8 ("gw_2026.beacon.bcsma.phase", T("绑定CSMA时隙相线", "Binding CSMA Slot Line"), base.DEC, phase_vals_all_lines, 0x03)
 
--- 无线路由参数条目 (表54)
+-- 无线路由参数条目 (已合并至表25, 旧表54)
 f.ent_rf_dl_period = ProtoField.uint8 ("gw_2026.beacon.rfp.dl_period", T("无线发现列表周期(秒)", "RF Discovery List Period (s)"), base.DEC)
 f.ent_rf_age_cnt = ProtoField.uint8 ("gw_2026.beacon.rfp.age_cnt", T("无线接收率老化周期个数", "RF Rate Age Period Count"), base.DEC)
 
@@ -756,7 +756,7 @@ f.ac_result = ProtoField.uint8 ("gw_2026.assoc_cnf.result", T("结果", "Result"
 f.ac_sta_level = ProtoField.uint8 ("gw_2026.assoc_cnf.sta_level", T("站点层级", "STA Level"), base.DEC)
 f.ac_sta_tei = ProtoField.uint16 ("gw_2026.assoc_cnf.sta_tei", T("站点TEI", "STA TEI"), base.DEC)
 f.ac_link_type = ProtoField.uint8 ("gw_2026.assoc_cnf.link_type", T("链路类型", "Link Type"), base.DEC, link_type_vals, 0x10)
-f.ac_carrier_band = ProtoField.uint8 ("gw_2026.assoc_cnf.carrier_band", T("载波频段(3bit,表47)", "Carrier Band (3bit, Table 47)"), base.DEC, carrier_band_vals, 0xE0)
+f.ac_carrier_band = ProtoField.uint8 ("gw_2026.assoc_cnf.carrier_band", T("载波频段(3bit)", "Carrier Band (3bit)"), base.DEC, carrier_band_vals, 0xE0)
 f.ac_proxy_tei = ProtoField.uint16 ("gw_2026.assoc_cnf.proxy_tei", T("代理TEI", "Proxy TEI"), base.DEC)
 f.ac_total_pkgs = ProtoField.uint8 ("gw_2026.assoc_cnf.total_pkgs", T("总分包数", "Total Packages"), base.DEC)
 f.ac_pkg_idx = ProtoField.uint8 ("gw_2026.assoc_cnf.pkg_idx", T("分包序号", "Package Index"), base.DEC)
@@ -779,7 +779,7 @@ f.ag_result = ProtoField.uint8 ("gw_2026.assoc_gather.result", T("结果", "Resu
 f.ag_sta_level = ProtoField.uint8 ("gw_2026.assoc_gather.sta_level", T("站点层级", "STA Level"), base.DEC)
 f.ag_cco_mac = ProtoField.ether ("gw_2026.assoc_gather.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
 f.ag_proxy_tei = ProtoField.uint16 ("gw_2026.assoc_gather.proxy_tei", T("代理TEI", "Proxy TEI"), base.DEC)
-f.ag_carrier_band = ProtoField.uint8 ("gw_2026.assoc_gather.carrier_band", T("载波频段(3bit,表52)", "Carrier Band (3bit, Table 52)"), base.DEC, carrier_band_vals, 0x70)
+f.ag_carrier_band = ProtoField.uint8 ("gw_2026.assoc_gather.carrier_band", T("载波频段(3bit)", "Carrier Band (3bit)"), base.DEC, carrier_band_vals, 0x70)
 f.ag_gather_cnt = ProtoField.uint8 ("gw_2026.assoc_gather.gather_cnt", T("汇总站点数", "Gathered STA Count"), base.DEC)
 f.ag_sta_mac = ProtoField.ether ("gw_2026.assoc_gather.sta_mac", T("站点MAC地址", "STA MAC Address"))
 f.ag_sta_tei = ProtoField.uint16 ("gw_2026.assoc_gather.sta_tei", T("站点TEI", "STA TEI"), base.DEC)
@@ -836,7 +836,7 @@ f.cpb_e2e_seq = ProtoField.uint32 ("gw_2026.cproxy_bmp.e2e_seq", T("端到端序
 f.cpb_path_seq = ProtoField.uint32 ("gw_2026.cproxy_bmp.path_seq", T("路径序号", "Path Sequence Number"), base.DEC)
 f.cpb_child_bmp = ProtoField.bytes ("gw_2026.cproxy_bmp.child_bmp", T("子站点位图", "Child STA Bitmap"), base.NONE)
 
--- 离线指示 (表91-93)
+-- 离线指示 (表53-55)
 f.li_reason = ProtoField.uint16 ("gw_2026.leave.reason", T("原因", "Reason"), base.DEC, leave_reason_vals)
 f.li_sta_cnt = ProtoField.uint16 ("gw_2026.leave.sta_cnt", T("站点总数", "STA Count"), base.DEC)
 f.li_delay = ProtoField.uint16 ("gw_2026.leave.delay", T("延迟时间(秒)", "Delay Time (s)"), base.DEC)
@@ -944,7 +944,7 @@ f.lcrsp_chan_qual = ProtoField.uint8 ("gw_2026.lcrsp.chan_qual", T("信道质量
 f.lcrsp_path_pref = ProtoField.bool ("gw_2026.lcrsp.path_pref", T("路径优选标志", "Path Preference Flag"), 8, nil, 0x01)
 f.lcrsp_seq = ProtoField.uint32 ("gw_2026.lcrsp.seq", T("路由请求序列号", "Route Request Sequence Number"), base.HEX)
 
--- 无线信道冲突上报 (表121-122)
+-- 无线信道冲突上报 (表82-83)
 f.rfccr_cco_mac = ProtoField.ether ("gw_2026.rfccr.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
 -- HDC 2.0 新增 MMe 报文体字段(表97-105)
 f.mme_bl_src_tei = ProtoField.uint16 ("gw_2026.mme.bl.src_tei", T("源 TEI", "Source TEI"), base.DEC)
@@ -966,14 +966,14 @@ f.rfccr_nbr_cnt = ProtoField.uint8 ("gw_2026.rfccr.nbr_cnt", T("邻居网络个�
 f.rfccr_nbr_ch = ProtoField.uint8 ("gw_2026.rfccr.nbr_ch", T("冲突信道号", "Conflict Channel Number"), base.DEC)
 f.rfccr_nbr_opt = ProtoField.uint8 ("gw_2026.rfccr.nbr_opt", T("Option模式", "Option Mode"), base.DEC)
 
--- 无线发现列表 (表123-137)
+-- 无线发现列表 (表84-96)
 f.rfdl_sta_mac = ProtoField.ether ("gw_2026.rfdl.sta_mac", T("站点MAC地址", "STA MAC Address"))
 f.rfdl_seq = ProtoField.uint8 ("gw_2026.rfdl.seq", T("统计序号", "Statistics Sequence Number"), base.DEC)
 f.rfdl_ie_type = ProtoField.uint8 ("gw_2026.rfdl.ie.type", T("信息单元类型", "Information Element Type"), base.DEC, ie_type_vals, 0x7F)
 f.rfdl_ie_ltype = ProtoField.uint8 ("gw_2026.rfdl.ie.ltype", T("长度类型", "Length Type"), base.DEC, len_type_vals, 0x80)
 f.rfdl_ie_len = ProtoField.uint16 ("gw_2026.rfdl.ie.len", T("信息单元长度", "Information Element Length"), base.DEC)
 f.rfdl_ie_data = ProtoField.bytes ("gw_2026.rfdl.ie.data", T("信息单元内容", "Information Element Content"), base.NONE)
--- HDC 2.0 RFDL IE 内容逐字段(表92 站点属性 / 表93 站点路由 / 表94-95 非位图 / 表102-103 位图)
+-- HDC 2.0 RFDL IE 内容逐字段(表85 站点属性 / 表86 站点路由 / 表87 非位图 / 表95 位图)
 f.rfdl_attr_cco_mac = ProtoField.ether ("gw_2026.rfdl.attr.cco_mac", T("CCO MAC 地址", "CCO MAC Address"))
 f.rfdl_attr_proxy_tei = ProtoField.uint16 ("gw_2026.rfdl.attr.proxy_tei", T("代理 TEI", "Proxy TEI"), base.DEC)
 f.rfdl_attr_role = ProtoField.uint8 ("gw_2026.rfdl.attr.role", T("角色", "Role"), base.DEC, role_vals, 0xF0)
@@ -1493,7 +1493,7 @@ local function dissect_coord_vf(tvb, tree)
     tree:add(f.coord_rsv, tvb(12, 1))     -- 字节12 bit0-3 保留
 end
 
--- 站点能力条目 (表47)
+-- 站点能力条目 (表24, 旧表47)
 local function dissect_entry_sta_cap(tvb, tree, off)
     local tei = read_bits(tvb, off*8, 12)
     add_val(tree, f.ent_tei, tvb, off, 2, tei)
@@ -1519,7 +1519,7 @@ local function dissect_entry_route_param(tvb, tree, off)
     tree:add(f.ent_rf_age_cnt, tvb(off+7, 1))
 end
 
--- 频段变更条目 (表49)
+-- 频段变更条目 (表26, 旧表49)
 local function dissect_entry_band_change(tvb, tree, off)
     tree:add(f.ent_target_band, tvb(off, 1))
     add_le(tree, f.ent_band_remain, tvb, off+1, 4)
@@ -1573,7 +1573,7 @@ local function dissect_entry_slot_alloc(tvb, tree, off)
     end
 end
 
--- 无线路由参数条目 (表54)
+-- 无线路由参数条目 (已合并至表25, 旧表54)
 local function dissect_entry_rf_route(tvb, tree, off)
     tree:add(f.ent_rf_dl_period, tvb(off, 1))
     tree:add(f.ent_rf_age_cnt, tvb(off+1, 1))
@@ -1968,7 +1968,7 @@ local function dissect_cproxy_bmp(tvb, tree, off)
     dissect_tei_bitmap(tvb, tree, off+20, bmp_size, f.cpb_child_bmp, T("子站点位图", "Child STA Bitmap"), "Child STA Bitmap")
 end
 
--- 离线指示 (表91)
+-- 离线指示 (表53)
 local function dissect_leave(tvb, tree, off)
     add_le(tree, f.li_reason, tvb, off, 2)
     local sta_cnt = read_bits(tvb, (off+2) * 8, 16)
@@ -2208,7 +2208,7 @@ local function dissect_rfccr(tvb, tree, off)
     end
 end
 
--- 无线/载波发现列表 (表91/表62, 单跳帧消息类型0/2)
+-- 无线/载波发现列表 (表84/表62, 单跳帧消息类型0/2)
 -- carrier=false: 无线版,组合表 表95(非位图 0-9)/表103(位图 0-10),无 BRU 变体
 -- carrier=true : 载波版,组合表 表68(0-10)/表77(0-11),combo10/11 含 BRUSNR32(表64)
 local rfdl_combo_nonbitmap = {  -- {rcv,snr,rssi,bru} 位宽(表95/表68)
@@ -2331,7 +2331,7 @@ local function dissect_rfdl_ie_content(tree, tvb, pos, elen, ie_type, carrier)
                 tree:add(f.rfdl_attr_aging, tvb(pos+18, 1))
                 add_le(tree, f.rfdl_attr_brusnr, tvb, pos+19, 4)
             else
-                -- 站点属性信息(表92, 14B 定长, 无线发现列表)
+                -- 站点属性信息(表85, 14B 定长, 无线发现列表)
                 tree:add(f.rfdl_attr_cco_mac, tvb(pos, 6))
                 add_val(tree, f.rfdl_attr_proxy_tei, tvb, pos+6, 2, read_bits(tvb, pos*8+6*8, 12))
                 tree:add(f.rfdl_attr_role, tvb(pos+7, 1))
@@ -2474,7 +2474,7 @@ local function dissect_rfdl_ie_content(tree, tvb, pos, elen, ie_type, carrier)
 end
 local pfx_route, pfx_nbr, pfx_grp  -- (已改用 gw proto 子树,保留占位避免外部引用)
 
--- 无线/载波发现列表 (表91/表62)
+-- 无线/载波发现列表 (表84/表62)
 local function dissect_rfdl(tvb, tree, off, carrier, limit)
     -- limit: 单跳 MSDU 结束(不含 MSDU CRC32), 防止把尾部 CRC32 误解析为 IE
     limit = limit or tvb:len()
@@ -2617,7 +2617,7 @@ local function dissect_group_cnf(tvb, tree, off)
     end
 end
 
--- 管理消息体分发 (HDC 2.0 表43: 0x0008 改保留; 0x0050-0x0055 废弃; 新增 0x0011-0x0014)
+-- 管理消息体分发 (HDC 2.0 表39: 0x0008 改保留; 0x0050-0x0055 废弃; 新增 0x0011-0x0014)
 local function dissect_mgmt_body(tvb, tree, off, mmtype)
     if mmtype == 0x0000 then dissect_assoc_req(tvb, tree, off)
     elseif mmtype == 0x0001 then dissect_assoc_cnf(tvb, tree, off)
@@ -2628,7 +2628,7 @@ local function dissect_mgmt_body(tvb, tree, off, mmtype)
     elseif mmtype == 0x0006 then dissect_leave(tvb, tree, off)
     elseif mmtype == 0x0007 then dissect_heartbeat(tvb, tree, off)
     elseif mmtype == 0x0008 then
-        -- HDC 2.0 表43: 0x0008 发现列表改保留(改经单跳帧/信标 0xC2 承载), 保留 hex
+        -- HDC 2.0 表39: 0x0008 发现列表改保留(改经单跳帧/信标 0xC2 承载), 保留 hex
         local t = tree:add(f.rfdl_ie_data, tvb(off))
         t:append_text(": " .. T("保留(1.0 发现列表,2.0 不再使用)", "Reserved (1.0 DiscoverNodeList, unused in 2.0)"))
     elseif mmtype == 0x0009 then dissect_succ_rate(tvb, tree, off)
@@ -2938,7 +2938,7 @@ function gw.dissector(tvb, pinfo, tree)
                 local hdr_len = dissect_std_mac_hdr(mac_tvb, mac_tree, mac_off)
                 msdu_off = mac_off + hdr_len
             elseif version == 1 then
-                -- 单跳帧(表3,4B 头): 消息类型 0=无线发现列表(表91) / 1=信道评估参数
+                -- 单跳帧(表3,4B 头): 消息类型 0=无线发现列表(表84) / 1=信道评估参数
                 -- 更新(表99-101) / 2=载波发现列表(表62) / 128=应用层 / 129=IPv4
                 local hdr_len = dissect_sh_mac_hdr(mac_tvb, mac_tree, mac_off)
                 msdu_off = mac_off + hdr_len

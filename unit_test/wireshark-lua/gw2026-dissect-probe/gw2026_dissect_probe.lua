@@ -120,7 +120,8 @@ local function make_tree(records)
                         else
                             v = (v == nil) and b or v   -- add(field, value) 简化形式
                         end
-                        records[#records + 1] = { name = a.__fname, value = v, rlen = rlen }
+                        records[#records + 1] = { name = a.__fname, value = v, rlen = rlen,
+                            text = (a.__vals and a.__vals[v] ~= nil) and a.__vals[v] or nil }
                         return make_tree(records)       -- 字段 add 返回值可能被 append_text
                     end
                     return make_tree(records)
@@ -139,7 +140,7 @@ end
 -- =========================================================================
 local function field_maker(ftype)
     return function(name, label, base, vals, mask)
-        return { __fname = name, __ftype = ftype, __mask = mask }
+        return { __fname = name, __ftype = ftype, __mask = mask, __vals = vals }
     end
 end
 local ProtoField = {
@@ -302,6 +303,15 @@ local function check(name, got, expect)
         name, tostring(got), tostring(expect)))
 end
 
+-- 文案断言 (显示实际文案, 便于对照)
+local function check_txt(name, got, expect)
+    total = total + 1
+    local ok = (got == expect)
+    if not ok then fails = fails + 1 end
+    print(string.format("  %s %-55s got='%s' expect='%s'", ok and "PASS" or "FAIL",
+        name, tostring(got), tostring(expect)))
+end
+
 -- 从 records 提取某字段的 value 序列 (按出现顺序)
 local function field_vals(records, name)
     local out = {}
@@ -317,6 +327,18 @@ local function field_rlen(records, name, idx)
         if r.name == name then
             n = n + 1
             if n == idx then return r.rlen end
+        end
+    end
+    return nil
+end
+
+-- 字段值 → 字典文案 (field_vals 同序, 取第 idx 条的 values[value])
+local function field_texts(records, name, idx)
+    local n = 0
+    for _, r in ipairs(records) do
+        if r.name == name then
+            n = n + 1
+            if n == (idx or 1) then return r.text end
         end
     end
     return nil
@@ -673,27 +695,30 @@ do
 end
 
 -- ---- P7 返工: 相线两套字典 + beacon_phase 右移 (=0 断言) ----
-print("\n== P7R 相线字典拆分: 0 值语义 (表5/40=未知, 表24=全相线) ==")
+print("\n== P7R 相线字典拆分: 0 值语义文案级断言 (表5/40=未知, 表24=全相线) ==")
 do
-    -- ar_phase=0 → 未知 (表40, 挂 phase_vals_unknown)
+    -- ar_phase=0 → 文案「未知」 (表40, 挂 phase_vals_unknown)
     local body = {}
     for i = 1, 88 do body[i] = 0x00 end
     local rec = run_dissector(dissector_fn, build_sof(0x0000, body))
     local ph = field_vals(rec, "gw_2026.assoc_req.phase")
-    check("P7R ar_phase=0 → 未知 (phase_vals_unknown)", ph[1], 0)
+    check("P7R ar_phase=0 值仍为 0", ph[1], 0)
+    check_txt("P7R ar_phase=0 文案=未知", field_texts(rec, "gw_2026.assoc_req.phase"), "未知")
 end
 do
-    -- ent_phase=0 → 全相线 (表24 站点能力条目, 挂 phase_vals_all_lines)
+    -- ent_phase=0 → 文案「全相线」 (表24 站点能力条目, 挂 phase_vals_all_lines)
     local cap = hex("01 00 00 00 64 AA BB CC DD EE FF 00 00 00")  -- 13B, byte12 相线=0
     local rec = run_dissector(dissector_fn, build_beacon({{etype = 0x00, data = cap}}))
     local ph = field_vals(rec, "gw_2026.beacon.cap.phase")
-    check("P7R ent_phase=0 → 全相线 (phase_vals_all_lines)", ph[1], 0)
+    check("P7R ent_phase=0 值仍为 0", ph[1], 0)
+    check_txt("P7R ent_phase=0 文案=全相线", field_texts(rec, "gw_2026.beacon.cap.phase"), "全相线")
 end
 do
-    -- beacon_phase=0 → 未知 (表5 byte11 bit1-2, 右移后 0-3)
+    -- beacon_phase=0 → 文案「未知」 (表5 byte11 bit1-2, 右移后 0-3)
     local rec = run_dissector(dissector_fn, build_beacon({{etype = 0x01, data = hex("50 00 3C 00 1E 05 14 03")}}))
     local ph = field_vals(rec, "gw_2026.beacon.phase")
-    check("P7R beacon_phase=0 → 未知 (右移后 0-3, 非 band 0x06)", ph[1], 0)
+    check("P7R beacon_phase=0 值仍为 0", ph[1], 0)
+    check_txt("P7R beacon_phase=0 文案=未知", field_texts(rec, "gw_2026.beacon.phase"), "未知")
 end
 
 print(string.format("\nRESULT: %s (%d/%d pass)", fails == 0 and "ALL PASS" or (fails .. " FAIL"), total - fails, total))
