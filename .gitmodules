@@ -1,0 +1,8 @@
+[submodule "3rdparty/protobuf-src"]
+	path = 3rdparty/protobuf-src
+	url = https://github.com/protocolbuffers/protobuf.git
+	branch = 36.x
+[submodule "3rdparty/abseil-cpp"]
+	path = 3rdparty/abseil-cpp
+	url = https://github.com/abseil/abseil-cpp.git
+	branch = 20250512.1
