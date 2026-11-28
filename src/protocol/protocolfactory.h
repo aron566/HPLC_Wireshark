@@ -104,6 +104,11 @@ std::unique_ptr<IProtocolParser> make_parser_by_id(const QString& protocol_id);
 ///          归属条目已注销时回退同 id 内置(热回退),无内置则返回空
 std::unique_ptr<IProtocolParser> make_parser_by_id_for_owner(
     const QString& protocol_id, const QString& owner_plugin_id);
+/// @brief 只取内置层实例化解析器(A2 逐帧懒回退用)。返回 nullptr = 无内置协议。
+/// @details 与 make_parser_by_id 的区别:永不取覆盖层/Ext 条目。代理回退必须
+///          只取内置:采集中不切换,且插件在检查与查找之间重注册的竞态下也不会
+///          误取新插件实例(no-shadow:内置 id 恒取内置的另一面)。
+std::unique_ptr<IProtocolParser> make_builtin_parser_by_id(const QString& protocol_id);
 
 /// @brief 下拉框选择:(协议 id + 归属);归属为空 = 内置协议,非空 = 插件外置解析器(Ext)
 /// @details 存入 appcfg::protocol() 的编码:内置为小写 id(如 "nw_2026",与旧配置兼容),

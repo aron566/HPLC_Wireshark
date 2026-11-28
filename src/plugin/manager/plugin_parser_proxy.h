@@ -25,6 +25,9 @@ public:
 
 private:
     QString m_protocol_id;
+    /// @brief 懒创建的内置回退解析器(A2):插件协议不可用时按帧懒取内置,
+    ///        首次需要时创建并缓存;插件恢复后下次 parse 重新走插件
+    std::unique_ptr<IProtocolParser> m_fallback;
 };
 
 /// @brief 创建插件解析器代理(协议 id 未注册插件时返回 nullptr)

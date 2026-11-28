@@ -298,6 +298,16 @@ std::unique_ptr<IProtocolParser> make_parser_by_id_for_owner(
     return p ? p->create_parser() : nullptr;
 }
 
+std::unique_ptr<IProtocolParser> make_builtin_parser_by_id(const QString& protocol_id) {
+    ProtocolProviderPtr p;
+    {
+        QMutexLocker lock(&registry_mutex());
+        auto it = builtin_registry().find(protocol_id.toUpper());
+        if (it != builtin_registry().end()) p = it.value();
+    }
+    return p ? p->create_parser() : nullptr;
+}
+
 QString encode_protocol_selection(const QString& protocol_id,
                                   const QString& owner_plugin_id) {
     const QString id = protocol_id.toLower();
