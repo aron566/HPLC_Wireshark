@@ -310,11 +310,30 @@ local beacon_type_vals = {
     [0] = T("发现信标", "Discovery Beacon"), [1] = T("代理信标", "Proxy Beacon"), [2] = T("中央信标", "Central Beacon"),
 }
 local link_type_vals = { [0] = T("高速载波链路", "PLC carrier link"), [1] = T("无线链路", "RF link") }
-local phase_vals = { [0] = T("未知", "Unknown"), [1] = T("A相线", "Line A"), [2] = T("B相线", "Line B"), [3] = T("C相线", "Line C") }
+-- 相线两套字典: 表5/表40/表49 V6 明写「0:未知」; 表24/表29/表30 明写「0x0:全相线」
+local phase_vals_unknown = { [0] = T("未知", "Unknown"), [1] = T("A相线", "Line A"), [2] = T("B相线", "Line B"), [3] = T("C相线", "Line C") }
+local phase_vals_all_lines = { [0] = T("全相线", "All lines"), [1] = T("A相线", "Line A"), [2] = T("B相线", "Line B"), [3] = T("C相线", "Line C") }
+-- L-6: 代理类型(表40 byte56/表49 byte14: 0=站点动态选择的代理,其他保留)
+local proxy_type_vals = { [0] = T("站点动态选择的代理", "STA-dynamic selected proxy") }
+-- L-6: 代理变更原因(表49 byte15: 0=未知 1=周期代理变更,其他保留)
+local cproxy_reason_vals = { [0] = T("未知", "Unknown"), [1] = T("周期代理变更", "Periodic proxy change") }
+-- L-8: 代理变更确认结果(表50 byte0: 0=变更成功,其他保留)
+local cproxy_result_vals = { [0] = T("变更成功", "Change succeeded") }
+-- L-8: 关联汇总指示结果(表47 byte0: 固定 0=允许入网)
+local gather_result_vals = { [0] = T("允许入网", "Admitted") }
+-- P8: 无线信标标志(表28 byte1 bit5-7 / §7.4.1.1: 0-6 七种发送组合,7 保留)
+local rf_beacon_flag_vals = {
+    [0] = T("仅发送高速载波信标", "Carrier beacon only"), [1] = T("仅发送无线标准信标", "RF standard beacon only"),
+    [2] = T("载波信标后发无线标准信标", "Carrier then RF standard"), [3] = T("载波信标后发无线精简信标", "Carrier then RF lite"),
+    [4] = T("载波信标+CSMA时隙发无线精简信标", "Carrier + CSMA-slot RF lite"),
+    [5] = T("载波信标同时隙发无线标准信标", "Same-slot carrier + RF standard"),
+    [6] = T("载波信标同时隙发无线精简信标", "Same-slot carrier + RF lite"),
+    [7] = T("保留", "Reserved"),
+}
 local device_type_vals = {
-    [1] = T("抄控器", "CCO device"), [2] = T("集中器本地通信单元", "Concentrator local comm unit"), [3] = T("电表通信单元", "Meter comm unit"),
-    [4] = T("中继器", "Repeater"), [5] = T("II型采集器", "Type-II collector"), [6] = T("I型采集器单元", "Type-I collector unit"),
-    [7] = T("三相电表通信单元", "Three-phase meter comm unit"),
+    [1] = T("抄控器", "Central Controller"), [2] = T("融合终端本地通信单元", "Concentrator Comm Module"), [3] = T("电表通信单元", "Meter Comm Module"),
+    [4] = T("中继器", "Repeater"), [5] = T("II型采集器", "TypeII Data Collector"), [6] = T("I型采集器", "TypeI Data Collector"),
+    [7] = T("三相电表通信单元", "3 Phase Meter Comm Module"),
 }
 local mac_addr_type_vals = {
     [0] = T("电能表地址作为入网MAC", "Meter address as MAC"), [1] = T("通信模块本身MAC作为入网MAC", "Module MAC as MAC"),
@@ -372,10 +391,9 @@ local mgmt_type_vals = {
 }
 local beacon_entry_type_vals = {
     [0x00] = T("站点能力条目", "STA Capability Item"), [0x01] = T("路由参数条目", "Route Parameter Item"),
-    [0x02] = T("频段变更条目", "Band Change Item"), [0x03] = T("无线路由参数条目", "RF Route Parameter Item"),
+    [0x02] = T("频段变更条目", "Band Change Item"),
     [0x04] = T("无线信道变更条目", "RF Channel Change Item"), [0x05] = T("精简信标站点信息及时隙条目", "Lite STA Info & Slot Item"),
-    [0x06] = T("万年历条目", "Perpetual Calendar Item"), [0x07] = T("信道评估参数条目", "Channel Assess Param Item"),
-    [0x08] = T("信标机制切换条目", "Beacon Mechanism Switch Item"),
+    [0x06] = T("万年历条目", "Perpetual Calendar Item"), [0x07] = T("信标机制切换条目", "Beacon Mechanism Switch Item"),
     [0xC0] = T("时隙分配条目", "Time Slot Allocation Item"), [0xC1] = T("代理角色条目", "Proxy Role Item"),
     [0xC2] = T("发现列表条目(载荷在 PB Padding 区)", "Discover List Item (payload in PB padding)"),
 }
@@ -438,7 +456,7 @@ f.beacon_bts_sec = ProtoField.double ("gw_2026.beacon.bts_sec", T("信标时间�
 f.beacon_src_tei = ProtoField.uint16 ("gw_2026.beacon.src_tei", T("源TEI", "Source TEI"), base.DEC)
 f.beacon_div_mode = ProtoField.uint8 ("gw_2026.beacon.div_mode", T("分集拷贝基本模式", "Diversity Copy Basic Mode"), base.DEC, nil, 0xF0)
 f.beacon_symbol_cnt = ProtoField.uint16 ("gw_2026.beacon.symbol_cnt", T("符号数", "Symbol Count"), base.DEC)
-f.beacon_phase = ProtoField.uint8 ("gw_2026.beacon.phase", T("相线", "Line"), base.DEC, phase_vals, 0x06)
+f.beacon_phase = ProtoField.uint8 ("gw_2026.beacon.phase", T("相线", "Line"), base.DEC, phase_vals_unknown, 0x06)
 
 -- 信标帧载荷 (表38/56)
 f.beacon_type = ProtoField.uint8 ("gw_2026.beacon.type", T("信标类型", "Beacon Type"), base.DEC, beacon_type_vals, 0x07)
@@ -487,14 +505,14 @@ f.ent_sta_mac = ProtoField.ether ("gw_2026.beacon.cap.sta_mac", T("发送信标�
 f.ent_role = ProtoField.uint8 ("gw_2026.beacon.cap.role", T("角色", "Role"), base.DEC, role_vals, 0x0F)
 f.ent_level = ProtoField.uint8 ("gw_2026.beacon.cap.level", T("层级数", "Level"), base.DEC, nil, 0xF0)
 f.ent_proxy_qual = ProtoField.uint8 ("gw_2026.beacon.cap.proxy_qual", T("代理站点信道质量(dB)", "Proxy Channel Quality (dB)"), base.DEC)
-f.ent_phase = ProtoField.uint8 ("gw_2026.beacon.cap.phase", T("相线", "Line"), base.DEC, phase_vals, 0x03)
+f.ent_phase = ProtoField.uint8 ("gw_2026.beacon.cap.phase", T("相线", "Line"), base.DEC, phase_vals_all_lines, 0x03)
 f.ent_rf_hop = ProtoField.uint8 ("gw_2026.beacon.cap.rf_hop", T("链路上RF跳数", "RF Hops on Path"), base.DEC, nil, 0x3C)
 
 -- 路由参数条目 (表48)
 f.ent_route_period = ProtoField.uint16 ("gw_2026.beacon.rp.route_period", T("路由周期(秒)", "Route Period (s)"), base.DEC)
 f.ent_route_remain = ProtoField.uint16 ("gw_2026.beacon.rp.route_remain", T("路由评估剩余时间(秒)", "Route Estimate Remaining (s)"), base.DEC)
-f.ent_proxy_dl_period = ProtoField.uint16 ("gw_2026.beacon.rp.proxy_dl_period", T("代理站点发现列表周期(秒)", "Proxy Discovery List Period (s)"), base.DEC)
-f.ent_disc_dl_period = ProtoField.uint16 ("gw_2026.beacon.rp.disc_dl_period", T("发现站点发现列表周期(秒)", "STA Discovery List Period (s)"), base.DEC)
+f.ent_disc_list_period = ProtoField.uint8 ("gw_2026.beacon.rp.disc_list_period", T("发现列表周期(秒)", "Discovery List Period (s)"), base.DEC)
+f.ent_rate_age_cnt = ProtoField.uint8 ("gw_2026.beacon.rp.rate_age_cnt", T("接收率老化周期个数", "Rcv Rate Age Period Count"), base.DEC)
 
 -- 频段变更条目 (表49)
 f.ent_target_band = ProtoField.uint8 ("gw_2026.beacon.bc.target_band", T("目标频段", "Target Band"), base.HEX)
@@ -516,15 +534,15 @@ f.ent_rf_beacon_len = ProtoField.uint16 ("gw_2026.beacon.slot.rf_beacon_len", T(
 -- 非中央信标信息 (表51)
 f.ent_ncb_tei = ProtoField.uint16 ("gw_2026.beacon.ncb.tei", T("TEI", "TEI"), base.DEC)
 f.ent_ncb_type = ProtoField.uint8 ("gw_2026.beacon.ncb.type", T("信标类型", "Beacon Type"), base.DEC, {[0]=T("发现信标", "Discovery Beacon"),[1]=T("代理信标", "Proxy Beacon")}, 0x10)
-f.ent_ncb_rf_flag = ProtoField.uint8 ("gw_2026.beacon.ncb.rf_flag", T("无线信标标志", "RF Beacon Flag"), base.DEC, nil, 0xE0)
+f.ent_ncb_rf_flag = ProtoField.uint8 ("gw_2026.beacon.ncb.rf_flag", T("无线信标标志", "RF Beacon Flag"), base.DEC, rf_beacon_flag_vals, 0xE0)
 
 -- CSMA时隙信息 (表29)
 f.ent_csma_len = ProtoField.uint16 ("gw_2026.beacon.csma.len", T("CSMA时隙长度(ms)", "CSMA Slot Length (ms)"), base.DEC)
-f.ent_csma_phase = ProtoField.uint8 ("gw_2026.beacon.csma.phase", T("CSMA时隙相线", "CSMA Slot Line"), base.DEC, phase_vals, 0x03)
+f.ent_csma_phase = ProtoField.uint8 ("gw_2026.beacon.csma.phase", T("CSMA时隙相线", "CSMA Slot Line"), base.DEC, phase_vals_all_lines, 0x03)
 
 -- 绑定CSMA时隙信息 (表30)
 f.ent_bcsma_len = ProtoField.uint16 ("gw_2026.beacon.bcsma.len", T("绑定CSMA时隙长度(ms)", "Binding CSMA Slot Length (ms)"), base.DEC)
-f.ent_bcsma_phase = ProtoField.uint8 ("gw_2026.beacon.bcsma.phase", T("绑定CSMA时隙相线", "Binding CSMA Slot Line"), base.DEC, phase_vals, 0x03)
+f.ent_bcsma_phase = ProtoField.uint8 ("gw_2026.beacon.bcsma.phase", T("绑定CSMA时隙相线", "Binding CSMA Slot Line"), base.DEC, phase_vals_all_lines, 0x03)
 
 -- 无线路由参数条目 (表54)
 f.ent_rf_dl_period = ProtoField.uint8 ("gw_2026.beacon.rfp.dl_period", T("无线发现列表周期(秒)", "RF Discovery List Period (s)"), base.DEC)
@@ -708,7 +726,9 @@ f.mgmt_resv = ProtoField.uint16 ("gw_2026.mgmt.reserved", T("保留", "Reserved"
 f.ar_sta_mac = ProtoField.ether ("gw_2026.assoc_req.sta_mac", T("站点MAC地址", "STA MAC Address"))
 f.ar_proxy_tei = ProtoField.uint16 ("gw_2026.assoc_req.proxy_tei", T("候选代理TEI", "Candidate Proxy TEI"), base.DEC)
 f.ar_link_type = ProtoField.uint8 ("gw_2026.assoc_req.link_type", T("链路类型", "Link Type"), base.DEC, link_type_vals, 0x10)
-f.ar_phase = ProtoField.uint8 ("gw_2026.assoc_req.phase", T("相线", "Line"), base.DEC, phase_vals, 0x03)
+f.ar_phase = ProtoField.uint8 ("gw_2026.assoc_req.phase", T("相线", "Line"), base.DEC, phase_vals_unknown, 0x03)
+f.ar_phase_alt1 = ProtoField.uint8 ("gw_2026.assoc_req.phase_alt1", T("备选相位1", "Alternative Line 1"), base.DEC, phase_vals_unknown, 0x0C)
+f.ar_phase_alt2 = ProtoField.uint8 ("gw_2026.assoc_req.phase_alt2", T("备选相位2", "Alternative Line 2"), base.DEC, phase_vals_unknown, 0x30)
 f.ar_dev_type = ProtoField.uint8 ("gw_2026.assoc_req.dev_type", T("设备类型", "Device Type"), base.DEC, device_type_vals)
 f.ar_mac_type = ProtoField.uint8 ("gw_2026.assoc_req.mac_type", T("MAC地址类型", "MAC Address Type"), base.DEC, mac_addr_type_vals)
 f.ar_module = ProtoField.uint8 ("gw_2026.assoc_req.module", T("模块类型", "Module Type"), base.DEC, module_type_vals, 0x03)
@@ -718,7 +738,10 @@ f.ar_boot_reason = ProtoField.uint8 ("gw_2026.assoc_req.boot_reason", T("系统�
 f.ar_boot_ver = ProtoField.uint8 ("gw_2026.assoc_req.boot_ver", T("BOOT版本号", "BOOT Version"), base.DEC)
 f.ar_soft_ver = ProtoField.uint16 ("gw_2026.assoc_req.soft_ver", T("软件版本号(BCD)", "Software Version (BCD)"), base.HEX)
 f.ar_ver_time = ProtoField.uint16 ("gw_2026.assoc_req.ver_time", T("版本时间(BIN)", "Version Time (BIN)"), base.HEX)
-f.ar_vendor_code = ProtoField.uint16 ("gw_2026.assoc_req.vendor_code", T("厂商代码(ASCII)", "Vendor Code (ASCII)"), base.DEC)
+f.ar_ver_year = ProtoField.uint16 ("gw_2026.assoc_req.ver_year", T("版本年份", "Version Year"), base.DEC)
+f.ar_ver_month = ProtoField.uint8 ("gw_2026.assoc_req.ver_month", T("版本月份", "Version Month"), base.DEC)
+f.ar_ver_day = ProtoField.uint8 ("gw_2026.assoc_req.ver_day", T("版本日期", "Version Day"), base.DEC)
+f.ar_vendor_code = ProtoField.string ("gw_2026.assoc_req.vendor_code", T("厂商代码(ASCII)", "Vendor Code (ASCII)"))
 f.ar_chip_code = ProtoField.uint16 ("gw_2026.assoc_req.chip_code", T("芯片代码(ASCII)", "Chip Code (ASCII)"), base.DEC)
 f.ar_hard_rst = ProtoField.uint16 ("gw_2026.assoc_req.hard_rst", T("硬复位累积次数", "Hard Reset Count"), base.DEC)
 f.ar_soft_rst = ProtoField.uint16 ("gw_2026.assoc_req.soft_rst", T("软复位累积次数", "Soft Reset Count"), base.DEC)
@@ -744,9 +767,15 @@ f.ac_path_seq = ProtoField.uint32 ("gw_2026.assoc_cnf.path_seq", T("路径序号
 f.ac_direct_sta = ProtoField.uint16 ("gw_2026.assoc_cnf.direct_sta", T("直连站点数", "Direct STA Count"), base.DEC)
 f.ac_direct_proxy = ProtoField.uint16 ("gw_2026.assoc_cnf.direct_proxy", T("直连代理数", "Direct Proxy Count"), base.DEC)
 f.ac_route_size = ProtoField.uint16 ("gw_2026.assoc_cnf.route_size", T("路由表大小", "Route Table Size"), base.DEC)
+f.ac_route_sta_tei = ProtoField.uint16 ("gw_2026.assoc_cnf.route.sta_tei", T("直连发现站点TEI", "Direct STA TEI"), base.DEC)
+f.ac_sta_link = ProtoField.uint8 ("gw_2026.assoc_cnf.route.sta_link", T("直连站点链路类型", "Direct STA Link Type"), base.DEC, link_type_vals, 0x10)
+f.ac_pco_tei = ProtoField.uint16 ("gw_2026.assoc_cnf.route.pco_tei", T("直连代理站点TEI", "Direct PCO TEI"), base.DEC)
+f.ac_pco_link = ProtoField.uint8 ("gw_2026.assoc_cnf.route.pco_link", T("直连代理链路类型", "Direct PCO Link Type"), base.DEC, link_type_vals, 0x10)
+f.ac_pco_child_cnt = ProtoField.uint16 ("gw_2026.assoc_cnf.route.pco_child_cnt", T("该代理下子站点数", "PCO Child STA Count"), base.DEC)
+f.ac_pco_child_tei = ProtoField.uint16 ("gw_2026.assoc_cnf.route.pco_child_tei", T("子站点TEI", "Child STA TEI"), base.DEC)
 
 -- 关联汇总指示 (表76-78)
-f.ag_result = ProtoField.uint8 ("gw_2026.assoc_gather.result", T("结果", "Result"), base.DEC)
+f.ag_result = ProtoField.uint8 ("gw_2026.assoc_gather.result", T("结果", "Result"), base.DEC, gather_result_vals)
 f.ag_sta_level = ProtoField.uint8 ("gw_2026.assoc_gather.sta_level", T("站点层级", "STA Level"), base.DEC)
 f.ag_cco_mac = ProtoField.ether ("gw_2026.assoc_gather.cco_mac", T("CCO MAC地址", "CCO MAC Address"))
 f.ag_proxy_tei = ProtoField.uint16 ("gw_2026.assoc_gather.proxy_tei", T("代理TEI", "Proxy TEI"), base.DEC)
@@ -760,13 +789,33 @@ f.cpr_sta_tei = ProtoField.uint16 ("gw_2026.cproxy_req.sta_tei", T("站点TEI", 
 f.cpr_new_proxy = ProtoField.uint16 ("gw_2026.cproxy_req.new_proxy", T("新代理TEI", "New Proxy TEI"), base.DEC)
 f.cpr_link_type = ProtoField.uint8 ("gw_2026.cproxy_req.link_type", T("链路类型", "Link Type"), base.DEC, link_type_vals, 0x10)
 f.cpr_old_proxy = ProtoField.uint16 ("gw_2026.cproxy_req.old_proxy", T("旧代理TEI", "Old Proxy TEI"), base.DEC)
-f.cpr_proxy_type = ProtoField.uint8 ("gw_2026.cproxy_req.proxy_type", T("代理类型", "Proxy Type"), base.DEC)
-f.cpr_reason = ProtoField.uint8 ("gw_2026.cproxy_req.reason", T("原因", "Reason"), base.DEC)
+f.cpr_proxy_type = ProtoField.uint8 ("gw_2026.cproxy_req.proxy_type", T("代理类型", "Proxy Type"), base.DEC, proxy_type_vals)
+f.cpr_reason = ProtoField.uint8 ("gw_2026.cproxy_req.reason", T("原因", "Reason"), base.DEC, cproxy_reason_vals)
 f.cpr_e2e_seq = ProtoField.uint32 ("gw_2026.cproxy_req.e2e_seq", T("端到端序列号", "End-to-End Sequence Number"), base.DEC)
-f.cpr_phase = ProtoField.uint8 ("gw_2026.cproxy_req.phase", T("站点相线", "STA Line"), base.DEC, phase_vals, 0x03)
+f.cpr_phase = ProtoField.uint8 ("gw_2026.cproxy_req.phase", T("站点相线", "STA Line"), base.DEC, phase_vals_unknown, 0x03)
+f.cpr_phase_alt1 = ProtoField.uint8 ("gw_2026.cproxy_req.phase_alt1", T("备选相位1", "Alternative Line 1"), base.DEC, phase_vals_unknown, 0x0C)
+f.cpr_phase_alt2 = ProtoField.uint8 ("gw_2026.cproxy_req.phase_alt2", T("备选相位2", "Alternative Line 2"), base.DEC, phase_vals_unknown, 0x30)
 
 -- 代理变更确认 (表84-87)
-f.cpc_result = ProtoField.uint8 ("gw_2026.cproxy_cnf.result", T("结果", "Result"), base.DEC)
+f.cpc_result = ProtoField.uint8 ("gw_2026.cproxy_cnf.result", T("结果", "Result"), base.DEC, cproxy_result_vals)
+-- L-7: 保留位渲染(按复核清单, 对齐 C++ 口径显示原始值)
+f.cpr_sta_tei_rsv = ProtoField.uint8 ("gw_2026.cproxy_req.sta_tei_rsv", T("保留(TEI高位)", "Reserved (TEI high)"), base.HEX, nil, 0xF0)
+f.cpr_link_rsv = ProtoField.uint8 ("gw_2026.cproxy_req.link_rsv", T("保留(链路)", "Reserved (link)"), base.HEX, nil, 0xE0)
+f.cpr_old_tei_rsv = ProtoField.uint8 ("gw_2026.cproxy_req.old_tei_rsv", T("保留(旧代理TEI高位)", "Reserved (old proxy TEI high)"), base.HEX, nil, 0xF0)
+f.cpr_phase_rsv = ProtoField.uint8 ("gw_2026.cproxy_req.phase_rsv", T("保留(相线)", "Reserved (line)"), base.HEX, nil, 0xC0)
+f.cpr_rsv = ProtoField.bytes ("gw_2026.cproxy_req.rsv", T("保留", "Reserved"), base.NONE)
+f.ar_link_rsv = ProtoField.uint8 ("gw_2026.assoc_req.link_rsv", T("保留(候选代理链路)", "Reserved (candidate link)"), base.HEX, nil, 0xE0)
+f.ar_phase_rsv = ProtoField.uint8 ("gw_2026.assoc_req.phase_rsv", T("保留(相线)", "Reserved (line)"), base.HEX, nil, 0xC0)
+f.ar_module_rsv = ProtoField.uint8 ("gw_2026.assoc_req.module_rsv", T("保留(模块类型)", "Reserved (module)"), base.HEX, nil, 0xFC)
+f.ar_rsv = ProtoField.bytes ("gw_2026.assoc_req.rsv", T("保留", "Reserved"), base.NONE)
+f.ac_rsv = ProtoField.bytes ("gw_2026.assoc_cnf.rsv", T("保留(36-39)", "Reserved (36-39)"), base.NONE)
+f.ac_route_rsv = ProtoField.bytes ("gw_2026.assoc_cnf.route_rsv", T("保留(路由表6-7)", "Reserved (route 6-7)"), base.NONE)
+f.cpc_byte3_rsv = ProtoField.uint8 ("gw_2026.cproxy_cnf.byte3_rsv", T("保留(byte3)", "Reserved (byte3)"), base.HEX)
+f.cpc_sta_link_rsv = ProtoField.uint8 ("gw_2026.cproxy_cnf.sta_link_rsv", T("保留(链路)", "Reserved (link)"), base.HEX, nil, 0xE0)
+f.cpc_proxy_link_rsv = ProtoField.uint8 ("gw_2026.cproxy_cnf.proxy_link_rsv", T("保留(代理TEI高位)", "Reserved (proxy TEI high)"), base.HEX, nil, 0xF0)
+f.cpc_rsv = ProtoField.bytes ("gw_2026.cproxy_cnf.rsv", T("保留(18-19)", "Reserved (18-19)"), base.NONE)
+f.ncb_tei_rsv = ProtoField.uint8 ("gw_2026.beacon.ncb.tei_rsv", T("保留(TEI高位)", "Reserved (TEI high)"), base.HEX, nil, 0xF0)
+f.csma_slot_rsv = ProtoField.uint8 ("gw_2026.beacon.csma.slot_rsv", T("保留(时隙相线高位)", "Reserved (slot high)"), base.HEX, nil, 0xFC)
 f.cpc_total_pkgs = ProtoField.uint8 ("gw_2026.cproxy_cnf.total_pkgs", T("总分包数", "Total Packages"), base.DEC)
 f.cpc_pkg_idx = ProtoField.uint8 ("gw_2026.cproxy_cnf.pkg_idx", T("分包序号", "Package Index"), base.DEC)
 f.cpc_sta_tei = ProtoField.uint16 ("gw_2026.cproxy_cnf.sta_tei", T("站点TEI", "STA TEI"), base.DEC)
@@ -996,7 +1045,7 @@ gw.fields = {
     f.beacon_ent_type, f.beacon_ent_len, f.beacon_ent_data,
     f.ent_tei, f.ent_proxy_tei, f.ent_path_rate, f.ent_sta_mac, f.ent_role,
     f.ent_level, f.ent_proxy_qual, f.ent_phase, f.ent_rf_hop,
-    f.ent_route_period, f.ent_route_remain, f.ent_proxy_dl_period, f.ent_disc_dl_period,
+    f.ent_route_period, f.ent_route_remain, f.ent_disc_list_period, f.ent_rate_age_cnt,
     f.ent_target_band, f.ent_band_remain,
     f.ent_nc_beacon_cnt, f.ent_c_beacon_cnt, f.ent_csma_phase_cnt,
     f.ent_proxy_beacon_cnt, f.ent_beacon_slot_len, f.ent_csma_slice_len,
@@ -1040,19 +1089,26 @@ gw.fields = {
     f.mme_bl_src_tei, f.mme_bl_dst_tei, f.mme_bl_param,
     f.mme_grp_rsv, f.mme_grp_num, f.mme_grp_tei, f.mme_grp_type, f.mme_grp_qplc, f.mme_grp_qrf,
     f.mme_gc_proxy_tei, f.mme_gc_rsv, f.mme_gc_num, f.mme_gc_tei,
-    f.ar_sta_mac, f.ar_proxy_tei, f.ar_link_type, f.ar_phase, f.ar_dev_type,
+    f.ar_sta_mac, f.ar_proxy_tei, f.ar_link_type, f.ar_phase, f.ar_phase_alt1, f.ar_phase_alt2, f.ar_dev_type,
     f.ar_mac_type, f.ar_module, f.ar_assoc_rand, f.ar_vendor,
     f.ar_boot_reason, f.ar_boot_ver, f.ar_soft_ver, f.ar_ver_time,
+    f.ar_ver_year, f.ar_ver_month, f.ar_ver_day,
     f.ar_vendor_code, f.ar_chip_code, f.ar_hard_rst, f.ar_soft_rst,
     f.ar_proxy_type, f.ar_e2e_seq, f.ar_mgmt_id,
     f.ac_sta_mac, f.ac_cco_mac, f.ac_result, f.ac_sta_level, f.ac_sta_tei,
     f.ac_link_type, f.ac_carrier_band, f.ac_proxy_tei, f.ac_total_pkgs,
     f.ac_pkg_idx, f.ac_assoc_rand, f.ac_reassoc_time, f.ac_e2e_seq,
     f.ac_path_seq, f.ac_direct_sta, f.ac_direct_proxy, f.ac_route_size,
+    f.ac_route_sta_tei, f.ac_sta_link, f.ac_pco_tei, f.ac_pco_link,
+    f.ac_pco_child_cnt, f.ac_pco_child_tei,
     f.ag_result, f.ag_sta_level, f.ag_cco_mac, f.ag_proxy_tei,
     f.ag_carrier_band, f.ag_gather_cnt, f.ag_sta_mac, f.ag_sta_tei,
     f.cpr_sta_tei, f.cpr_new_proxy, f.cpr_link_type, f.cpr_old_proxy,
-    f.cpr_proxy_type, f.cpr_reason, f.cpr_e2e_seq, f.cpr_phase,
+    f.cpr_proxy_type, f.cpr_reason, f.cpr_e2e_seq, f.cpr_phase, f.cpr_phase_alt1, f.cpr_phase_alt2,
+    f.cpr_sta_tei_rsv, f.cpr_link_rsv, f.cpr_old_tei_rsv, f.cpr_phase_rsv, f.cpr_rsv,
+    f.ar_link_rsv, f.ar_phase_rsv, f.ar_module_rsv, f.ar_rsv,
+    f.ac_rsv, f.ac_route_rsv, f.cpc_byte3_rsv, f.cpc_sta_link_rsv, f.cpc_proxy_link_rsv, f.cpc_rsv,
+    f.ncb_tei_rsv, f.csma_slot_rsv,
     f.cpc_result, f.cpc_total_pkgs, f.cpc_pkg_idx, f.cpc_sta_tei,
     f.cpc_link_type, f.cpc_proxy_tei, f.cpc_e2e_seq, f.cpc_path_seq,
     f.cpc_child_cnt, f.cpc_child_tei,
@@ -1276,7 +1332,7 @@ local function dissect_beacon_vf(tvb, tree, is_rf)
         -- 载波信标(表17): 分集拷贝基本模式(9,4,4) + 符号数(10,0,9) + 相线(11,1,2) + 保留(11,3,9)
         tree:add(f.beacon_div_mode, tvb(9, 1))
         add_val(tree, f.beacon_symbol_cnt, tvb, 10, 2, read_bits(tvb, 10*8, 9))
-        tree:add(f.beacon_phase, tvb(11, 1))
+        add_val(tree, f.beacon_phase, tvb, 11, 1, band(tvb(11, 1):uint(), 0x06) / 2)  -- 表5 byte11 bit1-2, 右移到 0-3
         tree:add(f.beacon_vf_rsv, tvb(11, 1))       -- 字节11 bit3-7 保留
         tree:add(f.beacon_vf_rsv2, tvb(12, 1))      -- 字节12 bit0-3 保留
     end
@@ -1453,12 +1509,14 @@ local function dissect_entry_sta_cap(tvb, tree, off)
     tree:add(f.ent_rf_hop, tvb(off+12, 1))
 end
 
--- 路由参数条目 (表48)
+-- 路由参数条目 (表25): 6 字段 16+16+8+8+8+8(含无线发现列表周期/无线接收率老化周期个数)
 local function dissect_entry_route_param(tvb, tree, off)
     add_le(tree, f.ent_route_period, tvb, off, 2)
     add_le(tree, f.ent_route_remain, tvb, off+2, 2)
-    add_le(tree, f.ent_proxy_dl_period, tvb, off+4, 2)
-    add_le(tree, f.ent_disc_dl_period, tvb, off+6, 2)
+    tree:add(f.ent_disc_list_period, tvb(off+4, 1))
+    tree:add(f.ent_rate_age_cnt, tvb(off+5, 1))
+    tree:add(f.ent_rf_dl_period, tvb(off+6, 1))
+    tree:add(f.ent_rf_age_cnt, tvb(off+7, 1))
 end
 
 -- 频段变更条目 (表49)
@@ -1479,8 +1537,9 @@ local function dissect_entry_slot_alloc(tvb, tree, off)
     local bcsma_phase_cnt = band(byte1, 0xC0) / 64  -- bit6-7 → 0-3
     tree:add(f.ent_nc_beacon_cnt, tvb(off, 1))
     tree:add(f.ent_c_beacon_cnt, tvb(off+1, 1))
-    tree:add(f.ent_csma_phase_cnt, tvb(off+1, 1))
-    tree:add(f.ent_bcsma_phase_cnt, tvb(off+1, 1))
+    -- 位域字段须传右移后的值(否则 Wireshark 树显示 band(byte,mask) 未右移的整字节,如 0x30 而非 3)
+    add_val(tree, f.ent_csma_phase_cnt, tvb, off+1, 1, csma_phase_cnt)
+    add_val(tree, f.ent_bcsma_phase_cnt, tvb, off+1, 1, bcsma_phase_cnt)
     -- byte2 保留
     tree:add(f.ent_proxy_beacon_cnt, tvb(off+3, 1))
     tree:add(f.ent_beacon_slot_len, tvb(off+4, 1))
@@ -1493,20 +1552,23 @@ local function dissect_entry_slot_alloc(tvb, tree, off)
     local pos = off + 17
     for i = 1, nc_beacon_cnt do
         add_val(tree, f.ent_ncb_tei, tvb, pos, 2, read_bits(tvb, pos*8, 12))
-        tree:add(f.ent_ncb_type, tvb(pos+1, 1))
-        tree:add(f.ent_ncb_rf_flag, tvb(pos+1, 1))
+        local ncb_byte = tvb(pos+1, 1):uint()
+        add_val(tree, f.ent_ncb_type, tvb, pos+1, 1, band(ncb_byte, 0x10) / 16)      -- bit4
+        add_val(tree, f.ent_ncb_rf_flag, tvb, pos+1, 1, band(ncb_byte, 0xE0) / 32)  -- bit5-7
         pos = pos + 2
     end
     -- CSMA时隙信息 (表29): 每条 3 字节 (长度 16b + 相线 2b + 保留 6b)
     for i = 1, csma_phase_cnt do
         add_le(tree, f.ent_csma_len, tvb, pos, 2)
-        tree:add(f.ent_csma_phase, tvb(pos+2, 1))
+        add_val(tree, f.ent_csma_phase, tvb, pos+2, 1, band(tvb(pos+2, 1):uint(), 0x03))
+        add_val(tree, f.csma_slot_rsv, tvb, pos+2, 1, band(tvb(pos+2, 1):uint(), 0xFC) / 4)  -- L-7: bit2-7 保留
         pos = pos + 3
     end
     -- 绑定CSMA时隙信息 (表30): 每条 3 字节 (长度 16b + 相线 2b + 保留 6b)
     for i = 1, bcsma_phase_cnt do
         add_le(tree, f.ent_bcsma_len, tvb, pos, 2)
-        tree:add(f.ent_bcsma_phase, tvb(pos+2, 1))
+        add_val(tree, f.ent_bcsma_phase, tvb, pos+2, 1, band(tvb(pos+2, 1):uint(), 0x03))
+        add_val(tree, f.csma_slot_rsv, tvb, pos+2, 1, band(tvb(pos+2, 1):uint(), 0xFC) / 4)  -- L-7: bit2-7 保留
         pos = pos + 3
     end
 end
@@ -1567,8 +1629,6 @@ local function dissect_beacon_mgmt_info(tvb, tree, off)
             dissect_entry_route_param(tvb, tree, pos)
         elseif etype == 0x02 then
             dissect_entry_band_change(tvb, tree, pos)
-        elseif etype == 0x03 then
-            dissect_entry_rf_route(tvb, tree, pos)
         elseif etype == 0x04 then
             dissect_entry_rf_ch(tvb, tree, pos)
         elseif etype == 0x05 then
@@ -1577,13 +1637,8 @@ local function dissect_beacon_mgmt_info(tvb, tree, off)
             -- 万年历条目(表34): 万历时钟(0,32,自 2000-01-01 秒数) + 对应 NTB(4,32)
             add_le(tree, f.beacon_cal_sec, tvb, pos, 4)
             add_le(tree, f.beacon_cal_ntb, tvb, pos+4, 4)
-        elseif etype == 0x07 and item_len >= 3 then
-            -- 信道评估参数条目(表35): 主动/被动评估使能(0,0/1) + 保留 + 被动评估周期(2,8,10s)
-            tree:add(f.beacon_ca_active, tvb(pos, 1))
-            tree:add(f.beacon_ca_passive, tvb(pos, 1))
-            tree:add(f.beacon_ca_period, tvb(pos+2, 1))
-        elseif etype == 0x08 and item_len >= 5 then
-            -- 信标机制切换条目(表36): 目标机制 ID(0,8) + 切换 NTB(1,32)
+        elseif etype == 0x07 and item_len >= 5 then
+            -- 信标机制切换条目(表33): 切换目标机制 ID(0,8) + 切换 NTB 时刻(1,32)
             tree:add(f.beacon_sw_target, tvb(pos, 1))
             add_le(tree, f.beacon_sw_ntb, tvb, pos+1, 4)
         elseif etype == 0xC0 then
@@ -1749,11 +1804,17 @@ local function dissect_assoc_req(tvb, tree, off)
         local p = off + 6 + i * 2
         add_val(tree, f.ar_proxy_tei, tvb, p, 2, read_bits(tvb, p*8, 12))
         tree:add(f.ar_link_type, tvb(p+1, 1))
+        add_val(tree, f.ar_link_rsv, tvb, p+1, 1, band(tvb(p+1, 1):uint(), 0xE0) / 32)  -- L-7: 候选链路 bit5-7 保留
     end
-    tree:add(f.ar_phase, tvb(off+16, 1))
+    local ar_ph = tvb(off+16, 1):uint()
+    add_val(tree, f.ar_phase, tvb, off+16, 1, band(ar_ph, 0x03))        -- bit0-1 主相线
+    add_val(tree, f.ar_phase_alt1, tvb, off+16, 1, band(ar_ph, 0x0C) / 4)   -- bit2-3 备选相位1
+    add_val(tree, f.ar_phase_alt2, tvb, off+16, 1, band(ar_ph, 0x30) / 16)  -- bit4-5 备选相位2
+    add_val(tree, f.ar_phase_rsv, tvb, off+16, 1, band(ar_ph, 0xC0) / 64)   -- L-7: bit6-7 保留
     tree:add(f.ar_dev_type, tvb(off+17, 1))
     tree:add(f.ar_mac_type, tvb(off+18, 1))
     tree:add(f.ar_module, tvb(off+19, 1))
+    add_val(tree, f.ar_module_rsv, tvb, off+19, 1, band(tvb(off+19, 1):uint(), 0xFC) / 4)  -- L-7: 模块类型 bit2-7 保留
     add_le(tree, f.ar_assoc_rand, tvb, off+20, 4)
     add_span(tree, f.ar_vendor, tvb, off+24, 18)
     -- 站点版本信息 (表66)
@@ -1762,11 +1823,16 @@ local function dissect_assoc_req(tvb, tree, off)
     tree:add(f.ar_boot_ver, tvb(vp+1, 1))
     add_le(tree, f.ar_soft_ver, tvb, vp+2, 2)
     add_le(tree, f.ar_ver_time, tvb, vp+4, 2)
-    add_le(tree, f.ar_vendor_code, tvb, vp+6, 2)
+    -- 表42: 版本时间拆 年(0,0-6,7bit) + 月(0,7+1,0-2,4bit) + 日(1,3-7,5bit)
+    add_val(tree, f.ar_ver_year, tvb, vp+4, 1, read_bits(tvb, (vp+4)*8, 7))
+    add_val(tree, f.ar_ver_month, tvb, vp+4, 2, read_bits(tvb, (vp+4)*8 + 7, 4))
+    add_val(tree, f.ar_ver_day, tvb, vp+5, 1, read_bits(tvb, (vp+4)*8 + 11, 5))
+    tree:add(f.ar_vendor_code, tvb(vp+6, 2))   -- ASCII 码, 直接按字符串显示
     add_le(tree, f.ar_chip_code, tvb, vp+8, 2)
     add_le(tree, f.ar_hard_rst, tvb, off+52, 2)
     add_le(tree, f.ar_soft_rst, tvb, off+54, 2)
     tree:add(f.ar_proxy_type, tvb(off+56, 1))
+    add_span(tree, f.ar_rsv, tvb, off+57, 3)  -- L-7: byte57-59 保留
     add_le(tree, f.ar_e2e_seq, tvb, off+60, 4)
     add_span(tree, f.ar_mgmt_id, tvb, off+64, 24)
 end
@@ -1788,13 +1854,38 @@ local function dissect_assoc_cnf(tvb, tree, off)
     add_le(tree, f.ac_reassoc_time, tvb, off+24, 4)
     add_le(tree, f.ac_e2e_seq, tvb, off+28, 4)
     add_le(tree, f.ac_path_seq, tvb, off+32, 4)
+    add_span(tree, f.ac_rsv, tvb, off+36, 4)  -- L-7: byte36-39 保留
     -- 记录 TEI ↔ MAC 映射 (CCO 分配的站点 TEI 与站点 MAC)
     record_tei_mac(sta_tei, mac_to_str(tvb, off))
-    -- 路由表信息 (表74)
+    -- 路由表信息 (表45): 固定 8B + 表46 路由子站点表(可变长)
     if off + 40 + 8 <= tvb:len() then
+        local sta_cnt = tvb(off+40, 2):le_uint()
+        local pco_cnt = tvb(off+42, 2):le_uint()
         add_le(tree, f.ac_direct_sta, tvb, off+40, 2)
         add_le(tree, f.ac_direct_proxy, tvb, off+42, 2)
         add_le(tree, f.ac_route_size, tvb, off+44, 2)
+        add_span(tree, f.ac_route_rsv, tvb, off+46, 2)  -- L-7: 表45 byte6-7 保留
+        -- 表46 路由子站点表 (off+48 起): N 条直连发现站点(2B/条) + 逐代理(4B 固定 + Mi 条子站点 2B/条)
+        local p = off + 48
+        for i = 0, sta_cnt - 1 do
+            if p + 2 > tvb:len() then break end
+            add_val(tree, f.ac_route_sta_tei, tvb, p, 2, read_bits(tvb, p*8, 12))
+            add_val(tree, f.ac_sta_link, tvb, p+1, 1, band(tvb(p+1, 1):uint(), 0x10) / 16)  -- bit4
+            p = p + 2
+        end
+        for i = 0, pco_cnt - 1 do
+            if p + 4 > tvb:len() then break end
+            add_val(tree, f.ac_pco_tei, tvb, p, 2, read_bits(tvb, p*8, 12))
+            add_val(tree, f.ac_pco_link, tvb, p+1, 1, band(tvb(p+1, 1):uint(), 0x10) / 16)  -- bit4
+            local mi = tvb(p+2, 2):le_uint()
+            add_le(tree, f.ac_pco_child_cnt, tvb, p+2, 2)
+            p = p + 4
+            for j = 0, mi - 1 do
+                if p + 2 > tvb:len() then break end
+                add_val(tree, f.ac_pco_child_tei, tvb, p, 2, read_bits(tvb, p*8, 12))
+                p = p + 2
+            end
+        end
     end
 end
 
@@ -1821,16 +1912,24 @@ end
 -- 代理变更请求 (表79)
 local function dissect_cproxy_req(tvb, tree, off)
     add_val(tree, f.cpr_sta_tei, tvb, off, 2, read_bits(tvb, off*8, 12))
+    add_val(tree, f.cpr_sta_tei_rsv, tvb, off+1, 1, band(tvb(off+1, 1):uint(), 0xF0) / 16)  -- L-7: byte1 bit4-7 保留
     for i = 0, 4 do
         local p = off + 2 + i * 2
         add_val(tree, f.cpr_new_proxy, tvb, p, 2, read_bits(tvb, p*8, 12))
         tree:add(f.cpr_link_type, tvb(p+1, 1))
+        add_val(tree, f.cpr_link_rsv, tvb, p+1, 1, band(tvb(p+1, 1):uint(), 0xE0) / 32)  -- L-7: 链路 bit5-7 保留
     end
     add_val(tree, f.cpr_old_proxy, tvb, off+12, 2, read_bits(tvb, (off+12)*8, 12))
+    add_val(tree, f.cpr_old_tei_rsv, tvb, off+13, 1, band(tvb(off+13, 1):uint(), 0xF0) / 16)  -- L-7: byte13 bit4-7 保留
     tree:add(f.cpr_proxy_type, tvb(off+14, 1))
     tree:add(f.cpr_reason, tvb(off+15, 1))
     add_le(tree, f.cpr_e2e_seq, tvb, off+16, 4)
-    tree:add(f.cpr_phase, tvb(off+20, 1))
+    local cpr_ph = tvb(off+20, 1):uint()
+    add_val(tree, f.cpr_phase, tvb, off+20, 1, band(cpr_ph, 0x03))        -- bit0-1 主相线
+    add_val(tree, f.cpr_phase_alt1, tvb, off+20, 1, band(cpr_ph, 0x0C) / 4)   -- bit2-3 备选相位1
+    add_val(tree, f.cpr_phase_alt2, tvb, off+20, 1, band(cpr_ph, 0x30) / 16)  -- bit4-5 备选相位2
+    add_val(tree, f.cpr_phase_rsv, tvb, off+20, 1, band(cpr_ph, 0xC0) / 64)   -- L-7: bit6-7 保留
+    add_span(tree, f.cpr_rsv, tvb, off+21, 3)  -- L-7: byte21-23 保留
 end
 
 -- 代理变更确认 (表84)
@@ -1838,13 +1937,17 @@ local function dissect_cproxy_cnf(tvb, tree, off)
     tree:add(f.cpc_result, tvb(off, 1))
     tree:add(f.cpc_total_pkgs, tvb(off+1, 1))
     tree:add(f.cpc_pkg_idx, tvb(off+2, 1))
+    tree:add(f.cpc_byte3_rsv, tvb(off+3, 1))  -- L-7: byte3 保留
     add_val(tree, f.cpc_sta_tei, tvb, off+4, 2, read_bits(tvb, (off+4)*8, 12))
     tree:add(f.cpc_link_type, tvb(off+5, 1))
+    add_val(tree, f.cpc_sta_link_rsv, tvb, off+5, 1, band(tvb(off+5, 1):uint(), 0xE0) / 32)  -- L-7: 链路 bit5-7 保留
     add_val(tree, f.cpc_proxy_tei, tvb, off+6, 2, read_bits(tvb, (off+6)*8, 12))
+    add_val(tree, f.cpc_proxy_link_rsv, tvb, off+7, 1, band(tvb(off+7, 1):uint(), 0xF0) / 16)  -- L-7: byte7 bit4-7 保留
     add_le(tree, f.cpc_e2e_seq, tvb, off+8, 4)
     add_le(tree, f.cpc_path_seq, tvb, off+12, 4)
     local child_cnt = read_bits(tvb, (off+16) * 8, 16)
     tree:add(f.cpc_child_cnt, tvb(off+16, 2), child_cnt)
+    add_span(tree, f.cpc_rsv, tvb, off+18, 2)  -- L-7: byte18-19 保留
     -- 子站点条目: 每个 2 字节
     for i = 0, child_cnt - 1 do
         local p = off + 20 + i * 2
