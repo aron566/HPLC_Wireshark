@@ -26,7 +26,7 @@ concurrency:
 
 jobs:
   linux-regression:
-    runs-on: ubuntu-24.04
+    runs-on: instabox-medium
     # 原 30 分钟:本 job 已累计 20+ 步(含 ASan 构建、插件宿主/市场/IPC、5 个安全探针),
     # runner 慢时逼近上限。调到 45 留余量;新增的重探针放下面独立 job 并行跑,不挤这里。
     timeout-minutes: 45
@@ -561,7 +561,7 @@ jobs:
   # 这里只列目录,便于和 unit_test/ 对账。本地 /workspace/work/build_hplc.sh 用同一脚本、同一清单。
   # ---------------------------------------------------------------------------
   wireshark-lua-linux:
-    runs-on: ubuntu-24.04
+    runs-on: instabox-medium
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -594,7 +594,7 @@ jobs:
   # 所以这里不设 continue-on-error,红了就该修。触发条件/Qt 版本/既有 job 均未动。
   # ---------------------------------------------------------------------------
   fuzz-frame-parse-linux:
-    runs-on: ubuntu-24.04
+    runs-on: instabox-medium
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -644,7 +644,7 @@ jobs:
 
   protocol-probes-linux:
     name: protocol-probes-linux (${{ matrix.group }})
-    runs-on: ubuntu-24.04
+    runs-on: instabox-medium
     # 每组 ~12 个探针,各自编一遍解析器源码;两组并行
     timeout-minutes: 45
     strategy:
@@ -725,7 +725,7 @@ jobs:
           if-no-files-found: ignore
 
   runtime-probes-linux:
-    runs-on: ubuntu-24.04
+    runs-on: instabox-medium
     timeout-minutes: 40
     steps:
       - name: Checkout
@@ -820,7 +820,7 @@ jobs:
         run: bash unit_test/ci/probe_suite.sh app/mirror-probe
 
   plugin-autotest-linux:
-    runs-on: ubuntu-24.04
+    runs-on: instabox-medium
     # 要整编主程序(CONFIG+=plugin_autotest)+ 插件宿主,单独一个 job
     timeout-minutes: 50
     steps:
@@ -877,7 +877,7 @@ jobs:
           if-no-files-found: ignore
 
   topology-worker-linux:
-    runs-on: ubuntu-24.04
+    runs-on: instabox-medium
     timeout-minutes: 20
     steps:
       - name: Checkout
