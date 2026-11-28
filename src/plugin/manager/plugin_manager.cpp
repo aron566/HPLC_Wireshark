@@ -648,20 +648,25 @@ bool PluginManager::parse_via_plugin(const QString& protocol_id,
         if (rt->disabled.load() || !rt->connected.load()) return false;  // 已停用/断线:状态已另行上报
         // 超时很可能意味着 host 挂了;响应损坏说明插件不守协议:都禁用插件
         // 注意:不能在 worker 线程直接调 disable_plugin(涉及信号),标记即可;
-        // 排队的 GUI 部分再收尾:除注销协议/发状态外,还要退役运行时并异步杀
-        // 进程(见 shutdown_runtime)。状态字符串保持原样(ipc-decode-probe
+        // 注册表注销是纯互斥操作,可在工作线程内同步完成(见下);排队的 GUI
+        // 部分再收尾:发状态、退役运行时并异步杀进程(见 shutdown_runtime)。
+        // 状态字符串保持原样(ipc-decode-probe
         // 断言了 "timeout-disabled" / "protocol-error-disabled"),不要改成
         // disable_plugin 的 "disabled: ..." 形式。
         if (rt->disabled.exchange(true)) return false;
         rt->ready = false;
         wake_waiters(rt);   // 同插件其他等待者立即返回
         fail_async(rt);     // 同插件在途异步图形请求排队失败回调
+        // A3(移植 parser 分支):超时/损坏后在工作线程内同步注销注册表条目。
+        // 注册表操作全程持 registry_mutex,工作线程调安全;不能等排队的 GUI
+        // lambda:超时与 GUI 事件泵之间的窗口里条目仍在,代理继续拒帧、按归属
+        // 取解析器仍拿到已死代理。GUI lambda 只保留状态/退役收尾,不再注销
+        // (重复注销无害,但单点更清晰;GUI disable_plugin 路径的注销照旧)。
+        unregister_parser_for_owner(rt->manifest.protocol_id, protocol_id);
         const QString reason = r.reject_reason;
         QMetaObject::invokeMethod(this, [this, rt, protocol_id, reason, corrupt]() {
             if (rt->retired.load()) return;
             rt->disable_reason = reason;
-            // 按归属注销:只摘本插件的覆盖条目(引用计数 -1),不动他人/内置
-            unregister_parser_for_owner(rt->manifest.protocol_id, protocol_id);
             emit plugin_status_changed(protocol_id, corrupt ? QStringLiteral("protocol-error-disabled")
                                                             : QStringLiteral("timeout-disabled"));
             shutdown_runtime(rt);
